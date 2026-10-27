@@ -25,8 +25,9 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 /* Sidebar */
 .sidebar {
-  width: 300px;
+  position: relative;
   flex-shrink: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -56,13 +57,15 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .switcher:hover { background: var(--surface-hover); }
 .org-switcher { background: var(--surface); border: 1px solid var(--border); }
-.account-switcher { border-top: 1px solid var(--border); border-radius: 0 0 10px 10px; padding-top: 14px; }
+.account-switcher { margin-top: auto; border-top: 1px solid var(--border); border-radius: 0 0 10px 10px; padding-top: 14px; }
 .switcher-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .switcher-title { font-weight: 600; font-size: 14px; }
 .switcher-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Agent DMs */
-.dms { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Shrinks (and its list scrolls) only once the agents would push the nav
+   buttons off screen; otherwise the nav sits right under the last agent. */
+.dms { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .section-row { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
 .section-toggle {
   display: flex; align-items: center; gap: 6px;
@@ -96,14 +99,14 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 
 /* Big square nav buttons */
-.nav-squares { display: flex; flex-direction: column; gap: 8px; }
+.nav-squares { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
 .nav-square {
   position: relative;
   height: 72px;
   display: flex; align-items: center; gap: 14px;
   padding: 0 18px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-  font-size: 15px; font-weight: 500; color: var(--muted); text-align: left;
+  font-size: 18px; font-weight: 600; white-space: nowrap; color: var(--muted); text-align: left;
 }
 .nav-square:hover { background: var(--surface-hover); color: var(--text); }
 .nav-square.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
@@ -118,3 +121,25 @@ ul { list-style: none; margin: 0; padding: 0; }
 .main-header { padding: 18px 28px; border-bottom: 1px solid var(--border); }
 .main-header h1 { margin: 0; font-size: 20px; font-weight: 600; }
 .main-empty { flex: 1; display: grid; place-items: center; color: var(--muted); }
+
+/* Resize handle on the sidebar's right edge */
+.resize-handle {
+  position: absolute; top: 0; right: -4px; bottom: 0; width: 8px;
+  cursor: col-resize; z-index: 10;
+}
+.resize-handle::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px;
+  background: transparent; transition: background 0.15s;
+}
+.resize-handle:hover::after, .resizing .resize-handle::after { background: var(--accent); }
+.resizing, .resizing * { cursor: col-resize !important; user-select: none; }
+
+/* Collapsed sidebar: a thin rail you can click or drag to reopen */
+.sidebar-rail {
+  position: relative; flex-shrink: 0; width: 14px;
+  background: var(--sidebar); border-right: 1px solid var(--border);
+  display: grid; place-items: center; color: var(--muted); cursor: col-resize;
+}
+.sidebar-rail:hover { color: var(--text); background: var(--surface); }
+
+.dm-list { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }

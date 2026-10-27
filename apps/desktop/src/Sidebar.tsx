@@ -5,11 +5,11 @@ import {
   ChevronsUpDown,
   LayoutDashboard,
   CircleCheckBig,
-  FolderOpen,
+  Inbox,
   Plus,
 } from 'lucide-react';
 
-export type View = 'dashboard' | 'approvals' | 'resources' | `agent:${string}`;
+export type View = 'dashboard' | 'approvals' | 'requests' | `agent:${string}`;
 
 type AgentStatus = 'running' | 'idle' | 'needs-you';
 
@@ -25,7 +25,7 @@ const EXAMPLE_AGENTS: { id: string; name: string; color: string; status: AgentSt
 const NAV: { view: View; label: string; Icon: typeof LayoutDashboard; badge?: number }[] = [
   { view: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { view: 'approvals', label: 'Approvals', Icon: CircleCheckBig, badge: 3 },
-  { view: 'resources', label: 'Resources', Icon: FolderOpen },
+  { view: 'requests', label: 'Requests', Icon: Inbox },
 ];
 
 function Avatar({ label, color, size = 28 }: { label: string; color: string; size?: number }) {
@@ -36,11 +36,22 @@ function Avatar({ label, color, size = 28 }: { label: string; color: string; siz
   );
 }
 
-export function Sidebar({ view, onSelect }: { view: View; onSelect: (v: View) => void }) {
+export function Sidebar({
+  view,
+  onSelect,
+  width,
+  onResizeStart,
+}: {
+  view: View;
+  onSelect: (v: View) => void;
+  width: number;
+  onResizeStart: (e: React.PointerEvent) => void;
+}) {
   const [dmsOpen, setDmsOpen] = useState(true);
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={{ width }}>
+      <div className="resize-handle" title="Drag to resize" onPointerDown={onResizeStart} />
       <button className="switcher org-switcher" title="Switch organization">
         <Avatar label="Acme Ventures" color="#7c6cf2" size={34} />
         <span className="switcher-text">
@@ -93,7 +104,7 @@ export function Sidebar({ view, onSelect }: { view: View; onSelect: (v: View) =>
             className={`nav-square${view === v ? ' active' : ''}`}
             onClick={() => onSelect(v)}
           >
-            <Icon size={26} strokeWidth={1.75} />
+            <Icon size={30} strokeWidth={1.75} />
             <span>{label}</span>
             {badge ? <span className="square-badge">{badge}</span> : null}
           </button>
