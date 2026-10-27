@@ -109,7 +109,6 @@ export function Sidebar({
                   >
                     <DeptIcon size={15} strokeWidth={1.75} className="dept-icon" aria-label={a.department} />
                     <span className="dm-name">{a.name}</span>
-                    {a.unread ? <span className="pill">{a.unread}</span> : null}
                   </button>
                 </li>
               );

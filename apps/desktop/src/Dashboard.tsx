@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { CircleCheckBig, Inbox, Pause, Play, Square } from 'lucide-react';
-import { ACCOUNT, AGENTS, type Agent, type Slice } from './data';
+import { CircleCheckBig, Inbox, Pause, Play, Square, User } from 'lucide-react';
+import { ACCOUNT, AGENTS, rangeLabel, scaleTo, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
 
 // Blue-to-gray ramp so charts stay inside the gray + one-blue palette.
@@ -8,48 +8,62 @@ const SLICE_COLORS = ['#3f7bd6', '#7aa3e4', '#b4cbf0', '#6b6b6b', '#a0a0a0'];
 
 type RunState = 'active' | 'draining' | 'stopped';
 
-function Donut({ title, slices, format }: { title: string; slices: Slice[]; format: (n: number) => string }) {
+const SIZE = 168;
+const R = 64;
+const STROKE = 22;
+const C = 2 * Math.PI * R;
+
+// No legend: hovering a slice highlights it and shows its label, value and share.
+function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; format: (n: number) => string }) {
+  const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
   const total = slices.reduce((n, s) => n + s.value, 0);
-  const r = 42;
-  const c = 2 * Math.PI * r;
   let offset = 0;
 
   return (
-    <div className="chart">
-      <div className="chart-title">{title}</div>
-      <div className="chart-body">
-        <svg viewBox="0 0 110 110" className="donut" role="img" aria-label={`${title}: ${format(total)}`}>
-          <circle cx="55" cy="55" r={r} className="donut-track" />
+    <div className="chart" onMouseLeave={() => setHover(null)}>
+      <svg
+        viewBox={`0 0 ${SIZE} ${SIZE}`}
+        className="donut"
+        role="img"
+        aria-label={`${caption}: ${format(total)}`}
+      >
+        <g transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}>
+          <circle cx={SIZE / 2} cy={SIZE / 2} r={R} className="donut-track" />
           {slices.map((s, i) => {
-            if (s.value <= 0) return null;
-            const len = (s.value / total) * c;
+            if (s.value <= 0 || total <= 0) return null;
+            const len = (s.value / total) * C;
             const seg = (
               <circle
                 key={s.label}
-                cx="55"
-                cy="55"
-                r={r}
+                cx={SIZE / 2}
+                cy={SIZE / 2}
+                r={R}
                 stroke={SLICE_COLORS[i % SLICE_COLORS.length]}
-                strokeDasharray={`${len} ${c - len}`}
+                strokeDasharray={`${len} ${C - len}`}
                 strokeDashoffset={-offset}
-                className="donut-seg"
+                className={`donut-seg${hover ? (hover.i === i ? ' hot' : ' dim') : ''}`}
+                onMouseMove={e => {
+                  const box = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect();
+                  setHover({ i, x: e.clientX - box.left, y: e.clientY - box.top });
+                }}
               />
             );
             offset += len;
             return seg;
           })}
-          <text x="55" y="55" className="donut-total">{format(total)}</text>
-        </svg>
-        <ul className="legend">
-          {slices.map((s, i) => (
-            <li key={s.label}>
-              <span className="swatch" style={{ background: SLICE_COLORS[i % SLICE_COLORS.length] }} />
-              <span className="legend-label">{s.label}</span>
-              <span className="legend-value">{format(s.value)}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+        </g>
+        <text x={SIZE / 2} y={SIZE / 2 - 7} className="donut-total">{format(total)}</text>
+        <text x={SIZE / 2} y={SIZE / 2 + 15} className="donut-caption">{caption}</text>
+      </svg>
+      {hover && (
+        <div className="chart-tip" style={{ left: hover.x, top: hover.y }}>
+          <span className="swatch" style={{ background: SLICE_COLORS[hover.i % SLICE_COLORS.length] }} />
+          <span className="tip-label">{slices[hover.i].label}</span>
+          <span className="tip-value">
+            {format(slices[hover.i].value)} · {Math.round((slices[hover.i].value / total) * 100)}%
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -66,11 +80,13 @@ const dollars = (n: number) => `$${n.toFixed(2)}`;
 
 function AgentCard({
   agent,
+  range,
   state,
   setState,
   onNavigate,
 }: {
   agent: Agent;
+  range: TimeRange;
   state: RunState;
   setState: (s: RunState) => void;
   onNavigate: (v: View) => void;
@@ -78,6 +94,8 @@ function AgentCard({
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   // Stopping halts an in-flight run; draining lets it finish.
   const outcome = state === 'stopped' && agent.lastRun.outcome === 'running' ? 'stopped' : agent.lastRun.outcome;
+  const output = agent.output.map(s => ({ ...s, value: scaleTo(range, s.value) }));
+  const cost = agent.cost.map(s => ({ ...s, value: scaleTo(range, s.value, false) }));
 
   return (
     <article className="agent-card">
@@ -86,22 +104,27 @@ function AgentCard({
           <div className="card-name">
             <DeptIcon size={18} strokeWidth={1.75} className="dept-icon" />
             <h2>{agent.name}</h2>
-            {state !== 'active' && <span className={`state-pill ${state}`}>{state === 'draining' ? 'Draining' : 'Stopped'}</span>}
+            {state !== 'active' && <span className="state-pill">{state === 'draining' ? 'Draining' : 'Stopped'}</span>}
           </div>
           {/* Owners only exist inside an organization. */}
-          {ACCOUNT.org && <div className="card-owner">Owner · {agent.owner}</div>}
+          {ACCOUNT.org && (
+            <div className="card-owner" title="Owner">
+              <User size={13} strokeWidth={1.75} />
+              {agent.owner}
+            </div>
+          )}
         </header>
         <div className="card-charts">
-          <Donut title="Output" slices={agent.output} format={count} />
-          <Donut title="Cost" slices={agent.cost} format={dollars} />
+          <Donut caption="output" slices={output} format={count} />
+          <Donut caption="cost" slices={cost} format={dollars} />
         </div>
       </div>
 
       <aside className="card-side">
         <div className="stats">
           <div className="stat">
-            <span className="stat-label">Runs · 30 days</span>
-            <span className="stat-value">{count(agent.runs)}</span>
+            <span className="stat-label">Runs · {rangeLabel(range).toLowerCase()}</span>
+            <span className="stat-value">{count(scaleTo(range, agent.runs))}</span>
           </div>
           <div className="stat">
             <span className="stat-label">Last run</span>
@@ -113,10 +136,12 @@ function AgentCard({
           </div>
         </div>
 
-        {/* Drain = start nothing new, finish what's in flight. Stop = halt now. */}
+        {/* Drain = start nothing new, finish what's in flight. Stop = halt now.
+            Neutral, not red: Stop is the solid light button, the way a stop control
+            reads in a dark UI; Resume takes the attention blue. */}
         <div className="controls">
           <button
-            className="ctl-btn"
+            className={`ctl-btn${state === 'draining' ? ' resume' : ''}`}
             disabled={state === 'stopped'}
             onClick={() => setState(state === 'draining' ? 'active' : 'draining')}
           >
@@ -124,10 +149,10 @@ function AgentCard({
             {state === 'draining' ? 'Resume' : 'Drain'}
           </button>
           <button
-            className={`ctl-btn${state === 'stopped' ? '' : ' danger'}`}
+            className={`ctl-btn ${state === 'stopped' ? 'resume' : 'stop'}`}
             onClick={() => setState(state === 'stopped' ? 'active' : 'stopped')}
           >
-            {state === 'stopped' ? <Play size={15} /> : <Square size={14} />}
+            {state === 'stopped' ? <Play size={15} /> : <Square size={13} fill="currentColor" />}
             {state === 'stopped' ? 'Resume' : 'Stop'}
           </button>
         </div>
@@ -157,7 +182,7 @@ function AgentCard({
   );
 }
 
-export function Dashboard({ onNavigate }: { onNavigate: (v: View) => void }) {
+export function Dashboard({ range, onNavigate }: { range: TimeRange; onNavigate: (v: View) => void }) {
   const [states, setStates] = useState<Record<string, RunState>>({});
 
   return (
@@ -166,6 +191,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (v: View) => void }) {
         <AgentCard
           key={a.id}
           agent={a}
+          range={range}
           state={states[a.id] ?? 'active'}
           setState={s => setStates(prev => ({ ...prev, [a.id]: s }))}
           onNavigate={onNavigate}

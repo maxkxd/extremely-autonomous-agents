@@ -95,11 +95,9 @@ ul { list-style: none; margin: 0; padding: 0; }
 .dept-icon { flex-shrink: 0; color: var(--muted); }
 .dm-item.active .dept-icon, .dm-item:hover .dept-icon { color: var(--text); }
 .dm-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pill {
-  min-width: 18px; padding: 0 6px; border-radius: 9px;
-  background: var(--attention); color: var(--attention-text);
-  font-size: 11px; font-weight: 600; text-align: center; line-height: 18px;
-}
+/* DMs are a log/back-channel, not where work happens - keep them visually quiet. */
+.dm-item { color: #a3a3a3; }
+.dm-item:hover, .dm-item.active { color: var(--text); }
 
 /* Big square nav buttons */
 .nav-squares { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -121,7 +119,10 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 /* Main */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.main-header { padding: 18px 28px; border-bottom: 1px solid var(--border); }
+.main-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 14px 28px; min-height: 64px; border-bottom: 1px solid var(--border);
+}
 .main-header h1 { margin: 0; font-size: 20px; font-weight: 600; }
 .main-body { flex: 1; min-height: 0; overflow-y: auto; }
 .main-empty { height: 100%; display: grid; place-items: center; color: var(--muted); }
@@ -176,28 +177,33 @@ ul { list-style: none; margin: 0; padding: 0; }
 .card-main { flex: 1; min-width: 0; padding: 18px 22px; display: flex; flex-direction: column; gap: 16px; }
 .card-name { display: flex; align-items: center; gap: 10px; }
 .card-name h2 { margin: 0; font-size: 19px; font-weight: 600; }
-.card-owner { margin-top: 4px; margin-left: 28px; font-size: 13px; color: var(--muted); }
+.card-owner { display: flex; align-items: center; gap: 5px; margin-top: 4px; margin-left: 28px; font-size: 13px; color: var(--muted); }
 .state-pill {
   padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 600;
   background: var(--badge); color: var(--text); text-transform: uppercase; letter-spacing: 0.04em;
 }
 
-.card-charts { display: flex; flex-wrap: wrap; gap: 18px 40px; }
-.chart { min-width: 260px; }
-.chart-title { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
-.chart-body { display: flex; align-items: center; gap: 16px; }
-.donut { width: 112px; height: 112px; flex-shrink: 0; transform: rotate(-90deg); }
-.donut circle { fill: none; stroke-width: 14; }
+.card-charts { display: flex; flex-wrap: wrap; gap: 12px 36px; }
+.chart { position: relative; }
+.donut { display: block; width: 168px; height: 168px; }
+.donut circle { fill: none; stroke-width: 22; }
 .donut-track { stroke: var(--surface-hover); }
-.donut-total {
-  transform: rotate(90deg); transform-origin: 55px 55px;
-  fill: var(--text); font-size: 15px; font-weight: 600; text-anchor: middle; dominant-baseline: central;
+.donut-seg { cursor: pointer; transition: opacity 0.12s, stroke-width 0.12s; }
+.donut-seg.dim { opacity: 0.35; }
+.donut-seg.hot { stroke-width: 26; }
+.donut-total { fill: var(--text); font-size: 20px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
+.donut-caption { fill: var(--muted); font-size: 12px; text-anchor: middle; dominant-baseline: central; }
+.chart-tip {
+  position: absolute; z-index: 5; pointer-events: none;
+  transform: translate(12px, -50%);
+  display: flex; align-items: center; gap: 7px; white-space: nowrap;
+  padding: 6px 10px; border-radius: 8px; font-size: 12px;
+  background: #0d0d0d; border: 1px solid var(--border-strong);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
 }
-.legend { display: flex; flex-direction: column; gap: 5px; font-size: 13px; min-width: 0; }
-.legend li { display: flex; align-items: center; gap: 8px; }
 .swatch { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
-.legend-label { color: var(--muted); white-space: nowrap; }
-.legend-value { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; }
+.tip-label { color: var(--text); }
+.tip-value { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .card-side {
   width: 290px; flex-shrink: 0;
@@ -218,11 +224,15 @@ ul { list-style: none; margin: 0; padding: 0; }
 .ctl-btn {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
   height: 34px; border-radius: 8px; font-size: 13px; font-weight: 600;
-  background: var(--surface-hover); border: 1px solid var(--border);
+  background: transparent; border: 1px solid var(--border-strong); color: var(--text);
 }
-.ctl-btn:hover:not(:disabled) { background: var(--selected); border-color: var(--border-strong); }
-.ctl-btn:disabled { opacity: 0.4; cursor: default; }
-.ctl-btn.danger:hover { border-color: #8a4646; color: #e58c8c; }
+.ctl-btn:hover:not(:disabled) { background: var(--surface-hover); }
+.ctl-btn:disabled { opacity: 0.35; cursor: default; }
+/* Stop: solid light button - the obvious control without resorting to red. */
+.ctl-btn.stop { background: #e6e6e6; border-color: #e6e6e6; color: #141414; }
+.ctl-btn.stop:hover { background: #ffffff; }
+.ctl-btn.resume { background: var(--attention); border-color: var(--attention); color: var(--attention-text); }
+.ctl-btn.resume:hover { background: #4d89e3; }
 
 .open-items { display: flex; gap: 8px; margin-top: auto; }
 .open-chip {
@@ -237,3 +247,22 @@ ul { list-style: none; margin: 0; padding: 0; }
   min-width: 20px; padding: 0 6px; border-radius: 10px; line-height: 20px; text-align: center;
   background: var(--attention); color: var(--attention-text); font-size: 12px;
 }
+
+/* Time-range dropdown */
+.range-picker { position: relative; }
+.range-btn {
+  display: flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 12px; border-radius: 8px; font-size: 13px; font-weight: 500;
+  border: 1px solid var(--border-strong); background: var(--surface);
+}
+.range-btn:hover { background: var(--surface-hover); }
+.range-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 170px;
+  padding: 4px; border-radius: 10px; background: var(--surface);
+  border: 1px solid var(--border-strong); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+.range-option {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 10px; border-radius: 6px; font-size: 13px; text-align: left;
+}
+.range-option:hover { background: var(--surface-hover); }

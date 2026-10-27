@@ -9,8 +9,8 @@ export type Agent = {
   name: string;
   department: Department;
   owner: string; // member name; only shown when the user is in an organization
-  unread?: number;
-  // Last 30 days. Output is successful actions by type; cost is dollars by source.
+  // Per month (30 days); other time ranges are scaled from this for the placeholder UI.
+  // Output is successful actions by type; cost is dollars by source.
   output: Slice[];
   cost: Slice[];
   runs: number;
@@ -57,7 +57,6 @@ export const AGENTS: Agent[] = [
     name: 'Inbox Triage',
     department: 'operations',
     owner: 'Max',
-    unread: 1,
     output: [
       { label: 'Emails labelled', value: 1240 },
       { label: 'Replies drafted', value: 86 },
@@ -155,3 +154,21 @@ export const AGENTS: Agent[] = [
 
 export const totalOpenApprovals = AGENTS.reduce((n, a) => n + a.openApprovals, 0);
 export const totalOpenRequests = AGENTS.reduce((n, a) => n + a.openRequests, 0);
+
+export type TimeRange = 'today' | 'week' | 'month' | 'year' | 'all';
+
+export const TIME_RANGES: { value: TimeRange; label: string; factor: number }[] = [
+  { value: 'today', label: 'Today', factor: 1 / 30 },
+  { value: 'week', label: 'This week', factor: 7 / 30 },
+  { value: 'month', label: 'This month', factor: 1 },
+  { value: 'year', label: 'This year', factor: 10 },
+  { value: 'all', label: 'All time', factor: 16 },
+];
+
+export const rangeLabel = (r: TimeRange) => TIME_RANGES.find(t => t.value === r)!.label;
+
+// Placeholder scaling until real per-range numbers come from the backend.
+export function scaleTo(range: TimeRange, n: number, whole = true): number {
+  const v = n * TIME_RANGES.find(t => t.value === range)!.factor;
+  return whole ? Math.round(v) : v;
+}
