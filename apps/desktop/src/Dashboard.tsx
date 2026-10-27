@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CircleCheckBig, GripVertical, Inbox, Pause, Play, Square, User } from 'lucide-react';
-import { ACCOUNT, AGENTS, rangeLabel, scaleTo, type Agent, type Slice, type TimeRange } from './data';
+import { ACCOUNT, AGENTS, FEROCITY, rangeLabel, scaleTo, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
 
 // Blue-to-gray ramp so charts stay inside the gray + one-blue palette.
@@ -82,6 +82,59 @@ function timeAgo(minutes: number): string {
 const count = (n: number) => n.toLocaleString();
 const dollars = (n: number) => `$${n.toFixed(2)}`;
 
+// Target output and ferocity. Ferocity picks a FEROCITY level (schedule +
+// self-booking); the estimate is this agent's output per run times that level's
+// expected runs, so you can see whether a level would hit the target.
+function Tuning({ agent }: { agent: Agent }) {
+  const [target, setTarget] = useState(agent.targetOutput);
+  const [level, setLevel] = useState(agent.ferocity);
+  const perRun = agent.output.reduce((n, s) => n + s.value, 0) / Math.max(agent.runs, 1);
+  const estWeek = Math.round(perRun * FEROCITY[level].runsPerDay * 7);
+  const onTarget = estWeek >= target;
+
+  return (
+    <div className="tuning">
+      <label className="tune-row">
+        <span className="stat-label">Target output / week</span>
+        <input
+          className="target-input"
+          type="number"
+          min={0}
+          value={target}
+          onChange={e => setTarget(Math.max(0, Number(e.target.value) || 0))}
+        />
+      </label>
+
+      <div className="ferocity">
+        <div className="ferocity-head">
+          <span className="stat-label">Ferocity</span>
+          <span className={`ferocity-name level-${level}`}>{FEROCITY[level].name}</span>
+        </div>
+        <input
+          className={`ferocity-slider level-${level}`}
+          type="range"
+          min={0}
+          max={FEROCITY.length - 1}
+          step={1}
+          value={level}
+          onChange={e => setLevel(Number(e.target.value))}
+          aria-label="Ferocity"
+          aria-valuetext={FEROCITY[level].name}
+          style={{ '--fill': `${(level / (FEROCITY.length - 1)) * 100}%` } as React.CSSProperties}
+        />
+        <div className="ferocity-ends">
+          <span>Chill</span>
+          <span>Apocalyptic</span>
+        </div>
+        <div className="ferocity-est" title={FEROCITY[level].cadence}>
+          <span className={`est-value${onTarget ? ' on-target' : ''}`}>~{count(estWeek)} / week</span>
+          <span className="muted">{FEROCITY[level].cadence}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AgentCard({
   agent,
   range,
@@ -118,6 +171,24 @@ function AgentCard({
             <DeptIcon size={18} strokeWidth={1.75} className="dept-icon" />
             <h2>{agent.name}</h2>
             {state !== 'active' && <span className="state-pill">{state === 'draining' ? 'Draining' : 'Stopped'}</span>}
+            <span className="head-counts">
+              <a
+                className={`head-count${agent.openRequests ? ' has' : ''}`}
+                title={`${agent.openRequests} open requests`}
+                onClick={() => onNavigate('requests')}
+              >
+                <Inbox size={14} strokeWidth={1.75} />
+                {agent.openRequests}
+              </a>
+              <a
+                className={`head-count${agent.openApprovals ? ' has' : ''}`}
+                title={`${agent.openApprovals} open approvals`}
+                onClick={() => onNavigate('approvals')}
+              >
+                <CircleCheckBig size={14} strokeWidth={1.75} />
+                {agent.openApprovals}
+              </a>
+            </span>
           </div>
           {/* Owners only exist inside an organization. */}
           {ACCOUNT.org && (
@@ -170,26 +241,7 @@ function AgentCard({
           </button>
         </div>
 
-        <div className="open-items">
-          <button
-            className={`open-chip${agent.openRequests ? ' has' : ''}`}
-            title="Open requests"
-            onClick={() => onNavigate('requests')}
-          >
-            <Inbox size={16} strokeWidth={1.75} />
-            <span className="open-count">{agent.openRequests}</span>
-            <span className="open-label">Requests</span>
-          </button>
-          <button
-            className={`open-chip${agent.openApprovals ? ' has' : ''}`}
-            title="Open approvals"
-            onClick={() => onNavigate('approvals')}
-          >
-            <CircleCheckBig size={16} strokeWidth={1.75} />
-            <span className="open-count">{agent.openApprovals}</span>
-            <span className="open-label">Approvals</span>
-          </button>
-        </div>
+        <Tuning agent={agent} />
       </aside>
     </article>
   );

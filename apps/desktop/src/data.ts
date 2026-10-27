@@ -17,6 +17,8 @@ export type Agent = {
   lastRun: { minutesAgo: number; outcome: 'succeeded' | 'failed' | 'running' };
   openApprovals: number;
   openRequests: number;
+  ferocity: number; // index into FEROCITY
+  targetOutput: number; // per week
 };
 
 export type Organization = { name: string; members: string[] };
@@ -54,6 +56,8 @@ export const AGENTS: Agent[] = [
     lastRun: { minutesAgo: 4, outcome: 'running' },
     openApprovals: 0,
     openRequests: 1,
+    ferocity: 1,
+    targetOutput: 100,
   },
   {
     id: 'inbox',
@@ -73,6 +77,8 @@ export const AGENTS: Agent[] = [
     lastRun: { minutesAgo: 11, outcome: 'succeeded' },
     openApprovals: 2,
     openRequests: 0,
+    ferocity: 2,
+    targetOutput: 450,
   },
   {
     id: 'writer',
@@ -93,6 +99,8 @@ export const AGENTS: Agent[] = [
     lastRun: { minutesAgo: 190, outcome: 'succeeded' },
     openApprovals: 1,
     openRequests: 2,
+    ferocity: 1,
+    targetOutput: 40,
   },
   {
     id: 'leads',
@@ -114,6 +122,8 @@ export const AGENTS: Agent[] = [
     lastRun: { minutesAgo: 27, outcome: 'failed' },
     openApprovals: 0,
     openRequests: 0,
+    ferocity: 3,
+    targetOutput: 600,
   },
   {
     id: 'books',
@@ -133,6 +143,8 @@ export const AGENTS: Agent[] = [
     lastRun: { minutesAgo: 1440, outcome: 'succeeded' },
     openApprovals: 0,
     openRequests: 0,
+    ferocity: 0,
+    targetOutput: 150,
   },
   {
     id: 'reviewer',
@@ -152,6 +164,8 @@ export const AGENTS: Agent[] = [
     lastRun: { minutesAgo: 2, outcome: 'running' },
     openApprovals: 0,
     openRequests: 1,
+    ferocity: 2,
+    targetOutput: 30,
   },
 ];
 
@@ -175,3 +189,25 @@ export function scaleTo(range: TimeRange, n: number, whole = true): number {
   const v = n * TIME_RANGES.find(t => t.value === range)!.factor;
   return whole ? Math.round(v) : v;
 }
+
+// How hard an agent works. Each level is a schedule (how often the runner wakes
+// it) plus a self-booking rule (whether it chains its own next run when work is
+// left). max_runs_per_day stays a runaway backstop set well above the level's
+// cadence - it is never the thing that sets the pace.
+export type FerocityLevel = {
+  name: string;
+  cadence: string; // human summary of cron + self-booking
+  cron: string;
+  selfBook: 'never' | 'when-work-left' | 'always';
+  runsPerDay: number; // expected, for the estimate
+};
+
+export const FEROCITY: FerocityLevel[] = [
+  { name: 'Chill', cadence: 'Once a day', cron: '0 9 * * *', selfBook: 'never', runsPerDay: 1 },
+  { name: 'Steady', cadence: 'Every 4 hours', cron: '0 */4 * * *', selfBook: 'never', runsPerDay: 6 },
+  { name: 'Driven', cadence: 'Hourly, chains when work is left', cron: '0 * * * *', selfBook: 'when-work-left', runsPerDay: 30 },
+  { name: 'Relentless', cadence: 'Every 15 min, always chains', cron: '*/15 * * * *', selfBook: 'always', runsPerDay: 120 },
+  { name: 'Apocalyptic', cadence: 'Non-stop, back-to-back runs', cron: '*/5 * * * *', selfBook: 'always', runsPerDay: 288 },
+];
+
+export const rangeDays = (r: TimeRange) => TIME_RANGES.find(t => t.value === r)!.factor * 30;
