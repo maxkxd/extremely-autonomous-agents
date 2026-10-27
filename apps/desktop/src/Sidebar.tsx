@@ -7,19 +7,36 @@ import {
   CircleCheckBig,
   Inbox,
   Plus,
+  Code,
+  Megaphone,
+  TrendingUp,
+  Calculator,
+  Search,
+  Settings2,
 } from 'lucide-react';
 
 export type View = 'dashboard' | 'approvals' | 'requests' | `agent:${string}`;
 
-type AgentStatus = 'running' | 'idle' | 'needs-you';
+type Department = 'engineering' | 'marketing' | 'sales' | 'finance' | 'research' | 'operations';
+
+// The only per-agent symbol: a small monochrome icon for the agent's department.
+const DEPARTMENT_ICON: Record<Department, typeof Code> = {
+  engineering: Code,
+  marketing: Megaphone,
+  sales: TrendingUp,
+  finance: Calculator,
+  research: Search,
+  operations: Settings2,
+};
 
 // Placeholder agents for the UI only - not the real agency roster.
-const EXAMPLE_AGENTS: { id: string; name: string; color: string; status: AgentStatus }[] = [
-  { id: 'research', name: 'Research Assistant', color: '#7c6cf2', status: 'running' },
-  { id: 'inbox', name: 'Inbox Triage', color: '#2fb383', status: 'needs-you' },
-  { id: 'writer', name: 'Content Writer', color: '#e0864a', status: 'idle' },
-  { id: 'books', name: 'Bookkeeper', color: '#3b9ee0', status: 'idle' },
-  { id: 'reviewer', name: 'Code Reviewer', color: '#d65b8a', status: 'running' },
+const EXAMPLE_AGENTS: { id: string; name: string; department: Department; unread?: number }[] = [
+  { id: 'research', name: 'Research Assistant', department: 'research' },
+  { id: 'inbox', name: 'Inbox Triage', department: 'operations', unread: 1 },
+  { id: 'writer', name: 'Content Writer', department: 'marketing' },
+  { id: 'leads', name: 'Lead Finder', department: 'sales' },
+  { id: 'books', name: 'Bookkeeper', department: 'finance' },
+  { id: 'reviewer', name: 'Code Reviewer', department: 'engineering' },
 ];
 
 const NAV: { view: View; label: string; Icon: typeof LayoutDashboard; badge?: number }[] = [
@@ -28,9 +45,9 @@ const NAV: { view: View; label: string; Icon: typeof LayoutDashboard; badge?: nu
   { view: 'requests', label: 'Requests', Icon: Inbox },
 ];
 
-function Avatar({ label, color, size = 28 }: { label: string; color: string; size?: number }) {
+function Avatar({ label, size = 28 }: { label: string; size?: number }) {
   return (
-    <span className="avatar" style={{ background: color, width: size, height: size }}>
+    <span className="avatar" style={{ width: size, height: size }}>
       {label.charAt(0)}
     </span>
   );
@@ -53,7 +70,7 @@ export function Sidebar({
     <aside className="sidebar" style={{ width }}>
       <div className="resize-handle" title="Drag to resize" onPointerDown={onResizeStart} />
       <button className="switcher org-switcher" title="Switch organization">
-        <Avatar label="Acme Ventures" color="#7c6cf2" size={34} />
+        <Avatar label="Acme Ventures" size={34} />
         <span className="switcher-text">
           <span className="switcher-title">Acme Ventures</span>
           <span className="switcher-sub">Organization</span>
@@ -77,18 +94,16 @@ export function Sidebar({
           <ul className="dm-list">
             {EXAMPLE_AGENTS.map(a => {
               const v: View = `agent:${a.id}`;
+              const DeptIcon = DEPARTMENT_ICON[a.department];
               return (
                 <li key={a.id}>
                   <button
                     className={`dm-item${view === v ? ' active' : ''}`}
                     onClick={() => onSelect(v)}
                   >
-                    <span className="dm-avatar">
-                      <Avatar label={a.name} color={a.color} size={24} />
-                      <span className={`status-dot ${a.status}`} />
-                    </span>
+                    <DeptIcon size={15} strokeWidth={1.75} className="dept-icon" aria-label={a.department} />
                     <span className="dm-name">{a.name}</span>
-                    {a.status === 'needs-you' && <span className="pill">1</span>}
+                    {a.unread ? <span className="pill">{a.unread}</span> : null}
                   </button>
                 </li>
               );
@@ -112,7 +127,7 @@ export function Sidebar({
       </nav>
 
       <button className="switcher account-switcher" title="Switch account">
-        <Avatar label="Max" color="#3b9ee0" size={34} />
+        <Avatar label="Max" size={34} />
         <span className="switcher-text">
           <span className="switcher-title">Max</span>
           <span className="switcher-sub">Personal account</span>
