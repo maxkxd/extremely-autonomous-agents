@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
+import { Dashboard } from './Dashboard';
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 480;
@@ -79,7 +80,13 @@ export function App() {
         <header className="main-header">
           <h1>{viewLabel(view)}</h1>
         </header>
-        <div className="main-empty">Main panel - coming next.</div>
+        <div className="main-body">
+          {view === 'dashboard' ? (
+            <Dashboard onNavigate={setView} />
+          ) : (
+            <div className="main-empty">Coming next.</div>
+          )}
+        </div>
       </main>
     </div>
   );

@@ -14,13 +14,12 @@ import {
   Search,
   Settings2,
 } from 'lucide-react';
+import { ACCOUNT, AGENTS, totalOpenApprovals, totalOpenRequests, type Department } from './data';
 
 export type View = 'dashboard' | 'approvals' | 'requests' | `agent:${string}`;
 
-type Department = 'engineering' | 'marketing' | 'sales' | 'finance' | 'research' | 'operations';
-
 // The only per-agent symbol: a small monochrome icon for the agent's department.
-const DEPARTMENT_ICON: Record<Department, typeof Code> = {
+export const DEPARTMENT_ICON: Record<Department, typeof Code> = {
   engineering: Code,
   marketing: Megaphone,
   sales: TrendingUp,
@@ -29,20 +28,10 @@ const DEPARTMENT_ICON: Record<Department, typeof Code> = {
   operations: Settings2,
 };
 
-// Placeholder agents for the UI only - not the real agency roster.
-const EXAMPLE_AGENTS: { id: string; name: string; department: Department; unread?: number }[] = [
-  { id: 'research', name: 'Research Assistant', department: 'research' },
-  { id: 'inbox', name: 'Inbox Triage', department: 'operations', unread: 1 },
-  { id: 'writer', name: 'Content Writer', department: 'marketing' },
-  { id: 'leads', name: 'Lead Finder', department: 'sales' },
-  { id: 'books', name: 'Bookkeeper', department: 'finance' },
-  { id: 'reviewer', name: 'Code Reviewer', department: 'engineering' },
-];
-
 const NAV: { view: View; label: string; Icon: typeof LayoutDashboard; badge?: number }[] = [
   { view: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-  { view: 'approvals', label: 'Approvals', Icon: CircleCheckBig, badge: 3 },
-  { view: 'requests', label: 'Requests', Icon: Inbox },
+  { view: 'approvals', label: 'Approvals', Icon: CircleCheckBig, badge: totalOpenApprovals },
+  { view: 'requests', label: 'Requests', Icon: Inbox, badge: totalOpenRequests },
 ];
 
 function Avatar({ label, size = 28 }: { label: string; size?: number }) {
@@ -69,14 +58,17 @@ export function Sidebar({
   return (
     <aside className="sidebar" style={{ width }}>
       <div className="resize-handle" title="Drag to resize" onPointerDown={onResizeStart} />
-      <button className="switcher org-switcher" title="Switch organization">
-        <Avatar label="Acme Ventures" size={34} />
-        <span className="switcher-text">
-          <span className="switcher-title">Acme Ventures</span>
-          <span className="switcher-sub">Organization</span>
-        </span>
-        <ChevronsUpDown size={16} className="muted" />
-      </button>
+      {/* Organizations are optional; solo accounts get no org switcher. */}
+      {ACCOUNT.org && (
+        <button className="switcher org-switcher" title="Switch organization">
+          <Avatar label={ACCOUNT.org.name} size={34} />
+          <span className="switcher-text">
+            <span className="switcher-title">{ACCOUNT.org.name}</span>
+            <span className="switcher-sub">Organization</span>
+          </span>
+          <ChevronsUpDown size={16} className="muted" />
+        </button>
+      )}
 
       <nav className="nav-squares">
         {NAV.map(({ view: v, label, Icon, badge }) => (
@@ -106,7 +98,7 @@ export function Sidebar({
 
         {dmsOpen && (
           <ul className="dm-list">
-            {EXAMPLE_AGENTS.map(a => {
+            {AGENTS.map(a => {
               const v: View = `agent:${a.id}`;
               const DeptIcon = DEPARTMENT_ICON[a.department];
               return (
@@ -127,10 +119,10 @@ export function Sidebar({
       </div>
 
       <button className="switcher account-switcher" title="Switch account">
-        <Avatar label="Max" size={34} />
+        <Avatar label={ACCOUNT.name} size={34} />
         <span className="switcher-text">
-          <span className="switcher-title">Max</span>
-          <span className="switcher-sub">Personal account</span>
+          <span className="switcher-title">{ACCOUNT.name}</span>
+          <span className="switcher-sub">{ACCOUNT.org ? `Member of ${ACCOUNT.org.name}` : 'Personal account'}</span>
         </span>
         <ChevronsUpDown size={16} className="muted" />
       </button>
@@ -140,7 +132,7 @@ export function Sidebar({
 
 export function viewLabel(view: View): string {
   if (view.startsWith('agent:')) {
-    const a = EXAMPLE_AGENTS.find(x => `agent:${x.id}` === view);
+    const a = AGENTS.find(x => `agent:${x.id}` === view);
     return a ? a.name : 'Agent';
   }
   return NAV.find(n => n.view === view)?.label ?? '';

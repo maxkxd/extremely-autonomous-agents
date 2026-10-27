@@ -123,7 +123,8 @@ ul { list-style: none; margin: 0; padding: 0; }
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .main-header { padding: 18px 28px; border-bottom: 1px solid var(--border); }
 .main-header h1 { margin: 0; font-size: 20px; font-weight: 600; }
-.main-empty { flex: 1; display: grid; place-items: center; color: var(--muted); }
+.main-body { flex: 1; min-height: 0; overflow-y: auto; }
+.main-empty { height: 100%; display: grid; place-items: center; color: var(--muted); }
 
 /* Resize handle on the sidebar's right edge */
 .resize-handle {
@@ -161,3 +162,78 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 :hover::-webkit-scrollbar-thumb { background-color: var(--scroll-thumb); }
 ::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); }
+
+/* Dashboard */
+.dashboard { display: flex; flex-direction: column; gap: 14px; padding: 24px 28px 40px; }
+
+.agent-card {
+  display: flex;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.card-main { flex: 1; min-width: 0; padding: 18px 22px; display: flex; flex-direction: column; gap: 16px; }
+.card-name { display: flex; align-items: center; gap: 10px; }
+.card-name h2 { margin: 0; font-size: 19px; font-weight: 600; }
+.card-owner { margin-top: 4px; margin-left: 28px; font-size: 13px; color: var(--muted); }
+.state-pill {
+  padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  background: var(--badge); color: var(--text); text-transform: uppercase; letter-spacing: 0.04em;
+}
+
+.card-charts { display: flex; flex-wrap: wrap; gap: 18px 40px; }
+.chart { min-width: 260px; }
+.chart-title { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.chart-body { display: flex; align-items: center; gap: 16px; }
+.donut { width: 112px; height: 112px; flex-shrink: 0; transform: rotate(-90deg); }
+.donut circle { fill: none; stroke-width: 14; }
+.donut-track { stroke: var(--surface-hover); }
+.donut-total {
+  transform: rotate(90deg); transform-origin: 55px 55px;
+  fill: var(--text); font-size: 15px; font-weight: 600; text-anchor: middle; dominant-baseline: central;
+}
+.legend { display: flex; flex-direction: column; gap: 5px; font-size: 13px; min-width: 0; }
+.legend li { display: flex; align-items: center; gap: 8px; }
+.swatch { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+.legend-label { color: var(--muted); white-space: nowrap; }
+.legend-value { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; }
+
+.card-side {
+  width: 290px; flex-shrink: 0;
+  padding: 18px 20px;
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 16px;
+}
+.stats { display: flex; flex-direction: column; gap: 12px; }
+.stat { display: flex; flex-direction: column; gap: 2px; }
+.stat-label { font-size: 12px; color: var(--muted); }
+.stat-value { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-value.small { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.outcome { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.outcome.running { background: var(--attention); }
+.outcome.failed { background: #c75b5b; }
+
+.controls { display: flex; gap: 8px; }
+.ctl-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 34px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  background: var(--surface-hover); border: 1px solid var(--border);
+}
+.ctl-btn:hover:not(:disabled) { background: var(--selected); border-color: var(--border-strong); }
+.ctl-btn:disabled { opacity: 0.4; cursor: default; }
+.ctl-btn.danger:hover { border-color: #8a4646; color: #e58c8c; }
+
+.open-items { display: flex; gap: 8px; margin-top: auto; }
+.open-chip {
+  flex: 1; display: flex; align-items: center; gap: 6px;
+  padding: 7px 10px; border-radius: 8px; font-size: 12px; color: var(--muted);
+  border: 1px solid var(--border);
+}
+.open-chip:hover { background: var(--surface-hover); color: var(--text); }
+.open-count { font-size: 14px; font-weight: 700; }
+.open-chip.has { color: var(--text); }
+.open-chip.has .open-count {
+  min-width: 20px; padding: 0 6px; border-radius: 10px; line-height: 20px; text-align: center;
+  background: var(--attention); color: var(--attention-text); font-size: 12px;
+}
