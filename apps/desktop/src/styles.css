@@ -96,20 +96,21 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 
 /* Big square nav buttons */
-.nav-squares { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.nav-squares { display: flex; flex-direction: column; gap: 8px; }
 .nav-square {
   position: relative;
-  aspect-ratio: 1;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  height: 72px;
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 18px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-  font-size: 12px; font-weight: 500; color: var(--muted);
+  font-size: 15px; font-weight: 500; color: var(--muted); text-align: left;
 }
 .nav-square:hover { background: var(--surface-hover); color: var(--text); }
 .nav-square.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
 .square-badge {
-  position: absolute; top: 6px; right: 6px;
-  min-width: 18px; padding: 0 5px; border-radius: 9px;
-  background: var(--warn); color: #1a1a1a; font-size: 11px; font-weight: 700; line-height: 18px;
+  margin-left: auto;
+  min-width: 22px; padding: 0 7px; border-radius: 11px;
+  background: var(--warn); color: #1a1a1a; font-size: 12px; font-weight: 700; line-height: 22px; text-align: center;
 }
 
 /* Main */
