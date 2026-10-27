@@ -10,6 +10,11 @@
   --text: #e6e6e6;
   --muted: #8a8a8a;
   --badge: #3a3a3a;
+  /* The one colour: a muted steel blue for things that need your eye (unread/pending counts). */
+  --attention: #3f7bd6;
+  --attention-text: #ffffff;
+  --scroll-thumb: #3d3d3d;
+  --scroll-thumb-hover: #555555;
   font-family: Inter, 'Segoe UI', system-ui, sans-serif;
   color: var(--text);
   background: var(--bg);
@@ -67,6 +72,9 @@ ul { list-style: none; margin: 0; padding: 0; }
 /* Shrinks (and its list scrolls) only once the agents would push the nav
    buttons off screen; otherwise the nav sits right under the last agent. */
 .dms { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* When open, never shrink past the header (28px) + gap (4px) + one agent row (33px). */
+.dms:has(.dm-list) { min-height: 65px; }
+.dms .section-row { flex-shrink: 0; }
 .section-row { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
 .section-toggle {
   display: flex; align-items: center; gap: 6px;
@@ -77,7 +85,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .icon-btn { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; color: var(--muted); }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text); }
 
-.dm-list { overflow-y: auto; margin-top: 4px; }
+.dm-list { overflow-y: auto; margin-top: 4px; min-height: 0; }
 .dm-item {
   display: flex; align-items: center; gap: 10px;
   width: 100%; padding: 7px 10px; border-radius: 8px; text-align: left; font-size: 14px;
@@ -89,7 +97,8 @@ ul { list-style: none; margin: 0; padding: 0; }
 .dm-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pill {
   min-width: 18px; padding: 0 6px; border-radius: 9px;
-  background: var(--badge); font-size: 11px; font-weight: 600; text-align: center; line-height: 18px;
+  background: var(--attention); color: var(--attention-text);
+  font-size: 11px; font-weight: 600; text-align: center; line-height: 18px;
 }
 
 /* Big square nav buttons */
@@ -107,7 +116,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .square-badge {
   margin-left: auto;
   min-width: 22px; padding: 0 7px; border-radius: 11px;
-  background: var(--badge); color: var(--text); font-size: 12px; font-weight: 700; line-height: 22px; text-align: center;
+  background: var(--attention); color: var(--attention-text); font-size: 12px; font-weight: 700; line-height: 22px; text-align: center;
 }
 
 /* Main */
@@ -136,4 +145,19 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .sidebar-rail:hover { color: var(--text); background: var(--surface); }
 
-.dm-list { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+/* Scrollbars: thin, no arrows or track, a rounded gray thumb that only shows
+   while hovering the scroll area. Uses the ::-webkit pseudos (Chromium/Electron)
+   rather than scrollbar-color, which in Chromium overrides them and brings back
+   the stock look. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-button { display: none; }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 5px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+:hover::-webkit-scrollbar-thumb { background-color: var(--scroll-thumb); }
+::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); }
