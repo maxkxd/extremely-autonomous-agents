@@ -78,6 +78,20 @@ export function Sidebar({
         <ChevronsUpDown size={16} className="muted" />
       </button>
 
+      <nav className="nav-squares">
+        {NAV.map(({ view: v, label, Icon, badge }) => (
+          <button
+            key={v}
+            className={`nav-square${view === v ? ' active' : ''}`}
+            onClick={() => onSelect(v)}
+          >
+            <Icon size={32} strokeWidth={1.75} />
+            <span>{label}</span>
+            {badge ? <span className="square-badge">{badge}</span> : null}
+          </button>
+        ))}
+      </nav>
+
       <div className="dms">
         <div className="section-row">
           <button className="section-toggle" onClick={() => setDmsOpen(o => !o)}>
@@ -111,20 +125,6 @@ export function Sidebar({
           </ul>
         )}
       </div>
-
-      <nav className="nav-squares">
-        {NAV.map(({ view: v, label, Icon, badge }) => (
-          <button
-            key={v}
-            className={`nav-square${view === v ? ' active' : ''}`}
-            onClick={() => onSelect(v)}
-          >
-            <Icon size={30} strokeWidth={1.75} />
-            <span>{label}</span>
-            {badge ? <span className="square-badge">{badge}</span> : null}
-          </button>
-        ))}
-      </nav>
 
       <button className="switcher account-switcher" title="Switch account">
         <Avatar label="Max" size={34} />
