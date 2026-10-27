@@ -23,6 +23,9 @@ export type Organization = { name: string; members: string[] };
 
 export type Account = { name: string; org: Organization | null };
 
+// Organizations this account belongs to (the first is the current one).
+export const ORGANIZATIONS = ['Acme Ventures', 'Northwind Labs'];
+
 // Preview the no-organization experience with ?noorg in the URL.
 const noOrg = new URLSearchParams(window.location.search).has('noorg');
 

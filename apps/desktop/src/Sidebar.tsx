@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
+  Check,
   LayoutDashboard,
   CircleCheckBig,
   Inbox,
@@ -14,7 +15,8 @@ import {
   Search,
   Settings2,
 } from 'lucide-react';
-import { ACCOUNT, AGENTS, totalOpenApprovals, totalOpenRequests, type Department } from './data';
+import { ACCOUNT, AGENTS, ORGANIZATIONS, totalOpenApprovals, totalOpenRequests, type Department } from './data';
+import { useDismiss } from './useDismiss';
 
 export type View = 'dashboard' | 'approvals' | 'requests' | `agent:${string}`;
 
@@ -42,6 +44,65 @@ function Avatar({ label, size = 28 }: { label: string; size?: number }) {
   );
 }
 
+// Switching orgs and creating one are UI only for now.
+function OrgPicker({ initial }: { initial: string }) {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState(initial);
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, open, () => setOpen(false));
+
+  return (
+    <div className={`org-picker${open ? ' open' : ''}`} ref={ref}>
+      <button
+        className="switcher org-switcher"
+        title="Switch organization"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+      >
+        <Avatar label={current} size={34} />
+        <span className="switcher-text">
+          <span className="switcher-title">{current}</span>
+          <span className="switcher-sub">Organization</span>
+        </span>
+        <ChevronsUpDown size={16} className="muted" />
+      </button>
+      {open && (
+        <ul className="dropdown-menu" role="listbox">
+          {ORGANIZATIONS.map(name => (
+            <li key={name}>
+              <button
+                role="option"
+                aria-selected={name === current}
+                className="dropdown-option"
+                onClick={() => {
+                  setCurrent(name);
+                  setOpen(false);
+                }}
+              >
+                <span className="option-with-avatar">
+                  <Avatar label={name} size={22} />
+                  {name}
+                </span>
+                {name === current && <Check size={15} />}
+              </button>
+            </li>
+          ))}
+          <li className="dropdown-sep" role="separator" />
+          <li>
+            <button className="dropdown-option" onClick={() => setOpen(false)}>
+              <span className="option-with-avatar">
+                <Plus size={15} className="option-icon" />
+                New organization
+              </span>
+            </button>
+          </li>
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function Sidebar({
   view,
   onSelect,
@@ -59,16 +120,7 @@ export function Sidebar({
     <aside className="sidebar" style={{ width }}>
       <div className="resize-handle" title="Drag to resize" onPointerDown={onResizeStart} />
       {/* Organizations are optional; solo accounts get no org switcher. */}
-      {ACCOUNT.org && (
-        <button className="switcher org-switcher" title="Switch organization">
-          <Avatar label={ACCOUNT.org.name} size={34} />
-          <span className="switcher-text">
-            <span className="switcher-title">{ACCOUNT.org.name}</span>
-            <span className="switcher-sub">Organization</span>
-          </span>
-          <ChevronsUpDown size={16} className="muted" />
-        </button>
-      )}
+      {ACCOUNT.org && <OrgPicker initial={ACCOUNT.org.name} />}
 
       <nav className="nav-squares">
         {NAV.map(({ view: v, label, Icon, badge }) => (

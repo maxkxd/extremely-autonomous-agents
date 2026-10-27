@@ -1,41 +1,29 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Calendar, Check, ChevronDown } from 'lucide-react';
 import { TIME_RANGES, rangeLabel, type TimeRange } from './data';
+import { useDismiss } from './useDismiss';
 
 export function RangePicker({ value, onChange }: { value: TimeRange; onChange: (r: TimeRange) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Close on outside click or Escape.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    window.addEventListener('pointerdown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  useDismiss(ref, open, () => setOpen(false));
 
   return (
-    <div className="range-picker" ref={ref}>
+    <div className={`range-picker${open ? ' open' : ''}`} ref={ref}>
       <button className="range-btn" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}>
         <Calendar size={15} strokeWidth={1.75} />
         {rangeLabel(value)}
-        <ChevronDown size={15} className="muted" />
+        <ChevronDown size={15} className="muted chev" />
       </button>
       {open && (
-        <ul className="range-menu" role="listbox">
+        <ul className="dropdown-menu" role="listbox">
           {TIME_RANGES.map(r => (
             <li key={r.value}>
               <button
                 role="option"
                 aria-selected={r.value === value}
-                className="range-option"
+                className="dropdown-option"
                 onClick={() => {
                   onChange(r.value);
                   setOpen(false);

@@ -64,7 +64,7 @@ ul { list-style: none; margin: 0; padding: 0; }
   text-align: left;
 }
 .switcher:hover { background: var(--surface-hover); }
-.org-switcher { background: var(--surface); border: 1px solid var(--border); }
+.org-switcher { background: var(--sidebar); border: 1px solid var(--hairline); }
 .account-switcher { margin-top: auto; border-top: 1px solid var(--border); border-radius: 0 0 10px 10px; padding-top: 14px; }
 .switcher-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .switcher-title { font-weight: 600; font-size: 14px; }
@@ -250,24 +250,41 @@ ul { list-style: none; margin: 0; padding: 0; }
   background: var(--attention); color: var(--attention-text); font-size: 12px;
 }
 
-/* Time-range dropdown */
-.range-picker { position: relative; }
+/* Time-range dropdown: closed it's a flat outlined button; open, the button and
+   menu join into one panel of the same width, flush on the background. */
+.range-picker { position: relative; width: 156px; }
 .range-btn {
-  display: flex; align-items: center; gap: 8px;
+  width: 100%; display: flex; align-items: center; gap: 8px;
   height: 34px; padding: 0 12px; border-radius: 8px; font-size: 13px; font-weight: 500;
-  border: 1px solid var(--border-strong); background: var(--surface);
+  border: 1px solid var(--border); background: var(--bg);
 }
-.range-btn:hover { background: var(--surface-hover); }
-.range-menu {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 170px;
-  padding: 4px; border-radius: 10px; background: var(--surface);
-  border: 1px solid var(--border-strong); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+.range-btn .chev { margin-left: auto; transition: transform 0.15s; }
+.range-btn:hover { border-color: var(--border-strong); }
+.range-picker.open .range-btn { border-color: var(--border-strong); border-bottom-color: transparent; border-radius: 8px 8px 0 0; }
+.range-picker.open .chev { transform: rotate(180deg); }
+.range-picker { --dd-bg: var(--bg); }
+
+/* Shared joined dropdown: the menu hangs flush off its trigger, same width and
+   background, so trigger + menu read as one panel. The picker sets --dd-bg. */
+.dropdown-menu {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 20;
+  padding: 2px 4px 4px; border-radius: 0 0 10px 10px; background: var(--dd-bg);
+  border: 1px solid var(--border-strong); border-top: none;
 }
-.range-option {
+.dropdown-option {
   width: 100%; display: flex; align-items: center; justify-content: space-between;
-  padding: 7px 10px; border-radius: 6px; font-size: 13px; text-align: left;
+  padding: 7px 8px; border-radius: 6px; font-size: 13px; text-align: left; color: var(--muted);
 }
-.range-option:hover { background: var(--surface-hover); }
+.dropdown-option:hover { background: var(--surface-hover); color: var(--text); }
+.dropdown-option[aria-selected='true'] { color: var(--text); }
+.dropdown-sep { height: 1px; margin: 4px 4px; background: var(--border); }
+.option-with-avatar { display: flex; align-items: center; gap: 9px; }
+.option-with-avatar .avatar { border-radius: 6px; font-size: 11px; }
+.option-icon { width: 22px; }
+
+.org-picker { position: relative; flex-shrink: 0; --dd-bg: var(--sidebar); }
+.org-picker.open .org-switcher { border-color: var(--border-strong); border-bottom-color: transparent; border-radius: 10px 10px 0 0; }
+.org-picker .org-switcher:hover { background: rgba(255, 255, 255, 0.02); }
 
 /* Card drag-to-reorder */
 .drag-grip {
