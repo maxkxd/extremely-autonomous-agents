@@ -185,16 +185,16 @@ ul { list-style: none; margin: 0; padding: 0; }
   background: var(--badge); color: var(--text); text-transform: uppercase; letter-spacing: 0.04em;
 }
 
-.card-charts { display: flex; flex-wrap: wrap; gap: 12px 36px; }
+.card-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); justify-items: center; gap: 12px 24px; }
 .chart { position: relative; }
-.donut { display: block; width: 168px; height: 168px; }
-.donut circle { fill: none; stroke-width: 22; }
+.donut { display: block; width: 220px; height: 220px; }
+.donut circle { fill: none; stroke-width: 44; }
 .donut-track { stroke: var(--surface-hover); }
 .donut-seg { cursor: pointer; transition: opacity 0.12s, stroke-width 0.12s; }
 .donut-seg.dim { opacity: 0.35; }
-.donut-seg.hot { stroke-width: 26; }
-.donut-total { fill: var(--text); font-size: 20px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
-.donut-caption { fill: var(--muted); font-size: 12px; text-anchor: middle; dominant-baseline: central; }
+.donut-seg.hot { stroke-width: 50; }
+.donut-total { fill: var(--text); font-size: 30px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
+.donut-caption { fill: var(--muted); font-size: 15px; text-anchor: middle; dominant-baseline: central; }
 .chart-tip {
   position: absolute; z-index: 5; pointer-events: none;
   transform: translate(12px, -50%);
@@ -268,3 +268,17 @@ ul { list-style: none; margin: 0; padding: 0; }
   padding: 7px 10px; border-radius: 6px; font-size: 13px; text-align: left;
 }
 .range-option:hover { background: var(--surface-hover); }
+
+/* Card drag-to-reorder */
+.drag-grip {
+  display: grid; place-items: center; width: 22px; height: 28px; margin-left: -8px;
+  border-radius: 6px; color: #4a4a4a; cursor: grab; touch-action: none;
+}
+.agent-card:hover .drag-grip { color: var(--muted); }
+.drag-grip:hover { color: var(--text) !important; background: var(--surface-hover); }
+.agent-card.dragging {
+  border-color: var(--border-strong);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  position: relative; z-index: 2;
+}
+.dragging-card, .dragging-card * { cursor: grabbing !important; user-select: none; }

@@ -1,17 +1,19 @@
-import { useState } from 'react';
-import { CircleCheckBig, Inbox, Pause, Play, Square, User } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { CircleCheckBig, GripVertical, Inbox, Pause, Play, Square, User } from 'lucide-react';
 import { ACCOUNT, AGENTS, rangeLabel, scaleTo, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
 
 // Blue-to-gray ramp so charts stay inside the gray + one-blue palette.
+// Hover tooltips carry slice identity, so the shades don't have to.
 const SLICE_COLORS = ['#3f7bd6', '#7aa3e4', '#b4cbf0', '#6b6b6b', '#a0a0a0'];
 
 type RunState = 'active' | 'draining' | 'stopped';
 
-const SIZE = 168;
-const R = 64;
-const STROKE = 22;
+const SIZE = 220;
+const R = 82;
 const C = 2 * Math.PI * R;
+// Surface-coloured gap between slices so neighbours never touch.
+const GAP = 3;
 
 // No legend: hovering a slice highlights it and shows its label, value and share.
 function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; format: (n: number) => string }) {
@@ -28,10 +30,12 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
         aria-label={`${caption}: ${format(total)}`}
       >
         <g transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}>
-          <circle cx={SIZE / 2} cy={SIZE / 2} r={R} className="donut-track" />
+          {/* Track only for an empty chart - otherwise it would fill the slice gaps. */}
+          {total <= 0 && <circle cx={SIZE / 2} cy={SIZE / 2} r={R} className="donut-track" />}
           {slices.map((s, i) => {
             if (s.value <= 0 || total <= 0) return null;
             const len = (s.value / total) * C;
+            const visible = slices.filter(x => x.value > 0).length > 1 ? Math.max(len - GAP, 0.5) : len;
             const seg = (
               <circle
                 key={s.label}
@@ -39,7 +43,7 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
                 cy={SIZE / 2}
                 r={R}
                 stroke={SLICE_COLORS[i % SLICE_COLORS.length]}
-                strokeDasharray={`${len} ${C - len}`}
+                strokeDasharray={`${visible} ${C - visible}`}
                 strokeDashoffset={-offset}
                 className={`donut-seg${hover ? (hover.i === i ? ' hot' : ' dim') : ''}`}
                 onMouseMove={e => {
@@ -52,8 +56,8 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
             return seg;
           })}
         </g>
-        <text x={SIZE / 2} y={SIZE / 2 - 7} className="donut-total">{format(total)}</text>
-        <text x={SIZE / 2} y={SIZE / 2 + 15} className="donut-caption">{caption}</text>
+        <text x={SIZE / 2} y={SIZE / 2 - 9} className="donut-total">{format(total)}</text>
+        <text x={SIZE / 2} y={SIZE / 2 + 20} className="donut-caption">{caption}</text>
       </svg>
       {hover && (
         <div className="chart-tip" style={{ left: hover.x, top: hover.y }}>
@@ -84,12 +88,18 @@ function AgentCard({
   state,
   setState,
   onNavigate,
+  cardRef,
+  dragging,
+  onGripDown,
 }: {
   agent: Agent;
   range: TimeRange;
   state: RunState;
   setState: (s: RunState) => void;
   onNavigate: (v: View) => void;
+  cardRef: (el: HTMLElement | null) => void;
+  dragging: boolean;
+  onGripDown: (e: React.PointerEvent) => void;
 }) {
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   // Stopping halts an in-flight run; draining lets it finish.
@@ -98,10 +108,13 @@ function AgentCard({
   const cost = agent.cost.map(s => ({ ...s, value: scaleTo(range, s.value, false) }));
 
   return (
-    <article className="agent-card">
+    <article className={`agent-card${dragging ? ' dragging' : ''}`} ref={cardRef}>
       <div className="card-main">
         <header className="card-head">
           <div className="card-name">
+            <button className="drag-grip" title="Drag to reorder" aria-label="Drag to reorder" onPointerDown={onGripDown}>
+              <GripVertical size={16} />
+            </button>
             <DeptIcon size={18} strokeWidth={1.75} className="dept-icon" />
             <h2>{agent.name}</h2>
             {state !== 'active' && <span className="state-pill">{state === 'draining' ? 'Draining' : 'Stopped'}</span>}
@@ -182,21 +195,92 @@ function AgentCard({
   );
 }
 
+const ORDER_KEY = 'eaa.dashboardOrder';
+
+// Saved order, with any agents not in it (newly added) appended at the end.
+function loadOrder(): string[] {
+  const ids = AGENTS.map(a => a.id);
+  try {
+    const saved = JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]') as string[];
+    const kept = saved.filter(id => ids.includes(id));
+    return [...kept, ...ids.filter(id => !kept.includes(id))];
+  } catch {
+    return ids;
+  }
+}
+
 export function Dashboard({ range, onNavigate }: { range: TimeRange; onNavigate: (v: View) => void }) {
   const [states, setStates] = useState<Record<string, RunState>>({});
+  const [order, setOrder] = useState(loadOrder);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const cards = useRef(new Map<string, HTMLElement>());
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+    } catch {
+      // Storage unavailable - order just won't persist.
+    }
+  }, [order]);
+
+  // Live reorder: the dragged card moves to sit before the first other card whose
+  // midpoint is below the pointer. Scrolls the dashboard when near its edges.
+  const startDrag = useCallback((id: string, e: React.PointerEvent) => {
+    e.preventDefault();
+    setDragId(id);
+    document.body.classList.add('dragging-card');
+    const scroller = (e.currentTarget as HTMLElement).closest('.main-body');
+
+    const onMove = (ev: PointerEvent) => {
+      if (scroller) {
+        const box = scroller.getBoundingClientRect();
+        if (ev.clientY < box.top + 60) scroller.scrollBy(0, -14);
+        else if (ev.clientY > box.bottom - 60) scroller.scrollBy(0, 14);
+      }
+      setOrder(prev => {
+        const others = prev.filter(x => x !== id);
+        let at = others.length;
+        for (let i = 0; i < others.length; i++) {
+          const el = cards.current.get(others[i]);
+          if (!el) continue;
+          const r = el.getBoundingClientRect();
+          if (ev.clientY < r.top + r.height / 2) {
+            at = i;
+            break;
+          }
+        }
+        const next = [...others.slice(0, at), id, ...others.slice(at)];
+        return next.every((x, i) => x === prev[i]) ? prev : next;
+      });
+    };
+    const onUp = () => {
+      setDragId(null);
+      document.body.classList.remove('dragging-card');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, []);
 
   return (
     <div className="dashboard">
-      {AGENTS.map(a => (
-        <AgentCard
-          key={a.id}
-          agent={a}
-          range={range}
-          state={states[a.id] ?? 'active'}
-          setState={s => setStates(prev => ({ ...prev, [a.id]: s }))}
-          onNavigate={onNavigate}
-        />
-      ))}
+      {order.map(id => {
+        const a = AGENTS.find(x => x.id === id)!;
+        return (
+          <AgentCard
+            key={a.id}
+            agent={a}
+            range={range}
+            state={states[a.id] ?? 'active'}
+            setState={s => setStates(prev => ({ ...prev, [a.id]: s }))}
+            onNavigate={onNavigate}
+            cardRef={el => (el ? cards.current.set(a.id, el) : cards.current.delete(a.id))}
+            dragging={dragId === a.id}
+            onGripDown={e => startDrag(a.id, e)}
+          />
+        );
+      })}
     </div>
   );
 }
