@@ -438,18 +438,16 @@ function postRun(agentId: string, runId: string, trigger: Trigger, outcome: stri
 }
 
 // Compacts its memory with its own model, once it's past the cap.
-async function compactMemory(agent: AgentDef, model: ModelChoice, deps: RunDeps) {
+// With the model the run used - an API model directly, or a plan's own loop
+// (Claude Code, Copilot) given no tools.
+export async function compactMemory(agent: AgentDef, model: ModelChoice, deps: RunDeps) {
   const adapter = deps.adapter(model.connection);
-  if (!adapter) return;
+  const harness = adapter ? null : deps.harness(model.connection);
+  if (!adapter && !harness) return;
   await compactIfNeeded(agent.id, async (old, newer) => {
-    const turn = await adapter({
-      connection: model.connection,
-      model: model.model,
-      system: COMPACT_PROMPT,
-      messages: [{ role: 'user', text: `NEWER notes (true; for context only):\n${newer.join('\n')}\n\nOLDEST notes to compact:\n${old.join('\n')}` }],
-      tools: [],
-      maxTokens: 1500,
-    });
-    return turn.text;
+    const text = `NEWER notes (true; for context only):\n${newer.join('\n')}\n\nOLDEST notes to compact:\n${old.join('\n')}`;
+    if (adapter)
+      return (await adapter({ connection: model.connection, model: model.model, system: COMPACT_PROMPT, messages: [{ role: 'user', text }], tools: [], maxTokens: 1500 })).text;
+    return (await harness!({ model: model.model, system: COMPACT_PROMPT, opening: text, tools: [], call: async () => ({ content: '', error: true }), next: () => null })).text;
   });
 }
