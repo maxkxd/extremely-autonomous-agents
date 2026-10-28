@@ -3,6 +3,7 @@ import { beforeEach, test } from 'node:test';
 import { DEFAULT_PLAN, type AgentDef } from './agent.js';
 import { decideApproval, expireApprovals, pendingApprovals } from './approvals.js';
 import { one, resetDbForTests, run as exec } from './db.js';
+import { stateOf } from './run.js';
 import { execute, registerTools } from './tools.js';
 
 const agent: AgentDef = {
@@ -101,4 +102,16 @@ test("a call missing a required input is refused, never queued for a person", as
   assert.equal(out.outcome, 'refused');
   assert.match(out.content, /Missing to/);
   assert.equal((await pendingApprovals()).length, 0);
+});
+
+test("a stopped agent's approval waits: it can't be decided until the agent is back on", async () => {
+  const id = await queue();
+  stateOf(agent.id);
+  exec("UPDATE agent_state SET state = 'stopped' WHERE agent_id = ?", agent.id);
+  assert.equal((await pendingApprovals())[0].agentStopped, true);
+  await assert.rejects(decideApproval(id, 'approved', null, wake, Date.now(), async () => agent), /stopped/);
+  assert.equal(sent.length, 0);
+  exec("UPDATE agent_state SET state = 'active' WHERE agent_id = ?", agent.id);
+  await decideApproval(id, 'approved', null, wake, Date.now(), async () => agent);
+  assert.equal(sent.length, 1);
 });

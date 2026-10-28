@@ -18,7 +18,7 @@ export type Agent = {
   output: Slice[];
   cost: Slice[];
   runs: number;
-  lastRun: { minutesAgo: number; outcome: 'succeeded' | 'failed' | 'running' } | null; // null = never run
+  lastRun: { minutesAgo: number; outcome: 'succeeded' | 'failed' | 'running' | 'stopped' } | null; // null = never run
   // Approval outcomes per month (scaled to the time frame like the other stats).
   decisions: Decisions;
   ferocity: number; // index into FEROCITY
@@ -376,6 +376,7 @@ export type Approval = {
   args: ToolArgs;
   expiresAt?: number; // live ones: the server's deadline
   live?: boolean; // a real agent's queued call, decided on the server
+  paused?: boolean; // its agent is stopped: shown greyed, can't be decided until it's resumed
   minutesAgo: number; // when the agent made the call (placeholder data)
   createdAt?: number; // ms timestamp, for approvals raised while the app is open
   // Whose owner decides it, when that isn't the calling agent - e.g. the

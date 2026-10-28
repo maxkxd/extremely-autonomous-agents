@@ -71,11 +71,8 @@ export async function tick(deps: RunDeps = liveDeps) {
       const meta = await readMeta(id);
       if (!meta || meta.status === 'setting-up') continue;
       const st = stateOf(id, now);
-      // Drained: the run it was finishing is over, so it stops now.
-      if (st.state === 'draining') {
-        exec("UPDATE agent_state SET state = 'stopped', updated_at = ? WHERE agent_id = ?", now, id);
-        continue;
-      }
+      // Stopped: nothing runs at all (what's booked waits for it to be turned back on).
+      if (st.state === 'stopped') continue;
       const agent = await loadAgent(id);
       if (!agent) continue;
       const next = nextRun(agent, st, now);
@@ -88,7 +85,7 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (next.bookingId) exec('DELETE FROM bookings WHERE id = ?', next.bookingId);
       // A run it booked itself counts as its scheduled run: the schedule's clock
       // restarts, so booking a run never adds one on top of the level's pace.
-      if (next.trigger === 'scheduled' || next.trigger === 'self-booked')
+      if (next.trigger === 'scheduled' || next.trigger === 'self-booked' || next.trigger === 'run now')
         exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now, id);
       start(agent, next.trigger, next.task, deps, eligible[0]?.connection ?? null);
     }
@@ -99,8 +96,17 @@ export async function tick(deps: RunDeps = liveDeps) {
 
 type Next = { trigger: Trigger; task: string | null; bookingId?: number };
 
+// What a person set off, which a draining agent still runs: their message,
+// Run now, and hearing how an approval it queued was decided.
+const PERSON_DRIVEN = new Set<Trigger>(['your message', 'run now', 'approval']);
+
 // The run an agent should start now, if any.
+//   active   - its schedule, its own bookings, handoffs, and anything a person sets off
+//   draining - finishes the run it's in; starts nothing itself, but still answers a
+//              person, runs Run now, and hears approval outcomes
+//   stopped  - nothing; the run it was in was cut short (bookings wait)
 export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: number): Next | null {
+  if (st.state === 'stopped') return null;
   const due = all<{ id: number; trigger: Trigger; task: string | null }>(
     "SELECT id, trigger, task FROM bookings WHERE agent_id = ? AND due_at <= ? ORDER BY CASE trigger WHEN 'your message' THEN 0 ELSE 1 END, due_at, id",
     agent.id,
@@ -109,7 +115,10 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   // A person's message is answered even when the agent is stopped or backing off.
   const message = due.find(b => b.trigger === 'your message');
   if (message) return { trigger: message.trigger, task: message.task, bookingId: message.id };
-  if (st.state !== 'active') return null;
+  if (st.state === 'draining') {
+    const b = due.find(x => PERSON_DRIVEN.has(x.trigger));
+    return b ? { trigger: b.trigger, task: b.task, bookingId: b.id } : null;
+  }
   if (st.backoff_until && st.backoff_until > now) return null;
   // The runaway backstop - never the pace.
   if (runsToday(agent.id, now) >= backstop(agent, st.ferocity)) return null;

@@ -108,8 +108,7 @@ export const runnerRoutes: Record<string, Route> = {
     if (typeof b.ferocity === 'number' && b.ferocity >= 0 && b.ferocity < LEVELS.length)
       exec('UPDATE agent_state SET ferocity = ?, updated_at = ? WHERE agent_id = ?', Math.floor(b.ferocity), now, b.id);
     if (b.state === 'active' || b.state === 'draining' || b.state === 'stopped') {
-      // Draining with nothing running is simply stopped.
-      const state = b.state === 'draining' && !isRunning(b.id) ? 'stopped' : b.state;
+      const state = b.state;
       exec('UPDATE agent_state SET state = ?, updated_at = ? WHERE agent_id = ?', state, now, b.id);
       if (state === 'stopped') abortRun(b.id);
       // Turning it back on also clears any failure backoff.
@@ -124,7 +123,7 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/runner/run-now': async (_req, _q, body) => {
     const { id } = await body<{ id: string }>();
     if (!isId(id)) throw new Error('Unknown agent.');
-    book(id, 'self-booked', 'A person started this run from the app. Do your job as your Charter says.');
+    book(id, 'run now', null);
     return { ok: true };
   },
 

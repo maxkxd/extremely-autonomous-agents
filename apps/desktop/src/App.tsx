@@ -93,6 +93,7 @@ export function App() {
               minutesAgo: 0,
               createdAt: a.createdAt,
               expiresAt: a.expiresAt,
+              paused: a.agentStopped,
             })),
             ...[...decidedLive.current.values()].filter(d => !list.some(a => a.id === d.id)),
           ]),

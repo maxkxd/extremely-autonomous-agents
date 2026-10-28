@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { CircleAlert, CircleCheck, Loader2, SendHorizontal } from 'lucide-react';
+import { CircleAlert, CircleCheck, CircleStop, Loader2, SendHorizontal } from 'lucide-react';
 import { ACCOUNT, AGENTS } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import type { DmEntry, RunPost, ToolLine } from './dms';
@@ -43,6 +43,7 @@ function RunPostView({
   outcomes: Record<string, Resolution>;
 }) {
   const ok = post.outcome === 'succeeded';
+  const stopped = post.outcome === 'stopped'; // a person stopped it: not a failure
   return (
     <div className="dm-post">
       <div className="dm-avatar agent">
@@ -57,11 +58,11 @@ function RunPostView({
         {/* The run id is kept for debugging but not shown: hover the line to see
             it, click to copy it (e.g. to ask the Fleet Engineer about a run). */}
         <button
-          className={`dm-runline${ok ? '' : ' failed'}`}
+          className={`dm-runline${ok ? '' : stopped ? ' stopped' : ' failed'}`}
           title={`Run ${post.id} - click to copy`}
           onClick={() => navigator.clipboard?.writeText(post.id).catch(() => {})}
         >
-          {ok ? <CircleCheck size={13} strokeWidth={2} /> : <CircleAlert size={13} strokeWidth={2} />}
+          {ok ? <CircleCheck size={13} strokeWidth={2} /> : stopped ? <CircleStop size={13} strokeWidth={2} /> : <CircleAlert size={13} strokeWidth={2} />}
           {post.trigger} · {post.tools.length} action{post.tools.length === 1 ? '' : 's'} · {post.costKnown === false ? 'cost unknown' : `$${post.cost.toFixed(2)}`} ·{' '}
           {duration(post.seconds)}
         </button>

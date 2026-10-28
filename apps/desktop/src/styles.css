@@ -238,6 +238,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .outcome.running { background: #6a6a6a; animation: running-breathe 2.2s ease-in-out infinite; }
 @keyframes running-breathe { 0%, 100% { background-color: #4a4a4a; } 50% { background-color: #a8a8a8; } }
 .outcome.failed { background: #c75b5b; }
+.outcome.stopped { background: #8a8a8a; }
 
 .controls { display: flex; gap: 8px; }
 .ctl-btn {
@@ -368,7 +369,8 @@ ul { list-style: none; margin: 0; padding: 0; }
      fero-2 Driven      - glow breathes + sonar rings; level name glows
      fero-3 Relentless  - the card itself glows and twitches side to side
      fero-4 Apocalyptic - everything turns red, harder and faster
-   is-paused (stopped or draining) overrides all of it: gray slices, no motion.
+   is-paused (stopped) overrides all of it: it fades to gray slices, no motion.
+   Draining keeps its colours (it still answers people) but stops moving.
 
    Transitions: every effect fades over --tx, set per change by the card
    (Dashboard.tsx): ~0.9s gentle fade going up to Steady/Driven, 0s (abrupt)
@@ -499,7 +501,8 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 
 /* Paused (stopped or draining): gray, still. */
-.agent-card.is-paused { animation: none !important; }
+.agent-card.is-paused, .agent-card.is-draining { animation: none !important; }
+.agent-card.is-draining .chart-sonar { opacity: 0 !important; }
 .agent-card.is-paused .donut { filter: none; }
 .agent-card.is-paused .chart-glow, .agent-card.is-paused .chart-sonar { opacity: 0 !important; }
 .agent-card.is-paused .ferocity-name { text-shadow: none; }
@@ -580,6 +583,14 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 .approval-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
 .approval-buttons { display: flex; gap: 8px; }
+/* Its agent is stopped: the card fades to grey (and back when it's resumed);
+   the buttons wait, the expiry keeps counting. */
+.approval-avatar, .approval-head, .approval-fields, .approval-body, .approval-buttons { transition: filter 0.6s ease, opacity 0.6s ease; }
+.approval.paused .approval-avatar, .approval.paused .approval-head, .approval.paused .approval-fields,
+.approval.paused .approval-body, .approval.paused .approval-buttons { filter: grayscale(1); opacity: 0.45; }
+.approval.paused .ap-btn:disabled { opacity: 1; }
+.approval-paused { flex: 1; font-size: 12px; color: var(--muted); animation: paused-note-in 0.6s ease; }
+@keyframes paused-note-in { from { opacity: 0; } }
 .approval-expiry { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #5f5f5f; font-variant-numeric: tabular-nums; }
 
 .ap-btn {
@@ -1019,6 +1030,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .dm-runline:hover { color: var(--text); }
 .dm-runline svg { color: #3fb27f; }
 .dm-runline.failed, .dm-runline.failed svg { color: #e5484d; }
+.dm-runline.stopped, .dm-runline.stopped svg { color: var(--muted); }
 .dm-text { margin: 0; font-size: 13.5px; line-height: 1.55; color: #d6d6d6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dm-tools { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
 .dm-tools li {

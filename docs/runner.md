@@ -112,6 +112,21 @@ success, decides the tool is broken and complains again. Telling the model
 4. **Idle runs teach nothing.** A run that found nothing to do isn't written
    down as a lesson.
 
+## Drain and Stop (agreed 2026-10-29)
+
+| | Drain | Stop |
+|---|---|---|
+| The run it's in | finishes | cut short ("stopped", not a failure: no backoff) |
+| Its schedule, Apocalyptic chaining, its own bookings, handoffs | no | no |
+| A person's message, Run now | runs | waits until it's turned back on |
+| Hearing how an approval it queued was decided | runs | waits |
+| Its approvals | as normal | stay, greyed out, undecidable; their expiry keeps counting |
+| Its card | keeps its colours, stops moving | fades to grey |
+
+Both last until someone resumes the agent; nothing turns one into the
+other. The cards and approvals follow the runner, so a change made by
+someone else (or another device) shows within seconds.
+
 ## Money and limits
 
 - **Plans run out**: the agent moves on to its 2nd and 3rd models, even onto

@@ -248,14 +248,16 @@ test('schedule: Chill runs on its schedule; Apocalyptic straight after the last 
   assert.equal(nextRun(a, stateOf(ID), now + 30_000)?.trigger, 'apocalyptic');
 });
 
-test('schedule: stopped agents still answer messages; backoff and the backstop hold everything else', () => {
+test('schedule: stopped runs nothing at all; backoff and the backstop hold everything else', () => {
   const now = Date.now();
   const a = agent();
   stateOf(ID);
   exec("UPDATE agent_state SET state = 'stopped' WHERE agent_id = ?", ID);
   assert.equal(nextRun(a, stateOf(ID), now), null);
   exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'your message', 'hi', ?, ?)", ID, now, now);
-  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'your message');
+  assert.equal(nextRun(a, stateOf(ID), now), null); // not even a message; it waits
+  exec("UPDATE agent_state SET state = 'active' WHERE agent_id = ?", ID);
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'your message'); // answered once it's back on
 
   resetDbForTests();
   stateOf(ID);
@@ -266,6 +268,42 @@ test('schedule: stopped agents still answer messages; backoff and the backstop h
   setLevel(CHILL);
   for (let i = 0; i < 40; i++) exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES (?, ?, 'scheduled', 0, 'succeeded', ?)", `r${i}`, ID, now - i);
   assert.equal(nextRun(a, stateOf(ID), now), null); // past the backstop for today
+});
+
+test('schedule: draining starts nothing itself, but runs what a person sets off', () => {
+  const now = Date.now();
+  const a = agent();
+  stateOf(ID);
+  exec("UPDATE agent_state SET state = 'draining' WHERE agent_id = ?", ID);
+  assert.equal(nextRun(a, stateOf(ID), now), null); // its schedule is due (never run), but no
+  const booking = (trigger: string) => exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, ?, ?, ?, ?)', ID, trigger, 't', now, now);
+  booking('self-booked');
+  booking('handoff');
+  assert.equal(nextRun(a, stateOf(ID), now), null); // nor its own bookings, nor handed work
+  booking('run now');
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'run now');
+  exec("DELETE FROM bookings WHERE trigger = 'run now'");
+  booking('approval');
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'approval'); // hearing how its approval went
+  booking('your message');
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'your message'); // a person's message first
+  setLevel(APOCALYPTIC);
+  exec("UPDATE agent_state SET state = 'draining' WHERE agent_id = ?", ID);
+  exec("DELETE FROM bookings WHERE agent_id = ?", ID);
+  assert.equal(nextRun(a, stateOf(ID), now), null); // Apocalyptic doesn't chain either
+});
+
+test('a run a person stops is "stopped", not failed, and brings no backoff', async () => {
+  const controller = new AbortController();
+  const adapter: Adapter = async () => {
+    controller.abort();
+    throw new ModelError('aborted', 'network');
+  };
+  await runAgent(agent(), 'scheduled', null, deps(adapter), controller.signal);
+  const row = one<{ status: string }>('SELECT status FROM runs ORDER BY started_at DESC LIMIT 1');
+  assert.equal(row?.status, 'stopped');
+  assert.equal(stateOf(ID).fail_streak, 0);
+  assert.equal(stateOf(ID).backoff_until, null);
 });
 
 test('failure backoff grows and caps at an hour', () => {

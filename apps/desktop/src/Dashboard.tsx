@@ -296,7 +296,7 @@ export function AgentCard({
   return (
     <article
       ref={cardRef}
-      className={`agent-card${modelsOpen ? ` models-open${slide.stacked ? ' stacked' : ''}` : ''}${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
+      className={`agent-card${modelsOpen ? ` models-open${slide.stacked ? ' stacked' : ''}` : ''}${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} fero-${level} is-${state}${state === 'stopped' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
       style={{ '--tx': tx, '--shift': `${slide.shift}px` } as React.CSSProperties}
     >
       {/* Drag handle: centred on the card's left edge. */}
@@ -491,7 +491,15 @@ export function Dashboard({
   arrivingIds: string[]; // just-created agents: their cards smash in at the top together
   onDeleteAgent: (id: string) => Promise<void>; // removes its files and the agent everywhere
 }) {
-  const [states, setStates] = useState<Record<string, RunState>>({});
+  // Drain/Stop/Resume you just pressed, shown at once. A real agent follows the
+  // runner again a few seconds later, so a change made elsewhere (someone else,
+  // another device) reaches this screen.
+  const [states, setStates] = useState<Record<string, { state: RunState; at: number }>>({});
+  const stateFor = (id: string, l: LiveAgent | undefined): RunState => {
+    const mine = states[id];
+    if (mine && (!l || Date.now() - mine.at < 6000)) return mine.state;
+    return l?.state ?? 'active';
+  };
   // Each agent's models, and every model that could be given (docs/model-connections.md).
   const [modelChoices, setModelChoices] = useState<Record<string, ModelChoice[]>>({});
   const [available, setAvailable] = useState<AvailableModels[]>([]);
@@ -697,9 +705,9 @@ export function Dashboard({
             <AgentCard
               agent={a}
               range={range}
-              state={states[a.id] ?? l?.state ?? 'active'}
+              state={stateFor(a.id, l)}
               setState={s => {
-                setStates(prev => ({ ...prev, [a.id]: s }));
+                setStates(prev => ({ ...prev, [a.id]: { state: s, at: Date.now() } }));
                 if (l) setAgentRunner(a.id, { state: s }).catch(() => {});
               }}
               onNavigate={onNavigate}
