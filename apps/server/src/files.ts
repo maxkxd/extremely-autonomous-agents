@@ -26,6 +26,8 @@ export type Meta = {
   department: string;
   output: string[]; // KPI labels
   status: 'ready' | 'setting-up' | 'generic';
+  owner?: string; // the person it works for
+  org?: string | null; // their organisation, if any
   setup?: { packId: string; index: number; person: string; org: string | null; attempts: number };
 };
 
