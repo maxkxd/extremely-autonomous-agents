@@ -127,8 +127,9 @@ export function ModelPanel({
     const clean = next.filter(Boolean).slice(0, SLOTS);
     onChange(clean);
     onCheck?.(connection, model);
-    // On to the next slot (never past the first empty one).
-    setSlot(Math.min(slot + 1, clean.length, SLOTS - 1));
+    // Replacing a model stays on its slot; filling an empty one moves on to
+    // the next empty one.
+    if (!choices[slot]) setSlot(Math.min(clean.length, SLOTS - 1));
   };
   const remove = (i: number) => {
     const next = choices.filter((_, j) => j !== i);
