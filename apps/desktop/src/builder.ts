@@ -214,7 +214,7 @@ export type LiveAgent = {
   state: RunState;
   running: boolean;
   runs: number;
-  lastRun: { at: number; outcome: 'succeeded' | 'failed' | 'running' } | null;
+  lastRun: { at: number; outcome: 'succeeded' | 'failed' | 'running' | 'stopped' } | null;
   output: { tool: string; label: string; value: number }[];
   cost: { label: string; value: number }[];
   costUnknown: boolean;
@@ -265,7 +265,7 @@ export const startIntegrationSignIn = (id: string, client: { clientId?: string; 
   post<{ url: string }>('/api/integrations/sign-in', { id, ...client });
 
 // Approvals: real agents' T2 calls waiting on a person.
-export type LiveApproval = { id: string; agentId: string; agentName: string; tool: string; args: Record<string, unknown>; createdAt: number; expiresAt: number };
+export type LiveApproval = { id: string; agentId: string; agentName: string; agentStopped: boolean; tool: string; args: Record<string, unknown>; createdAt: number; expiresAt: number };
 export const getLiveApprovals = () => request<{ approvals: LiveApproval[] }>('/api/runner/approvals').then(r => r.approvals);
 export const decideApproval = (id: string, decision: 'approved' | 'rejected', note?: string) =>
   post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note });

@@ -233,7 +233,7 @@ function ApprovalCard({
 
   return (
     <div className={`approval-wrap${collapsing ? ' collapsing' : ''}`}>
-      <article className={`approval${leaving ? ` leaving ${leaving}` : ''}`}>
+      <article className={`approval${leaving ? ` leaving ${leaving}` : ''}${approval.paused && !leaving ? ' paused' : ''}`}>
         <div className="approval-avatar" aria-hidden>
           <DeptIcon size={18} strokeWidth={1.75} />
         </div>
@@ -267,7 +267,7 @@ function ApprovalCard({
 
           <footer className="approval-foot">
             <div className="approval-buttons">
-              <button className="ap-btn approve" onClick={() => resolve('approved')} disabled={!!leaving}>
+              <button className="ap-btn approve" onClick={() => resolve('approved')} disabled={!!leaving || approval.paused}>
                 <Check size={15} strokeWidth={2.25} />
                 Approve
               </button>
@@ -276,13 +276,14 @@ function ApprovalCard({
                 title="Shift-click to reject without a reason"
                 // Shift-click skips the reason box and rejects straight away.
                 onClick={e => (e.shiftKey ? resolve('rejected') : setRejecting(r => !r))}
-                disabled={!!leaving}
+                disabled={!!leaving || approval.paused}
                 aria-expanded={rejecting}
               >
                 <X size={15} strokeWidth={2.25} />
                 Reject
               </button>
             </div>
+            {approval.paused && <span className="approval-paused">{agent.name} is stopped. Resume it to decide; the clock keeps running.</span>}
             <span className="approval-expiry" title="Time left to respond - if it runs out, the action does not happen">
               <Clock size={12} strokeWidth={1.75} />
               {/* Running out plays the reject exit; the action does not happen. */}

@@ -17,7 +17,7 @@ import { execute, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js
 // tool loop on its first working model, the floor and its nudges, then the
 // record and its post in the agent's DM channel.
 
-export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 'your message' | 'approval';
+export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now';
 
 // What a run needs from outside, so tests can stand it up without a network.
 export type RunDeps = {
@@ -34,7 +34,7 @@ export type RunDeps = {
 export const MAX_STEPS = 150; // model turns in one run
 export const RUN_CEILING_MS = 60 * 60_000; // WAR's per-run ceiling
 
-export type RunResult = { id: string; status: 'succeeded' | 'failed'; acts: number; nudges: number; summary: string; error?: string };
+export type RunResult = { id: string; status: 'succeeded' | 'failed' | 'stopped'; acts: number; nudges: number; summary: string; error?: string };
 
 const newRunId = () => `r_${randomBytes(4).toString('hex')}`;
 
@@ -167,6 +167,8 @@ function opening(agent: AgentDef, trigger: Trigger, task: string | null): string
     }
     case 'approval':
       return task ?? 'An approval you were waiting on was decided. Carry on.';
+    case 'run now':
+      return `${agent.owner ?? 'A person'} started this run from the app. Start with what you owe (tasks.list_my_tasks), then do your job as your Charter says.`;
   }
 }
 
@@ -329,7 +331,9 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   }
 
   await runEnded(id); // let go of anything the run held open (a browser)
-  const status = error ? 'failed' : 'succeeded';
+  // Stopped by a person: cut short on purpose, not a failure - no backoff.
+  const stopped = !!signal?.aborted;
+  const status = stopped ? 'stopped' : error ? 'failed' : 'succeeded';
   const endedAt = deps.now();
   exec(
     'UPDATE runs SET status = ?, ended_at = ?, connection = ?, model = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, acts = ?, nudges = ?, summary = ?, error = ? WHERE id = ?',
@@ -343,15 +347,25 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
     acts,
     nudges,
     summary || null,
-    error ?? null,
+    stopped ? null : (error ?? null),
     id,
   );
-  postRun(agent.id, id, trigger, status, cost, endedAt - startedAt, error ? `Run failed: ${error}` : summary || '(No summary.)');
+  postRun(
+    agent.id,
+    id,
+    trigger,
+    status,
+    cost,
+    endedAt - startedAt,
+    stopped ? 'Stopped by a person part-way through this run.' : error ? `Run failed: ${error}` : summary || '(No summary.)',
+  );
 
   // Backoff after failures in a row; a success clears it.
   const st = stateOf(agent.id, endedAt);
-  const streak = status === 'failed' ? st.fail_streak + 1 : 0;
-  exec('UPDATE agent_state SET fail_streak = ?, backoff_until = ?, updated_at = ? WHERE agent_id = ?', streak, streak ? endedAt + backoffMs(streak) : null, endedAt, agent.id);
+  if (!stopped) {
+    const streak = status === 'failed' ? st.fail_streak + 1 : 0;
+    exec('UPDATE agent_state SET fail_streak = ?, backoff_until = ?, updated_at = ? WHERE agent_id = ?', streak, streak ? endedAt + backoffMs(streak) : null, endedAt, agent.id);
+  }
 
   if (deps.compact && used) void compactMemory(agent, used, deps).catch(() => {});
   return { id, status, acts, nudges, summary, error };
@@ -388,7 +402,7 @@ function postRun(agentId: string, runId: string, trigger: Trigger, outcome: stri
       ...(a.approval_id ? { approvalId: a.approval_id } : {}),
     };
   });
-  const body = { kind: 'run', id: runId, trigger: trigger === 'apocalyptic' ? 'self-booked' : trigger === 'approval' ? 'handoff' : trigger, outcome, cost: cost ?? 0, costKnown: cost != null, seconds: Math.round(ms / 1000), text, tools };
+  const body = { kind: 'run', id: runId, trigger: trigger === 'apocalyptic' ? 'self-booked' : trigger, outcome, cost: cost ?? 0, costKnown: cost != null, seconds: Math.round(ms / 1000), text, tools };
   exec("INSERT INTO dm (agent_id, kind, run_id, body, at) VALUES (?, 'run', ?, ?, ?)", agentId, runId, JSON.stringify(body), Date.now());
 }
 

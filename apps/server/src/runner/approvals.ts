@@ -1,6 +1,7 @@
 import { readMeta } from '../files.js';
 import { loadAgent } from './agent.js';
 import { all, one, run as exec } from './db.js';
+import { stateOf } from './run.js';
 import { runApproved } from './tools.js';
 
 // Approvals (docs/runner.md): a T2 call is queued with the exact arguments
@@ -16,7 +17,8 @@ export async function pendingApprovals(now = Date.now()) {
   const rows = all<ApprovalRow>("SELECT * FROM approvals WHERE status = 'pending' AND expires_at > ? ORDER BY created_at", now);
   const names = new Map<string, string>();
   for (const r of rows) if (!names.has(r.agent_id)) names.set(r.agent_id, (await readMeta(r.agent_id))?.name ?? r.agent_id);
-  return rows.map(r => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, tool: r.tool, args: JSON.parse(r.args) as Record<string, unknown>, createdAt: r.created_at, expiresAt: r.expires_at }));
+  // A stopped agent's approvals stay (their clock keeps running) but wait for it to be turned back on.
+  return rows.map(r => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, agentStopped: stateOf(r.agent_id, now).state === 'stopped', tool: r.tool, args: JSON.parse(r.args) as Record<string, unknown>, createdAt: r.created_at, expiresAt: r.expires_at }));
 }
 
 const argsLine = (args: Record<string, unknown>) =>
@@ -29,6 +31,7 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
   const a = one<ApprovalRow>('SELECT * FROM approvals WHERE id = ?', id);
   if (!a) throw new Error('That approval no longer exists.');
   if (a.status !== 'pending') throw new Error(`Already ${a.status}.`);
+  if (stateOf(a.agent_id, now).state === 'stopped') throw new Error('Its agent is stopped. Resume it to decide this.');
   if (a.expires_at <= now) {
     expireApprovals(now, wake);
     throw new Error('It expired before you decided, so it did not happen.');
