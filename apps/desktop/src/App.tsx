@@ -4,6 +4,8 @@ import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
 import { useElasticScroll } from './useElasticScroll';
+import { AgentDM, stamp, type StampedEntry } from './AgentDM';
+import { DM_HISTORY } from './dms';
 import { subscribeToDecisions } from './live';
 import {
   AGENTS,
@@ -142,6 +144,37 @@ export function App() {
     setConvos(prev => ({ ...prev, [id]: fn(prev[id] ?? startConvo(REQUESTS.find(r => r.id === id)!)) }));
   const requestCounts: Record<string, number> = {};
   for (const r of pendingRequests) requestCounts[r.agentId] = (requestCounts[r.agentId] ?? 0) + 1;
+  // Agent DMs: history plus anything sent this session, per agent. Kept here
+  // so a pending reply still lands if you switch away mid-run.
+  const [dms, setDms] = useState<Record<string, StampedEntry[]>>(() =>
+    Object.fromEntries(Object.entries(DM_HISTORY).map(([id, list]) => [id, list.map(e => stamp(e))])),
+  );
+  const [dmRunning, setDmRunning] = useState<Record<string, boolean>>({});
+  // PLACEHOLDER: your message wakes the agent; a run later posts its reply in
+  // the same channel. Simulated until real agents exist.
+  const sendDm = (agentId: string, text: string) => {
+    const name = AGENTS.find(a => a.id === agentId)!.name;
+    setDms(prev => ({ ...prev, [agentId]: [...(prev[agentId] ?? []), stamp({ kind: 'you', minutesAgo: 0, text }, Date.now())] }));
+    setDmRunning(prev => ({ ...prev, [agentId]: true }));
+    window.setTimeout(() => {
+      const reply = stamp(
+        {
+          kind: 'run',
+          id: Math.random().toString(16).slice(2, 6),
+          minutesAgo: 0,
+          trigger: 'your message',
+          outcome: 'succeeded',
+          cost: 0.02,
+          seconds: 3,
+          text: `(Simulated) This is where ${name} answers you. Replies to questions asked here always come back here.`,
+          tools: [],
+        },
+        Date.now(),
+      );
+      setDms(prev => ({ ...prev, [agentId]: [...(prev[agentId] ?? []), reply] }));
+      setDmRunning(prev => ({ ...prev, [agentId]: false }));
+    }, 2400);
+  };
   const mainBody = useRef<HTMLDivElement>(null);
   useElasticScroll(mainBody);
   const [width, setWidth] = useState(() => clamp(readStored(WIDTH_KEY, DEFAULT_WIDTH)));
@@ -250,6 +283,13 @@ export function App() {
               onOpenApprovals={() => setView('approvals')}
               convos={convos}
               updateConvo={updateConvo}
+            />
+          ) : view.startsWith('agent:') ? (
+            <AgentDM
+              agentId={view.slice('agent:'.length)}
+              entries={dms[view.slice('agent:'.length)] ?? []}
+              thinking={!!dmRunning[view.slice('agent:'.length)]}
+              onSend={text => sendDm(view.slice('agent:'.length), text)}
             />
           ) : (
             <div className="main-empty">Coming next.</div>
