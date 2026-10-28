@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Building2, Check, Gauge, LogOut, Plug, Plus, Sparkles, Trash2, User, X } from 'lucide-react';
+import { Building2, Check, ChevronDown, Gauge, LogOut, Plug, Plus, Sparkles, Trash2, User, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, createOrganization } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { AI_IDES, IdeLogo, setYourIde, yourIde, type IdeId } from './Requests';
 import { useProfileChat } from './ProfileChat';
+import { useDismiss } from './useDismiss';
 import { ACCEPT, removePhoto, setPhoto, usePhoto } from './photo';
 import {
   getCatalog,
@@ -160,6 +161,47 @@ function useRecord<T>(load: () => Promise<T>, store: (v: T) => Promise<unknown>)
 // --- Account -----------------------------------------------------------------
 
 // One setting: what it is on the left, its control on the right.
+// The same joined dropdown as the dashboard's range picker.
+function IdePicker({ value, onChange }: { value: IdeId; onChange: (id: IdeId) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, open, () => setOpen(false));
+
+  return (
+    <div className={`ide-picker${open ? ' open' : ''}`} ref={ref}>
+      <button className="range-btn" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}>
+        <IdeLogo logo={AI_IDES[value].logo} />
+        {AI_IDES[value].name}
+        <ChevronDown size={15} className="muted chev" />
+      </button>
+      {open && (
+        // Near the foot of Settings: scroll so the whole menu shows.
+        <ul className="dropdown-menu" role="listbox" ref={el => el?.scrollIntoView({ block: 'nearest' })}>
+          {(Object.keys(AI_IDES) as IdeId[]).map(id => (
+            <li key={id}>
+              <button
+                role="option"
+                aria-selected={id === value}
+                className="dropdown-option"
+                onClick={() => {
+                  onChange(id);
+                  setOpen(false);
+                }}
+              >
+                <span className="option-with-avatar">
+                  <IdeLogo logo={AI_IDES[id].logo} />
+                  {AI_IDES[id].name}
+                </span>
+                {id === value && <Check size={15} />}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function Row({ label, sub, children }: { label: string; sub?: string; children: React.ReactNode }) {
   return (
     <div className="srow2">
@@ -290,32 +332,20 @@ function AccountSection() {
       <div className="sgroup">
         <h3>Preferences</h3>
         <Row label="AI IDE" sub='Where "Send to" on a request opens it.'>
-          <span className="sselect">
-            <IdeLogo logo={AI_IDES[ide].logo} />
-            <select
-              value={ide}
-              onChange={e => {
-                const id = e.target.value as IdeId;
-                setIde(id);
-                setYourIde(id);
-              }}
-            >
-              {(Object.keys(AI_IDES) as IdeId[]).map(id => (
-                <option key={id} value={id}>
-                  {AI_IDES[id].name}
-                </option>
-              ))}
-            </select>
-          </span>
+          <IdePicker
+            value={ide}
+            onChange={id => {
+              setIde(id);
+              setYourIde(id);
+            }}
+          />
         </Row>
       </div>
 
-      <div className="sgroup sgroup-danger">
-        <Row label="Delete account">
-          <button className="sbtn danger" disabled title="Comes with sign-in">
-            Delete account
-          </button>
-        </Row>
+      <div className="sgroup sgroup-delete">
+        <button className="sbtn danger" disabled title="Comes with sign-in">
+          Delete account
+        </button>
       </div>
     </section>
   );
