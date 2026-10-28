@@ -4,6 +4,7 @@ import { BuilderError, build, interview, matchPack, profileInterview, type Build
 import { compose, kpiLabels, listIds, readMeta, remove, save, slug, type AgentFiles } from './files.js';
 import { scanFleet } from './fleet.js';
 import { enqueue, resume } from './jobs.js';
+import { allChoices, removeChoices, setChoices } from './models/choice.js';
 import * as conn from './models/connections.js';
 import { ConnectError } from './models/providers.js';
 import { CATALOG } from './catalog.js';
@@ -55,15 +56,16 @@ const context = async (person: string, org: string | null, members: string[] = [
     person: await loadPerson(person),
     profile: org ? await loadProfile(org) : null,
     fleet: await scanFleet(),
+    models: await conn.availableModels(),
   };
 };
 
 // An agent as the app sees it: the card's details, plus the hidden files as an
 // opaque bundle it hands back on accept. The id is unique among takenIds.
-function forApp(b: Build, takenIds: string[], fleetIds?: Set<string>) {
+function forApp(b: Build, takenIds: string[], fleetIds?: Set<string>, available?: conn.Available[]) {
   let id = slug(b.name);
   for (let n = 2; takenIds.includes(id); n++) id = `${slug(b.name)}-${n}`;
-  const files = compose(b, id, fleetIds);
+  const files = compose(b, id, fleetIds, available);
   return { agent: { id, name: b.name, department: b.department, output: b.kpi.map(k => k.label) }, files };
 }
 
@@ -79,7 +81,7 @@ const routes: Record<string, Route> = {
   'POST /api/org/turn': async req => {
     const { person, org, turns } = await body<{ person: string; org: string; turns: Turn[] }>(req);
     const out = await profileInterview(org, await loadPerson(person), turns);
-    await addPersonNotes(person, out.person_notes ?? []);
+    if (person) await addPersonNotes(person, out.person_notes ?? []);
     return { ...out, confidence: clamp(out.confidence) };
   },
   // link: check the key people against the members straight away (the profile
@@ -166,8 +168,8 @@ const routes: Record<string, Route> = {
     const ctx = await context(person, org, members);
     const b = await build(ctx, turns);
     if (org) await addNotes(org, b.profile_notes ?? []);
-    await addPersonNotes(person, b.person_notes ?? []);
-    return forApp(b, takenIds, new Set(ctx.fleet.tools.map(t => t.id)));
+    if (person) await addPersonNotes(person, b.person_notes ?? []);
+    return forApp(b, takenIds, new Set(ctx.fleet.tools.map(t => t.id)), ctx.models);
   },
 
   // --- Packs: generic files at once, customized in the background on accept ---
@@ -199,9 +201,20 @@ const routes: Record<string, Route> = {
       status: setup ? 'setting-up' : 'ready',
       setup: setup && { ...setup, person, org, attempts: 0 },
     });
+    await setChoices(files.id, files.models ?? []);
     if (setup) enqueue(files.id);
     return { ok: true };
   },
+  // --- Which models each agent runs on (models/choice.ts) ---
+  // Everything connected that an agent could be given.
+  'GET /api/models': async () => conn.availableModels(),
+  'GET /api/agents/models': async () => allChoices(),
+  'POST /api/agents/models': async req => {
+    const { id, choices } = await body<{ id: string; choices: unknown }>(req);
+    if (!/^[a-z0-9-]+$/.test(id ?? '')) throw new ConnectError('Unknown agent.');
+    return { choices: await setChoices(id, choices) };
+  },
+
   // Every saved agent's set-up state and card details.
   'GET /api/agents/status': async () => {
     const out: Record<string, unknown> = {};
@@ -214,6 +227,7 @@ const routes: Record<string, Route> = {
   'POST /api/agents/delete': async req => {
     const { id } = await body<{ id: string }>(req);
     await remove(id);
+    await removeChoices(id);
     return { ok: true };
   },
 };

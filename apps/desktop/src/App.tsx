@@ -428,6 +428,7 @@ export function App() {
       {reveal && (
         <AgentReveal
           agents={reveal.built.map(b => b.agent)}
+          models={reveal.built.map(b => b.files.models ?? [])}
           leaving={reveal.leaving}
           error={reveal.error}
           onCancel={cancelReveal}

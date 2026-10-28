@@ -3,6 +3,8 @@ import { customize, type Build } from './builder.js';
 import { scanFleet } from './fleet.js';
 import { compose, kpiLabels, listIds, readMeta, save, writeMeta } from './files.js';
 import { loadPerson, loadProfile } from './org.js';
+import { availableModels } from './models/connections.js';
+import { setChoices } from './models/choice.js';
 
 // Setting up pack agents (docs/agent-creation.md). Adding a pack saves each
 // agent's generic files at once, so it exists and is valid straight away; this
@@ -49,11 +51,12 @@ async function run(id: string) {
     // Every other agent counts, including packmates still being set up, so
     // they all converge on the same tool ids.
     const fleet = await scanFleet(id);
-    const ctx = { person: await loadPerson(person), profile: org ? await loadProfile(org) : null, fleet };
+    const ctx = { person: await loadPerson(person), profile: org ? await loadProfile(org) : null, fleet, models: await availableModels() };
     const custom = await customize(ctx, build, packName);
-    const files = compose(custom, id, new Set(fleet.tools.map(t => t.id)));
+    const files = compose(custom, id, new Set(fleet.tools.map(t => t.id)), ctx.models);
     // Deleted while it was being set up: don't bring it back.
     if (!(await readMeta(id))) return;
+    await setChoices(id, files.models);
     await save(files, { name: files.name, department: files.department, output: kpiLabels(files.kpi), status: 'ready' });
     console.log(`set up ${id}`);
   } catch (e) {

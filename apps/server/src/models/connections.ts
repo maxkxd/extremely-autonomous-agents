@@ -77,6 +77,7 @@ export type ConnectionView = {
 
 export async function list(): Promise<ConnectionView[]> {
   const s = await load();
+  cachedModels = Object.fromEntries(Object.entries(s.connections).map(([id, v]) => [id, v.broken ? [] : v.models]));
   const cc = await claudeCodeStatus();
   return PROVIDERS.map(p => {
     const saved = s.connections[p.id];
@@ -548,6 +549,22 @@ export async function claudeCodeLogin() {
   openTerminal('Sign in to Claude', { win: run, unix: `${quoted(bin)} auth login --claudeai` });
   waitFor(async () => (await claudeCodeStatus()).loggedIn, claudeCodeConnect);
 }
+
+// The models agents can be given: every working connection and its models.
+// Copilot picks its own model, so it offers one choice, "auto".
+export type Available = { connection: string; name: string; kind: string; models: string[] };
+export async function availableModels(): Promise<Available[]> {
+  return (await list())
+    .filter(c => c.connected)
+    .map(c => {
+      const saved = c.id === 'copilot' ? ['auto'] : null;
+      return { connection: c.id, name: c.name, kind: c.kind, models: saved ?? modelsOf(c.id) };
+    })
+    .filter(a => a.models.length);
+}
+let cachedModels: Record<string, string[]> = {};
+const modelsOf = (id: string) => cachedModels[id] ?? [];
+// Filled by list(), which availableModels calls first.
 
 // For the builder: an Anthropic key from the connections, else the server's own.
 export async function anthropicKey(): Promise<string | undefined> {

@@ -71,6 +71,27 @@ which is OpenAI's self-serve case. Only the hosted plan needs more:
   the Agent SDK with plan credentials.
 - Amazon Bedrock and Google Vertex need cloud credentials rather than a key.
 
+## Which models an agent runs on
+
+Each agent has **up to three models, in order** (`data/agent-models.json`, and
+`models:` in its TOOLS.yaml), each a model on one connection with an effort
+level (low / medium / high / max). #1 runs; #2 and #3 take over when it can't.
+
+- **The builder picks them** (custom agents and pack customization): the best
+  fit for the job from what's connected, preferring plans over pay-per-use
+  keys, and spread across connections so one outage doesn't stop the agent.
+  With nothing connected the agent is still created, with no models, and its
+  card's Model row is flagged.
+- **Falling back** (`apps/server/src/models/health.ts`, tested): a model that
+  fails to run is benched - 2 minutes, doubling per failure in a row, an hour
+  at most - and the next choice runs. One success clears it. If every
+  connected choice is benched, the one that comes back soonest is tried.
+- **On the card**: the Model row under Est. Output shows #1 and its effort.
+  Clicking it slides the right column over the pies and opens the picker:
+  slots 1-3, effort, search, and every connected provider as a group that
+  opens with its arrow. Click away to close.
+- Copilot picks its own model, so it offers one choice: "auto".
+
 ## Running an agent on Claude Code (for the runtime)
 
 Tested on a Claude plan (`scripts/claude-code-test.ts`). Without isolation,

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { AgentCard } from './Dashboard';
+import type { ModelChoice } from './builder';
 import type { Agent } from './data';
 
 const HOLD_MS = 1200;
@@ -10,12 +11,14 @@ const HOLD_MS = 1200;
 // holding the button under them accepts.
 export function AgentReveal({
   agents,
+  models,
   leaving,
   error,
   onCancel,
   onAccept,
 }: {
   agents: Agent[];
+  models?: ModelChoice[][]; // the builder's picks, shown on each card (by position)
   leaving: boolean; // accepted: fading back to the dashboard
   error: string | null;
   onCancel: () => void;
@@ -85,6 +88,7 @@ export function AgentReveal({
                 dragging={false}
                 onGripDown={() => {}}
                 preview
+                models={models?.[i]}
               />
             </div>
           ))}

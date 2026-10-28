@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CircleCheckBig, Ellipsis, GripVertical, Pause, Play, Square, Trash2, User, Wrench } from 'lucide-react';
 import { DeleteAgentDialog } from './DeleteAgentDialog';
+import { ModelPanel, ModelRow, useModelSlide } from './ModelPicker';
+import { getAgentModels, getAvailableModels, setAgentModels, type AvailableModels, type ModelChoice } from './builder';
 import { useDismiss } from './useDismiss';
 import { FlashCount } from './FlashCount';
 import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
@@ -207,6 +209,9 @@ export function AgentCard({
   onGripDown,
   preview = false,
   onDelete,
+  models,
+  available = [],
+  onModels,
 }: {
   agent: Agent;
   range: TimeRange;
@@ -220,7 +225,15 @@ export function AgentCard({
   onGripDown: (e: React.PointerEvent) => void;
   preview?: boolean; // the new-agent reveal: nothing on it is live yet
   onDelete?: () => void; // absent for built-in agents, which can't be deleted
+  models?: ModelChoice[]; // up to three, in order (absent: don't show the Model row)
+  available?: AvailableModels[];
+  onModels?: (next: ModelChoice[]) => void;
 }) {
+  // The model picker: the right column slides over the pies to make room.
+  const cardRef = useRef<HTMLElement>(null);
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const closeModels = useCallback(() => setModelsOpen(false), []);
+  const slide = useModelSlide(cardRef, modelsOpen, closeModels);
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   // Ferocity lives on the card because each level restyles the whole card
   // (fero-0..4 in styles.css). How a change looks depends on its direction:
@@ -254,8 +267,9 @@ export function AgentCard({
 
   return (
     <article
-      className={`agent-card${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
-      style={{ '--tx': tx } as React.CSSProperties}
+      ref={cardRef}
+      className={`agent-card${modelsOpen ? ` models-open${slide.stacked ? ' stacked' : ''}` : ''}${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
+      style={{ '--tx': tx, '--shift': `${slide.shift}px` } as React.CSSProperties}
     >
       {/* Drag handle: centred on the card's left edge. */}
       {!preview && (
@@ -364,7 +378,11 @@ export function AgentCard({
         </div>
 
         <Tuning agent={agent} range={range} level={level} setLevel={setLevel} />
+        {models && (
+          <ModelRow choices={models} available={available} open={modelsOpen} readOnly={preview} onOpen={() => setModelsOpen(o => !o)} />
+        )}
       </aside>
+      {modelsOpen && models && onModels && <ModelPanel choices={models} available={available} onChange={onModels} />}
     </article>
   );
 }
@@ -434,6 +452,17 @@ export function Dashboard({
   onDeleteAgent: (id: string) => Promise<void>; // removes its files and the agent everywhere
 }) {
   const [states, setStates] = useState<Record<string, RunState>>({});
+  // Each agent's models, and every model that could be given (docs/model-connections.md).
+  const [modelChoices, setModelChoices] = useState<Record<string, ModelChoice[]>>({});
+  const [available, setAvailable] = useState<AvailableModels[]>([]);
+  useEffect(() => {
+    getAgentModels().then(setModelChoices, () => {});
+    getAvailableModels().then(setAvailable, () => {});
+  }, [arrivingIds.join(',')]);
+  const changeModels = (id: string, next: ModelChoice[]) => {
+    setModelChoices(prev => ({ ...prev, [id]: next }));
+    setAgentModels(id, next).catch(() => {});
+  };
   const [order, setOrder] = useState(() => loadOrder(arrivingIds));
   const [dragId, setDragId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Agent | null>(null);
@@ -608,6 +637,9 @@ export function Dashboard({
               dragging={dragId === a.id}
               onGripDown={e => startDrag(a.id, e)}
               onDelete={a.builtIn ? undefined : () => setDeleting(a)}
+              models={modelChoices[a.id] ?? []}
+              available={available}
+              onModels={next => changeModels(a.id, next)}
             />
           </div>
         );
