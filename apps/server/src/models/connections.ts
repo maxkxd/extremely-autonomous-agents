@@ -68,6 +68,7 @@ export type ConnectionView = {
   models: number;
   pending?: { userCode?: string; verificationUri?: string }; // a sign-in in progress
   setupNeeded?: string; // why it can't connect yet, in plain words
+  lastError?: string; // why the last sign-in didn't finish
   claudeCode?: ClaudeCodeStatus;
 };
 
@@ -97,6 +98,7 @@ export async function list(): Promise<ConnectionView[]> {
     if (p.id === 'copilot') {
       if (!process.env.GITHUB_OAUTH_CLIENT_ID) view.setupNeeded = 'Needs a GitHub OAuth App for this app (GITHUB_OAUTH_CLIENT_ID).';
       if (copilotPending) view.pending = { userCode: copilotPending.userCode, verificationUri: copilotPending.verificationUri };
+      else if (!saved && copilotError) view.lastError = copilotError;
     }
     return view;
   });
@@ -300,6 +302,7 @@ async function chatGptModels(accessToken: string): Promise<string[]> {
 // Needs a GitHub OAuth App registered for this product, with device flow on.
 
 let copilotPending: { userCode: string; verificationUri: string } | null = null;
+let copilotError: string | null = null;
 
 export async function copilotStart() {
   const clientId = process.env.GITHUB_OAUTH_CLIENT_ID;
@@ -312,6 +315,7 @@ export async function copilotStart() {
   const d = (await res.json()) as { device_code: string; user_code: string; verification_uri: string; interval: number; expires_in: number; error?: string };
   if (!res.ok || d.error) throw new ConnectError(`GitHub didn't start the sign-in (${d.error ?? res.status}).`);
   copilotPending = { userCode: d.user_code, verificationUri: d.verification_uri };
+  copilotError = null;
   void pollCopilot(clientId, d.device_code, d.interval, Date.now() + d.expires_in * 1000);
   return copilotPending;
 }
@@ -332,10 +336,13 @@ async function pollCopilot(clientId: string, deviceCode: string, interval: numbe
         wait = t.interval ?? wait + 5;
         continue;
       }
-      if (!t.access_token) return;
+      if (t.error === 'expired_token') return void (copilotError = 'That code expired. Press Connect for a new one.');
+      if (t.error === 'access_denied') return void (copilotError = 'Sign-in was cancelled on GitHub.');
+      if (!t.access_token) return void (copilotError = `GitHub sign-in failed (${t.error ?? 'no token'}).`);
       // Confirm the account has Copilot before calling it connected.
       const client = new CopilotClient({ gitHubToken: t.access_token, useLoggedInUser: false, logLevel: 'error' });
       try {
+        await client.start();
         const models = (await client.listModels()).map(m => m.id);
         await setSecret('copilot', { token: t.access_token });
         const user = (await (await fetch('https://api.github.com/user', { headers: { authorization: `Bearer ${t.access_token}` } })).json()) as { login?: string };
@@ -345,8 +352,12 @@ async function pollCopilot(clientId: string, deviceCode: string, interval: numbe
       }
       return;
     }
+    copilotError = 'That code expired. Press Connect for a new one.';
   } catch (e) {
     console.error('Copilot sign-in failed:', (e as Error).message);
+    copilotError = /copilot|subscription|entitle|403/i.test((e as Error).message)
+      ? "Signed in to GitHub, but this account doesn't have a Copilot plan."
+      : `Copilot couldn't be checked: ${(e as Error).message}`;
   } finally {
     copilotPending = null;
   }

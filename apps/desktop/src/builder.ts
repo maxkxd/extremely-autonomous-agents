@@ -177,6 +177,7 @@ export type Connection = {
   models: number;
   pending?: { userCode?: string; verificationUri?: string };
   setupNeeded?: string;
+  lastError?: string;
   claudeCode?: { installed: boolean; version?: string; loggedIn: boolean; authMethod?: string };
 };
 

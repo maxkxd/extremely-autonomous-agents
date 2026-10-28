@@ -322,6 +322,7 @@ function PlanRow({ c, refresh, watch }: RowProps) {
   // GitHub Copilot: a device code you enter on GitHub. While one is waiting,
   // the code and the one button you need replace Connect.
   const code = c.pending?.userCode;
+  const failed = !c.connected && !code && c.lastError;
   return (
     <RowShell
       c={c}
@@ -332,7 +333,14 @@ function PlanRow({ c, refresh, watch }: RowProps) {
             ? 'Enter this code on GitHub and approve.'
             : (c.setupNeeded ?? c.what)
       }
-      below={errorLine}
+      below={
+        errorLine ||
+        (failed && (
+          <div className="mform">
+            <span className="custom-error">{c.lastError}</span>
+          </div>
+        ))
+      }
     >
       {c.connected ? (
         disconnect
