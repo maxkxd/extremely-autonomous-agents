@@ -54,11 +54,17 @@ function RunPostView({
           <span className="dm-time">{clock(post.at)}</span>
         </div>
         {/* Status line: outcome, run id, trigger, actions, cost, duration. */}
-        <div className={`dm-runline${ok ? '' : ' failed'}`}>
+        {/* The run id is kept for debugging but not shown: hover the line to see
+            it, click to copy it (e.g. to ask the Fleet Engineer about a run). */}
+        <button
+          className={`dm-runline${ok ? '' : ' failed'}`}
+          title={`Run ${post.id} - click to copy`}
+          onClick={() => navigator.clipboard?.writeText(post.id).catch(() => {})}
+        >
           {ok ? <CircleCheck size={13} strokeWidth={2} /> : <CircleAlert size={13} strokeWidth={2} />}
-          run {post.id} · {post.trigger} · {post.tools.length} action{post.tools.length === 1 ? '' : 's'} · $
-          {post.cost.toFixed(2)} · {duration(post.seconds)}
-        </div>
+          {post.trigger} · {post.tools.length} action{post.tools.length === 1 ? '' : 's'} · ${post.cost.toFixed(2)} ·{' '}
+          {duration(post.seconds)}
+        </button>
         <p className="dm-text">{post.text}</p>
         {post.tools.length > 0 && (
           <ul className="dm-tools">
