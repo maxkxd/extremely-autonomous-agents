@@ -102,7 +102,7 @@ builder only ever see that list.
 | Connection | Agent-capable | Effort levels |
 | --- | --- | --- |
 | Anthropic | all listed | `capabilities.effort` per model (Haiku 4.5: none) |
-| OpenRouter | text in and out, and `tools` in `supported_parameters` | all four if it takes `reasoning` |
+| OpenRouter | text in and out, and `tools` in `supported_parameters` | `reasoning.supported_efforts` (a reasoning model that lists none: no setting) |
 | Gemini | `generateContent` models | low/medium/high if `thinking` |
 | ChatGPT plan | listed models | its `supported_reasoning_levels` |
 | Ollama | `tools` in `/api/show` capabilities | low/medium/high for gpt-oss |
@@ -114,10 +114,19 @@ Every provider's list also goes through a filter of known non-chat names
 (embeddings, speech, images, moderation, realtime, search previews...).
 
 Our levels map onto each provider's own: low/medium/high as named, and **max**
-is the provider's top level above high (`xhigh` or `max`). A model that takes
-no effort setting shows the Effort row greyed out ("Not adjustable for this
-model") and the runner sends none. The builder's pick is moved to the nearest
-level the model takes. An agent that already holds a model its connection no
+is the provider's `max`, or its `xhigh` when it has no max (levels above max,
+like ChatGPT's `ultra`, aren't offered). Where the name differs it's saved per
+model (`native` in `data/connections.json`); **the runner sends
+`nativeEffort(connection, model, level)`**, never our name blindly, and fits a
+saved level to the model's list first (`fitEffort`), as the card does. A model
+with no setting, or only one level, shows the Effort row greyed out ("Not
+adjustable for this model") and the runner sends none. The builder's pick is
+moved to the nearest level the model takes.
+
+Verified live (2026-10-28): the ChatGPT plan models call function tools and
+honour `low`, `xhigh` and `max`. Not yet verified with a real connection:
+Gemini's `thinking` flag, Ollama's `/api/show`, and the name-based rules for
+OpenAI, xAI, Groq, Mistral and DeepSeek. An agent that already holds a model its connection no
 longer offers is flagged on its card like an agent with no model.
 
 Connections saved before this check (`caps` missing in

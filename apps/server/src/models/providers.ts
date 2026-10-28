@@ -49,7 +49,7 @@ export const PROVIDERS: Provider[] = [
   { id: 'ollama', name: 'Ollama', kind: 'local', what: 'Models running on this computer', baseUrl: 'http://localhost:11434', editableBaseUrl: true },
 ];
 
-import { anthropicModels, geminiModels, keepChat, knownEfforts, ollamaModel, openRouterModels, type ModelInfo } from './caps.js';
+import { anthropicModels, geminiModels, keepChat, knownModel, ollamaModel, openRouterModels, type ModelInfo } from './caps.js';
 
 export const provider = (id: string) => PROVIDERS.find(p => p.id === id);
 
@@ -73,7 +73,7 @@ async function getJson(url: string, headers: Record<string, string> = {}) {
 const ids = (list: unknown, field = 'id') =>
   Array.isArray(list) ? list.map(m => String((m as Record<string, unknown>)[field] ?? '')).filter(Boolean) : [];
 // Providers that only list ids: effort from what's known about each family.
-const named = (id: string, list: string[]): ModelInfo[] => list.map(m => ({ id: m, efforts: knownEfforts(id, m) }));
+const named = (id: string, list: string[]): ModelInfo[] => list.map(m => knownModel(id, m));
 
 const trimSlash = (u: string) => u.replace(/\/+$/, '');
 
@@ -115,7 +115,8 @@ async function listModels(id: string, key: string, baseUrl?: string): Promise<Mo
       const shown = await Promise.all(
         names.map(async name => {
           try {
-            const res = await fetch(`${base}/api/show`, { method: 'POST', body: JSON.stringify({ model: name }), signal: AbortSignal.timeout(10000) });
+            // "name" for older Ollama versions, "model" for newer ones.
+            const res = await fetch(`${base}/api/show`, { method: 'POST', body: JSON.stringify({ model: name, name }), signal: AbortSignal.timeout(10000) });
             return ollamaModel(name, res.ok ? await res.json() : null);
           } catch {
             return ollamaModel(name, null);

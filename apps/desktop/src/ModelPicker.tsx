@@ -45,7 +45,9 @@ export function ModelRow({
 }) {
   const first = choices[0];
   const problem = !first ? 'No model' : available.length ? whyNot(first, available) : null;
-  const showEffort = !!first && !problem && effortsOf(first.connection, first.model, available).length > 0;
+  // The level that will actually be used: a choice saved before its model's
+  // levels were known shows (and runs at) the nearest one it takes.
+  const firstEfforts = first && !problem ? effortsOf(first.connection, first.model, available) : [];
   return (
     <button
       className={`model-row${problem ? ' flagged' : ''}${open ? ' open' : ''}`}
@@ -63,7 +65,7 @@ export function ModelRow({
         {first ? (
           <>
             <span className="model-row-name">{modelLabel(first)}</span>
-            {showEffort && <span className="model-row-effort">{EFFORT_LABEL[first.effort]}</span>}
+            {firstEfforts.length > 0 && <span className="model-row-effort">{EFFORT_LABEL[fitEffort(first.effort, firstEfforts)]}</span>}
           </>
         ) : (
           problem
@@ -123,6 +125,7 @@ export function ModelPanel({
   // Only the levels the slot's model takes; none greys the row out.
   const current = choices[slot];
   const slotEfforts = current && isUsable(current, available) ? effortsOf(current.connection, current.model, available) : [];
+  const slotEffort = current && fitEffort(current.effort, slotEfforts);
   const setEffort = (effort: Effort) => {
     if (!choices[slot]) return;
     onChange(choices.map((c, i) => (i === slot ? { ...c, effort } : c)));
@@ -177,13 +180,15 @@ export function ModelPanel({
         {slotEfforts.length ? (
           <div className="model-effort-options">
             {slotEfforts.map(e => (
-              <button key={e} className={current?.effort === e ? 'on' : ''} onClick={() => setEffort(e)}>
+              <button key={e} className={slotEffort === e ? 'on' : ''} onClick={() => setEffort(e)}>
                 {EFFORT_LABEL[e]}
               </button>
             ))}
           </div>
         ) : (
-          <span className="model-effort-none">{current ? 'Not adjustable for this model' : 'Pick a model first'}</span>
+          <span className="model-effort-none">
+            {!current ? 'Pick a model first' : isUsable(current, available) ? 'Not adjustable for this model' : 'Pick another model'}
+          </span>
         )}
       </div>
 

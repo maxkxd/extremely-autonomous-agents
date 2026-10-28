@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { CopilotClient } from '@github/copilot-sdk';
 import { deleteSecret, getSecret, mask, setSecret } from '../vault.js';
-import { chatGptModels as chatGptList, keepChat, knownEfforts, type ModelInfo } from './caps.js';
+import { chatGptModels as chatGptList, keepChat, knownModel, type ModelInfo, type Native } from './caps.js';
 import type { Effort } from './choice.js';
 import { ConnectError, PROVIDERS, provider, verify } from './providers.js';
 
@@ -22,18 +22,20 @@ const PORT = Number(process.env.PORT ?? 5175);
 // broken: a key that was saved but didn't check out, and why - kept so the
 // row can say so until it's fixed, retried or removed.
 // models: only those that can run an agent (models/caps.ts); efforts: the
-// levels each takes, for the ones that take any. caps: which version of the
-// capability check made the list - older lists are checked again at start.
+// levels each takes, for the ones that take any; native: what to send the
+// provider for a level whose name differs from ours. caps: which version of
+// the capability check made the list - older lists are checked again at start.
 type Saved = {
   label: string;
   models: string[];
   efforts?: Record<string, Effort[]>;
+  native?: Record<string, Native>;
   caps?: number;
   baseUrl?: string;
   connectedAt: string;
   broken?: string;
 };
-const CAPS = 1;
+const CAPS = 3;
 type State = { connections: Record<string, Saved>; chatgptHostId?: string; chatgptClientId?: string };
 
 async function load(): Promise<State> {
@@ -56,8 +58,9 @@ function update(fn: (s: State) => void) {
 
 async function connected(id: string, label: string, models: ModelInfo[], baseUrl?: string) {
   const efforts = Object.fromEntries(models.filter(m => m.efforts.length).map(m => [m.id, m.efforts]));
+  const native = Object.fromEntries(models.filter(m => m.native).map(m => [m.id, m.native!]));
   await update(s => {
-    s.connections[id] = { label, models: models.map(m => m.id), efforts, caps: CAPS, baseUrl, connectedAt: new Date().toISOString() };
+    s.connections[id] = { label, models: models.map(m => m.id), efforts, native, caps: CAPS, baseUrl, connectedAt: new Date().toISOString() };
   });
 }
 
@@ -363,7 +366,7 @@ async function chatGptModels(accessToken: string): Promise<ModelInfo[]> {
   if (!res.ok) return [];
   const j = (await res.json()) as { models?: unknown; data?: { id: string }[] };
   if (j.models) return keepChat(chatGptList(j.models));
-  return keepChat((j.data ?? []).map(m => ({ id: m.id, efforts: knownEfforts('openai', m.id) })));
+  return keepChat((j.data ?? []).map(m => knownModel('openai', m.id)));
 }
 
 // --- GitHub Copilot: device sign-in, then the official Copilot SDK -------------
@@ -505,7 +508,7 @@ export async function claudeCodeConnect() {
   const s = await claudeCodeStatus();
   if (!s.installed) throw new ConnectError("Claude Code isn't installed on this computer.");
   if (!s.loggedIn) throw new ConnectError("Claude Code isn't signed in to a Claude account yet.");
-  await connected('claude-code', `Claude Code ${s.version ?? ''}`.trim(), CLAUDE_CODE_MODELS.map(id => ({ id, efforts: knownEfforts('claude-code', id) })));
+  await connected('claude-code', `Claude Code ${s.version ?? ''}`.trim(), CLAUDE_CODE_MODELS.map(id => knownModel('claude-code', id)));
 }
 
 // Opens a visible terminal window running one command, so the person sees
@@ -584,22 +587,35 @@ export async function availableModels(): Promise<Available[]> {
 // Filled by list(), which availableModels calls first.
 let cached: Record<string, Saved> = {};
 
+// What to send a provider for one of our effort levels on a model, for the
+// runner: the provider's own name where it differs (our "max" as "xhigh").
+export async function nativeEffort(connection: string, model: string, effort: Effort): Promise<string> {
+  return (await load()).connections[connection]?.native?.[model]?.[effort] ?? effort;
+}
+
 // Connections saved before the capability check (or by an older one) still
 // list every model the provider had, chat or not. Checks them again once, at
-// start; one that can't be reached keeps its list until it can.
+// start; one that can't be reached, or answers with nothing, keeps its list
+// (and is tried again next start) rather than losing it.
 export async function recheckCapabilities() {
   const s = await load();
   for (const [id, saved] of Object.entries(s.connections)) {
     if (saved.caps === CAPS || saved.broken) continue;
     try {
-      if (id === 'claude-code') await connected(id, saved.label, CLAUDE_CODE_MODELS.map(m => ({ id: m, efforts: knownEfforts(id, m) })));
-      else if (id === 'chatgpt') await connected(id, saved.label, await chatGptModels(await chatGptAccessToken()));
-      else if (id === 'copilot') await connected(id, saved.label, keepChat(saved.models.map(m => ({ id: m, efforts: [] }))));
+      let models: ModelInfo[];
+      if (id === 'claude-code') models = CLAUDE_CODE_MODELS.map(m => knownModel(id, m));
+      else if (id === 'chatgpt') models = await chatGptModels(await chatGptAccessToken());
+      else if (id === 'copilot') models = keepChat(saved.models.map(m => ({ id: m, efforts: [] })));
       else {
         const key = provider(id)?.kind === 'key' ? (await getSecret<{ key: string }>(id))?.key : '';
         if (key === undefined) continue;
-        await connected(id, saved.label, await verify(id, key, saved.baseUrl), saved.baseUrl);
+        models = await verify(id, key, saved.baseUrl);
       }
+      if (!models.length && id !== 'copilot') {
+        console.error(`Rechecking ${id}'s models found none; keeping the old list.`);
+        continue;
+      }
+      await connected(id, saved.label, models, saved.baseUrl);
     } catch (e) {
       console.error(`Couldn't recheck ${id}'s models:`, (e as Error).message);
     }
