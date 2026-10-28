@@ -296,7 +296,7 @@ export function AgentCard({
   return (
     <article
       ref={cardRef}
-      className={`agent-card${modelsOpen ? ` models-open${slide.stacked ? ' stacked' : ''}` : ''}${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} fero-${level} is-${state}${state === 'stopped' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
+      className={`agent-card${modelsOpen ? ` models-open${slide.stacked ? ' stacked' : ''}` : ''}${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
       style={{ '--tx': tx, '--shift': `${slide.shift}px` } as React.CSSProperties}
     >
       {/* Drag handle: centred on the card's left edge. */}
@@ -311,6 +311,8 @@ export function AgentCard({
           <div className="card-name">
             <DeptIcon size={18} strokeWidth={1.75} className="dept-icon" />
             <h2>{agent.name}</h2>
+            {/* The pill and counts wrap as one, never apart. */}
+            <span className="head-tags">
             {agent.settingUp ? (
               <span className="state-pill setting-up" title="Being tailored to your organisation. It won't run until it's done.">
                 Setting up
@@ -335,6 +337,7 @@ export function AgentCard({
                 <CircleCheckBig size={14} strokeWidth={1.75} />
                 {openApprovals}
               </a>
+            </span>
             </span>
           </div>
           {/* Owners only exist inside an organization. */}
