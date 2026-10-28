@@ -54,6 +54,10 @@ export function ModelConnectors() {
   const refresh = () => getConnections().then(setList, e => setError((e as Error).message));
   useEffect(() => {
     refresh();
+    // Back from a sign-in window (or anywhere else): show what changed.
+    const onFocus = () => refresh();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, []);
   // A sign-in already in progress (started before this page opened): keep checking.
   const pendingId = list?.find(c => c.pending)?.id;
