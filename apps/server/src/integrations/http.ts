@@ -46,6 +46,29 @@ export function at(obj: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((o, k) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), obj);
 }
 
+// Services put highlighting markup in snippets (<strong>, &amp;); agents get plain text.
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', hellip: '…', mdash: '—', ndash: '–' };
+export const plainText = (s: string) =>
+  s
+    .replace(/<\/?[a-z][^>]*>/gi, '')
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) =>
+      e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e.toLowerCase()] ?? m),
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+
+// A service's error, as its own message rather than the whole JSON body.
+function errorText(text: string): string {
+  try {
+    const j = JSON.parse(text) as Record<string, unknown>;
+    for (const p of ['error.detail', 'error.message', 'detail', 'message', 'error_description', 'error'])
+      if (typeof at(j, p) === 'string' && at(j, p)) return at(j, p) as string;
+  } catch {
+    // not JSON
+  }
+  return text.replace(/\s+/g, ' ').slice(0, 300);
+}
+
 // The answer, trimmed to what the agent needs, as readable text.
 export function shape(answer: unknown, def: HttpToolDef['response']): string {
   let out: unknown = answer;
@@ -58,7 +81,7 @@ export function shape(answer: unknown, def: HttpToolDef['response']): string {
     );
     // Results as numbered blocks of "name: value" lines.
     return (out as Record<string, unknown>[])
-      .map((r, i) => `${i + 1}. ${Object.entries(r).map(([k, v]) => `${k}: ${typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : JSON.stringify(v)}`).join('\n   ')}`)
+      .map((r, i) => `${i + 1}. ${Object.entries(r).map(([k, v]) => `${k}: ${typeof v === 'string' ? plainText(v) : JSON.stringify(v)}`).join('\n   ')}`)
       .join('\n\n')
       .slice(0, MAX_CHARS);
   }
@@ -77,6 +100,9 @@ export function authParts(auth: AuthDef, key: string | undefined): { headers: Re
 }
 
 export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, args: Record<string, unknown>, key: string | undefined): Promise<string> {
+  // A required input left out or empty is the agent's mistake: say so, don't send it.
+  const required = ((tool.input as { required?: string[] }).required ?? []).filter(r => args[r] === undefined || args[r] === null || String(args[r]).trim() === '');
+  if (required.length) throw new Error(`Missing ${required.join(', ')}: give ${required.length === 1 ? 'it' : 'them'} and call again.`);
   const { headers: authHeaders, query: authQuery } = authParts(integration.auth, key);
   const path = String(fill(tool.request.path, args) ?? tool.request.path);
   const url = new URL(integration.base_url.replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`));
@@ -92,7 +118,7 @@ export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, 
   if (!res.ok) {
     // Never echo the key back, even if the service quotes it.
     const safe = key ? text.split(key).join('[key]') : text;
-    throw new Error(`${integration.name} answered ${res.status}: ${safe.replace(/\s+/g, ' ').slice(0, 300)}`);
+    throw new Error(`${integration.name} answered ${res.status}: ${errorText(safe).slice(0, 300)}`);
   }
   let answer: unknown = text;
   try {

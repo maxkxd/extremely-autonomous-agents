@@ -62,9 +62,16 @@ News, JSON), the blank browser (Hacker News, a Wikipedia search), an MCP
 server added by address through Settings (DeepWiki: tools found, used in
 real runs on Anthropic and Claude Code), and a research agent combining them.
 
+Search tested with Brave Search: results come back as plain text (the
+service's highlighting markup removed), an empty query is refused before
+anything is sent, a service's error reaches the agent as its own one-line
+message, a bad key never shows the key, and with nothing connected the tool
+says so. Research agents on Anthropic (Haiku) and the ChatGPT plan searched,
+read the results and wrote sourced briefs. Tavily, Serper and Exa share the
+same code but haven't been run against their real services.
+
 Not yet:
 
-- **Search** is untested against a real key: none is connected yet.
 - **OAuth sign-in** for integrations (Zoho-style, and MCP servers that need
   it) - only no-sign-in, API key and bearer token so far.
 - **Code plugins**, and the **Fleet Engineer** adding integrations.

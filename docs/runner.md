@@ -151,6 +151,8 @@ Step 1 is built and tested:
   real models past it - 64 actions against a floor of 60 on Claude Code).
 - **Built-in tools**: memory, its own workspace, requests, tasks and
   handoffs, booking its next run. Natural limits, T2 queued for approval.
+- **Every run opens with today's date and time**: models don't know it, and
+  research, dating work and "this year" need it.
 - **In the app**: real agents' cards (state, stats, ferocity, Drain/Stop,
   Run now), DM channels, requests (your DIY/Reject answer reaches the agent),
   daily spending limits in Settings -> Usage.

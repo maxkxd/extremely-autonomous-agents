@@ -1438,6 +1438,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .sconnectors li + li { border-top: 1px solid var(--hairline); }
 .sconn-name { font-size: 14px; font-weight: 600; }
 .sconn-what { grid-row: 2; font-size: 12.5px; color: var(--muted); }
+.sconnectors li:not(:has(.sconn-what)) .sconn-name { grid-row: 1 / span 2; }
 .sconnectors li > :last-child { grid-column: 2; grid-row: 1 / span 2; }
 .sconnectors li.with-form { grid-template-rows: auto auto auto; }
 .sint-form { grid-column: 1 / -1; grid-row: 3; padding: 10px 0 0; }
