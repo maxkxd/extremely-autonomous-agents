@@ -1,6 +1,6 @@
 # Extremely Autonomous Agents
 
-Working name. A standalone AI agency product, closely modeled on the agency
+Working name. Domain: **extremely.agency**. A standalone AI agency product, closely modeled on the agency
 that runs inside the World Asset Register repo (`maxkxd/AssetRegister`,
 `agency/` + `agency-runner/`), but built and shipped as its own product.
 

@@ -45,7 +45,7 @@ Copilot sign-in needs a GitHub OAuth App registered for this product:
 
 1. GitHub > Settings > Developer settings > OAuth Apps > **New OAuth App**
    (or under the organization that will own the product).
-2. Name it, set the homepage URL, and any callback URL (device sign-in doesn't
+2. Name it, set the homepage URL (`https://extremely.agency`), and any callback URL (device sign-in doesn't
    use it, e.g. `http://127.0.0.1:5175/`).
 3. Tick **Enable Device Flow**, then **Register application**.
 4. Copy the **Client ID** into `apps/server/.env` as
