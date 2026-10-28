@@ -403,6 +403,11 @@ ul { list-style: none; margin: 0; padding: 0; }
   background: radial-gradient(ellipse at 30% 55%, rgba(var(--fx-rgb), 0.07), transparent 65%), var(--bg);
 }
 .agent-card.fero-4 .head-count.has { color: var(--fx); }
+.agent-card.fero-4 .card-name h2 {
+  color: var(--fx); text-transform: uppercase; letter-spacing: 0.04em;
+  text-shadow: 0 0 14px rgba(var(--fx-rgb), 0.55);
+}
+.agent-card.fero-4 .card-name .dept-icon { color: var(--fx); }
 .agent-card.fero-4 .outcome.running { background: var(--fx); }
 
 /* Setting Relentless or Apocalyptic gives the card a one-off jolt. */
@@ -422,6 +427,8 @@ ul { list-style: none; margin: 0; padding: 0; }
 .agent-card.is-stopped .chart::before { animation: none !important; }
 .agent-card.is-stopped .donut { filter: none; }
 .agent-card.is-stopped .ferocity-name { text-shadow: none; }
+.agent-card.is-stopped .card-name h2 { color: var(--text); text-shadow: none; }
+.agent-card.is-stopped .card-name .dept-icon { color: var(--muted); }
 .agent-card.is-stopped .chart::before { display: none; }
 .agent-card.is-stopped.fero-3, .agent-card.is-stopped.fero-4 {
   border-color: var(--hairline); box-shadow: none; background: var(--bg);
