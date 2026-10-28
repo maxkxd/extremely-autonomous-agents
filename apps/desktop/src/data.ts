@@ -452,6 +452,11 @@ export type ResourceRequest = {
   id: string;
   agentId: string;
   live?: number; // a real agent's request: its id on the server
+  // A real one's conversation with the (real) Fleet Engineer, and where it stands:
+  // engineer (it has it), waiting_you, approval (its go-live waits), person (yours).
+  liveThread?: { from: 'you' | 'engineer'; text: string }[];
+  stage?: 'engineer' | 'waiting_you' | 'approval' | 'person' | null;
+  busy?: boolean; // the engineer is running right now
   summary: string; // one sentence: what the agent needs
   detail: string; // the agent's fuller explanation
   minutesAgo: number;

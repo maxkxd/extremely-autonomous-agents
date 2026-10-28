@@ -10,7 +10,9 @@ import {
   removeIntegration,
   startIntegrationSignIn,
 } from '../integrations/index.js';
-import { loadAgent } from './agent.js';
+import { FLEET_ENGINEER, loadAgent } from './agent.js';
+import { postToRequest } from './engineer.js';
+import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals } from './approvals.js';
 import { openProfileForSignIn, profileStatus } from './browser.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
@@ -146,8 +148,37 @@ export const runnerRoutes: Record<string, Route> = {
   },
 
   // --- Requests (docs/requests.md) ---
-  'GET /api/runner/requests': async () =>
-    all('SELECT id, agent_id, run_id, what, why, evidence, expected_effect, status, answer, created_at, answered_at FROM requests ORDER BY created_at DESC'),
+  'GET /api/runner/requests': async () => {
+    const rows = all<Record<string, unknown> & { id: number }>(
+      'SELECT id, agent_id, run_id, what, why, evidence, expected_effect, status, stage, answer, created_at, answered_at FROM requests ORDER BY created_at DESC',
+    );
+    const messages = all<{ request_id: number; from_who: string; text: string; at: number }>('SELECT request_id, from_who, text, at FROM request_messages ORDER BY id');
+    return rows.map(r => ({
+      ...r,
+      thread: messages.filter(m => m.request_id === r.id).map(m => ({ from: m.from_who === 'you' ? 'you' : 'engineer', text: m.text, at: m.at })),
+      engineerBusy: r.stage === 'engineer' && isRunning(FLEET_ENGINEER),
+    }));
+  },
+
+  // A person writes to the Fleet Engineer on a request; it's woken to answer.
+  'POST /api/runner/requests/message': async (_req, _q, body) => {
+    const { id, text } = await body<{ id: number; text: string }>();
+    const r = one<{ id: number; status: string; agent_id: string }>('SELECT id, status, agent_id FROM requests WHERE id = ?', Number(id));
+    if (!r || r.status !== 'open') throw new Error('That request is closed.');
+    if (!text?.trim()) throw new Error('Nothing to send.');
+    postToRequest(r.id, 'you', text.trim());
+    exec("UPDATE requests SET stage = 'engineer' WHERE id = ?", r.id);
+    book(FLEET_ENGINEER, 'request reply', `${(await readMeta(r.agent_id))?.owner ?? 'The person'} replied on request #${r.id}: "${text.trim().slice(0, 1500)}"`);
+    return { ok: true };
+  },
+
+  // Whether the Fleet Engineer may write code plugins (docs/integrations.md).
+  'GET /api/settings/code-plugins': async () => ({ allowed: pluginsAllowed() }),
+  'POST /api/settings/code-plugins': async (_req, _q, body) => {
+    const { allowed } = await body<{ allowed: boolean }>();
+    setSetting('code_plugins', !!allowed);
+    return { allowed: pluginsAllowed() };
+  },
 
   // A person's answer: done (with what they did or decided) or turned down.
   // The agent is told at the start of its next run.

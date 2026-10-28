@@ -67,11 +67,20 @@ runs for every new service:
    request with a note on what it can now do, and tell the agent on its
    next run.
 
-Built: OAuth sign-in and approvals that run when approved (both with
-Gmail). Still needed: draft integrations; the wake on connect (a new
-trigger, alongside scheduled, self-booked, handoff, your message and
-approval); the Fleet Engineer's own tools (write / test / fix / publish an
-integration, give a tool to an agent); and the Fleet Engineer running at all.
+Built (2026-10-29): the whole loop. Drafts show in Settings with a Draft
+label and can be connected; connecting one wakes the engineer (the
+\`connected\` trigger); \`engineer.test_integration\` calls any tool of a draft
+directly; \`engineer.publish_integration\` is the one approval (T2), whose card
+shows the definition, a plugin's code and the engineer's test summary, and
+which when approved makes it live, gives the agent its tools (TOOLS.yaml, the
+builder's tiers kept) and closes the request. Its \`engineer.give_tools\` gives
+an agent tools that already exist, also behind an approval.
+
+Code plugins (\`integrations/plugins.ts\`): off until allowed in Settings ->
+Connectors. A plugin's code never runs before a person approves it with the
+code shown - so its approval comes before its first run, and it's tested as it
+goes live - and it's loaded only while its file is byte-for-byte what was
+approved (a hash stored with the approval).
 
 ## Email (Gmail)
 
@@ -178,7 +187,6 @@ Not yet:
 
 - **OAuth for MCP servers** (their own sign-in discovery); OAuth works for
   definitions that name their sign-in addresses.
-- **Code plugins**, and the **Fleet Engineer** adding integrations (its loop is above).
 - **MCP servers on this computer** (local addresses are refused, like
   everything else agents reach).
 - **PDFs** in `fetch_page`.

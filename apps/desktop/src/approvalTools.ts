@@ -43,6 +43,19 @@ export const APPROVAL_TOOLS = {
     body: '{body}',
     expiresAfterHours: 24,
   },
+  // The Fleet Engineer: a draft integration going live, and tools for an agent.
+  'engineer.publish_integration': {
+    wantsTo: 'make {name} live for {for_agent_name}',
+    headers: [{ label: 'Tools', value: '{tools_list}' }],
+    body: '{review}',
+    expiresAfterHours: 168,
+  },
+  'engineer.give_tools': {
+    wantsTo: 'give {for_agent_name} tools',
+    headers: [{ label: 'Tools', value: '{tools_list}' }],
+    body: '{why}',
+    expiresAfterHours: 168,
+  },
   'github.merge_pull_request': {
     wantsTo: 'merge pull request #{number} in {repo}',
     headers: [

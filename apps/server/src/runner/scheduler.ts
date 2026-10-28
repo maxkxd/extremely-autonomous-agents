@@ -2,6 +2,7 @@ import { listIds, readMeta } from '../files.js';
 import { loadIntegrations } from '../integrations/index.js';
 import './web.js'; // registers the web tools
 import './browser.js'; // registers the browser tools
+import { ensureFleetEngineer, startEngineer } from './engineer.js';
 import { availableModels, nativeEffortSync } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';
@@ -96,9 +97,10 @@ export async function tick(deps: RunDeps = liveDeps) {
 
 type Next = { trigger: Trigger; task: string | null; bookingId?: number };
 
-// What a person set off, which a draining agent still runs: their message,
-// Run now, and hearing how an approval it queued was decided.
-const PERSON_DRIVEN = new Set<Trigger>(['your message', 'run now', 'approval']);
+// What a person set off, which an agent on standby still runs: their message,
+// Run now, hearing how an approval it queued was decided, and (the Fleet
+// Engineer) their reply on a request or a service they just connected.
+const PERSON_DRIVEN = new Set<Trigger>(['your message', 'run now', 'approval', 'request reply', 'connected']);
 
 // The run an agent should start now, if any.
 //   active   - its schedule, its own bookings, handoffs, and anything a person sets off
@@ -152,6 +154,10 @@ export function abortRun(agentId: string) {
 let timer: NodeJS.Timeout | null = null;
 export function startScheduler() {
   void loadIntegrations().catch(e => console.error('Loading integrations failed:', (e as Error).message));
+  // The Fleet Engineer: its files kept current, and woken by requests and connections.
+  void ensureFleetEngineer()
+    .then(() => startEngineer(book))
+    .catch(e => console.error('Starting the Fleet Engineer failed:', (e as Error).message));
   // Runs left 'running' by a server that stopped mid-run.
   exec("UPDATE runs SET status = 'failed', error = 'The server stopped during this run.', ended_at = started_at WHERE status = 'running'");
   timer ??= setInterval(() => void tick().catch(e => console.error('Runner tick failed:', (e as Error).message)), TICK_MS);

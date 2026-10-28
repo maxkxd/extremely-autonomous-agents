@@ -94,6 +94,9 @@ export function App() {
               createdAt: a.createdAt,
               expiresAt: a.expiresAt,
               paused: a.agentStopped,
+              // The Fleet Engineer is owned by no one: its approvals belong to
+              // the owner of the agent they're for.
+              forAgentId: a.agentId === 'fleet' && typeof a.args.for_agent === 'string' ? a.args.for_agent : undefined,
             })),
             ...[...decidedLive.current.values()].filter(d => !list.some(a => a.id === d.id)),
           ]),
@@ -192,8 +195,11 @@ export function App() {
                   .filter(Boolean)
                   .join('\n\n'),
                 minutesAgo: Math.max(0, Math.round((Date.now() - r.created_at) / 60_000)),
+                liveThread: r.thread.map(m => ({ from: m.from, text: m.text })),
+                stage: r.stage,
+                busy: r.engineerBusy,
                 engineer: {
-                  plan: "The Fleet Engineer isn't running yet, so this request comes straight to you. Press DIY and say what you did or decided (the agent sees it at the start of its next run), or Reject it with a reason.",
+                  plan: '',
                   build: { toolName: '', does: '', access: '' },
                   done: '',
                 },

@@ -1703,3 +1703,4 @@ a.sbtn { text-decoration: none; color: inherit; }
 .sconnectors .sint-steps li { display: list-item; padding: 0; border: 0; }
 .sint-help { margin: 0 0 2px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
 .masked { -webkit-text-security: disc; }
+.sint-kind.draft { color: var(--attention); border-color: var(--attention); }

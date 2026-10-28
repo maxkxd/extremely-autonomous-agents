@@ -17,7 +17,7 @@ import { execute, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js
 // tool loop on its first working model, the floor and its nudges, then the
 // record and its post in the agent's DM channel.
 
-export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now';
+export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'connected';
 
 // What a run needs from outside, so tests can stand it up without a network.
 export type RunDeps = {
@@ -72,6 +72,8 @@ export function eligibleModels(agent: AgentDef, deps: RunDeps): ModelChoice[] {
 async function instructions(agent: AgentDef, level: number, notReady: string[], deps: RunDeps): Promise<string> {
   const now = deps.now();
   const fleet = await fleetOf(agent.id);
+  // Everyone the agency works for (agent owners): none has pronouns on file yet.
+  const people = [...new Set([agent.owner, ...(await Promise.all((await listIds()).map(async id => (await readMeta(id))?.owner)))].filter((x): x is string => !!x))];
   const health = new Map(toolHealth(agent.id).map(h => [h.tool, h]));
   const status = (id: string) => {
     const h = health.get(id);
@@ -119,7 +121,8 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - Your workspace (files.*) is yours, for work you build up between runs.
 - Hand work that is another agent's job to them with tasks.delegate_task.
 - End every run with a short summary: what you did, what is waiting (approvals, requests, tasks), and what comes next.
-- Refer to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name - in your messages, emails, files and memory notes.`,
+- Refer to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name - in your messages, emails, files and memory notes.${people.length ? `
+- The people here, none of whom has stated pronouns: ${people.join(', ')}. So write "${people[0]}" or "they" - never "he" or "she".` : ''}`,
     agent.charter.trim(),
     ferocityInstructions(agent, level),
     `## Your tools right now
@@ -167,6 +170,19 @@ function opening(agent: AgentDef, trigger: Trigger, task: string | null): string
     }
     case 'approval':
       return task ?? 'An approval you were waiting on was decided. Carry on.';
+    // The Fleet Engineer's (runner/engineer.ts).
+    case 'request':
+      return `A new request came to you. ${task}
+
+Start with engineer.list_requests, then take it as far as you can.`;
+    case 'request reply':
+      return `${task}
+
+Read the request again with engineer.list_requests, then carry it forward.`;
+    case 'connected':
+      return `${task}
+
+Test it properly now (engineer.test_integration), then carry its request forward.`;
     case 'run now':
       return `${agent.owner ?? 'A person'} started this run from the app. Start with what you owe (tasks.list_my_tasks), then do your job as your Charter says.`;
   }

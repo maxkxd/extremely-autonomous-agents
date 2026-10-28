@@ -4,6 +4,7 @@ import { siClaude, siCursor, type SimpleIcon } from 'simple-icons';
 import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { visibleApprovals, type ApprovalScope, type Resolution } from './Approvals';
+import { sendRequestMessage } from './builder';
 
 // How a request left the page: you did it, you rejected it, or the Fleet
 // Engineer sorted it after you tasked it.
@@ -150,7 +151,9 @@ function RequestRow({
   onOpenApprovals,
   convo,
   updateConvo,
+  onSend,
 }: {
+  onSend?: (text: string) => Promise<unknown>; // a real request: to the real Fleet Engineer
   request: ResourceRequest;
   showOwner: boolean;
   onDecide: (r: RequestResolution, note: string) => void;
@@ -165,11 +168,20 @@ function RequestRow({
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   // Requests start closed - unless you've already replied in one, so you can
   // pick the conversation back up (e.g. after approving its build).
-  const [open, setOpen] = useState(convo.thread.some(m => m.from === 'you'));
+  const [open, setOpen] = useState(convo.thread.some(m => m.from === 'you') || request.stage === 'waiting_you');
   const [drawer, setDrawer] = useState<Drawer | null>(null);
   const [note, setNote] = useState('');
-  // The conversation with the Fleet Engineer about this request.
-  const { thread, buildApproval } = convo;
+  // The conversation with the Fleet Engineer about this request: a real one's
+  // comes from the server (what you just sent shows until it's there).
+  const live = !!request.liveThread;
+  const [echo, setEcho] = useState<Message[]>([]);
+  const serverThread = request.liveThread ?? [];
+  useEffect(() => {
+    if (echo.length && serverThread.filter(m => m.from === 'you').length >= echo.length + mineBefore.current) setEcho([]);
+  }, [serverThread.length]);
+  const mineBefore = useRef(0);
+  const thread: Message[] = live ? [...serverThread, ...echo] : convo.thread;
+  const { buildApproval } = convo;
   // The reply box: opened by "Task Fleet Engineer", or already open once you've replied.
   const [replying, setReplying] = useState(thread.some(m => m.from === 'you'));
   const setThread = (fn: (t: Message[]) => Message[]) => updateConvo(c => ({ ...c, thread: fn(c.thread) }));
@@ -195,6 +207,19 @@ function RequestRow({
 
   // Send a message to the Fleet Engineer (an empty one just tasks it).
   const send = (text: string) => {
+    if (live) {
+      const mine = text.trim();
+      if (!mine || leaving || !onSend) return;
+      mineBefore.current = serverThread.filter(m => m.from === 'you').length;
+      setEcho(e => [...e, { from: 'you', text: mine }]);
+      setDraft('');
+      onSend(mine).catch(e => {
+        setEcho([]);
+        setDraft(mine);
+        window.alert((e as Error).message);
+      });
+      return;
+    }
     if (thinking || leaving) return;
     const mine = text.trim();
     const sent: Message[] = mine ? [...thread, { from: 'you', text: mine }] : thread;
@@ -247,9 +272,14 @@ function RequestRow({
   };
 
   const last = thread[thread.length - 1];
-  const waitingOnApproval = !!buildApproval && !outcome;
+  // A real request's state is the server's; a placeholder's is worked out here.
+  const waitingOnApproval = live ? request.stage === 'approval' : !!buildApproval && !outcome;
   const started = thread.some(m => m.from === 'you');
-  const waitingOnYou = started && !thinking && !leaving && !finished && !waitingOnApproval && last?.from === 'engineer';
+  const waitingOnYou = live
+    ? !leaving && (request.stage === 'waiting_you' || request.stage === 'person')
+    : started && !thinking && !leaving && !finished && !waitingOnApproval && last?.from === 'engineer';
+  const engineerOnIt = live ? !leaving && (request.stage === 'engineer' || echo.length > 0) : thinking;
+  const typing = live ? !!request.busy || echo.length > 0 : thinking;
 
   return (
     <div className={`request-wrap${collapsing ? ' collapsing' : ''}`}>
@@ -259,13 +289,13 @@ function RequestRow({
           <DeptIcon size={15} strokeWidth={1.75} className="request-dept" />
           <span className="request-agent">{agent.name}</span>
           <span className="request-summary">{request.summary}</span>
-          {thinking && (
+          {engineerOnIt && (
             <span className="request-status working">
               <Loader2 size={12} className="spin" />
               Fleet Engineer
             </span>
           )}
-          {waitingOnYou && <span className="request-status waiting">Waiting on you</span>}
+          {waitingOnYou && <span className="request-status waiting">{live && request.stage === 'person' ? 'Needs you' : 'Waiting on you'}</span>}
           {waitingOnApproval && <span className="request-status approval">Waiting on approval</span>}
           {showOwner && (
             <span className="request-owner" title="Owner">
@@ -294,7 +324,7 @@ function RequestRow({
                     <div className="eng-text">{m.text}</div>
                   </div>
                 ))}
-                {thinking && (
+                {typing && (
                   <div className="eng-msg engineer">
                     <span className="eng-by">
                       <Hammer size={12} strokeWidth={1.9} />
@@ -312,7 +342,7 @@ function RequestRow({
                     Open Approvals
                   </button>
                 )}
-                {replying && !leaving && !finished && (
+                {(replying || (live && open)) && !leaving && !finished && (
                   <div className="eng-composer">
                     <textarea
                       ref={composer}
@@ -330,7 +360,7 @@ function RequestRow({
                           if (draft.trim()) send(draft);
                         }
                       }}
-                      disabled={thinking}
+                      disabled={!live && thinking}
                     />
                     <div className="reject-actions">
                       {/* Keys go in the (future) settings, never in a chat message. */}
@@ -338,7 +368,7 @@ function RequestRow({
                       <button
                         className="ap-btn confirm-engineer"
                         onClick={() => send(draft)}
-                        disabled={thinking || !draft.trim()}
+                        disabled={(!live && thinking) || !draft.trim()}
                       >
                         <SendHorizontal size={14} strokeWidth={1.9} />
                         Send
@@ -478,6 +508,7 @@ export function Requests({
           onOpenApprovals={onOpenApprovals}
           convo={convos[r.id] ?? startConvo(r)}
           updateConvo={fn => updateConvo(r.id, fn)}
+          onSend={r.live ? text => sendRequestMessage(r.live!, text) : undefined}
         />
       ))}
     </div>

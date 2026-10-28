@@ -14,7 +14,10 @@ import { keepLinks, linkPeople } from './links.js';
 import { runnerRoutes } from './runner/api.js';
 import { finishIntegrationSignIn, integrationToolIds } from './integrations/index.js';
 import { handleMcp } from './runner/mcp.js';
-import { startScheduler } from './runner/scheduler.js';
+import { book, startScheduler } from './runner/scheduler.js';
+import { FLEET_ENGINEER } from './runner/agent.js';
+import { fileRequest } from './runner/tools.js';
+import { parse as parseYaml } from 'yaml';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
 const PORT = Number(process.env.PORT ?? 5175);
@@ -222,6 +225,21 @@ const routes: Record<string, Route> = {
     });
     await setChoices(files.id, files.models ?? []);
     if (setup) enqueue(files.id);
+    // Tools its builder invented that nothing provides yet go to the Fleet Engineer.
+    const invented = ((parseYaml(files.tools) as { new_tools?: { id: string; description: string; input_schema: unknown }[] }).new_tools ?? []);
+    const live = new Set(integrationToolIds());
+    for (const t of invented.filter(t => !live.has(t.id)))
+      fileRequest(
+        files.id,
+        null,
+        {
+          what: `Build the tool ${t.id}`,
+          why: `${files.name}'s builder defined it and nothing provides it yet: ${t.description}`,
+          evidence: `Input it expects: ${JSON.stringify(t.input_schema)}`,
+        },
+        Date.now(),
+        (a, trigger, task) => book(a, trigger as 'request', task),
+      );
     return { ok: true };
   },
   // --- Which models each agent runs on (models/choice.ts) ---
@@ -254,6 +272,7 @@ const routes: Record<string, Route> = {
   },
   'POST /api/agents/delete': async req => {
     const { id } = await body<{ id: string }>(req);
+    if (id === FLEET_ENGINEER) throw new ConnectError("The Fleet Engineer is part of the agency; it can't be deleted.");
     await remove(id);
     await removeChoices(id);
     return { ok: true };
