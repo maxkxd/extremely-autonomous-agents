@@ -205,6 +205,25 @@ export async function connectIntegration(id: string, key?: string) {
   return result;
 }
 
+// Connections nobody has checked in a day are checked again in the background
+// (when Settings is opened). A failure shows on the row but doesn't disconnect
+// it: a service being down for a minute shouldn't cost the person their key.
+const RECHECK_MS = 24 * 3_600_000;
+let rechecking = false;
+export function recheckStale(now = Date.now()) {
+  if (rechecking) return;
+  const stale = loaded.filter(({ integration: i }) => isConnected(i.id) && now - (states()[i.id]?.test?.at ?? 0) > RECHECK_MS);
+  if (!stale.length) return;
+  rechecking = true;
+  void (async () => {
+    for (const { integration } of stale) {
+      const r = await test(integration);
+      putState(integration.id, { ...states()[integration.id], test: { ok: r.ok, at: Date.now(), message: r.message }, tools: r.tools ?? states()[integration.id]?.tools });
+    }
+    register();
+  })().finally(() => (rechecking = false));
+}
+
 let onDraftConnected: ((id: string, request?: number) => void) | null = null;
 export const whenDraftConnected = (fn: (id: string, request?: number) => void) => void (onDraftConnected = fn);
 

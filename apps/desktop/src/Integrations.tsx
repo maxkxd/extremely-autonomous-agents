@@ -99,7 +99,7 @@ function KeyRow({ i, refresh, open, setOpen }: RowProps) {
   const tools = i.kind !== 'mcp' && i.tools.length && !i.draft ? `${i.tools.length} tool${i.tools.length === 1 ? '' : 's'}` : '';
   const sub = i.connected
     ? i.draft
-      ? 'Connected · goes live when you approve it'
+      ? 'Goes live when you approve it'
       : [i.test?.message, tools].filter(Boolean).join(' · ')
     : i.test && !i.test.ok
       ? i.test.message
@@ -109,15 +109,11 @@ function KeyRow({ i, refresh, open, setOpen }: RowProps) {
       <span className="sconn-name">
         {i.name}
         {i.kind === 'mcp' && <span className="sint-kind">MCP</span>}
-        <DraftPill i={i} />
       </span>
-      {sub && <span className={`sconn-what${!i.connected && i.test && !i.test.ok ? ' sint-bad' : ''}`}>{sub}</span>}
+      {sub && <span className={`sconn-what${i.test && !i.test.ok ? ' sint-bad' : ''}`}>{sub}</span>}
       <span className="sint-actions">
         {i.connected ? (
           <>
-            <SpinButton spinning={busy} onClick={() => run(() => connectIntegration(i.id))} title="Check it still works">
-              Test
-            </SpinButton>
             <SpinButton spinning={false} onClick={() => run(() => disconnectIntegration(i.id))}>
               Disconnect
             </SpinButton>
@@ -253,24 +249,22 @@ function SignInRow({ i, refresh, open, setOpen }: RowProps) {
   const sub = waiting
     ? 'Waiting for you to sign in, in the window that opened'
     : i.connected
-      ? [i.test?.message, tools].filter(Boolean).join(' · ')
+      ? i.draft
+        ? 'Goes live when you approve it'
+        : [i.test?.message, tools].filter(Boolean).join(' · ')
       : i.test && !i.test.ok
         ? i.test.message
         : '';
-  const bad = !waiting && !i.connected && !!i.test && !i.test.ok;
+  const bad = !waiting && !!i.test && !i.test.ok;
   return (
     <li className={open || error ? 'with-form' : undefined}>
       <span className="sconn-name">
         {i.name}
-        <DraftPill i={i} />
       </span>
       {sub && <span className={`sconn-what${bad ? ' sint-bad' : ''}`}>{sub}</span>}
       <span className="sint-actions">
         {i.connected ? (
           <>
-            <SpinButton spinning={busy} onClick={() => act(() => connectIntegration(i.id))} title="Check it still works">
-              Test
-            </SpinButton>
             <SpinButton spinning={false} onClick={() => act(() => disconnectIntegration(i.id))}>
               Disconnect
             </SpinButton>
@@ -352,15 +346,6 @@ function SignInRow({ i, refresh, open, setOpen }: RowProps) {
     </li>
   );
 }
-
-// Written by the Fleet Engineer and not live yet: connect it, and it goes live
-// once you approve it on Approvals.
-const DraftPill = ({ i }: { i: IntegrationView }) =>
-  i.draft ? (
-    <span className="sint-kind draft" title="Added by the Fleet Engineer. Connect it here; it goes live when you approve it.">
-      Draft
-    </span>
-  ) : null;
 
 // Whether the Fleet Engineer may write code plugins: code that runs on this
 // computer, for what an HTTP or MCP integration can't do. Off unless turned on.
