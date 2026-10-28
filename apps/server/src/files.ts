@@ -3,7 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse, stringify } from 'yaml';
 import type { Build } from './builder.js';
-import { cleanChoices, type ModelChoice } from './models/choice.js';
+import { fitEffort } from './models/caps.js';
+import { cleanChoices, type Effort, type ModelChoice } from './models/choice.js';
 import { BASELINE, CATALOG_INDEX, toolId, type Tier } from './catalog.js';
 
 // Turns a build into the agent's three files, shaped like the agency
@@ -34,9 +35,13 @@ export function compose(
   b: Build,
   id: string,
   fleetIds: Set<string> = new Set(),
-  available: { connection: string; models: string[] }[] = [],
+  available: { connection: string; models: string[]; efforts?: Record<string, Effort[]> }[] = [],
 ): AgentFiles {
-  const models = cleanChoices(b.models ?? []).filter(m => available.some(a => a.connection === m.connection && a.models.includes(m.model)));
+  // Only connected models, each at the nearest effort it actually takes.
+  const models = cleanChoices(b.models ?? []).flatMap(m => {
+    const a = available.find(x => x.connection === m.connection && x.models.includes(m.model));
+    return a ? [{ ...m, effort: fitEffort(m.effort, a.efforts?.[m.model] ?? []) }] : [];
+  });
   const newIds = new Set(b.new_tools.map(t => toolId(t.server, t.name)));
   // Only tools that exist: the fleet's, the catalogue's, or ones this build defines.
   const picked = b.tools.filter(t => fleetIds.has(t.id) || CATALOG_INDEX.has(t.id) || newIds.has(t.id));

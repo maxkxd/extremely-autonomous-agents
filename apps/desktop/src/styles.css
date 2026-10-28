@@ -1624,6 +1624,7 @@ a.sbtn { text-decoration: none; color: inherit; }
 .model-effort-options button { padding: 3px 10px; border-radius: 6px; font-size: 12px; color: var(--muted); }
 .model-effort-options button.on { background: var(--selected); color: var(--text); font-weight: 600; }
 .model-effort-options button:disabled { cursor: default; }
+.model-effort-none { font-size: 12px; color: var(--muted); padding: 4px 2px; }
 
 .model-search {
   display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 8px; color: var(--muted);

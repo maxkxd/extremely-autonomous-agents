@@ -198,7 +198,8 @@ export const EFFORTS = ['low', 'medium', 'high', 'max'] as const;
 export type Effort = (typeof EFFORTS)[number];
 // Up to three, in order: the first is used, the others take over if it fails.
 export type ModelChoice = { connection: string; model: string; effort: Effort };
-export type AvailableModels = { connection: string; name: string; kind: 'plan' | 'key' | 'local'; models: string[] };
+// efforts: the levels each model takes; a model not listed has no effort setting.
+export type AvailableModels = { connection: string; name: string; kind: 'plan' | 'key' | 'local'; models: string[]; efforts: Record<string, Effort[]> };
 
 export const getAvailableModels = () => request<AvailableModels[]>('/api/models');
 export const getAgentModels = () => request<Record<string, ModelChoice[]>>('/api/agents/models');

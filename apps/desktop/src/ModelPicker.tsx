@@ -12,6 +12,20 @@ const EFFORT_LABEL: Record<Effort, string> = { low: 'Low', medium: 'Medium', hig
 
 const isUsable = (c: ModelChoice, available: AvailableModels[]) =>
   available.some(a => a.connection === c.connection && a.models.includes(c.model));
+// Why a choice can't run: its connection is gone, or the connection no longer
+// offers it (or never could run an agent on it).
+const whyNot = (c: ModelChoice, available: AvailableModels[]) =>
+  isUsable(c, available) ? null : available.some(a => a.connection === c.connection) ? 'Unavailable' : 'Not connected';
+// The levels a model takes - none for one without an effort setting.
+const effortsOf = (connection: string, model: string, available: AvailableModels[]): Effort[] =>
+  available.find(a => a.connection === connection)?.efforts?.[model] ?? [];
+// The nearest level the model takes to the one wanted (server: models/caps.ts).
+function fitEffort(want: Effort, efforts: Effort[]): Effort {
+  if (!efforts.length || efforts.includes(want)) return want;
+  const at = EFFORTS.indexOf(want);
+  const gap = (e: Effort) => Math.abs(EFFORTS.indexOf(e) - at);
+  return [...efforts].sort((a, b) => gap(a) - gap(b) || EFFORTS.indexOf(a) - EFFORTS.indexOf(b))[0];
+}
 const connectionName = (id: string, available: AvailableModels[]) => available.find(a => a.connection === id)?.name ?? id;
 const modelLabel = (c: ModelChoice) => (c.connection === 'copilot' && c.model === 'auto' ? 'Copilot (auto)' : c.model);
 
@@ -30,13 +44,18 @@ export function ModelRow({
   readOnly?: boolean;
 }) {
   const first = choices[0];
-  const problem = !first ? 'No model' : !isUsable(first, available) && available.length ? 'Not connected' : null;
+  const problem = !first ? 'No model' : available.length ? whyNot(first, available) : null;
+  const showEffort = !!first && !problem && effortsOf(first.connection, first.model, available).length > 0;
   return (
     <button
       className={`model-row${problem ? ' flagged' : ''}${open ? ' open' : ''}`}
       onClick={onOpen}
       disabled={readOnly}
-      title={first ? `${modelLabel(first)} on ${connectionName(first.connection, available)}` : 'This agent has no model to run on'}
+      title={
+        first
+          ? `${modelLabel(first)} on ${connectionName(first.connection, available)}${problem ? ` - ${problem}: pick another model` : ''}`
+          : 'This agent has no model to run on'
+      }
     >
       <span className="stat-label">Model</span>
       <span className="model-row-value">
@@ -44,7 +63,7 @@ export function ModelRow({
         {first ? (
           <>
             <span className="model-row-name">{modelLabel(first)}</span>
-            <span className="model-row-effort">{EFFORT_LABEL[first.effort]}</span>
+            {showEffort && <span className="model-row-effort">{EFFORT_LABEL[first.effort]}</span>}
           </>
         ) : (
           problem
@@ -83,7 +102,7 @@ export function ModelPanel({
   const pick = (connection: string, model: string) => {
     const next = [...choices];
     const existing = next.findIndex(c => c.connection === connection && c.model === model);
-    const effort = next[slot]?.effort ?? 'medium';
+    const effort = fitEffort(next[slot]?.effort ?? 'medium', effortsOf(connection, model, available));
     if (existing >= 0 && existing !== slot) {
       // Already in another slot: swap them.
       const moved = next[existing];
@@ -101,6 +120,9 @@ export function ModelPanel({
     onChange(next);
     setSlot(Math.min(next.length, SLOTS - 1));
   };
+  // Only the levels the slot's model takes; none greys the row out.
+  const current = choices[slot];
+  const slotEfforts = current && isUsable(current, available) ? effortsOf(current.connection, current.model, available) : [];
   const setEffort = (effort: Effort) => {
     if (!choices[slot]) return;
     onChange(choices.map((c, i) => (i === slot ? { ...c, effort } : c)));
@@ -125,7 +147,7 @@ export function ModelPanel({
               className={`model-slot${slot === i ? ' active' : ''}${c ? '' : ' empty'}${c && !isUsable(c, available) ? ' flagged' : ''}`}
               disabled={!reachable}
               onClick={() => setSlot(i)}
-              title={c ? `${modelLabel(c)} on ${connectionName(c.connection, available)}` : reachable ? 'Pick a model below' : undefined}
+              title={c ? `${modelLabel(c)} on ${connectionName(c.connection, available)}${whyNot(c, available) ? ` - ${whyNot(c, available)}` : ''}` : reachable ? 'Pick a model below' : undefined}
             >
               <span className="model-slot-n">{i + 1}</span>
               <span className="model-slot-text">
@@ -150,15 +172,19 @@ export function ModelPanel({
         })}
       </div>
 
-      <div className={`model-effort${choices[slot] ? '' : ' off'}`}>
+      <div className={`model-effort${slotEfforts.length ? '' : ' off'}`}>
         <span className="stat-label">Effort</span>
-        <div className="model-effort-options">
-          {EFFORTS.map(e => (
-            <button key={e} className={choices[slot]?.effort === e ? 'on' : ''} disabled={!choices[slot]} onClick={() => setEffort(e)}>
-              {EFFORT_LABEL[e]}
-            </button>
-          ))}
-        </div>
+        {slotEfforts.length ? (
+          <div className="model-effort-options">
+            {slotEfforts.map(e => (
+              <button key={e} className={current?.effort === e ? 'on' : ''} onClick={() => setEffort(e)}>
+                {EFFORT_LABEL[e]}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span className="model-effort-none">{current ? 'Not adjustable for this model' : 'Pick a model first'}</span>
+        )}
       </div>
 
       <label className="model-search">
