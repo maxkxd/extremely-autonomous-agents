@@ -1,0 +1,102 @@
+# The runner: how agents actually run
+
+The design, agreed 2026-10-28. Not built yet; this is what gets built. Modelled
+on the WAR agency runner, keeping what worked there and building in its
+lessons from day one (see "From WAR" at the end).
+
+## Ferocity sets how hard an agent works
+
+Five levels. The agent builder sets each agent's numbers for its job when it
+builds it (packs get theirs when they're customised). The multiples below are
+the guide the builder works from, not fixed formulas.
+
+| Level | Schedule (builder sets) | Re-running itself | Minimum output per run | Every run also... |
+|---|---|---|---|---|
+| **Chill** | What gets the job done: bug triage 2x a day, outreach daily, an ISMS policy check weekly | Allowed, but told not to once its work is done | None | - |
+| **Steady** | About 1.5x Chill | Encouraged when there's work left | None | - |
+| **Driven** | About 2x Chill | Encouraged | Soft floor: **one** gentle nudge if a run ends with very little output | Looks for better ways to do its job, new tools and wider scope, and files requests for them. A run that doesn't is doing it wrong |
+| **Relentless** | About 4x Chill | Strongly encouraged | High floor (builder sets), up to 4 nudges | Same as Driven |
+| **Apocalyptic** | None: the next run starts as soon as one ends | Always (the runner books it) | Deliberately out of reach (builder sets); 4 nudges, then the run ends with whatever it made, and the next run starts | Same as Driven |
+
+How much each level **asks for** (resource requests) is in
+[requests.md](requests.md), "Ferocity and requests".
+
+Everything the builder sets lives in the agent's TOOLS.yaml under `ferocity:`
+(one entry per level: schedule, floor, and for Driven the soft-floor
+threshold), so changing an agent's level on its card changes its behaviour
+straight away, without a rebuild.
+
+## One run
+
+- One run = one conversation with the model and its tool loop, using the
+  agent's first working model (fallback and backoff: model-connections.md).
+- **One run at a time per agent.** A scheduled run that comes due while one is
+  going is skipped, not queued.
+- Triggers: its schedule, booking itself, Apocalyptic's run-after-run, another
+  agent handing it a task, a person messaging it, an approval being decided.
+- A run that answers **a person's message** is never nudged past its answer.
+- At the end, the run posts to the agent's DM channel (docs/agent-dms.md).
+
+## Minimum output (the floor) and nudges
+
+- What counts is the agent's output actions (KPI.yaml). An action counts **when
+  the agent tries it**, including a T2 action that's now waiting in Approvals,
+  and including one that fails. Batch actions count once per item (one
+  `queue_leads` with 5 leads = 5).
+- When a run would end below its floor, the runner sends one more message in
+  the same conversation, so nothing it already found is lost:
+
+  > Not finished. This run has made N output action(s); the floor for every
+  > run is M. Carry on now: (the agent's own hint - where else to look).
+  > Keep going until you reach M, then write your summary. (Continuation k of 4.)
+
+- After the last nudge the run just ends. What it made stands; nothing is
+  forced or marked failed. At Apocalyptic the next run starts straight away.
+- Driven's soft floor is a single nudge, worded gently.
+
+## Re-running itself
+
+- A built-in tool lets an agent book its own next run, with a reason and a
+  delay. Whether it's encouraged depends on its ferocity (table above).
+- At Apocalyptic the runner books the next run itself.
+- Old idle summaries are not evidence: a past "nothing to do" run is never
+  fed back as a reason to stop.
+
+## Money and limits
+
+- **Plans run out**: the agent moves on to its 2nd and 3rd models, even onto
+  pay-per-use keys, and keeps going.
+- **Spend caps** (Settings -> Usage): an optional daily dollar cap for the
+  whole organisation, and an optional daily cap per agent. Hitting one pauses
+  that spending until the next day; plans and local models aren't affected.
+- **Failure backoff**: an agent whose runs keep failing within seconds (broken
+  model, broken tool) backs off instead of spinning, at every level.
+- `max_runs_per_day` is only a runaway backstop, never the pace.
+
+## Building it: one piece at a time
+
+Build, stop, test with real agents at each ferocity, then move on:
+
+1. **The runner and the built-in agency tools** - notes and memory, agent
+   DMs, resource requests, booking its own run, handing tasks to other agents.
+2. **Web research** - search, fetching pages, browsing.
+3. **Email (Gmail)** - reading, drafting, sending (T2).
+4. **Code / GitHub** - repos, issues, pull requests.
+
+Technical choices: our own tool loop for API-key providers; Claude Code and
+Copilot get the agent's tools through an MCP server (Claude Code runs
+isolated, as in model-connections.md); runs, actions and spend stored in
+SQLite on the organisation's host.
+
+## From WAR (what its runner taught us)
+
+- The floor works: its SEO agent went from one or two searches a run to real
+  volume. Its nudge wording is the model for ours.
+- Runaway chaining: an agent that always booked its next run hit 120-130 runs
+  a day; another booked ~25 runs in one night; resume loops burned 24 runs in
+  24 minutes. Hence one run at a time, failure backoff, and the backstop.
+- Idle runs fed back as learnings taught an agent nothing was ever due.
+- A crash retry that replays the whole conversation can repeat actions that
+  already ran - so a retry must never re-send an action.
+- T2 actions don't pause a run: the agent is told the action is queued and
+  carries on; an approval later resumes it.
