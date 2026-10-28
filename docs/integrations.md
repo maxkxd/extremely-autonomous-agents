@@ -69,14 +69,14 @@ runs for every new service:
 
 Built (2026-10-29): the whole loop. Drafts show in Settings with a Draft
 label and can be connected; connecting one wakes the engineer (the
-\`connected\` trigger); \`engineer.test_integration\` calls any tool of a draft
-directly; \`engineer.publish_integration\` is the one approval (T2), whose card
+`connected` trigger); `engineer.test_integration` calls any tool of a draft
+directly; `engineer.publish_integration` is the one approval (T2), whose card
 shows the definition, a plugin's code and the engineer's test summary, and
 which when approved makes it live, gives the agent its tools (TOOLS.yaml, the
-builder's tiers kept) and closes the request. Its \`engineer.give_tools\` gives
+builder's tiers kept) and closes the request. Its `engineer.give_tools` gives
 an agent tools that already exist, also behind an approval.
 
-Code plugins (\`integrations/plugins.ts\`): off until allowed in Settings ->
+Code plugins (`integrations/plugins.ts`): off until allowed in Settings ->
 Connectors. A plugin's code never runs before a person approves it with the
 code shown - so its approval comes before its first run, and it's tested as it
 goes live - and it's loaded only while its file is byte-for-byte what was
