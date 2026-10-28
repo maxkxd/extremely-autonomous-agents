@@ -48,11 +48,11 @@ export function Integrations({ onOpenApproval }: { onOpenApproval: (id: string) 
         <h3>Integrations</h3>
         <p className="slead">Other services agents can use. Add any service that has an MCP server by its address.</p>
         <ul className="sconnectors">
+          <CodePlugins />
           {others.map(i => (
             <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} />
           ))}
           <AddMcp refresh={refresh} open={openId === 'add'} setOpen={o => setOpenId(o ? 'add' : null)} />
-          <CodePlugins />
         </ul>
         {view.problems.map(p => (
           <p key={p.file} className="custom-error">
@@ -364,16 +364,16 @@ function CodePlugins() {
   const [allowed, setAllowed] = useState<boolean | null>(null);
   useEffect(() => void getCodePlugins().then(r => setAllowed(r.allowed), () => {}), []);
   if (allowed === null) return null;
+  const flip = () => {
+    setAllowed(!allowed); // at once; put back if the server says otherwise
+    setCodePlugins(!allowed).then(r => setAllowed(r.allowed), () => setAllowed(allowed));
+  };
   return (
     <li>
       <span className="sconn-name">Code plugins</span>
-      <span className="sconn-what">
-        {allowed ? 'The Fleet Engineer can write code that runs on this computer. Each plugin waits for your approval, code shown.' : 'Off: the Fleet Engineer builds with HTTP and MCP only'}
-      </span>
+      <span className="sconn-what">Lets the Fleet Engineer write code that runs on this computer, after your approval</span>
       <span className="sint-actions">
-        <button className="sbtn" onClick={() => setCodePlugins(!allowed).then(r => setAllowed(r.allowed))}>
-          {allowed ? 'Turn off' : 'Allow'}
-        </button>
+        <button className={`switch${allowed ? ' on' : ''}`} role="switch" aria-checked={allowed} aria-label="Code plugins" onClick={flip} />
       </span>
     </li>
   );
