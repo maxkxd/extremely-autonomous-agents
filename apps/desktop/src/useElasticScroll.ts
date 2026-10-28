@@ -72,8 +72,23 @@ export function useElasticScroll(ref: RefObject<HTMLElement>) {
       return true;
     };
 
+    // A scroll over an inner scroll area (the model picker's list, say) belongs
+    // to it while it can still move that way - or always, if it keeps its
+    // scrolling to itself (overscroll-behavior: contain). Bouncing here then
+    // would cancel its scroll too, leaving it stuck.
+    const innerTakes = (target: EventTarget | null, deltaY: number) => {
+      for (let el = target as HTMLElement | null; el && el !== scroller; el = el.parentElement) {
+        const style = getComputedStyle(el);
+        if (!/(auto|scroll)/.test(style.overflowY) || el.scrollHeight <= el.clientHeight + 1) continue;
+        const canMove = deltaY < 0 ? el.scrollTop > 0 : el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+        if (canMove || style.overscrollBehaviorY !== 'auto') return true;
+      }
+      return false;
+    };
+
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return; // pinch-zoom
+      if (innerTakes(e.target, e.deltaY)) return;
       if (hit(e.deltaY)) e.preventDefault();
     };
 
@@ -85,6 +100,7 @@ export function useElasticScroll(ref: RefObject<HTMLElement>) {
       const y = e.touches[0].clientY;
       const delta = touchY - y; // finger moving up = scrolling down
       touchY = y;
+      if (innerTakes(e.target, delta)) return;
       if (hit(delta) && e.cancelable) e.preventDefault();
     };
     const onTouchEnd = () => {
