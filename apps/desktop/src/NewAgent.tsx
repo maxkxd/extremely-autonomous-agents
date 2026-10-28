@@ -8,8 +8,7 @@ const CUSTOM_SLOT = 3;
 
 function PackCard({ pack }: { pack: AgentPack }) {
   return (
-    <article className={`pack${pack.featured ? ' featured' : ''}`}>
-      {pack.featured && <div className="pack-ribbon">{pack.featured}</div>}
+    <article className="pack">
       <div className="pack-body">
         <h2 className="pack-name">{pack.name}</h2>
         <p className="pack-tagline">{pack.tagline}</p>

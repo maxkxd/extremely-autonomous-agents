@@ -1056,11 +1056,6 @@ ul { list-style: none; margin: 0; padding: 0; }
   background: var(--bg); border: 1px solid var(--hairline); transition: border-color 0.15s;
 }
 .pack:hover { border-color: var(--border); }
-.pack.featured { border-color: rgba(63, 123, 214, 0.55); }
-.pack-ribbon {
-  padding: 7px 0; text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
-  background: var(--attention); color: var(--attention-text);
-}
 .pack-body { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 30px 24px 24px; }
 .pack-name { margin: 0; font-size: 21px; font-weight: 700; }
 .pack-tagline { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
@@ -1075,7 +1070,6 @@ ul { list-style: none; margin: 0; padding: 0; }
   margin-top: 14px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; gap: 7px;
   font-size: 13.5px; font-weight: 600; color: var(--text); border: 1px solid var(--border-strong);
 }
-.pack.featured .pack-add { background: var(--attention); border-color: var(--attention); color: var(--attention-text); }
 .pack-add:disabled { cursor: default; }
 .pack-add:not(:disabled):hover { background: var(--surface-hover); }
 

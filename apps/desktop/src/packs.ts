@@ -3,14 +3,13 @@ import type { Department } from './data';
 // Agent packs offered on the New agent page: a set of agents that work well
 // together for one job. Placeholder catalogue - more get added over time.
 export type PackAgent = { name: string; department: Department; does: string };
-export type AgentPack = { id: string; name: string; tagline: string; agents: PackAgent[]; featured?: string };
+export type AgentPack = { id: string; name: string; tagline: string; agents: PackAgent[] };
 
 export const AGENT_PACKS: AgentPack[] = [
   {
     id: 'sales',
     name: 'Sales',
     tagline: 'Find the right people and start the conversation.',
-    featured: 'Most popular',
     agents: [
       { name: 'Lead Research', department: 'sales', does: 'Finds and qualifies prospects that fit your ideal customer.' },
       { name: 'Outreach', department: 'sales', does: 'Writes and sends personal first messages and follow-ups.' },
