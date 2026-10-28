@@ -20,7 +20,18 @@ export const CATALOG: CatalogServer[] = [
     tools: [
       t('web_search', 'T0', 'Search the public web'),
       t('fetch_page', 'T0', 'Read one public page'),
-      t('browse', 'T0', 'Click through a public site in a throwaway browser and return what it found'),
+      t('browse', 'T0', 'Click through public sites in a blank throwaway browser (no sign-ins): open, click, type, scroll'),
+    ],
+  },
+  {
+    server: 'signed_in_browser',
+    what: "The agents' own browser profile, signed in to the sites the person chose - acts as the person",
+    tools: [
+      t('open', 'T0', 'Open a page in the signed-in agent profile and read it'),
+      t('scroll', 'T0', 'Scroll the current page'),
+      t('back', 'T0', 'Go back a page'),
+      t('click', 'T2', 'Click a button or link as the person (only lower the tier when the Charter limits what it may click)'),
+      t('type', 'T2', 'Type into a field as the person (only lower the tier when the Charter limits what it may type)'),
     ],
   },
   {

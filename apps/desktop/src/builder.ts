@@ -239,6 +239,28 @@ export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/request
 export const answerRequest = (id: number, status: 'done' | 'rejected', answer: string) =>
   post<{ ok: boolean }>('/api/runner/requests/answer', { id, status, answer });
 
+// Integrations (docs/integrations.md): the services agents' tools run on.
+export type IntegrationView = {
+  id: string;
+  name: string;
+  what: string;
+  kind: 'http' | 'mcp';
+  keyUrl?: string;
+  needsKey: boolean;
+  shipped: boolean;
+  connected: boolean;
+  test: { ok: boolean; at: number; message: string } | null;
+  tools: { id: string; tier: string }[];
+};
+export type IntegrationsView = { integrations: IntegrationView[]; problems: { file: string; error: string }[]; profile: { open: boolean; inUse: boolean } };
+export const getIntegrations = () => request<IntegrationsView>('/api/integrations');
+export const connectIntegration = (id: string, key?: string) => post<{ ok: boolean; message: string }>('/api/integrations/connect', { id, key });
+export const disconnectIntegration = (id: string) => post<{ ok: boolean }>('/api/integrations/disconnect', { id });
+export const removeIntegration = (id: string) => post<{ ok: boolean }>('/api/integrations/remove', { id });
+export const addMcpIntegration = (b: { url: string; name?: string; auth: 'none' | 'bearer'; key?: string }) =>
+  post<{ id: string; ok: boolean; message: string }>('/api/integrations/add', b);
+export const openAgentBrowser = () => post<{ ok: boolean }>('/api/browser/sign-in', {});
+
 // Daily spend caps (Settings -> Usage): the organisation's, and each agent's.
 export type Usage = { orgCapUsd: number | null; spentTodayUsd: number; agents: { id: string; name: string; capUsd: number | null; spentTodayUsd: number }[] };
 export const getUsage = () => request<Usage>('/api/usage');

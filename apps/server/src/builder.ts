@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import * as z from 'zod/v4';
 import { BASELINE, catalogForPrompt } from './catalog.js';
+import { integrationToolsForPrompt } from './integrations/index.js';
 import { anthropicKey } from './models/connections.js';
 import { fleetForPrompt, type Fleet } from './fleet.js';
 import type { Available } from './models/connections.js';
@@ -60,7 +61,17 @@ function contextBlock(ctx: Context): string {
   const org = ctx.profile
     ? `The organisation these agents work for:\n${profileForPrompt(ctx.profile, ctx.person.name)}`
     : "They aren't set up as an organisation: the agents work for them personally. Keep organisation-specific details general rather than inventing them - they get filled in over time.";
-  return `${me}\n\n${org}\n\n${fleetForPrompt(ctx.fleet)}\n\n${modelsForPrompt(ctx.models)}`;
+  return `${me}\n\n${org}\n\n${fleetForPrompt(ctx.fleet)}\n\n${integrationsForPrompt()}\n\n${modelsForPrompt(ctx.models)}`;
+}
+
+// Tools from services the person has connected (docs/integrations.md): use
+// them by id like catalogue tools. web.web_search works once any search
+// service is connected; until then it's still the right tool to give.
+function integrationsForPrompt(): string {
+  const tools = integrationToolsForPrompt();
+  return tools
+    ? `Tools from services connected in Settings (use these exact ids; a standard tool like web.web_search is served by whichever service is connected):\n${tools}`
+    : 'No extra services are connected yet. Catalogue tools that need one (like web.web_search) can still be given: they start working once the person connects a service.';
 }
 
 // The models this person has connected, for choosing each agent's three.

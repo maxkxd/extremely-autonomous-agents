@@ -193,7 +193,7 @@ type RowProps = {
 
 // A button that turns into a grey spinner while its action runs. It keeps its
 // width (the label stays, invisibly) so the row doesn't jump.
-function SpinButton({
+export function SpinButton({
   spinning,
   className = 'sbtn',
   disabled,

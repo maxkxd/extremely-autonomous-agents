@@ -12,6 +12,7 @@ import { CATALOG } from './catalog.js';
 import { addNotes, addPersonNotes, loadPerson, loadProfile, savePerson, saveProfile, type PersonProfile, type Profile } from './org.js';
 import { keepLinks, linkPeople } from './links.js';
 import { runnerRoutes } from './runner/api.js';
+import { integrationToolIds } from './integrations/index.js';
 import { handleMcp } from './runner/mcp.js';
 import { startScheduler } from './runner/scheduler.js';
 
@@ -173,7 +174,7 @@ const routes: Record<string, Route> = {
     const b = await build(ctx, turns);
     if (org) await addNotes(org, b.profile_notes ?? []);
     if (person) await addPersonNotes(person, b.person_notes ?? []);
-    return forApp(b, takenIds, new Set(ctx.fleet.tools.map(t => t.id)), ctx.models);
+    return forApp(b, takenIds, new Set([...ctx.fleet.tools.map(t => t.id), ...integrationToolIds()]), ctx.models);
   },
 
   // --- Packs: generic files at once, customized in the background on accept ---
