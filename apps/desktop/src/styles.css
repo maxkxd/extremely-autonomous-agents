@@ -564,7 +564,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 .approval-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
 .approval-buttons { display: flex; gap: 8px; }
-.approval-expiry { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #5f5f5f; }
+.approval-expiry { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #5f5f5f; font-variant-numeric: tabular-nums; }
 
 .ap-btn {
   display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px;

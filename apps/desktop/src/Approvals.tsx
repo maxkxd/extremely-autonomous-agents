@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bot, Check, ChevronDown, CircleCheckBig, Clock, Users, User, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, isMine, type Approval } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
@@ -8,6 +8,24 @@ export type ApprovalScope = 'mine' | 'all';
 export type Resolution = 'approved' | 'rejected';
 
 const agentOf = (a: Approval) => AGENTS.find(x => x.id === a.agentId)!;
+
+// Placeholder data gives time remaining; pin each to a real deadline once.
+const loadedAt = Date.now();
+const deadlineOf = (a: Approval) => loadedAt + a.expiresInHours * 3_600_000;
+
+// Live countdown to an approval's expiry, e.g. 3:59:41 (or 4:07 under an hour).
+function Countdown({ deadline }: { deadline: number }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const total = Math.max(0, Math.floor((deadline - now) / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = String(total % 60).padStart(2, '0');
+  return <>{h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`}</>;
+}
 
 function timeAgo(minutes: number): string {
   if (minutes < 1) return 'just now';
@@ -191,9 +209,9 @@ function ApprovalCard({
               Reject
             </button>
           </div>
-          <span className="approval-expiry" title="If nobody responds, the action does not happen">
+          <span className="approval-expiry" title="Time left to respond - if it runs out, the action does not happen">
             <Clock size={12} strokeWidth={1.75} />
-            expires in {approval.expiresInHours}h
+            <Countdown deadline={deadlineOf(approval)} />
           </span>
         </footer>
 
