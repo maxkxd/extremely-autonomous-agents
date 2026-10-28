@@ -142,9 +142,12 @@ const routes: Record<string, Route> = {
   },
   'GET /api/oauth/openrouter/callback': async (_req, q) => callback(() => conn.openRouterCallback(q)),
   'GET /api/oauth/chatgpt/callback': async (_req, q) => callback(() => conn.chatGptCallback(q)),
-  // An integration's sign-in (Gmail...) lands here; it's tested before it counts as connected.
-  'GET /api/integrations/oauth/callback': async (_req, q) =>
-    callback(async () => {
+  // An integration's sign-in (Gmail...) lands on the root (oauth.ts says why);
+  // it's tested before it counts as connected.
+  'GET /': async (_req, q) =>
+    !q.get('state')
+      ? { server: 'Extremely Autonomous Agents' }
+      : callback(async () => {
       try {
         await finishIntegrationSignIn(q);
       } catch (e) {

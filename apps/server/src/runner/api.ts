@@ -180,7 +180,7 @@ export const runnerRoutes: Record<string, Route> = {
     return connectIntegration(id, key);
   },
   // Signing in to a service (OAuth): returns its sign-in page, which the app
-  // opens; the browser lands on /api/integrations/oauth/callback (index.ts).
+  // opens; the browser lands back on the server root (index.ts).
   'POST /api/integrations/sign-in': async (_req, _q, body) => {
     const { id, clientId, clientSecret } = await body<{ id: string; clientId?: string; clientSecret?: string }>();
     return startIntegrationSignIn(id, { clientId, clientSecret });

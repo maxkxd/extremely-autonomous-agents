@@ -1690,3 +1690,4 @@ a.sbtn { text-decoration: none; color: inherit; }
 .sint-steps { margin: 0 0 4px; padding-left: 20px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
 .sconnectors .sint-steps li { display: list-item; padding: 0; border: 0; }
 .sint-help { margin: 0 0 2px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+.masked { -webkit-text-security: disc; }
