@@ -120,6 +120,7 @@ export function AgentDM({
     <div className="dm">
 
       <div className="dm-log">
+        {entries.length === 0 && !thinking && <div className="dm-empty">No agent activity yet</div>}
         {entries.map((e, i) => {
           const day = dayLabel(e.at);
           const divider = day !== lastDay ? <div className="dm-day" key={`d-${i}`}><span>{day}</span></div> : null;

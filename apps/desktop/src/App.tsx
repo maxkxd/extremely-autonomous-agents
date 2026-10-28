@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Plus } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
@@ -310,6 +310,12 @@ export function App() {
           <div className="header-title">
             <h1>{viewLabel(view)}</h1>
             {view === 'approvals' && <DecisionTally approved={decidedToday.approved} rejected={decidedToday.rejected} />}
+            {view === 'dashboard' && (
+              <button className="new-agent-btn" onClick={() => setView('new-agent')}>
+                <Plus size={14} strokeWidth={2} />
+                New agent
+              </button>
+            )}
           </div>
           {view === 'dashboard' && <RangePicker value={range} onChange={setRange} />}
           {view === 'requests' && (

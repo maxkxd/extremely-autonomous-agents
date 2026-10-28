@@ -15,6 +15,10 @@ import {
   Search,
   Settings2,
   Hammer,
+  Settings,
+  Plug,
+  Gauge,
+  LogOut,
 } from 'lucide-react';
 import { ACCOUNT, AGENTS, ORGANIZATIONS, type Department } from './data';
 import { useDismiss } from './useDismiss';
@@ -188,7 +192,56 @@ export function Sidebar({
         )}
       </div>
 
-      <button className="switcher account-switcher" title="Switch account">
+      <AccountMenu />
+    </aside>
+  );
+}
+
+// The menu items are UI only for now.
+const ACCOUNT_ITEMS: { label: string; Icon: typeof Settings }[] = [
+  { label: 'Settings', Icon: Settings },
+  { label: 'Connectors', Icon: Plug },
+  { label: 'Usage', Icon: Gauge },
+];
+
+// Same joined dropdown as the org picker, opening upward from the sidebar foot.
+function AccountMenu() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, open, () => setOpen(false));
+
+  return (
+    <div className={`account-picker${open ? ' open' : ''}`} ref={ref}>
+      {open && (
+        <ul className="dropdown-menu" role="menu">
+          {ACCOUNT_ITEMS.map(({ label, Icon }) => (
+            <li key={label}>
+              <button role="menuitem" className="dropdown-option" onClick={() => setOpen(false)}>
+                <span className="option-with-avatar">
+                  <Icon size={15} className="option-icon" />
+                  {label}
+                </span>
+              </button>
+            </li>
+          ))}
+          <li className="dropdown-sep" role="separator" />
+          <li>
+            <button role="menuitem" className="dropdown-option" onClick={() => setOpen(false)}>
+              <span className="option-with-avatar">
+                <LogOut size={15} className="option-icon" />
+                Log out
+              </span>
+            </button>
+          </li>
+        </ul>
+      )}
+      <button
+        className="switcher account-switcher"
+        title="Account"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+      >
         <Avatar label={ACCOUNT.name} size={34} />
         <span className="switcher-text">
           <span className="switcher-title">{ACCOUNT.name}</span>
@@ -196,7 +249,7 @@ export function Sidebar({
         </span>
         <ChevronsUpDown size={16} className="muted" />
       </button>
-    </aside>
+    </div>
   );
 }
 
