@@ -67,6 +67,21 @@ export function eligibleModels(agent: AgentDef, deps: RunDeps): ModelChoice[] {
   );
 }
 
+// Why an agent has no model to run on - said plainly on its card and in its DMs.
+export function noModelReason(agent: AgentDef, deps: RunDeps): string {
+  const now = deps.now();
+  const orgCap = getSetting<number | null>('spend_cap_org_usd', null);
+  const cap = stateOf(agent.id, now).spend_cap_usd;
+  const usable = agent.models.filter(c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)));
+  if (!agent.models.length) return 'It has no models. Pick some on its card.';
+  if (!usable.length) return "None of its models can run right now: they're not connected, or failed their checks. Check its models on its card, and Settings -> Connectors.";
+  if (orgCap != null && spentToday(now) >= orgCap)
+    return `Today's spending limit ($${orgCap.toFixed(2)}) is reached, and its models are all paid ones. It runs again tomorrow, or on one of your AI plans if you give it one (Settings -> Usage to change the limit).`;
+  if (cap != null && spentToday(now, agent.id) >= cap)
+    return `Its own daily spending limit ($${cap.toFixed(2)}) is reached, and its models are all paid ones. It runs again tomorrow (Settings -> Usage to change the limit).`;
+  return 'No model it can use right now.';
+}
+
 // --- The instructions -----------------------------------------------------------
 
 async function instructions(agent: AgentDef, level: number, notReady: string[], deps: RunDeps): Promise<string> {
@@ -246,7 +261,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
       while (!turn && !harnessDone) {
         const eligible = eligibleModels(agent, deps).filter(c => !tried.has(choiceKey(c)));
         const pick = pickModel(eligible, health, () => true, deps.now());
-        if (!pick) throw new Error(tried.size ? `Every model failed this turn. Last: ${error}` :'No model it can use right now (none connected, all failed their checks, or a spend cap reached).');
+        if (!pick) throw new Error(tried.size ? `Every model failed this turn. Last: ${error}` :noModelReason(agent, deps));
         const c = pick.choice;
         tried.add(choiceKey(c));
         const info = deps.modelInfo(c);

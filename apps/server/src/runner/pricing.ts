@@ -46,13 +46,19 @@ export const isFree = (connection: string) => FREE.has(connection);
 
 // Candidate OpenRouter ids for a model: exact, with dots for version dashes
 // (claude-opus-5-5 -> claude-opus-5.5), and without a date suffix.
+// A model the provider names by its family alone (deepseek-flash) is filed
+// as the family's "-latest" (deepseek/deepseek-flash-latest).
 function candidates(connection: string, model: string): string[] {
-  if (connection === 'openrouter') return [model];
+  // OpenRouter's own ids; Groq names its models the same way (openai/gpt-oss-120b) - its own
+  // prices are close to OpenRouter's, near enough for a spend estimate.
+  // (The book drops the "~" OpenRouter puts on its moving aliases, like ~anthropic/claude-opus-latest.)
+  if (connection === 'openrouter' || connection === 'groq') return [model.replace(/^~/, '')];
   const prefix = PREFIX[connection];
   if (!prefix) return [];
   const bare = model.replace(/-\d{8}$/, '').replace(/-\d{4}-\d{2}-\d{2}$/, '');
   const dotted = bare.replace(/-(\d+)-(\d+)$/, '-$1.$2');
-  return [...new Set([model, bare, dotted].map(m => `${prefix}/${m}`))];
+  const unaliased = bare.replace(/-latest$/, '');
+  return [...new Set([model, bare, dotted, `${bare}-latest`, unaliased].map(m => `${prefix}/${m}`))];
 }
 
 // Dollars for one model call; null when the price isn't known.
