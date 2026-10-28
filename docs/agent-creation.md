@@ -47,6 +47,16 @@ Three tiers, the same as the runner minus T3:
 There's no "never" tier. If a tool isn't in TOOLS.yaml, the agent can't call
 it. Leaving a tool out is how you forbid it.
 
+**A tier belongs to a whole tool, not a situation, so the builder splits tools.**
+When you say some uses of a tool can go ahead without asking and others need
+your OK ("the first reminder can just go, the rest wait for me"), the builder
+makes a narrower tool that can only do the unasked part, and tiers it lower.
+The limits are enforced by the tool itself (fixed recipient, fixed template,
+once per invoice), not left to the agent's judgement. The general tool keeps
+its stricter tier for everything else. Example: `gmail.send_first_reminder`
+(T1, fixed template, once per invoice, 1-6 days overdue) alongside
+`gmail.send_email` (T2).
+
 Every T2 tool gets an approval window (how long it waits) and what happens when
 it runs out: always `expire`. An action nobody reviewed in time doesn't run
 unattended.

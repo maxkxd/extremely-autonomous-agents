@@ -38,7 +38,7 @@ The tool catalogue (server.tool [default tier] what it does):
 ${catalogForPrompt()}
 
 Every agent also gets fleet plumbing automatically: its task list, Requests, memory proposals, booking its own follow-up run, and its own channel. Never ask about those.
-When nothing in the catalogue does a job, you define a new tool yourself and it gets built; the person doesn't have to arrange anything.`;
+When nothing in the catalogue does a job, you define a new tool yourself and it gets built; the person doesn't have to arrange anything. The same goes for a narrower version of a catalogue tool, which is how some uses of a tool can skip approval while others don't.`;
 
 // Stable across every call, so it's cached.
 const system = (task: string): Anthropic.Beta.BetaTextBlockParam[] => [
@@ -177,7 +177,9 @@ export type Build = z.infer<typeof BuildSchema>;
 export async function build(turns: Turn[]): Promise<Build> {
   return parse(
     BuildSchema,
-    `The interview is over. Write this agent's files from the conversation. Tier every tool deliberately: start from the catalogue default; anything visible outside the organisation or hard to undo is T2; when the person said something needs their OK, make it T2; when they said it can just do it, lower it only if it's reversible. Define new tools for anything the catalogue can't do.`,
+    `The interview is over. Write this agent's files from the conversation. Tier every tool deliberately: start from the catalogue default; anything visible outside the organisation or hard to undo is T2; when the person said something needs their OK, make it T2. Define new tools for anything the catalogue can't do.
+
+A tier belongs to a whole tool, not to a situation. So when the person wants SOME uses of a tool to go ahead without asking and others to wait for them (e.g. "the first reminder can just go, the rest need my OK"), split it: define a narrower new tool that can only do the unasked part, with the limits built into the tool itself (a fixed recipient, a fixed template, once per thing, a cap), tier that one lower, and keep the general tool at its stricter tier for everything else. Honour what the person said rather than overriding it; only refuse to lower a tier when no narrow tool could make it safe, and say why in the Charter.`,
     [...transcript(turns), { role: 'user', content: 'Build it.' }],
     'high',
   );
