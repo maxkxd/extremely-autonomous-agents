@@ -85,13 +85,21 @@ integration, give a tool to an agent); and the Fleet Engineer running at all.
 | `gmail.create_draft` | T1 | unsent, for a person to send; `reply_to` keeps the conversation |
 | `gmail.modify_labels` | T1 | its own labels (made if missing), inbox/unread/starred/important; never trash or spam |
 | `gmail.archive_messages` | T1 | out of the inbox, still in All Mail |
+| `gmail.send_to_me` | T1 | only ever to the signed-in account (digests, reports): it can't reach anyone else |
 | `gmail.send_email` | T2 | `to` and `subject` always spelled out, so the approval shows them |
 
 What an agent reads from email is marked as written by outsiders:
 information, never instructions. Addresses are checked and headers can't
 be injected (a line break in a field is refused, not passed on).
 
-Google's own catch: an OAuth app left in **Testing** has its sign-in ended
+Tested live (2026-10-29) on a real inbox: every tool, and the refusals
+(trash, a non-address, a smuggled Bcc header, a send with no subject). A
+builder-made "Inbox Digest" agent labelled 20 emails, archived 4
+newsletters, and sent a digest in one 33-second run on Claude Code; its
+send_email to the owner queued on the Approvals page.
+
+Google's own catches: the OAuth client must be a **Desktop app** (a Web
+application client refuses the loopback address), and an OAuth app left in **Testing** has its sign-in ended
 every 7 days, so the steps say to publish it (it's for personal use, so it
 needs no review; Google shows an "unverified app" warning once).
 
@@ -114,6 +122,12 @@ fine-grained token: the person picks which repositories agents can reach
 | `github.commit_files` | T1 | whole files and deletes, one commit, to an `agent/...` branch only (made if missing); never forced |
 | `github.create_pull_request` | T1 | from its branch; people review and merge |
 | `github.merge_pull_request` | T2 | title spelled out for the approval |
+
+Tested live (2026-10-29) on a real repository: every tool, a 379-file pull
+request (GitHub refuses that diff whole, so it's built from each file's
+patch), a commit with a path escaping the repo refused, approving refused,
+and a queued merge rejected. A token without write permission gets an error
+naming the permissions to add.
 
 Agents never write to main or any branch a person made: every branch name
 is forced under `agent/`. Approving a review is for people.
@@ -164,8 +178,6 @@ Not yet:
 
 - **OAuth for MCP servers** (their own sign-in discovery); OAuth works for
   definitions that name their sign-in addresses.
-- **Gmail and GitHub** are built and unit-tested but not yet run against a
-  real account.
 - **Code plugins**, and the **Fleet Engineer** adding integrations (its loop is above).
 - **MCP servers on this computer** (local addresses are refused, like
   everything else agents reach).
