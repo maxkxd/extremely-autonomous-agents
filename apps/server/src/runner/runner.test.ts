@@ -51,6 +51,7 @@ function fake(per: number, seen: string[] = []): Adapter {
 const deps = (adapter: Adapter, over: Partial<RunDeps> = {}): RunDeps => ({
   now: () => Date.now(),
   adapter: () => adapter,
+  harness: () => null,
   modelInfo: () => ({ usable: true, efforts: [] }),
   cost: async () => 0.001,
   wake: () => {},

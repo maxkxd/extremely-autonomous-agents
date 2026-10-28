@@ -11,6 +11,9 @@ import { ConnectError } from './models/providers.js';
 import { CATALOG } from './catalog.js';
 import { addNotes, addPersonNotes, loadPerson, loadProfile, savePerson, saveProfile, type PersonProfile, type Profile } from './org.js';
 import { keepLinks, linkPeople } from './links.js';
+import { runnerRoutes } from './runner/api.js';
+import { handleMcp } from './runner/mcp.js';
+import { startScheduler } from './runner/scheduler.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
 const PORT = Number(process.env.PORT ?? 5175);
@@ -246,10 +249,14 @@ const routes: Record<string, Route> = {
 
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
-  const route = routes[`${req.method} ${url.pathname}`];
-  if (!route) return send(res, 404, { error: 'Not found' });
+  // A run's tools, for Claude Code (runner/mcp.ts).
+  if (url.pathname.startsWith('/mcp/') && (await handleMcp(req, res, url.pathname))) return;
+  const key = `${req.method} ${url.pathname}`;
+  const runnerRoute = runnerRoutes[key];
+  const route = routes[key];
+  if (!route && !runnerRoute) return send(res, 404, { error: 'Not found' });
   try {
-    const out = await route(req, url.searchParams);
+    const out = runnerRoute ? await runnerRoute(req, url.searchParams, () => body(req)) : await route(req, url.searchParams);
     if (out instanceof Html) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(out.body);
@@ -265,4 +272,5 @@ createServer(async (req, res) => {
   console.log(`eaa server on http://localhost:${PORT}`);
   resume();
   void conn.recheckCapabilities();
+  startScheduler();
 });

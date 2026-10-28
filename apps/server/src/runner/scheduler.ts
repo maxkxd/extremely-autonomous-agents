@@ -7,6 +7,7 @@ import { loadAgent, type AgentDef } from './agent.js';
 import { all, one, run as exec } from './db.js';
 import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, scheduledDue } from './ferocity.js';
 import { costOf, startOfDay } from './pricing.js';
+import { harnessFor } from './harness.js';
 import { adapterFor } from './providers.js';
 import { eligibleModels, runAgent, stateOf, type RunDeps, type Trigger } from './run.js';
 
@@ -30,6 +31,7 @@ let checks: Awaited<ReturnType<typeof allChecks>> = {};
 export const liveDeps: RunDeps = {
   now: () => Date.now(),
   adapter: adapterFor,
+  harness: harnessFor,
   modelInfo: (c: ModelChoice) => {
     const a = models.find(m => m.connection === c.connection);
     const check = checks[choiceKey(c)];
