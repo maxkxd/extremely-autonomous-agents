@@ -9,7 +9,9 @@ import { runApproved } from './tools.js';
 // the Approvals page; approved, it runs then and there. Either way, or when
 // nobody decides in time, the agent gets a run to hear the outcome.
 
-type Wake = (agentId: string, trigger: 'approval', task: string) => void;
+// Books a run (the scheduler's book): the agent hearing an outcome, or work a
+// tool that ran sets off (the Fleet Engineer picking a request back up).
+type Wake = (agentId: string, trigger: 'approval' | 'request', task: string) => void;
 
 export type ApprovalRow = { id: string; agent_id: string; run_id: string; tool: string; args: string; status: string; created_at: number; expires_at: number };
 
@@ -51,7 +53,7 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
   let ok = true;
   try {
     if (!agent) throw new Error('The agent no longer exists.');
-    result = await runApproved({ agent, runId: a.run_id, level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} }, a.tool, args);
+    result = await runApproved({ agent, runId: a.run_id, level: 0, now: () => Date.now(), fleet: async () => [], wake: (id, t, task) => wake(id, t as 'request', task) }, a.tool, args);
   } catch (e) {
     ok = false;
     result = `Approved, but it failed: ${(e as Error).message}`;
