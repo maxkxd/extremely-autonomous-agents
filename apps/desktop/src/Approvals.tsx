@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bot, Check, ChevronDown, Clock, Users, User, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, isMine, type Approval } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
+import { FlashCount } from './FlashCount';
 import { useDismiss } from './useDismiss';
 
 export type ApprovalScope = 'mine' | 'all';
@@ -49,26 +50,11 @@ export function visibleApprovals(pending: Approval[], scope: ApprovalScope) {
 
 // ---- Today's tally beside the page title -----------------------------------
 
-// One tally item. Each time the count goes up it re-mounts (key) so the glow
-// animation replays; the count it started with doesn't glow.
-function TallyItem({ count, tone, label }: { count: number; tone: 'yes' | 'no'; label: string }) {
-  const first = useRef(count);
-  const Icon = tone === 'yes' ? Check : X;
-  return (
-    <span className={`tally-item ${tone}`} title={label}>
-      <span key={count} className={`tally-inner${count !== first.current ? ' pop' : ''}`}>
-        <Icon size={15} strokeWidth={2.25} />
-        {count}
-      </span>
-    </span>
-  );
-}
-
 export function DecisionTally({ approved, rejected }: { approved: number; rejected: number }) {
   return (
     <div className="tally">
-      <TallyItem count={approved} tone="yes" label="Approved today" />
-      <TallyItem count={rejected} tone="no" label="Rejected today" />
+      <FlashCount outcome="approved" count={approved} size="lg" title="Approved today" />
+      <FlashCount outcome="rejected" count={rejected} size="lg" title="Rejected today" />
     </div>
   );
 }

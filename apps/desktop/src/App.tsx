@@ -4,6 +4,7 @@ import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
 import { useElasticScroll } from './useElasticScroll';
+import { subscribeToDecisions } from './live';
 import { APPROVALS, DECIDED_EARLIER_TODAY, type Decisions, type TimeRange } from './data';
 import {
   Approvals,
@@ -65,6 +66,30 @@ export function App() {
     const d = (sessionDecisions[agentId] ??= { approved: 0, rejected: 0, expired: 0 });
     d[r]++;
   }
+  // Decisions arriving live from elsewhere in the org (other people, expiries).
+  const [liveDecisions, setLiveDecisions] = useState<Record<string, Decisions>>({});
+  useEffect(
+    () =>
+      subscribeToDecisions(e =>
+        setLiveDecisions(prev => {
+          const d = prev[e.agentId] ?? { approved: 0, rejected: 0, expired: 0 };
+          return { ...prev, [e.agentId]: { ...d, [e.outcome]: d[e.outcome] + 1 } };
+        }),
+      ),
+    [],
+  );
+  // Everything decided since the app opened, yours plus live: added on top of
+  // each agent's history on the dashboard.
+  const newDecisions: Record<string, Decisions> = {};
+  for (const src of [sessionDecisions, liveDecisions]) {
+    for (const [id, d] of Object.entries(src)) {
+      const t = (newDecisions[id] ??= { approved: 0, rejected: 0, expired: 0 });
+      t.approved += d.approved;
+      t.rejected += d.rejected;
+      t.expired += d.expired;
+    }
+  }
+  // Today's tally on Approvals is only YOUR decisions.
   const decidedToday = Object.values(sessionDecisions).reduce(
     (t, d) => ({ approved: t.approved + d.approved, rejected: t.rejected + d.rejected }),
     DECIDED_EARLIER_TODAY,
@@ -144,7 +169,7 @@ export function App() {
               range={range}
               onNavigate={setView}
               approvalCounts={approvalCounts}
-              sessionDecisions={sessionDecisions}
+              newDecisions={newDecisions}
             />
           ) : view === 'approvals' ? (
             <Approvals

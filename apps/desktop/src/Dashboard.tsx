@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { Check, CircleCheckBig, CircleMinus, GripVertical, Inbox, Pause, Play, Square, User, X } from 'lucide-react';
+import { CircleCheckBig, GripVertical, Inbox, Pause, Play, Square, User } from 'lucide-react';
+import { FlashCount } from './FlashCount';
 import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
 
@@ -284,10 +285,12 @@ function AgentCard({
                 {agent.owner}
               </span>
             )}
-            <span className="decision-counts" title={`Approvals ${rangeLabel(range).toLowerCase()}`}>
-              <span title="Approved"><Check size={13} strokeWidth={2.25} />{decisions.approved}</span>
-              <span title="Rejected"><X size={13} strokeWidth={2.25} />{decisions.rejected}</span>
-              <span title="Expired"><CircleMinus size={13} strokeWidth={1.75} />{decisions.expired}</span>
+            {/* Flash when anyone's decision lands; re-keyed on the time frame so
+                switching it (which changes every number) doesn't flash. */}
+            <span className="decision-counts">
+              <FlashCount key={`a-${range}`} outcome="approved" count={decisions.approved} />
+              <FlashCount key={`r-${range}`} outcome="rejected" count={decisions.rejected} />
+              <FlashCount key={`e-${range}`} outcome="expired" count={decisions.expired} />
             </span>
           </div>
         </header>
@@ -360,12 +363,12 @@ export function Dashboard({
   range,
   onNavigate,
   approvalCounts,
-  sessionDecisions,
+  newDecisions,
 }: {
   range: TimeRange;
   onNavigate: (v: View) => void;
   approvalCounts: Record<string, number>;
-  sessionDecisions: Record<string, Decisions>; // made today, so in every time frame
+  newDecisions: Record<string, Decisions>; // since the app opened (yours + live), so in every time frame
 }) {
   const [states, setStates] = useState<Record<string, RunState>>({});
   const [order, setOrder] = useState(loadOrder);
@@ -490,9 +493,9 @@ export function Dashboard({
               onNavigate={onNavigate}
               openApprovals={approvalCounts[a.id] ?? 0}
               decisions={{
-                approved: scaleTo(range, a.decisions.approved) + (sessionDecisions[a.id]?.approved ?? 0),
-                rejected: scaleTo(range, a.decisions.rejected) + (sessionDecisions[a.id]?.rejected ?? 0),
-                expired: scaleTo(range, a.decisions.expired) + (sessionDecisions[a.id]?.expired ?? 0),
+                approved: scaleTo(range, a.decisions.approved) + (newDecisions[a.id]?.approved ?? 0),
+                rejected: scaleTo(range, a.decisions.rejected) + (newDecisions[a.id]?.rejected ?? 0),
+                expired: scaleTo(range, a.decisions.expired) + (newDecisions[a.id]?.expired ?? 0),
               }}
               dragging={dragId === a.id}
               onGripDown={e => startDrag(a.id, e)}
