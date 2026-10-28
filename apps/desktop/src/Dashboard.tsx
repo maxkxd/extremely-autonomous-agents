@@ -162,25 +162,24 @@ function AgentCard({
   //   up into Relentless     - abrupt, with a small side-to-side shake
   //   up into Apocalyptic    - abrupt, with a hard shake
   //   any step down          - everything eases back slowly
-  const [level, setLevel] = useState(agent.ferocity);
-  const prevLevel = useRef(level);
+  // The fade speed (--tx) must change in the SAME render as the level: CSS
+  // transitions use the duration in effect when the styles change, so setting
+  // it afterwards (e.g. in an effect) applies the previous change's speed.
+  const [level, setLevelState] = useState(agent.ferocity);
   const [tx, setTx] = useState('0.9s');
   const [kick, setKick] = useState<'soft' | 'hard' | null>(null);
+  const setLevel = (next: number) => {
+    if (next === level) return;
+    const up = next > level;
+    setTx(!up ? '1.6s' : next >= 3 ? '0s' : '0.9s');
+    setKick(up && next >= 3 ? (next === 4 ? 'hard' : 'soft') : null);
+    setLevelState(next);
+  };
   useEffect(() => {
-    const from = prevLevel.current;
-    prevLevel.current = level;
-    if (from === level) return;
-    if (level < from) {
-      setTx('1.6s');
-      setKick(null);
-      return;
-    }
-    setTx(level >= 3 ? '0s' : '0.9s');
-    if (level < 3) return;
-    setKick(level === 4 ? 'hard' : 'soft');
+    if (!kick) return;
     const t = setTimeout(() => setKick(null), 500);
     return () => clearTimeout(t);
-  }, [level]);
+  }, [kick, level]);
   // Stopping halts an in-flight run; draining lets it finish.
   const outcome = state === 'stopped' && agent.lastRun.outcome === 'running' ? 'stopped' : agent.lastRun.outcome;
   const output = agent.output.map(s => ({ ...s, value: scaleTo(range, s.value) }));
