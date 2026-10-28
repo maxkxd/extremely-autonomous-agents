@@ -183,12 +183,13 @@ function AgentCard({
       className={`agent-card fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
       style={{ '--tx': tx } as React.CSSProperties}
     >
+      {/* Drag handle: centred on the card's left edge. */}
+      <button className="drag-grip" title="Drag to reorder" aria-label="Drag to reorder" onPointerDown={onGripDown}>
+        <GripVertical size={16} />
+      </button>
       <div className="card-main">
         <header className="card-head">
           <div className="card-name">
-            <button className="drag-grip" title="Drag to reorder" aria-label="Drag to reorder" onPointerDown={onGripDown}>
-              <GripVertical size={16} />
-            </button>
             <DeptIcon size={18} strokeWidth={1.75} className="dept-icon" />
             <h2>{agent.name}</h2>
             {state !== 'active' && <span className="state-pill">{state === 'draining' ? 'Draining' : 'Stopped'}</span>}

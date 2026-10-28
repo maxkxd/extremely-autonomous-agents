@@ -170,6 +170,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .dashboard { display: flex; flex-direction: column; gap: 14px; padding: 24px 28px 40px; }
 
 .agent-card {
+  position: relative;
   display: flex;
   background: var(--bg);
   border: 1px solid var(--hairline);
@@ -178,7 +179,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 /* Name + owner sit in their own left column so the pies can use the card's full
    height beside them instead of starting below a header row. */
-.card-main { flex: 1; min-width: 0; padding: 18px 22px; display: flex; gap: 20px; --donut: 284px; }
+.card-main { flex: 1; min-width: 0; padding: 18px 22px 18px 32px; display: flex; gap: 20px; --donut: 284px; }
 /* Fixed width so every card's pies line up; long names wrap. */
 .card-head { flex-shrink: 0; width: 310px; }
 .card-head .card-name { flex-wrap: wrap; row-gap: 4px; }
@@ -316,7 +317,8 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 /* Card drag-to-reorder */
 .drag-grip {
-  display: grid; place-items: center; width: 24px; height: 28px; padding: 0; margin-left: -8px;
+  position: absolute; left: 6px; top: 50%; transform: translateY(-50%); z-index: 2;
+  display: grid; place-items: center; width: 20px; height: 40px; padding: 0;
   border-radius: 6px; color: #4a4a4a; cursor: grab; touch-action: none;
 }
 .agent-card:hover .drag-grip { color: var(--muted); }
