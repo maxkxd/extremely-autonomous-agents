@@ -14,6 +14,14 @@ import { abortRun, book, isRunning } from './scheduler.js';
 type Route = (req: IncomingMessage, q: URLSearchParams, body: <T>() => Promise<T>) => Promise<unknown>;
 
 const isId = (id: unknown): id is string => typeof id === 'string' && /^[a-z0-9-]+$/.test(id);
+
+// A label for output that isn't one of its KPI actions (extra effort, like
+// stocking up files): "write_file" -> "Write file".
+const outputLabel = (tool: string) => {
+  if (tool === 'files.write_file') return 'Files written';
+  const name = (tool.split('.').pop() ?? tool).replace(/_/g, ' ');
+  return name.charAt(0).toUpperCase() + name.slice(1);
+};
 const connName = (id: string | null) => PROVIDERS.find(p => p.id === id)?.name ?? id ?? 'Unknown';
 
 export const runnerRoutes: Record<string, Route> = {
@@ -68,7 +76,7 @@ export const runnerRoutes: Record<string, Route> = {
         running: isRunning(id),
         runs: one<{ n: number }>('SELECT COUNT(*) AS n FROM runs WHERE agent_id = ? AND started_at >= ?', id, since)?.n ?? 0,
         lastRun: last ? { at: last.ended_at ?? last.started_at, outcome: last.status === 'running' ? 'running' : last.status } : null,
-        output: outputs.map(o => ({ tool: o.tool, label: labels.get(o.tool) ?? o.tool, value: o.n })),
+        output: outputs.map(o => ({ tool: o.tool, label: labels.get(o.tool) ?? outputLabel(o.tool), value: o.n })),
         cost: costs.filter(c => c.connection).map(c => ({ label: connName(c.connection), value: c.usd ?? 0 })),
         costUnknown: costs.some(c => c.unknown > 0),
         decisions: { approved: decisions?.approved ?? 0, rejected: decisions?.rejected ?? 0, expired: decisions?.expired ?? 0 },
