@@ -19,7 +19,7 @@ import {
 import { ACCOUNT, AGENTS, ORGANIZATIONS, type Department } from './data';
 import { useDismiss } from './useDismiss';
 
-export type View = 'dashboard' | 'approvals' | 'requests' | `agent:${string}`;
+export type View = 'dashboard' | 'approvals' | 'requests' | 'new-agent' | `agent:${string}`;
 
 // The only per-agent symbol: a small monochrome icon for the agent's department.
 export const DEPARTMENT_ICON: Record<Department, typeof Code> = {
@@ -157,8 +157,12 @@ export function Sidebar({
             {dmsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             <span>Agent DMs</span>
           </button>
-          {/* Add-agent flow not built yet - UI only. */}
-          <button className="icon-btn" title="Add agent">
+          {/* Opens the New agent page (agent packs + build your own). */}
+          <button
+            className={`icon-btn${view === 'new-agent' ? ' on' : ''}`}
+            title="Add agent"
+            onClick={() => onSelect('new-agent')}
+          >
             <Plus size={16} />
           </button>
         </div>
@@ -197,6 +201,7 @@ export function Sidebar({
 }
 
 export function viewLabel(view: View): string {
+  if (view === 'new-agent') return 'New agent';
   if (view.startsWith('agent:')) {
     const a = AGENTS.find(x => `agent:${x.id}` === view);
     return a ? a.name : 'Agent';

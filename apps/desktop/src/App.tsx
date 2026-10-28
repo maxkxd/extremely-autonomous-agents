@@ -5,6 +5,7 @@ import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
 import { useElasticScroll } from './useElasticScroll';
 import { AgentDM, stamp, type StampedEntry } from './AgentDM';
+import { NewAgent } from './NewAgent';
 import { DM_HISTORY } from './dms';
 import { subscribeToDecisions } from './live';
 import {
@@ -284,6 +285,8 @@ export function App() {
               convos={convos}
               updateConvo={updateConvo}
             />
+          ) : view === 'new-agent' ? (
+            <NewAgent />
           ) : view.startsWith('agent:') ? (
             <AgentDM
               agentId={view.slice('agent:'.length)}

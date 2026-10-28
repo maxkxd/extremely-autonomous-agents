@@ -1037,3 +1037,52 @@ ul { list-style: none; margin: 0; padding: 0; }
   background: var(--attention); color: var(--attention-text);
 }
 .dm-send:disabled { background: var(--surface-hover); color: #5f5f5f; cursor: default; }
+
+/* ---------------------------------------------------------------------------
+   New agent: agent packs, like a pricing page without prices. 4 columns, as
+   many rows as there are packs; 2 / 1 columns when the space is narrow.
+   --------------------------------------------------------------------------- */
+.icon-btn.on { background: var(--surface-hover); color: var(--text); }
+.packs-wrap { container-type: inline-size; }
+.packs {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;
+  padding: 28px 28px 48px; align-items: stretch;
+}
+@container (max-width: 780px) { .packs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 470px) { .packs { grid-template-columns: minmax(0, 1fr); } }
+
+.pack {
+  display: flex; flex-direction: column; border-radius: 14px; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--hairline); transition: border-color 0.15s;
+}
+.pack:hover { border-color: var(--border); }
+.pack.featured { border-color: rgba(63, 123, 214, 0.55); }
+.pack-ribbon {
+  padding: 7px 0; text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+  background: var(--attention); color: var(--attention-text);
+}
+.pack-body { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 22px 22px 20px; }
+.pack-name { margin: 0; font-size: 21px; font-weight: 700; }
+.pack-tagline { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.pack-count { font-size: 12px; font-weight: 600; color: #6a6a6a; text-transform: uppercase; letter-spacing: 0.05em; }
+.pack-divider { height: 1px; background: var(--hairline); margin: 4px 0; }
+.pack-agents { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 14px; flex: 1; }
+.pack-agents li { display: flex; gap: 10px; }
+.pack-agent-icon { flex-shrink: 0; margin-top: 2px; color: var(--muted); }
+.pack-agent-name { font-size: 14px; font-weight: 600; }
+.pack-agent-does { margin-top: 2px; font-size: 12.5px; line-height: 1.45; color: #8f8f8f; }
+.pack-add {
+  margin-top: 14px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; gap: 7px;
+  font-size: 13.5px; font-weight: 600; color: var(--text); border: 1px solid var(--border-strong);
+}
+.pack.featured .pack-add { background: var(--attention); border-color: var(--attention); color: var(--attention-text); }
+.pack-add:disabled { cursor: default; }
+.pack-add:not(:disabled):hover { background: var(--surface-hover); }
+
+.pack.custom { border-style: dashed; border-color: var(--border-strong); background: rgba(255, 255, 255, 0.015); }
+.pack.custom .pack-body { justify-content: center; align-items: flex-start; }
+.custom-mark {
+  width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 4px;
+  color: var(--text); background: var(--surface-hover); border: 1px solid var(--border);
+}
+.custom-add { align-self: stretch; }
