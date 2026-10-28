@@ -1,0 +1,27 @@
+# Serper - Google search results through an API.
+# Docs: https://serper.dev/playground
+kind: http
+id: serper
+name: Serper (Google)
+what: Google search results
+key_url: https://serper.dev/api-key
+auth: { type: api_key, header: X-API-KEY }
+base_url: https://google.serper.dev
+test: { tool: web.web_search, args: { query: weather in Paris } }
+tools:
+  - id: web.web_search
+    tier: T0
+    description: Search the public web. Returns titles, addresses and snippets; read a result with web.fetch_page.
+    input:
+      type: object
+      properties:
+        query: { type: string, description: What to search for }
+        count: { type: number, description: How many results, 1-20 (default 10) }
+      required: [query]
+    request:
+      method: POST
+      path: /search
+      body: { q: "{{query}}", num: "{{count:10}}" }
+    response:
+      items: organic
+      fields: { title: title, url: link, snippet: snippet, date: date }

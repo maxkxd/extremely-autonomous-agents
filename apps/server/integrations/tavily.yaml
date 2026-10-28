@@ -1,0 +1,27 @@
+# Tavily - search built for AI agents.
+# Docs: https://docs.tavily.com/documentation/api-reference/endpoint/search
+kind: http
+id: tavily
+name: Tavily
+what: Web search built for AI agents
+key_url: https://app.tavily.com/home
+auth: { type: bearer }
+base_url: https://api.tavily.com
+test: { tool: web.web_search, args: { query: weather in Paris } }
+tools:
+  - id: web.web_search
+    tier: T0
+    description: Search the public web. Returns titles, addresses and snippets; read a result with web.fetch_page.
+    input:
+      type: object
+      properties:
+        query: { type: string, description: What to search for }
+        count: { type: number, description: How many results, 1-20 (default 10) }
+      required: [query]
+    request:
+      method: POST
+      path: /search
+      body: { query: "{{query}}", max_results: "{{count:10}}", search_depth: basic }
+    response:
+      items: results
+      fields: { title: title, url: url, snippet: content }
