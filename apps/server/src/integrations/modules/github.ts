@@ -40,6 +40,8 @@ async function api<T>(token: string | undefined, path: string, init: Init = {}):
     if (status === 401) throw new Error('GitHub refused the token (expired or revoked). Replace it under Settings -> Connectors.');
     if (status === 404) throw new Error(`Not found on GitHub (${path.split('?')[0]}) - it doesn't exist, or the token isn't allowed to see it.`);
     if (status === 403 && /rate limit/i.test(text)) throw new Error('GitHub rate limit reached. Try again later.');
+    if (status === 403 && /not accessible by (personal access|integration)/i.test(text))
+      throw new Error("The GitHub token isn't allowed to do this. Its owner can give it Contents, Issues and Pull requests: Read and write (github.com -> Settings -> Developer settings -> Fine-grained tokens).");
     throw new Error(`GitHub answered ${status}: ${errorText(text)}`);
   }
   if (init.accept && !init.accept.includes('json')) return text as T;
@@ -99,14 +101,14 @@ type Comment = { user: User; created_at: string; body: string };
 const listRepos: CodeTool = {
   id: 'github.list_repos',
   tier: 'T0',
-  description: 'The repositories the GitHub token can reach, most recently pushed first, with whether it can write to them.',
+  description: 'The repositories the GitHub token can reach, most recently pushed first.',
   input: { type: 'object', properties: { max: { type: 'number', description: '1-100 (default 30)' } } },
   run: async (args, token) => {
     const max = Math.max(1, Math.min(100, Number(args.max) || 30));
     const repos = await api<Repo[]>(token, `/user/repos?per_page=${max}&sort=pushed`);
     if (!repos.length) return 'The token can reach no repositories. Its owner chooses them when making the token.';
     return repos
-      .map(r => `- ${r.full_name}${r.private ? ' (private)' : ''} · default branch ${r.default_branch} · last push ${day(r.pushed_at)}${r.permissions?.push ? '' : ' · read-only'}${r.description ? `\n  ${r.description}` : ''}`)
+      .map(r => `- ${r.full_name}${r.private ? ' (private)' : ''} · default branch ${r.default_branch} · last push ${day(r.pushed_at)}${r.description ? `\n  ${r.description}` : ''}`)
       .join('\n');
   },
 };
