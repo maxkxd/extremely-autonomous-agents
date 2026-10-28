@@ -105,6 +105,11 @@ async function parse<T extends z.ZodType>(
   }
 }
 
+// What counts as worth remembering. Every agent reads these profiles on every
+// build, so anything transient would keep being brought up long after it stopped
+// mattering.
+const DURABLE = `Only what will still be true and useful to an agent months from now: lasting roles, responsibilities, preferences, standards and how they like to work. Never plans, intentions, one-off tasks, current projects, setup steps, or anything that stops being true once it's done (not "plans to set up X", "is moving to Y next month", "is working on Z"). Leave out anything trivial or that no agent would act on. When in doubt, leave it out. One short sentence each; usually empty.`;
+
 // --- 0. The organisation profile (once, before the first agent) ---
 
 const ProfileSchema = z.object({
@@ -124,7 +129,7 @@ const ProfileTurnSchema = z.object({
   profile: ProfileSchema.describe('Your best draft of the profile so far; use empty strings for unknowns'),
   person_notes: z
     .array(z.string())
-    .describe("New durable facts about the person you're talking to (their role, how they work), one sentence each. Empty if none."),
+    .describe(`New facts about the person you're talking to. ${DURABLE}`),
 });
 
 export async function profileInterview(orgName: string, person: PersonProfile, turns: Turn[]) {
@@ -236,10 +241,10 @@ const BuildSchema = z.object({
   max_runs_per_day: z.number().describe('Runaway backstop, not the cadence: comfortably above what the job needs'),
   profile_notes: z
     .array(z.string())
-    .describe('New durable facts about the organisation learned here that every agent should know, one sentence each. Empty if none.'),
+    .describe(`New facts about the organisation that every agent should know. ${DURABLE}`),
   person_notes: z
     .array(z.string())
-    .describe("New durable facts about the person you're talking to (their role, preferences, how they like to work), one sentence each. Empty if none."),
+    .describe(`New facts about the person you're talking to. ${DURABLE}`),
 });
 
 export type Build = z.infer<typeof BuildSchema>;
