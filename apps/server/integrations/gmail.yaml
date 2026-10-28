@@ -22,6 +22,6 @@ auth:
     2. APIs & Services -> Library: enable the Gmail API.
     3. Google Auth Platform -> Branding: set up the consent screen (External is fine; your email as the contact).
     4. Audience: press Publish app. In Testing, Google ends the sign-in every 7 days.
-    5. Clients -> Create client -> Desktop app. Copy its client ID and secret here.
+    5. Clients -> Create client. Application type: Desktop app (not Web application - Google refuses this app's sign-in for those). Copy its client ID and secret here.
     6. Signing in will warn that Google hasn't verified the app - it's yours, so Continue.
 test: { tool: gmail.list_messages, args: { query: in:inbox, max: 1 } }
