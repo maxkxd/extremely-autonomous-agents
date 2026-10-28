@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronRight, Hammer, Hand, Loader2, SendHorizontal, User, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
-import { visibleApprovals, type ApprovalScope } from './Approvals';
+import { visibleApprovals, type ApprovalScope, type Resolution } from './Approvals';
 
 // How a request left the page: you did it, you rejected it, or the Fleet
 // Engineer sorted it after you tasked it.
@@ -27,6 +27,11 @@ function timeAgo(minutes: number): string {
 }
 
 type Message = { from: 'you' | 'engineer'; text: string };
+
+// A request's conversation with the Fleet Engineer. Kept by the app, not the
+// row, so it survives leaving the page (e.g. to approve the build).
+export type Convo = { thread: Message[]; buildApproval: string | null };
+const NO_CONVO: Convo = { thread: [], buildApproval: null };
 type Drawer = 'diy' | 'reject';
 
 const PLACEHOLDER: Record<Drawer, string> = {
@@ -36,16 +41,22 @@ const PLACEHOLDER: Record<Drawer, string> = {
 
 // PLACEHOLDER: the simulated Fleet Engineer's next reply, until the real one
 // exists. It follows the real rule: never just "why it can't" - its first
-// reply is always what you need to do, and once you say it's done it finishes.
+// reply is always what you need to do. Once it can, it designs the tool and
+// asks to build it - which is a human approval, not something it just does.
 const SAYS_DONE = /\b(done|did it|finished|sorted|set (it )?up|added|bought|got (it|the)|created|uploaded|it'?s (the )?20\d\d)\b/i;
 function engineerReply(request: ResourceRequest, thread: Message[], latest: string) {
   const { engineer } = request;
-  if (engineer.canDoNow) return { text: engineer.done, finished: true };
-  if (!thread.some(m => m.from === 'engineer')) return { text: engineer.plan, finished: false };
-  if (SAYS_DONE.test(latest)) return { text: engineer.done, finished: true };
+  const ready = engineer.canDoNow || (thread.some(m => m.from === 'engineer') && SAYS_DONE.test(latest));
+  if (ready) {
+    return {
+      text: `I've designed "${engineer.build.toolName}" for ${agentOf(request).name}. Building it needs your approval - it's waiting in Approvals.`,
+      readyToBuild: true,
+    };
+  }
+  if (!thread.some(m => m.from === 'engineer')) return { text: engineer.plan, readyToBuild: false };
   return {
-    text: "Got it. Work through the steps above, then reply here (just \"done\" is fine) and I'll finish it off.",
-    finished: false,
+    text: "Got it. Work through the steps above, then reply here (just \"done\" is fine) and I'll design the tool.",
+    readyToBuild: false,
   };
 }
 
@@ -54,20 +65,33 @@ function RequestRow({
   showOwner,
   onDecide,
   onGone,
+  onProposeBuild,
+  approvalOutcomes,
+  onOpenApprovals,
+  convo,
+  updateConvo,
 }: {
   request: ResourceRequest;
   showOwner: boolean;
   onDecide: (r: RequestResolution) => void;
   onGone: () => void;
+  onProposeBuild: () => string; // raises the build approval, returns its id
+  approvalOutcomes: Record<string, Resolution>;
+  onOpenApprovals: () => void;
+  convo: Convo;
+  updateConvo: (fn: (c: Convo) => Convo) => void;
 }) {
   const agent = agentOf(request);
   const DeptIcon = DEPARTMENT_ICON[agent.department];
-  const [open, setOpen] = useState(false);
+  // Requests with a conversation in progress open already expanded.
+  const [open, setOpen] = useState(convo.thread.length > 0);
   const [drawer, setDrawer] = useState<Drawer | null>(null);
   const [note, setNote] = useState('');
   // The conversation with the Fleet Engineer about this request.
-  const [chatOpen, setChatOpen] = useState(false);
-  const [thread, setThread] = useState<Message[]>([]);
+  const { thread, buildApproval } = convo;
+  const [chatOpen, setChatOpen] = useState(thread.length > 0);
+  const setThread = (fn: (t: Message[]) => Message[]) => updateConvo(c => ({ ...c, thread: fn(c.thread) }));
+  const setBuildApproval = (id: string | null) => updateConvo(c => ({ ...c, buildApproval: id }));
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
   const [finished, setFinished] = useState(false); // engineer has done it; request about to leave
@@ -92,7 +116,7 @@ function RequestRow({
     if (thinking || leaving) return;
     const mine = text.trim();
     const sent: Message[] = mine ? [...thread, { from: 'you', text: mine }] : thread;
-    setThread(sent);
+    setThread(() => sent);
     setDraft('');
     setChatOpen(true);
     setDrawer(null);
@@ -101,12 +125,32 @@ function RequestRow({
       const reply = engineerReply(request, thread, mine);
       setThread(t => [...t, { from: 'engineer', text: reply.text }]);
       setThinking(false);
-      if (reply.finished) {
-        setFinished(true);
-        later(READ_MS, () => resolve('engineered'));
-      }
+      if (reply.readyToBuild) setBuildApproval(onProposeBuild());
     });
   };
+
+  // The build approval was decided (on the Approvals page, or it expired).
+  const outcome = buildApproval ? approvalOutcomes[buildApproval] : undefined;
+  useEffect(() => {
+    if (!outcome) return;
+    if (outcome === 'approved') {
+      setThread(t => [...t, { from: 'engineer', text: request.engineer.done }]);
+      setFinished(true);
+      later(READ_MS, () => resolve('engineered'));
+    } else {
+      setThread(t => [
+        ...t,
+        {
+          from: 'engineer',
+          text:
+            outcome === 'rejected'
+              ? "The build was rejected. Tell me what to change and I'll redesign it - or sort it another way with DIY."
+              : "The build approval expired before anyone answered. Reply here and I'll raise it again.",
+        },
+      ]);
+      setBuildApproval(null);
+    }
+  }, [outcome]);
 
   const taskEngineer = (e: React.MouseEvent) => {
     if (e.shiftKey && thread.length === 0) return send(''); // shift-click: task without a note
@@ -121,7 +165,8 @@ function RequestRow({
   };
 
   const last = thread[thread.length - 1];
-  const waitingOnYou = !thinking && !leaving && !finished && last?.from === 'engineer';
+  const waitingOnApproval = !!buildApproval && !outcome;
+  const waitingOnYou = !thinking && !leaving && !finished && !waitingOnApproval && last?.from === 'engineer';
 
   return (
     <div className={`request-wrap${collapsing ? ' collapsing' : ''}`}>
@@ -138,6 +183,7 @@ function RequestRow({
             </span>
           )}
           {waitingOnYou && <span className="request-status waiting">Waiting on you</span>}
+          {waitingOnApproval && <span className="request-status approval">Waiting on approval</span>}
           {showOwner && (
             <span className="request-owner" title="Owner">
               <User size={12} strokeWidth={1.75} />
@@ -189,7 +235,12 @@ function RequestRow({
                       </div>
                     </div>
                   )}
-                  {!leaving && !finished && (
+                  {waitingOnApproval && (
+                    <button className="rq-btn open-approvals" onClick={onOpenApprovals}>
+                      Open Approvals
+                    </button>
+                  )}
+                  {!leaving && !finished && !waitingOnApproval && (
                     <div className="eng-composer">
                       <textarea
                         ref={composer}
@@ -318,12 +369,22 @@ export function Requests({
   agentFilter,
   onDecide,
   onGone,
+  onProposeBuild,
+  approvalOutcomes,
+  onOpenApprovals,
+  convos,
+  updateConvo,
 }: {
   pending: ResourceRequest[];
   scope: ApprovalScope;
   agentFilter: string | null;
   onDecide: (id: string, r: RequestResolution) => void;
   onGone: (id: string) => void;
+  onProposeBuild: (r: ResourceRequest) => string;
+  approvalOutcomes: Record<string, Resolution>;
+  onOpenApprovals: () => void;
+  convos: Record<string, Convo>;
+  updateConvo: (id: string, fn: (c: Convo) => Convo) => void;
 }) {
   const shown = visibleApprovals(pending, scope)
     .filter(r => !agentFilter || r.agentId === agentFilter)
@@ -342,6 +403,11 @@ export function Requests({
           showOwner={!!ACCOUNT.org && scope === 'all'}
           onDecide={res => onDecide(r.id, res)}
           onGone={() => onGone(r.id)}
+          onProposeBuild={() => onProposeBuild(r)}
+          approvalOutcomes={approvalOutcomes}
+          onOpenApprovals={onOpenApprovals}
+          convo={convos[r.id] ?? NO_CONVO}
+          updateConvo={fn => updateConvo(r.id, fn)}
         />
       ))}
     </div>

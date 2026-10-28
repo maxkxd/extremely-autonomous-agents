@@ -803,3 +803,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .eng-composer { display: flex; flex-direction: column; gap: 8px; }
 .request-status.waiting { color: #7aa3e4; background: rgba(63, 123, 214, 0.12); }
 .ap-btn.confirm-engineer:disabled { opacity: 0.5; cursor: default; filter: none; }
+
+/* Request waiting on the Fleet Engineer's build approval */
+.request-status.approval { color: #f2c46d; background: rgba(242, 196, 109, 0.12); }
+.rq-btn.open-approvals { align-self: flex-start; }

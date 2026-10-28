@@ -12,11 +12,12 @@ export type Resolution = 'approved' | 'rejected' | 'expired';
 
 const agentOf = (a: Approval) => AGENTS.find(x => x.id === a.agentId)!;
 
-// Deadline = when the agent made the call + the tool's expiry window. (The
-// placeholder data gives "minutes ago", pinned to the page's load time.)
+// When the call was made: live approvals carry a timestamp, placeholder ones
+// "minutes ago" pinned to the page's load time. Deadline = that + the tool's
+// expiry window.
 const loadedAt = Date.now();
-const deadlineOf = (a: Approval) =>
-  loadedAt - a.minutesAgo * 60_000 + renderApproval(a.tool, a.args).expiresAfterHours * 3_600_000;
+const raisedAt = (a: Approval) => a.createdAt ?? loadedAt - a.minutesAgo * 60_000;
+const deadlineOf = (a: Approval) => raisedAt(a) + renderApproval(a.tool, a.args).expiresAfterHours * 3_600_000;
 
 // Live countdown to an approval's expiry, e.g. 3:59:41 (or 4:07 under an hour).
 function Countdown({ deadline, onExpire }: { deadline: number; onExpire: () => void }) {
@@ -46,9 +47,14 @@ function timeAgo(minutes: number): string {
 
 // Which approvals this person sees: their own agents', or everyone's when an
 // admin switches to "Everyone". Solo accounts (no org) own every agent.
-export function visibleApprovals<T extends { agentId: string }>(pending: T[], scope: ApprovalScope): T[] {
+// An item belongs to the owner of the agent it's FOR (e.g. a tool the Fleet
+// Engineer wants to build for Lead Finder), else of the agent that raised it.
+export function visibleApprovals<T extends { agentId: string; forAgentId?: string }>(
+  pending: T[],
+  scope: ApprovalScope,
+): T[] {
   if (!ACCOUNT.org || scope === 'all') return pending;
-  return pending.filter(a => isMine(a.agentId));
+  return pending.filter(a => isMine(a.forAgentId ?? a.agentId));
 }
 
 // ---- Today's tally beside the page title -----------------------------------
@@ -205,6 +211,7 @@ function ApprovalCard({
   onGone: () => void; // after the exit animation - the card leaves the list
 }) {
   const agent = agentOf(approval);
+  const ownerAgent = AGENTS.find(x => x.id === (approval.forAgentId ?? approval.agentId))!;
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   const card = renderApproval(approval.tool, approval.args);
   const [rejecting, setRejecting] = useState(false);
@@ -236,12 +243,12 @@ function ApprovalCard({
             <p className="approval-line">
               <span className="approval-agent">{agent.name}</span>{' '}
               <span className="approval-action">{card.action}</span>{' '}
-              <span className="approval-time">{timeAgo(approval.minutesAgo)}</span>
+              <span className="approval-time">{timeAgo(Math.floor((Date.now() - raisedAt(approval)) / 60_000))}</span>
             </p>
             {showOwner && (
               <span className="approval-owner" title="Owner">
                 <User size={12} strokeWidth={1.75} />
-                {agent.owner}
+                {ownerAgent.owner}
               </span>
             )}
           </header>
@@ -327,7 +334,7 @@ export function Approvals({
 }) {
   const shown = visibleApprovals(pending, scope)
     .filter(a => !agentFilter || a.agentId === agentFilter)
-    .sort((a, b) => b.minutesAgo - a.minutesAgo); // oldest first; new ones arrive at the bottom
+    .sort((a, b) => raisedAt(a) - raisedAt(b)); // oldest first; new ones arrive at the bottom
 
   if (shown.length === 0) {
     return (

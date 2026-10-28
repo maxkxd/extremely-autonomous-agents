@@ -81,7 +81,15 @@ Engineer**.
   - **Task Fleet Engineer** - opens a conversation with the engineer inside
     the request. You can say what you're able to do ("I'll get a Sales
     Navigator seat - what do you need?"), it answers, you go do it, then reply
-    "done" and it finishes the job with all that context.
+    "done" and it designs the tool with all that context.
+
+    **Building the tool is always a human approval.** The engineer raises it
+    ("Fleet Engineer wants to build a new tool for Lead Finder: ...") and the
+    request shows *Waiting on approval*. The approval belongs to the owner of
+    the agent that asked (the Fleet Engineer itself is owned by no one).
+    Approved -> it builds the tool, says what it built, and the request
+    closes. Rejected or expired -> it says so in the conversation and asks
+    what to change; the request stays open.
 
     **Rule: the Fleet Engineer always tells you what to do.** It never just
     explains why it can't do something. If it can't finish on its own, its

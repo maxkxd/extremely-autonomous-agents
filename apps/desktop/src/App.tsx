@@ -5,8 +5,17 @@ import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
 import { useElasticScroll } from './useElasticScroll';
 import { subscribeToDecisions } from './live';
-import { APPROVALS, DECIDED_EARLIER_TODAY, REQUESTS, type Decisions, type TimeRange } from './data';
-import { Requests, type RequestResolution } from './Requests';
+import {
+  AGENTS,
+  APPROVALS,
+  DECIDED_EARLIER_TODAY,
+  REQUESTS,
+  type Approval,
+  type Decisions,
+  type ResourceRequest,
+  type TimeRange,
+} from './data';
+import { Requests, type Convo, type RequestResolution } from './Requests';
 import {
   Approvals,
   ApprovalsToolbar,
@@ -51,7 +60,30 @@ export function App() {
   // straight away); `gone` drops the card once its exit animation has played.
   const [resolved, setResolved] = useState<Record<string, Resolution>>({});
   const [gone, setGone] = useState<Record<string, true>>({});
-  const pending = APPROVALS.filter(a => !gone[a.id]);
+  // Approvals raised while the app is open (e.g. the Fleet Engineer asking to
+  // build a tool for a request), alongside the placeholder ones.
+  const [raised, setRaised] = useState<Approval[]>([]);
+  const allApprovals = [...APPROVALS, ...raised];
+  const pending = allApprovals.filter(a => !gone[a.id]);
+  // The Fleet Engineer wants to build the tool it designed for a request: that
+  // is a human approval, owned by the requesting agent's owner. Returns its id.
+  const proposeBuild = (req: ResourceRequest) => {
+    const id = `ap-build-${req.id}-${Date.now()}`;
+    const forAgent = AGENTS.find(a => a.id === req.agentId)!;
+    setRaised(prev => [
+      ...prev,
+      {
+        id,
+        agentId: 'fleet',
+        forAgentId: req.agentId,
+        tool: 'tool.build',
+        args: { forAgent: forAgent.name, ...req.engineer.build },
+        minutesAgo: 0,
+        createdAt: Date.now(),
+      },
+    ]);
+    return id;
+  };
   const [scope, setScope] = useState<ApprovalScope>('mine');
   const [agentFilterRaw, setAgentFilter] = useState<string | null>(null);
   // A filter on an agent with nothing left in scope falls back to all agents.
@@ -63,7 +95,7 @@ export function App() {
   // add to the dashboard's counts in every time frame and to today's tally.
   const sessionDecisions: Record<string, Decisions> = {};
   for (const [id, r] of Object.entries(resolved)) {
-    const agentId = APPROVALS.find(a => a.id === id)!.agentId;
+    const agentId = allApprovals.find(a => a.id === id)!.agentId;
     const d = (sessionDecisions[agentId] ??= { approved: 0, rejected: 0, expired: 0 });
     d[r]++;
   }
@@ -105,6 +137,9 @@ export function App() {
     requestFilterRaw && visibleApprovals(pendingRequests, requestScope).some(r => r.agentId === requestFilterRaw)
       ? requestFilterRaw
       : null;
+  const [convos, setConvos] = useState<Record<string, Convo>>({});
+  const updateConvo = (id: string, fn: (c: Convo) => Convo) =>
+    setConvos(prev => ({ ...prev, [id]: fn(prev[id] ?? { thread: [], buildApproval: null }) }));
   const requestCounts: Record<string, number> = {};
   for (const r of pendingRequests) requestCounts[r.agentId] = (requestCounts[r.agentId] ?? 0) + 1;
   const mainBody = useRef<HTMLDivElement>(null);
@@ -210,6 +245,11 @@ export function App() {
               agentFilter={requestFilter}
               onDecide={(id, r) => setRequestResolved(prev => ({ ...prev, [id]: r }))}
               onGone={id => setRequestGone(prev => ({ ...prev, [id]: true }))}
+              onProposeBuild={proposeBuild}
+              approvalOutcomes={resolved}
+              onOpenApprovals={() => setView('approvals')}
+              convos={convos}
+              updateConvo={updateConvo}
             />
           ) : (
             <div className="main-empty">Coming next.</div>

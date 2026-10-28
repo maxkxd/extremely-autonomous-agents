@@ -285,7 +285,12 @@ export type Approval = {
   agentId: string;
   tool: ApprovalToolId;
   args: ToolArgs;
-  minutesAgo: number; // when the agent made the call
+  minutesAgo: number; // when the agent made the call (placeholder data)
+  createdAt?: number; // ms timestamp, for approvals raised while the app is open
+  // Whose owner decides it, when that isn't the calling agent - e.g. the
+  // Fleet Engineer (owned by no one) building a tool FOR Lead Finder goes
+  // to Lead Finder's owner.
+  forAgentId?: string;
 };
 
 // Placeholder approvals for the UI only.
@@ -339,6 +344,9 @@ export const APPROVALS: Approval[] = [
 ];
 
 // Agents each person owns (owner names live on the agents).
+// Whose an approval is: the agent it's for, else the agent that raised it.
+export const approvalOwnerAgent = (a: Approval) => a.forAgentId ?? a.agentId;
+
 export const isMine = (agentId: string) => {
   const a = AGENTS.find(x => x.id === agentId);
   return !!a && !a.builtIn && a.owner === ACCOUNT.name;
@@ -362,9 +370,11 @@ export type ResourceRequest = {
   // until the real engineer exists. Rule: it never just says why it can't -
   // `plan` always tells you what to do so it can finish the job.
   engineer: {
-    canDoNow?: boolean; // it can solve this straight away once tasked
+    canDoNow?: boolean; // it can design the fix straight away once tasked
     plan: string; // first reply: what it needs from you, as steps
-    done: string; // what it did once you've done your part
+    // The tool it designs once it can. Building it is a human approval.
+    build: { toolName: string; does: string; access: string };
+    done: string; // what it did once the build was approved
   };
 };
 
@@ -384,7 +394,8 @@ export const REQUESTS: ResourceRequest[] = [
     engineer: {
       plan:
         "I can build a read-only Sales Navigator search tool for Lead Finder. Here's what I need from you:\n1. Buy a Sales Navigator seat (Core is enough - read-only search).\n2. In Sales Navigator, go to Settings > Integrations and create an API key.\n3. Reply here when that's done. I'll build the tool, and you'll paste the key into Settings > Connections (not here).",
-      done: 'Built a read-only Sales Navigator search tool and gave it to Lead Finder. It goes live once the API key is added in Settings > Connections.',
+      build: { toolName: 'Sales Navigator search', does: 'Searches Sales Navigator for leads by role, company size and region', access: 'Read-only - cannot message or post' },
+      done: 'Approved and built: Lead Finder has a read-only Sales Navigator search tool. It goes live once the API key is added in Settings > Connections.',
     },
   },
   {
@@ -401,7 +412,8 @@ export const REQUESTS: ResourceRequest[] = [
     engineer: {
       plan:
         "I can wire up a market-data source once there's access. Here's what to do:\n1. Buy a Statista subscription (the Professional tier includes API access) - or tell me which data source you'd rather use.\n2. Create an API key in its account settings.\n3. Reply here when that's done and I'll build a lookup tool for Research Assistant.",
-      done: 'Built a market-data lookup tool for Research Assistant. It will cite the source and date with every figure.',
+      build: { toolName: 'Market data lookup', does: 'Looks up market-size and industry figures, with source and date', access: 'Read-only' },
+      done: 'Approved and built: Research Assistant has a market-data lookup that cites the source and date with every figure.',
     },
   },
   {
@@ -418,7 +430,8 @@ export const REQUESTS: ResourceRequest[] = [
     engineer: {
       plan:
         "Only a person can decide which brand guide is current, so here's how to settle it:\n1. Tell me which one is current - 2024 or 2025 - or upload the right one to Shared Drive > Brand.\n2. I'll archive the other one so nothing picks it up again, and point Content Writer at the right file.",
-      done: 'Archived the old guide, kept the current one in Shared Drive > Brand and told Content Writer to use it from now on.',
+      build: { toolName: 'Brand guide pointer', does: 'Archives the outdated brand guide and points Content Writer at the current one', access: 'Can move files within Shared Drive > Brand' },
+      done: 'Approved and done: the old guide is archived, the current one is in Shared Drive > Brand, and Content Writer uses it from now on.',
     },
   },
   {
@@ -435,7 +448,8 @@ export const REQUESTS: ResourceRequest[] = [
     engineer: {
       canDoNow: true,
       plan: '',
-      done: 'Built a read-only accounts@ mailbox tool and gave it to Inbox Triage. It can now file and flag supplier invoices from that inbox.',
+      build: { toolName: 'accounts@ mailbox reader', does: 'Reads, files and flags emails in the shared accounts@ inbox', access: 'Read and label only - cannot send or delete' },
+      done: 'Approved and built: Inbox Triage can now read, file and flag supplier invoices in accounts@.',
     },
   },
 ];

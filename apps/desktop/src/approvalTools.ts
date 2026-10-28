@@ -54,6 +54,16 @@ export const APPROVAL_TOOLS = {
     body: '{note}',
     expiresAfterHours: 4,
   },
+  // The Fleet Engineer asking to build a tool it designed for a request.
+  'tool.build': {
+    wantsTo: 'build a new tool for {forAgent}: {toolName}',
+    headers: [
+      { label: 'What it does', value: '{does}' },
+      { label: 'Access', value: '{access}' },
+    ],
+    body: null,
+    expiresAfterHours: 24,
+  },
   'blog.publish': {
     wantsTo: 'publish a blog post',
     headers: [
