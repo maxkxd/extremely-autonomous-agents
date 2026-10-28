@@ -1,0 +1,16 @@
+# GitHub - read repositories, issues and pull requests; comment, review, commit
+# to its own agent/ branches and open pull requests; merging needs your approval.
+# Its tools are code (src/integrations/modules/github.ts): commits take several
+# API calls, which request templates can't chain.
+# Docs: https://docs.github.com/en/rest
+kind: code
+id: github
+name: GitHub
+what: Read code, issues and pull requests; commit to its own branches and open pull requests; merging needs your approval
+module: github
+# A fine-grained token: you pick exactly which repositories agents can reach.
+# Permissions it needs: Contents, Issues and Pull requests (Read and write), Metadata (read).
+key_url: https://github.com/settings/personal-access-tokens/new
+key_help: A fine-grained token. Pick the repositories agents may use, then give it Contents, Issues and Pull requests (Read and write). Metadata (read) comes with them.
+auth: { type: bearer }
+test: { tool: github.list_repos, args: { max: 1 } }

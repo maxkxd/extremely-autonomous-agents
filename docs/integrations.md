@@ -39,7 +39,7 @@ own (`zoho.create_lead`, `deepwiki.ask_wiki_question`).
 
 Shipped integrations live in `apps/server/integrations/*.yaml` (the four web
 search services: Brave Search, Tavily, Serper, Exa - also the reference
-examples of the format - and Gmail). Added ones live in `data/integrations/`. Keys are in
+examples of the format - Gmail and GitHub). Added ones live in `data/integrations/`. Keys are in
 the vault; connection state and an MCP server's tools in the runner's store.
 
 ## The Fleet Engineer's loop (agreed 2026-10-29)
@@ -95,6 +95,29 @@ Google's own catch: an OAuth app left in **Testing** has its sign-in ended
 every 7 days, so the steps say to publish it (it's for personal use, so it
 needs no review; Google shows an "unverified app" warning once).
 
+## Code (GitHub)
+
+`github.yaml` + `modules/github.ts`, through the GitHub REST API with a
+fine-grained token: the person picks which repositories agents can reach
+(Contents, Issues and Pull requests: read and write).
+
+| Tool | Tier | |
+|---|---|---|
+| `github.list_repos` | T0 | what the token reaches, and where it can write |
+| `github.list_issues` | T0 | by state/labels, or GitHub search words; PRs marked |
+| `github.get_issue` | T0 | with its comments |
+| `github.get_pull_request` | T0 | description, files, checks, reviews, comments, diff |
+| `github.read_file` | T0 | a file as text, or a folder's listing, at any ref |
+| `github.comment_on_issue` | T1 | issues and PRs |
+| `github.create_review` | T1 | comment or request changes, with line comments; never approves |
+| `github.create_branch` | T1 | always `agent/...` |
+| `github.commit_files` | T1 | whole files and deletes, one commit, to an `agent/...` branch only (made if missing); never forced |
+| `github.create_pull_request` | T1 | from its branch; people review and merge |
+| `github.merge_pull_request` | T2 | title spelled out for the approval |
+
+Agents never write to main or any branch a person made: every branch name
+is forced under `agent/`. Approving a review is for people.
+
 ## Safety
 
 - **Agents can't reach this computer or its network** (`runner/net.ts`):
@@ -141,6 +164,8 @@ Not yet:
 
 - **OAuth for MCP servers** (their own sign-in discovery); OAuth works for
   definitions that name their sign-in addresses.
+- **Gmail and GitHub** are built and unit-tested but not yet run against a
+  real account.
 - **Code plugins**, and the **Fleet Engineer** adding integrations (its loop is above).
 - **MCP servers on this computer** (local addresses are refused, like
   everything else agents reach).

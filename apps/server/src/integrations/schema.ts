@@ -70,6 +70,7 @@ export const Integration = z.discriminatedUnion('kind', [
     name: z.string(),
     what: z.string(),
     key_url: z.string().optional(),
+    key_help: z.string().optional(), // what the key needs (permissions), shown by its field
     auth: Auth,
     base_url: z.string().url(),
     test: z.object({ tool: z.string(), args: z.record(z.string(), z.unknown()) }),
@@ -81,6 +82,7 @@ export const Integration = z.discriminatedUnion('kind', [
     name: z.string(),
     what: z.string(),
     key_url: z.string().optional(),
+    key_help: z.string().optional(), // what the key needs (permissions), shown by its field
     auth: Auth,
     url: z.string().url(),
     tiers: z.record(z.string(), Tier).optional(), // overrides for discovered tools
@@ -91,6 +93,7 @@ export const Integration = z.discriminatedUnion('kind', [
     name: z.string(),
     what: z.string(),
     key_url: z.string().optional(),
+    key_help: z.string().optional(), // what the key needs (permissions), shown by its field
     auth: Auth,
     module: z.string().regex(/^[a-z0-9-]+$/), // integrations/modules/<module>.ts
     test: z.object({ tool: z.string(), args: z.record(z.string(), z.unknown()) }),
