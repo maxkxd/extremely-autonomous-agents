@@ -235,6 +235,7 @@ export async function listIntegrations() {
     what: integration.what,
     kind: integration.kind,
     keyUrl: integration.key_url,
+    keyHelp: integration.key_help ?? null,
     needsKey: integration.auth.type !== 'none' && integration.auth.type !== 'oauth2',
     signIn: integration.auth.type === 'oauth2' ? { clientUrl: integration.auth.client_url ?? null, help: integration.auth.client_help ?? null, hasClient: clients.has(integration.id) } : null,
     shipped,

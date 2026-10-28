@@ -246,6 +246,7 @@ export type IntegrationView = {
   what: string;
   kind: 'http' | 'mcp' | 'code';
   keyUrl?: string;
+  keyHelp: string | null;
   needsKey: boolean;
   signIn: { clientUrl: string | null; help: string | null; hasClient: boolean } | null; // OAuth
   shipped: boolean;

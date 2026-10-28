@@ -43,6 +43,15 @@ export const APPROVAL_TOOLS = {
     body: '{body}',
     expiresAfterHours: 24,
   },
+  'github.merge_pull_request': {
+    wantsTo: 'merge pull request #{number} in {repo}',
+    headers: [
+      { label: 'Pull request', value: '{title}' },
+      { label: 'How', value: '{method}', optional: true },
+    ],
+    body: null,
+    expiresAfterHours: 24,
+  },
   'email.send': {
     wantsTo: 'send an email',
     headers: [

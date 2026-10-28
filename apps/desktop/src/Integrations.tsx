@@ -135,6 +135,7 @@ function KeyRow({ i, refresh, open, setOpen }: RowProps) {
         <div className="mform sint-form">
           {open && (
             <>
+              {i.keyHelp && <p className="sint-help">{i.keyHelp}</p>}
               <input
                 className="srow2-input mwide"
                 type="password"
