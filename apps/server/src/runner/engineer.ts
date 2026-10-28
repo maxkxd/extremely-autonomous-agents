@@ -12,6 +12,7 @@ import {
   writeDraftIntegration,
 } from '../integrations/index.js';
 import { pluginsAllowed, writePlugin } from '../integrations/plugins.js';
+import { reviewPlugin } from '../integrations/review.js';
 import { availableModels } from '../models/connections.js';
 import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import type { Tier } from '../catalog.js';
@@ -60,7 +61,7 @@ You are the agency's engineer. Every request an agent files comes to you first. 
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
 
 ## Code plugins
-Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't do - an action on this computer, a file format to build. A plugin is a TypeScript module: \`export default { tools: [{ id, tier, description, input, run: async (args, token, kit) => string }] }\` (token is the key, if the integration takes one; return text the agent reads; throw an Error with a one-line message on failure). Node built-ins only (node:fs, node:child_process...). The network only through \`await kit.fetch(url, { method, headers, body })\`, which returns a Response and refuses this computer and its network - never fetch(), node:http(s), or downloading from a shell; writing the plugin is refused if it does. Pair it with a kind: code definition naming the module. Its code never runs before a person approves it with the code shown, so you can't test it first: write it carefully, and test it as soon as it's live; if it fails, fix it and propose again.
+Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't do - an action on this computer, a file format to build. A plugin is a TypeScript module: \`export default { tools: [{ id, tier, description, input, run: async (args, token, kit) => string }] }\` (token is the key, if the integration takes one; return text the agent reads; throw an Error with a one-line message on failure). Node built-ins only (node:fs, node:child_process...). The network only through \`await kit.fetch(url, { method, headers, body })\`, which returns a Response and refuses this computer and its network - never fetch(), node:http(s), or downloading from a shell; writing the plugin is refused if it does. Pair it with a kind: code definition naming the module, and declare in it exactly what the plugin touches: \`permissions: { write: [folders], read: [folders], commands: true|false }\` (absolute paths or ~/...; a whole drive or the whole home folder is refused). It runs in a sandbox that allows nothing else - no other files, no programs unless commands is true, and no network but kit.fetch. Before you can propose it, an independent security review reads it: inputs agents choose must never reach commands, scripts or paths unchecked (pass them as data, e.g. environment variables, never built into a command line). If the review sends it back, fix what it says. Its code never runs before a person approves it with the code shown, so you can't test it first: write it carefully, and test it as soon as it's live; if it fails, fix it and propose again.
 
 ## Rules
 - Always tell the person what to do next - never just why something can't be done.
@@ -361,6 +362,26 @@ const TOOLS: ToolDef[] = [
       openRequest(a.request_id);
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
       const p = await publishPreview(String(a.integration_id));
+      // A plugin is reviewed by a separate model first; a serious finding sends it back.
+      let plain = '';
+      if (p.code && p.permissions) {
+        const r = await reviewPlugin({ name: p.name, yaml: p.yaml, code: p.code, permissions: p.permissions });
+        if (r.verdict === 'fix')
+          throw new Error(
+            `The security review sent the plugin back - it wasn't proposed. Concerns: ${r.concerns.map(c => `(${c.severity}) ${c.what}`).join('; ')}. What to change: ${r.fix || 'see the concerns'}. Fix it (engineer.write_plugin / engineer.write_integration) and propose it again.`,
+          );
+        const allowed = [
+          p.permissions.write.length ? `Writes files only in: ${p.permissions.write.join(', ')}` : 'Writes no files',
+          p.permissions.read.length ? `Reads files in: ${p.permissions.read.join(', ')}` : '',
+          p.permissions.commands ? 'Starts programs on this computer - what those programs do is not contained by the sandbox' : 'Starts no programs',
+          'Reaches only public websites (never this computer or your network)',
+        ].filter(Boolean);
+        plain = [
+          `What it can do on your computer:\n${r.canDo.map(x => `- ${x}`).join('\n')}`,
+          `What the sandbox allows it:\n${allowed.map(x => `- ${x}`).join('\n')}`,
+          r.concerns.length ? `The security review's notes:\n${r.concerns.map(c => `- (${c.severity}) ${c.what}`).join('\n')}` : 'The security review found nothing to worry about.',
+        ].join('\n\n');
+      }
       setStage(Number(a.request_id), 'approval');
       // Said on the request every time, so the person knows it's their move.
       postToRequest(Number(a.request_id), 'engineer', `${p.name} is tested and ready. It goes live for ${await nameOf(String(a.for_agent))} when you approve it on the Approvals page.`);
@@ -368,7 +389,7 @@ const TOOLS: ToolDef[] = [
         name: p.name,
         for_agent_name: await nameOf(String(a.for_agent)),
         tools_list: ((a.tools as { id: string; tier: string }[]) ?? []).map(t => `${t.id} (${t.tier})`).join(', '),
-        review: `${String(a.summary)}\n\n--- Definition ---\n${p.yaml}${p.code ? `\n--- Plugin code (runs on this computer) ---\n${p.code}` : ''}`,
+        review: `${plain ? `${plain}\n\n--- The Fleet Engineer's summary ---\n` : ''}${String(a.summary)}\n\n--- Definition ---\n${p.yaml}${p.code ? `\n--- Plugin code (runs in a sandbox on this computer) ---\n${p.code}` : ''}`,
         code_hash: p.codeHash,
       };
     },

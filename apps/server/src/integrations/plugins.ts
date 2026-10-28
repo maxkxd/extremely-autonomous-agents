@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { getSetting } from '../runner/db.js';
+import type { Tier } from '../catalog.js';
 import type { CodeModule } from './modules/types.js';
+import { buildPlugin, runSandboxed, type Permissions } from './sandbox.js';
 
 // Code plugins (docs/integrations.md): TypeScript the Fleet Engineer writes for
 // what an HTTP or MCP definition can't do (an action on this computer, say).
@@ -46,21 +48,38 @@ export async function writePlugin(module: string, code: string) {
 const installed = new Map<string, CodeModule>();
 export const pluginModule = (module: string) => installed.get(module);
 
-// Loads the plugin a person approved. Refuses if the file changed since.
-export async function installPlugin(module: string, approvedHash: string): Promise<CodeModule> {
+// Loads the plugin a person approved, into its sandbox (sandbox.ts) with the
+// permissions they saw. Refuses if the code changed since. Nothing of it runs
+// in this server: describing its tools and every call happen in the sandbox.
+export async function installPlugin(module: string, approvedHash: string, permissions: Permissions): Promise<CodeModule> {
   const code = await readPlugin(module);
   if (code == null) throw new Error(`The plugin "${module}" has no code.`);
   if (codeHash(code) !== approvedHash) throw new Error(`The plugin "${module}" changed after it was approved, so it won't run. Propose it again.`);
   const bad = networkProblems(code);
   if (bad.length) throw new Error(`The plugin "${module}" reaches the network other than through kit.fetch (${bad.join('; ')}), so it won't run. Rewrite it with kit.fetch and propose it again.`);
-  const loaded = (await import(`${pathToFileURL(file(module)).href}?v=${approvedHash.slice(0, 12)}`)) as { default?: unknown };
-  const mod = loaded.default as CodeModule | undefined;
-  if (!mod || !Array.isArray(mod.tools) || !mod.tools.length) throw new Error(`The plugin "${module}" must export default { tools: [...] }.`);
-  for (const t of mod.tools) {
+  const built = await buildPlugin(module, code, approvedHash);
+  const described = await runSandboxed(built, permissions, { op: 'describe' });
+  if (described.error) throw new Error(`The plugin "${module}" didn't load: ${described.error}`);
+  const tools = described.tools ?? [];
+  if (!tools.length) throw new Error(`The plugin "${module}" must export default { tools: [...] }.`);
+  for (const t of tools) {
     if (typeof t.id !== 'string' || !/^[a-z0-9_-]+\.[a-z0-9_]+$/.test(t.id)) throw new Error(`A tool in "${module}" has a bad id (want server.tool, lowercase).`);
     if (!['T0', 'T1', 'T2'].includes(t.tier)) throw new Error(`${t.id} needs a tier: T0, T1 or T2.`);
-    if (typeof t.run !== 'function' || typeof t.description !== 'string' || !t.input) throw new Error(`${t.id} needs a description, an input schema and a run function.`);
+    if (t.run !== 'function' || typeof t.description !== 'string' || !t.input) throw new Error(`${t.id} needs a description, an input schema and a run function.`);
   }
+  const mod: CodeModule = {
+    tools: tools.map(t => ({
+      id: t.id,
+      tier: t.tier as Tier,
+      description: t.description,
+      input: t.input as Record<string, unknown>,
+      run: async (args, token) => {
+        const out = await runSandboxed(built, permissions, { op: 'run', tool: t.id, args, token });
+        if (out.error) throw new Error(/ERR_ACCESS_DENIED|Access to this API has been restricted/i.test(out.error) ? `The plugin tried something it didn't declare (a file or program outside its permissions): ${out.error}` : out.error);
+        return out.result ?? '';
+      },
+    })),
+  };
   installed.set(module, mod);
   return mod;
 }

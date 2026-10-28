@@ -95,7 +95,12 @@ export const Integration = z.discriminatedUnion('kind', [
     key_url: z.string().optional(),
     key_help: z.string().optional(), // what the key needs (permissions), shown by its field
     auth: Auth,
-    module: z.string().regex(/^[a-z0-9-]+$/), // integrations/modules/<module>.ts
+    module: z.string().regex(/^[a-z0-9-]+$/), // integrations/modules/<module>.ts, or a plugin
+    // A plugin's sandbox (sandbox.ts): the folders it reads and writes (absolute,
+    // or ~/...), and whether it may start programs. Nothing else is allowed.
+    permissions: z
+      .object({ read: z.array(z.string()).optional(), write: z.array(z.string()).optional(), commands: z.boolean().optional() })
+      .optional(),
     test: z.object({ tool: z.string(), args: z.record(z.string(), z.unknown()) }),
   }),
 ]);
