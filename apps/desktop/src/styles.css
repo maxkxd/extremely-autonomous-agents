@@ -17,7 +17,7 @@
   --attention-text: #ffffff;
   --scroll-thumb: #3d3d3d;
   --scroll-thumb-hover: #555555;
-  font-family: Inter, 'Segoe UI', system-ui, sans-serif;
+  font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
   color: var(--text);
   background: var(--bg);
 }
