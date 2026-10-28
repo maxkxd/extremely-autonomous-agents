@@ -4,8 +4,15 @@ import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
 import { useElasticScroll } from './useElasticScroll';
-import { APPROVALS, type TimeRange } from './data';
-import { Approvals, ApprovalsToolbar, visibleApprovals, type ApprovalScope, type Resolution } from './Approvals';
+import { APPROVALS, DECIDED_EARLIER_TODAY, type Decisions, type TimeRange } from './data';
+import {
+  Approvals,
+  ApprovalsToolbar,
+  DecisionTally,
+  visibleApprovals,
+  type ApprovalScope,
+  type Resolution,
+} from './Approvals';
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 480;
@@ -38,8 +45,11 @@ export function App() {
   const [view, setView] = useState<View>('dashboard');
   const [range, setRange] = useState<TimeRange>('week');
   // Approvals: resolved ones drop out of every count (sidebar badge, dashboard).
+  // `resolved` records a decision the moment it's made (so counters react
+  // straight away); `gone` drops the card once its exit animation has played.
   const [resolved, setResolved] = useState<Record<string, Resolution>>({});
-  const pending = APPROVALS.filter(a => !resolved[a.id]);
+  const [gone, setGone] = useState<Record<string, true>>({});
+  const pending = APPROVALS.filter(a => !gone[a.id]);
   const [scope, setScope] = useState<ApprovalScope>('mine');
   const [agentFilterRaw, setAgentFilter] = useState<string | null>(null);
   // A filter on an agent with nothing left in scope falls back to all agents.
@@ -47,6 +57,18 @@ export function App() {
     agentFilterRaw && visibleApprovals(pending, scope).some(a => a.agentId === agentFilterRaw) ? agentFilterRaw : null;
   const approvalCounts: Record<string, number> = {};
   for (const a of pending) approvalCounts[a.agentId] = (approvalCounts[a.agentId] ?? 0) + 1;
+  // Decisions made in this session, per agent - they all happened today, so they
+  // add to the dashboard's counts in every time frame and to today's tally.
+  const sessionDecisions: Record<string, Decisions> = {};
+  for (const [id, r] of Object.entries(resolved)) {
+    const agentId = APPROVALS.find(a => a.id === id)!.agentId;
+    const d = (sessionDecisions[agentId] ??= { approved: 0, rejected: 0, expired: 0 });
+    d[r]++;
+  }
+  const decidedToday = Object.values(sessionDecisions).reduce(
+    (t, d) => ({ approved: t.approved + d.approved, rejected: t.rejected + d.rejected }),
+    DECIDED_EARLIER_TODAY,
+  );
   const mainBody = useRef<HTMLDivElement>(null);
   useElasticScroll(mainBody);
   const [width, setWidth] = useState(() => clamp(readStored(WIDTH_KEY, DEFAULT_WIDTH)));
@@ -101,7 +123,10 @@ export function App() {
       )}
       <main className="main">
         <header className="main-header">
-          <h1>{viewLabel(view)}</h1>
+          <div className="header-title">
+            <h1>{viewLabel(view)}</h1>
+            {view === 'approvals' && <DecisionTally approved={decidedToday.approved} rejected={decidedToday.rejected} />}
+          </div>
           {view === 'dashboard' && <RangePicker value={range} onChange={setRange} />}
           {view === 'approvals' && (
             <ApprovalsToolbar
@@ -115,13 +140,19 @@ export function App() {
         </header>
         <div className="main-body" ref={mainBody}>
           {view === 'dashboard' ? (
-            <Dashboard range={range} onNavigate={setView} approvalCounts={approvalCounts} />
+            <Dashboard
+              range={range}
+              onNavigate={setView}
+              approvalCounts={approvalCounts}
+              sessionDecisions={sessionDecisions}
+            />
           ) : view === 'approvals' ? (
             <Approvals
               pending={pending}
               scope={scope}
               agentFilter={agentFilter}
-              onResolve={(id, r) => setResolved(prev => ({ ...prev, [id]: r }))}
+              onDecide={(id, r) => setResolved(prev => ({ ...prev, [id]: r }))}
+              onGone={id => setGone(prev => ({ ...prev, [id]: true }))}
             />
           ) : (
             <div className="main-empty">Coming next.</div>

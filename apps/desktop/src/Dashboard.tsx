@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { CircleCheckBig, GripVertical, Inbox, Pause, Play, Square, User } from 'lucide-react';
-import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Agent, type Slice, type TimeRange } from './data';
+import { Check, CircleCheckBig, CircleMinus, GripVertical, Inbox, Pause, Play, Square, User, X } from 'lucide-react';
+import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
 
 // Slice colours come from --slice-0..4 on the card (styles.css): blue-to-gray
@@ -198,6 +198,7 @@ function AgentCard({
   setState,
   onNavigate,
   openApprovals,
+  decisions,
   dragging,
   onGripDown,
 }: {
@@ -207,6 +208,7 @@ function AgentCard({
   setState: (s: RunState) => void;
   onNavigate: (v: View) => void;
   openApprovals: number;
+  decisions: Decisions; // for the dashboard's time frame
   dragging: boolean;
   onGripDown: (e: React.PointerEvent) => void;
 }) {
@@ -275,12 +277,19 @@ function AgentCard({
             </span>
           </div>
           {/* Owners only exist inside an organization. */}
-          {ACCOUNT.org && (
-            <div className="card-owner" title="Owner">
-              <User size={13} strokeWidth={1.75} />
-              {agent.owner}
-            </div>
-          )}
+          <div className="card-owner">
+            {ACCOUNT.org && (
+              <span className="owner-name" title="Owner">
+                <User size={13} strokeWidth={1.75} />
+                {agent.owner}
+              </span>
+            )}
+            <span className="decision-counts" title={`Approvals ${rangeLabel(range).toLowerCase()}`}>
+              <span title="Approved"><Check size={13} strokeWidth={2.25} />{decisions.approved}</span>
+              <span title="Rejected"><X size={13} strokeWidth={2.25} />{decisions.rejected}</span>
+              <span title="Expired"><CircleMinus size={13} strokeWidth={1.75} />{decisions.expired}</span>
+            </span>
+          </div>
         </header>
         <div className="card-charts">
           <Donut caption="output" slices={output} format={count} />
@@ -351,10 +360,12 @@ export function Dashboard({
   range,
   onNavigate,
   approvalCounts,
+  sessionDecisions,
 }: {
   range: TimeRange;
   onNavigate: (v: View) => void;
   approvalCounts: Record<string, number>;
+  sessionDecisions: Record<string, Decisions>; // made today, so in every time frame
 }) {
   const [states, setStates] = useState<Record<string, RunState>>({});
   const [order, setOrder] = useState(loadOrder);
@@ -478,6 +489,11 @@ export function Dashboard({
               setState={s => setStates(prev => ({ ...prev, [a.id]: s }))}
               onNavigate={onNavigate}
               openApprovals={approvalCounts[a.id] ?? 0}
+              decisions={{
+                approved: scaleTo(range, a.decisions.approved) + (sessionDecisions[a.id]?.approved ?? 0),
+                rejected: scaleTo(range, a.decisions.rejected) + (sessionDecisions[a.id]?.rejected ?? 0),
+                expired: scaleTo(range, a.decisions.expired) + (sessionDecisions[a.id]?.expired ?? 0),
+              }}
               dragging={dragId === a.id}
               onGripDown={e => startDrag(a.id, e)}
             />

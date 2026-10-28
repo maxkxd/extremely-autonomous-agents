@@ -47,6 +47,32 @@ export function visibleApprovals(pending: Approval[], scope: ApprovalScope) {
   return pending.filter(a => isMine(a.agentId));
 }
 
+// ---- Today's tally beside the page title -----------------------------------
+
+// One tally item. Each time the count goes up it re-mounts (key) so the glow
+// animation replays; the count it started with doesn't glow.
+function TallyItem({ count, tone, label }: { count: number; tone: 'yes' | 'no'; label: string }) {
+  const first = useRef(count);
+  const Icon = tone === 'yes' ? Check : X;
+  return (
+    <span className={`tally-item ${tone}`} title={label}>
+      <span key={count} className={`tally-inner${count !== first.current ? ' pop' : ''}`}>
+        <Icon size={15} strokeWidth={2.25} />
+        {count}
+      </span>
+    </span>
+  );
+}
+
+export function DecisionTally({ approved, rejected }: { approved: number; rejected: number }) {
+  return (
+    <div className="tally">
+      <TallyItem count={approved} tone="yes" label="Approved today" />
+      <TallyItem count={rejected} tone="no" label="Rejected today" />
+    </div>
+  );
+}
+
 // ---- Header controls: admin "Mine / Everyone" switch + agent filter --------
 
 function AgentFilter({
@@ -156,11 +182,13 @@ const COLLAPSE_MS = 240; // the gap closing behind it
 function ApprovalCard({
   approval,
   showOwner,
-  onResolve,
+  onDecide,
+  onGone,
 }: {
   approval: Approval;
   showOwner: boolean; // the admin Everyone view tags every card, yours included
-  onResolve: (r: Resolution) => void;
+  onDecide: (r: Resolution) => void; // the moment it's decided - counters react now
+  onGone: () => void; // after the exit animation - the card leaves the list
 }) {
   const agent = agentOf(approval);
   const DeptIcon = DEPARTMENT_ICON[agent.department];
@@ -176,8 +204,9 @@ function ApprovalCard({
     if (leaving) return; // already on its way out (e.g. expired while rejecting)
     setRejecting(false);
     setLeaving(r);
+    onDecide(r);
     setTimeout(() => setCollapsing(true), EXIT_MS);
-    setTimeout(() => onResolve(r), EXIT_MS + COLLAPSE_MS);
+    setTimeout(onGone, EXIT_MS + COLLAPSE_MS);
   };
 
   return (
@@ -267,12 +296,14 @@ export function Approvals({
   pending,
   scope,
   agentFilter,
-  onResolve,
+  onDecide,
+  onGone,
 }: {
   pending: Approval[];
   scope: ApprovalScope;
   agentFilter: string | null;
-  onResolve: (id: string, r: Resolution) => void;
+  onDecide: (id: string, r: Resolution) => void;
+  onGone: (id: string) => void;
 }) {
   const shown = visibleApprovals(pending, scope)
     .filter(a => !agentFilter || a.agentId === agentFilter)
@@ -293,7 +324,8 @@ export function Approvals({
           key={a.id}
           approval={a}
           showOwner={!!ACCOUNT.org && scope === 'all'}
-          onResolve={r => onResolve(a.id, r)}
+          onDecide={r => onDecide(a.id, r)}
+          onGone={() => onGone(a.id)}
         />
       ))}
     </div>

@@ -16,8 +16,12 @@ export type Agent = {
   runs: number;
   lastRun: { minutesAgo: number; outcome: 'succeeded' | 'failed' | 'running' };
   openRequests: number;
+  // Approval outcomes per month (scaled to the time frame like the other stats).
+  decisions: Decisions;
   ferocity: number; // index into FEROCITY
 };
+
+export type Decisions = { approved: number; rejected: number; expired: number };
 
 export type Organization = { name: string; members: string[] };
 
@@ -56,6 +60,7 @@ export const AGENTS: Agent[] = [
     runs: 96,
     lastRun: { minutesAgo: 4, outcome: 'running' },
     openRequests: 1,
+    decisions: { approved: 4, rejected: 1, expired: 0 },
     ferocity: 1,
   },
   {
@@ -75,6 +80,7 @@ export const AGENTS: Agent[] = [
     runs: 720,
     lastRun: { minutesAgo: 11, outcome: 'succeeded' },
     openRequests: 0,
+    decisions: { approved: 52, rejected: 9, expired: 3 },
     ferocity: 2,
   },
   {
@@ -95,6 +101,7 @@ export const AGENTS: Agent[] = [
     runs: 58,
     lastRun: { minutesAgo: 190, outcome: 'succeeded' },
     openRequests: 2,
+    decisions: { approved: 18, rejected: 6, expired: 1 },
     ferocity: 1,
   },
   {
@@ -116,6 +123,7 @@ export const AGENTS: Agent[] = [
     runs: 184,
     lastRun: { minutesAgo: 27, outcome: 'failed' },
     openRequests: 0,
+    decisions: { approved: 70, rejected: 14, expired: 5 },
     ferocity: 3,
   },
   {
@@ -135,6 +143,7 @@ export const AGENTS: Agent[] = [
     runs: 30,
     lastRun: { minutesAgo: 1440, outcome: 'succeeded' },
     openRequests: 0,
+    decisions: { approved: 12, rejected: 2, expired: 0 },
     ferocity: 0,
   },
   {
@@ -154,6 +163,7 @@ export const AGENTS: Agent[] = [
     runs: 141,
     lastRun: { minutesAgo: 2, outcome: 'running' },
     openRequests: 1,
+    decisions: { approved: 31, rejected: 4, expired: 2 },
     ferocity: 2,
   },
 ];
@@ -268,3 +278,6 @@ export const APPROVALS: Approval[] = [
 
 // Agents each person owns (owner names live on the agents).
 export const isMine = (agentId: string) => AGENTS.find(a => a.id === agentId)?.owner === ACCOUNT.name;
+
+// Your approve/reject decisions earlier today, before this session (placeholder).
+export const DECIDED_EARLIER_TODAY = { approved: 6, rejected: 2 };
