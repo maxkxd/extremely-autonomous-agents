@@ -1524,8 +1524,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .mform .mwide { width: 100%; }
 .mform-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .mform-actions .slink { display: inline-flex; align-items: center; gap: 4px; margin-right: auto; }
-.mcode { flex-direction: row; align-items: center; gap: 12px; font-size: 13.5px; color: var(--muted); }
-.mcode code {
+.mcode-chip {
   padding: 4px 10px; border-radius: 7px; font-size: 15px; font-weight: 600; letter-spacing: 0.08em;
   color: var(--text); background: var(--surface-hover); border: 1px solid var(--border);
 }

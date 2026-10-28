@@ -55,6 +55,12 @@ export function ModelConnectors() {
   useEffect(() => {
     refresh();
   }, []);
+  // A sign-in already in progress (started before this page opened): keep checking.
+  const pendingId = list?.find(c => c.pending)?.id;
+  useEffect(() => {
+    if (pendingId) watch(pendingId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingId]);
 
   // A sign-in finishes in another window: check back until it's connected.
   const watching = useRef<ReturnType<typeof setInterval>>();
@@ -313,32 +319,34 @@ function PlanRow({ c, refresh, watch }: RowProps) {
     );
   }
 
-  // GitHub Copilot: a device code you enter on GitHub.
+  // GitHub Copilot: a device code you enter on GitHub. While one is waiting,
+  // the code and the one button you need replace Connect.
+  const code = c.pending?.userCode;
   return (
     <RowShell
       c={c}
-      sub={c.connected ? `${c.label}${modelCount(c.models)}` : (c.setupNeeded ?? c.what)}
-      below={
-        <>
-          {c.pending?.userCode && (
-            <div className="mform mcode">
-              <span>Enter this code on GitHub:</span>
-              <code>{c.pending.userCode}</code>
-              <a className="sbtn" href={c.pending.verificationUri} target="_blank" rel="noreferrer">
-                Open GitHub <ExternalLink size={12} />
-              </a>
-            </div>
-          )}
-          {errorLine}
-        </>
+      sub={
+        c.connected
+          ? `${c.label}${modelCount(c.models)}`
+          : code
+            ? 'Enter this code on GitHub and approve.'
+            : (c.setupNeeded ?? c.what)
       }
+      below={errorLine}
     >
       {c.connected ? (
         disconnect
+      ) : code ? (
+        <>
+          <code className="mcode-chip">{code}</code>
+          <a className="sbtn primary" href={c.pending!.verificationUri} target="_blank" rel="noreferrer">
+            Open GitHub <ExternalLink size={12} />
+          </a>
+        </>
       ) : (
         <button
           className="sbtn primary"
-          disabled={busy || !!c.setupNeeded || !!c.pending}
+          disabled={busy || !!c.setupNeeded}
           title={c.setupNeeded}
           onClick={() =>
             act(async () => {
@@ -348,7 +356,7 @@ function PlanRow({ c, refresh, watch }: RowProps) {
             })
           }
         >
-          {c.pending ? 'Waiting for GitHub...' : 'Connect'}
+          Connect
         </button>
       )}
     </RowShell>
