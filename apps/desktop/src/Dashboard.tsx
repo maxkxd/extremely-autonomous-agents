@@ -192,7 +192,7 @@ function Tuning({
   );
 }
 
-function AgentCard({
+export function AgentCard({
   agent,
   range,
   state,
@@ -203,6 +203,7 @@ function AgentCard({
   decisions,
   dragging,
   onGripDown,
+  preview = false,
 }: {
   agent: Agent;
   range: TimeRange;
@@ -214,6 +215,7 @@ function AgentCard({
   decisions: Decisions; // for the dashboard's time frame
   dragging: boolean;
   onGripDown: (e: React.PointerEvent) => void;
+  preview?: boolean; // the new-agent reveal: nothing on it is live yet
 }) {
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   // Ferocity lives on the card because each level restyles the whole card
@@ -241,19 +243,22 @@ function AgentCard({
     return () => clearTimeout(t);
   }, [kick, level]);
   // Stopping halts an in-flight run; draining lets it finish.
-  const outcome = state === 'stopped' && agent.lastRun.outcome === 'running' ? 'stopped' : agent.lastRun.outcome;
+  const last = agent.lastRun;
+  const outcome = !last ? 'never' : state === 'stopped' && last.outcome === 'running' ? 'stopped' : last.outcome;
   const output = agent.output.map(s => ({ ...s, value: scaleTo(range, s.value) }));
   const cost = agent.cost.map(s => ({ ...s, value: scaleTo(range, s.value, false) }));
 
   return (
     <article
-      className={`agent-card fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
+      className={`agent-card${preview ? ' preview' : ''} fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
       style={{ '--tx': tx } as React.CSSProperties}
     >
       {/* Drag handle: centred on the card's left edge. */}
+      {!preview && (
       <button className="drag-grip" title="Drag to reorder" aria-label="Drag to reorder" onPointerDown={onGripDown}>
         <GripVertical size={16} />
       </button>
+      )}
       <div className="card-main">
         <header className="card-head">
           <div className="card-name">
@@ -311,9 +316,15 @@ function AgentCard({
           <div className="stat">
             <span className="stat-label">Last run</span>
             <span className="stat-value small">
-              <span className={`outcome ${outcome}`} />
-              {timeAgo(agent.lastRun.minutesAgo)}
-              <span className="muted"> · {outcome}</span>
+              {last ? (
+                <>
+                  <span className={`outcome ${outcome}`} />
+                  {timeAgo(last.minutesAgo)}
+                  <span className="muted"> · {outcome}</span>
+                </>
+              ) : (
+                <span className="muted">Not yet</span>
+              )}
             </span>
           </div>
         </div>
@@ -349,13 +360,13 @@ function AgentCard({
 
 const ORDER_KEY = 'eaa.dashboardOrder';
 
-// Saved order, with any agents not in it (newly added) appended at the end.
+// Saved order, with any agents not in it (newly added) at the top.
 function loadOrder(): string[] {
   const ids = AGENTS.map(a => a.id);
   try {
     const saved = JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]') as string[];
     const kept = saved.filter(id => ids.includes(id));
-    return [...kept, ...ids.filter(id => !kept.includes(id))];
+    return [...ids.filter(id => !kept.includes(id)).reverse(), ...kept];
   } catch {
     return ids;
   }
@@ -367,12 +378,14 @@ export function Dashboard({
   approvalCounts,
   requestCounts,
   newDecisions,
+  arrivingId,
 }: {
   range: TimeRange;
   onNavigate: (v: View) => void;
   approvalCounts: Record<string, number>;
   requestCounts: Record<string, number>;
   newDecisions: Record<string, Decisions>; // since the app opened (yours + live), so in every time frame
+  arrivingId?: string | null; // a just-created agent: its card smashes in at the top
 }) {
   const [states, setStates] = useState<Record<string, RunState>>({});
   const [order, setOrder] = useState(loadOrder);
@@ -391,6 +404,31 @@ export function Dashboard({
       // Storage unavailable - order just won't persist.
     }
   }, [order]);
+
+  // A new agent's card drops in at the top. The cards below start where they
+  // were (shifted up by its height) and get shoved down at the moment of impact.
+  useLayoutEffect(() => {
+    const el = arrivingId && slots.current.get(arrivingId);
+    if (!el) return;
+    const shift = el.offsetHeight + parseFloat(getComputedStyle(el.parentElement!).rowGap || '0');
+    const others = [...slots.current].filter(([id]) => id !== arrivingId).map(([, s]) => s);
+    for (const o of others) {
+      o.style.transition = 'none';
+      o.style.transform = `translateY(${-shift}px)`;
+    }
+    el.classList.add('arriving');
+    const impact = setTimeout(() => {
+      for (const o of others) {
+        o.style.transition = 'transform 560ms cubic-bezier(0.25, 1.45, 0.45, 1)';
+        o.style.transform = '';
+      }
+    }, 330);
+    const done = setTimeout(() => el.classList.remove('arriving'), 900);
+    return () => {
+      clearTimeout(impact);
+      clearTimeout(done);
+    };
+  }, [arrivingId]);
 
   // Keep the dragged card's top edge exactly where the pointer is holding it.
   const followPointer = () => {

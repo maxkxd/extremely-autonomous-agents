@@ -1,15 +1,34 @@
-import { Plus, Sparkles } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowUp, Plus, Sparkles } from 'lucide-react';
 import { AGENT_PACKS, type AgentPack } from './packs';
 import { DEPARTMENT_ICON } from './Sidebar';
+import { BuilderChat } from './BuilderChat';
+import { buildAgent, matchPack, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
 
 // "Customize your own agent" always takes the last slot of the top row (the
 // 4th card), or follows the packs straight away if there are fewer than three.
 const CUSTOM_SLOT = 3;
 
-function PackCard({ pack }: { pack: AgentPack }) {
+type SetSession = (f: (s: BuilderSession) => BuilderSession) => void;
+
+function PackCard({
+  pack,
+  recommended,
+  cardRef,
+}: {
+  pack: AgentPack;
+  recommended: string | null; // the builder's reason, when it recommends this pack
+  cardRef: (el: HTMLElement | null) => void;
+}) {
   return (
-    <article className="pack">
+    <article className={`pack${recommended !== null ? ' recommended' : ''}`} ref={cardRef}>
       <div className="pack-body">
+        {recommended !== null && (
+          <div className="pack-rec">
+            <span className="pack-rec-tag">Recommended</span>
+            {recommended && <p>{recommended}</p>}
+          </div>
+        )}
         <h2 className="pack-name">{pack.name}</h2>
         <p className="pack-tagline">{pack.tagline}</p>
         <div className="pack-count">
@@ -40,37 +59,190 @@ function PackCard({ pack }: { pack: AgentPack }) {
   );
 }
 
-function CustomCard() {
+// The custom card is the builder's input: you write straight into it.
+function CustomCard({
+  session,
+  onSubmit,
+  onReopen,
+  cardRef,
+}: {
+  session: BuilderSession;
+  onSubmit: (text: string) => void;
+  onReopen: () => void;
+  cardRef: React.Ref<HTMLElement>;
+}) {
+  const [text, setText] = useState('');
+  const { phase } = session;
+  const started = phase === 'chat' || phase === 'building';
+  // Cleared once the builder has taken it, so a failed send keeps your words.
+  useEffect(() => {
+    if (phase === 'recommended' || phase === 'chat') setText('');
+  }, [phase]);
+  const send = () => {
+    const t = text.trim();
+    if (!t || phase === 'matching') return;
+    onSubmit(t);
+  };
   return (
-    <article className="pack custom">
+    <article className={`pack custom${phase === 'matching' ? ' busy' : ''}`} ref={cardRef}>
       <div className="pack-body">
         <div className="custom-mark">
           <Sparkles size={22} strokeWidth={1.6} />
         </div>
         <h2 className="pack-name">Customize your own agent</h2>
-        <p className="pack-tagline">
-          Describe the job in your own words and build an agent for exactly that - its tools, its schedule, how hard it
-          works.
-        </p>
-        <button className="pack-add custom-add" disabled title="Coming next">
-          <Plus size={15} strokeWidth={2} />
-          Build your own
-        </button>
+        {phase === 'recommended' ? (
+          <p className="pack-tagline">Not quite it? Say what's different and we'll build your own.</p>
+        ) : (
+          <p className="pack-tagline">
+            Describe the job in your own words and build an agent for exactly that - its tools, its schedule, how hard
+            it works.
+          </p>
+        )}
+        {started ? (
+          <button className="pack-add custom-add" onClick={onReopen}>
+            Continue building
+          </button>
+        ) : (
+          <div className="custom-input">
+            <textarea
+              value={text}
+              rows={4}
+              disabled={phase === 'matching'}
+              placeholder={phase === 'recommended' ? "How it's different..." : 'What should it do?'}
+              onChange={e => setText(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+            />
+            <button className="custom-send" onClick={send} disabled={!text.trim() || phase === 'matching'} aria-label="Send">
+              <ArrowUp size={16} strokeWidth={2.25} />
+            </button>
+          </div>
+        )}
+        {phase === 'matching' && <div className="custom-status">Checking the packs first...</div>}
+        {session.error && !session.open && <div className="custom-error">{session.error}</div>}
       </div>
     </article>
   );
 }
 
-export function NewAgent() {
+export function NewAgent({
+  session,
+  setSession,
+  onBuilt,
+}: {
+  session: BuilderSession;
+  setSession: SetSession;
+  onBuilt: (b: Built) => void;
+}) {
+  const packEls = useRef(new Map<string, HTMLElement>());
+  const customEl = useRef<HTMLElement>(null);
+  const [origin, setOrigin] = useState<DOMRect | null>(null);
+
+  // Bring a recommended pack into view.
+  const recId = session.phase === 'recommended' ? session.recommended?.packId : undefined;
+  useEffect(() => {
+    if (recId) packEls.current.get(recId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [recId]);
+
+  // The pop-up grows out of the custom card.
+  useLayoutEffect(() => {
+    if (session.open) setOrigin(customEl.current?.getBoundingClientRect() ?? null);
+  }, [session.open]);
+
+  const ask = async (turns: Turn[], declinedPack: string | null) => {
+    setSession(s => ({ ...s, thinking: true, error: null }));
+    try {
+      const r = await nextTurn(turns, declinedPack);
+      setSession(s => ({
+        ...s,
+        thinking: false,
+        turns: [...s.turns, { role: 'builder', text: r.reply }],
+        confidence: r.confidence,
+        ready: r.ready,
+      }));
+    } catch (e) {
+      setSession(s => ({ ...s, thinking: false, error: (e as Error).message }));
+    }
+  };
+
+  const openChat = (turns: Turn[], declinedPack: string | null) => {
+    setSession(s => ({ ...s, phase: 'chat', open: true, turns, declinedPack }));
+    ask(turns, declinedPack);
+  };
+
+  const submitBox = async (text: string) => {
+    if (session.phase === 'recommended') {
+      // Carried on past the recommendation: it's different. Never recommend again.
+      const pack = AGENT_PACKS.find(p => p.id === session.recommended?.packId);
+      customEl.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      openChat([...session.turns, { role: 'person', text }], pack?.name ?? null);
+      return;
+    }
+    const turns: Turn[] = [{ role: 'person', text }];
+    setSession(s => ({ ...s, phase: 'matching', turns, error: null }));
+    try {
+      const m = await matchPack(text);
+      if (m.pack_id) setSession(s => ({ ...s, phase: 'recommended', recommended: { packId: m.pack_id!, reason: m.reason } }));
+      else openChat(turns, null);
+    } catch (e) {
+      setSession(s => ({ ...s, phase: 'idle', turns: [], error: (e as Error).message }));
+    }
+  };
+
+  const reply = (text: string) => {
+    const turns: Turn[] = [...session.turns, { role: 'person', text }];
+    setSession(s => ({ ...s, turns, ready: false }));
+    ask(turns, session.declinedPack);
+  };
+
+  const build = async () => {
+    setSession(s => ({ ...s, phase: 'building', error: null }));
+    try {
+      onBuilt(await buildAgent(session.turns));
+    } catch (e) {
+      setSession(s => ({ ...s, error: (e as Error).message }));
+    } finally {
+      setSession(s => ({ ...s, phase: 'chat' }));
+    }
+  };
+
   const at = Math.min(CUSTOM_SLOT, AGENT_PACKS.length);
+  const pack = (p: AgentPack) => (
+    <PackCard
+      key={p.id}
+      pack={p}
+      recommended={recId === p.id ? (session.recommended?.reason ?? '') : null}
+      cardRef={el => (el ? packEls.current.set(p.id, el) : packEls.current.delete(p.id))}
+    />
+  );
   const cards = [
-    ...AGENT_PACKS.slice(0, at).map(p => <PackCard key={p.id} pack={p} />),
-    <CustomCard key="custom" />,
-    ...AGENT_PACKS.slice(at).map(p => <PackCard key={p.id} pack={p} />),
+    ...AGENT_PACKS.slice(0, at).map(pack),
+    <CustomCard
+      key="custom"
+      session={session}
+      onSubmit={submitBox}
+      onReopen={() => setSession(s => ({ ...s, open: true }))}
+      cardRef={customEl}
+    />,
+    ...AGENT_PACKS.slice(at).map(pack),
   ];
   return (
     <div className="packs-wrap">
       <div className="packs">{cards}</div>
+      {session.open && origin && (
+        <BuilderChat
+          origin={origin}
+          session={session}
+          onReply={reply}
+          onRetry={() => ask(session.turns, session.declinedPack)}
+          onBuild={build}
+          onClose={() => setSession(s => ({ ...s, open: false }))}
+        />
+      )}
     </div>
   );
 }

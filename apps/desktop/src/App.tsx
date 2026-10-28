@@ -6,10 +6,13 @@ import { RangePicker } from './RangePicker';
 import { useElasticScroll } from './useElasticScroll';
 import { AgentDM, stamp, type StampedEntry } from './AgentDM';
 import { NewAgent } from './NewAgent';
+import { AgentReveal } from './AgentReveal';
+import { NEW_SESSION, saveAgent, type BuilderSession, type Built } from './builder';
 import { DM_HISTORY } from './dms';
 import { subscribeToDecisions } from './live';
 import {
   AGENTS,
+  addAgent,
   APPROVALS,
   DECIDED_EARLIER_TODAY,
   REQUESTS,
@@ -178,6 +181,29 @@ export function App() {
   };
   const mainBody = useRef<HTMLDivElement>(null);
   useElasticScroll(mainBody);
+
+  // Creating an agent (docs/agent-creation.md). The conversation lives here so
+  // it survives leaving the New agent page.
+  const [builder, setBuilder] = useState<BuilderSession>(NEW_SESSION);
+  const [reveal, setReveal] = useState<(Built & { leaving: boolean; error: string | null }) | null>(null);
+  const [arrivingId, setArrivingId] = useState<string | null>(null);
+  const cancelReveal = useCallback(() => setReveal(null), []);
+  const acceptReveal = async () => {
+    if (!reveal) return;
+    try {
+      await saveAgent(reveal.files);
+    } catch (e) {
+      setReveal({ ...reveal, error: (e as Error).message });
+      return;
+    }
+    addAgent(reveal.agent);
+    setBuilder(NEW_SESSION);
+    setReveal({ ...reveal, leaving: true, error: null });
+    setArrivingId(reveal.agent.id);
+    setView('dashboard');
+    mainBody.current?.scrollTo({ top: 0 });
+    window.setTimeout(() => setReveal(null), 450);
+  };
   const [width, setWidth] = useState(() => clamp(readStored(WIDTH_KEY, DEFAULT_WIDTH)));
   const [shut, setShut] = useState(() => readStored(SHUT_KEY, false));
 
@@ -263,6 +289,7 @@ export function App() {
               approvalCounts={approvalCounts}
               requestCounts={requestCounts}
               newDecisions={newDecisions}
+              arrivingId={arrivingId}
             />
           ) : view === 'approvals' ? (
             <Approvals
@@ -286,7 +313,11 @@ export function App() {
               updateConvo={updateConvo}
             />
           ) : view === 'new-agent' ? (
-            <NewAgent />
+            <NewAgent
+              session={builder}
+              setSession={setBuilder}
+              onBuilt={b => setReveal({ ...b, leaving: false, error: null })}
+            />
           ) : view.startsWith('agent:') ? (
             <AgentDM
               agentId={view.slice('agent:'.length)}
@@ -300,6 +331,15 @@ export function App() {
           )}
         </div>
       </main>
+      {reveal && (
+        <AgentReveal
+          agent={reveal.agent}
+          leaving={reveal.leaving}
+          error={reveal.error}
+          onCancel={cancelReveal}
+          onAccept={acceptReveal}
+        />
+      )}
     </div>
   );
 }

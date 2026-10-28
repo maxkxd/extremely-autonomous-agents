@@ -18,7 +18,7 @@ export type Agent = {
   output: Slice[];
   cost: Slice[];
   runs: number;
-  lastRun: { minutesAgo: number; outcome: 'succeeded' | 'failed' | 'running' };
+  lastRun: { minutesAgo: number; outcome: 'succeeded' | 'failed' | 'running' } | null; // null = never run
   // Approval outcomes per month (scaled to the time frame like the other stats).
   decisions: Decisions;
   ferocity: number; // index into FEROCITY
@@ -186,6 +186,28 @@ export const AGENTS: Agent[] = [
     ferocity: 1,
   },
 ];
+
+// Agents made with the agent builder (docs/agent-creation.md). Kept in this
+// browser for now and appended to AGENTS, so every view sees them.
+const CREATED_KEY = 'eaa.createdAgents';
+
+function loadCreated(): Agent[] {
+  try {
+    return JSON.parse(localStorage.getItem(CREATED_KEY) ?? '[]') as Agent[];
+  } catch {
+    return [];
+  }
+}
+AGENTS.push(...loadCreated().filter(a => !AGENTS.some(x => x.id === a.id)));
+
+export function addAgent(agent: Agent) {
+  AGENTS.push(agent);
+  try {
+    localStorage.setItem(CREATED_KEY, JSON.stringify([...loadCreated(), agent]));
+  } catch {
+    // Storage unavailable - the agent lasts until the page reloads.
+  }
+}
 
 
 export type TimeRange = 'today' | 'week' | 'month' | 'year' | 'all';

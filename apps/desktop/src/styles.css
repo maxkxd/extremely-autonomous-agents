@@ -1082,3 +1082,148 @@ ul { list-style: none; margin: 0; padding: 0; }
   color: var(--text); background: var(--surface-hover); border: 1px solid var(--border);
 }
 .custom-add { align-self: stretch; }
+
+/* --- Agent builder (docs/agent-creation.md) ------------------------------- */
+
+/* The custom card is the builder's input box. */
+.custom-input { position: relative; align-self: stretch; margin-top: 14px; }
+.custom-input textarea {
+  display: block; width: 100%; resize: none; min-height: 112px; padding: 12px 52px 12px 14px; border-radius: 10px;
+  font: inherit; font-size: 14px; line-height: 1.5; color: var(--text); background: var(--sidebar); border: 1px solid var(--border);
+}
+.custom-input textarea:focus { outline: none; border-color: var(--border-strong); }
+.custom-input textarea::placeholder { color: #5f5f5f; }
+.custom-input textarea:disabled { opacity: 0.6; }
+.custom-send {
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+  background: var(--attention); color: var(--attention-text);
+}
+.custom-send:disabled { background: var(--surface-hover); color: #5f5f5f; cursor: default; }
+.custom-input .custom-send { position: absolute; right: 9px; bottom: 9px; }
+.custom-status { font-size: 13px; color: var(--muted); animation: soft-pulse 1.4s ease-in-out infinite; }
+.custom-error, .builder-error, .reveal-error { font-size: 13px; line-height: 1.45; color: #e5797c; }
+@keyframes soft-pulse { 50% { opacity: 0.45; } }
+
+/* A pack the builder recommends: blue outline that pulses twice, then stays lit. */
+.pack.recommended { border-color: var(--attention); animation: rec-pulse 1.6s ease-out 0.35s 2; }
+.pack.recommended:hover { border-color: var(--attention); }
+@keyframes rec-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(63, 123, 214, 0.55); }
+  100% { box-shadow: 0 0 0 14px rgba(63, 123, 214, 0); }
+}
+.pack-rec { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.pack-rec-tag {
+  align-self: flex-start; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase; background: var(--attention); color: var(--attention-text);
+}
+.pack-rec p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text); }
+
+/* The pop-up: starts exactly over the custom card, grows to fill the window. */
+.builder-scrim { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0); transition: background 0.35s; }
+.builder-scrim.in { background: rgba(0, 0, 0, 0.55); }
+.builder {
+  position: fixed; display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 14px; background: var(--bg); border: 1px solid var(--border-strong);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  transition: top 0.42s cubic-bezier(0.2, 0.8, 0.2, 1), left 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 0.42s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.42s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.builder.grown { top: 40px; left: calc(50% - min(440px, 50vw - 40px)); width: min(880px, 100vw - 80px); height: calc(100vh - 80px); }
+.builder > :not(.builder-progress) { opacity: 0; transition: opacity 0.2s; }
+.builder.grown > :not(.builder-progress) { opacity: 1; transition-delay: 0.25s; }
+
+/* The builder's confidence. */
+.builder-progress { flex-shrink: 0; height: 4px; background: var(--surface-hover); }
+.builder-progress span {
+  display: block; height: 100%; background: var(--attention); border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 10px rgba(63, 123, 214, 0.6); transition: width 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.builder-progress.building span {
+  background: linear-gradient(90deg, var(--attention) 0%, #8fb6ee 50%, var(--attention) 100%);
+  background-size: 200% 100%; animation: build-shimmer 1.2s linear infinite;
+}
+@keyframes build-shimmer { to { background-position: -200% 0; } }
+
+.builder-head { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 14px 16px 14px 22px; border-bottom: 1px solid var(--hairline); }
+.builder-title { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+.builder-confidence { margin-left: auto; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.builder-close { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
+.builder-close:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+.builder-close:disabled { opacity: 0.4; cursor: default; }
+
+.builder-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 24px 28px; }
+.bmsg { max-width: 78%; font-size: 14.5px; line-height: 1.55; white-space: pre-wrap; }
+.bmsg.is-builder { align-self: flex-start; }
+.bmsg.is-person { align-self: flex-end; padding: 10px 14px; border-radius: 12px 12px 4px 12px; background: var(--surface-hover); }
+.bmsg.typing { display: inline-flex; gap: 5px; padding: 8px 0; }
+.bmsg.typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: typing 1.2s ease-in-out infinite; }
+.bmsg.typing span:nth-child(2) { animation-delay: 0.15s; }
+.bmsg.typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing { 0%, 60%, 100% { opacity: 0.25; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
+.building-note { color: var(--muted); animation: soft-pulse 1.4s ease-in-out infinite; }
+.builder-error { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.builder-error button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 7px; color: var(--text); border: 1px solid var(--border-strong); }
+
+.builder-foot { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 22px 16px; border-top: 1px solid var(--hairline); }
+.builder-build {
+  align-self: flex-start; height: 38px; padding: 0 16px; border-radius: 9px; display: inline-flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 600; background: var(--attention); color: var(--attention-text);
+  animation: build-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.builder-build:hover { filter: brightness(1.1); }
+@keyframes build-in { from { opacity: 0; transform: translateY(6px); } }
+.builder-compose { display: flex; align-items: flex-end; gap: 8px; }
+.builder-compose textarea {
+  flex: 1; resize: none; min-height: 42px; max-height: 160px; padding: 11px 14px; border-radius: 10px;
+  font: inherit; font-size: 14px; color: var(--text); background: var(--sidebar); border: 1px solid var(--border);
+}
+.builder-compose textarea:focus { outline: none; border-color: var(--border-strong); }
+.builder-compose textarea::placeholder { color: #5f5f5f; }
+.builder-compose .custom-send { width: 42px; height: 42px; border-radius: 10px; }
+.builder-hint { font-size: 12px; color: #5f5f5f; }
+
+/* The reveal: everything fades to black except the new agent's card. */
+.reveal {
+  position: fixed; inset: 0; z-index: 80; display: grid; place-items: center;
+  background: #000; opacity: 0; transition: opacity 0.6s ease;
+}
+.reveal.in { opacity: 1; }
+.reveal.leaving { opacity: 0; transition-duration: 0.4s; pointer-events: none; }
+.reveal-cancel {
+  position: absolute; top: 22px; right: 24px; width: 42px; height: 42px; border-radius: 50%;
+  display: grid; place-items: center; color: #9a9a9a;
+}
+.reveal-cancel:hover { background: #1c1c1c; color: var(--text); }
+.reveal-stage { display: flex; flex-direction: column; align-items: center; gap: 34px; width: min(1100px, 100vw - 64px); }
+.reveal-card { width: 100%; transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); animation: reveal-float 4s ease-in-out 0.6s infinite; }
+.reveal:not(.in) .reveal-card { transform: scale(0.96); }
+.reveal-card .agent-card { box-shadow: 0 0 0 1px #2a2a2a, 0 40px 90px rgba(0, 0, 0, 0.8), 0 0 60px rgba(63, 123, 214, 0.12); }
+@keyframes reveal-float { 50% { transform: translateY(-8px); } }
+/* Nothing on the preview card is live yet. */
+.agent-card.preview .controls, .agent-card.preview .tuning, .agent-card.preview .head-counts { pointer-events: none; }
+
+.reveal-accept {
+  position: relative; overflow: hidden; width: 240px; height: 48px; border-radius: 12px;
+  font-size: 15px; font-weight: 600; color: var(--text); border: 1px solid var(--border-strong); background: #111;
+  user-select: none; touch-action: none;
+}
+.reveal-fill {
+  position: absolute; inset: 0; background: var(--attention); transform: scaleX(0); transform-origin: left;
+  transition: transform 0.25s ease-out;
+}
+.reveal-accept.holding .reveal-fill { transform: scaleX(1); transition: transform var(--hold) linear; }
+.reveal-accept.holding { color: var(--attention-text); }
+.reveal-label { position: relative; }
+
+/* Accepted: the new card smashes into the top of the dashboard. */
+.card-slot.arriving { position: relative; z-index: 5; animation: card-smash 0.62s cubic-bezier(0.3, 0, 0.3, 1) both; }
+@keyframes card-smash {
+  0% { opacity: 0; transform: translateY(-30px) scale(1.16); }
+  50% { opacity: 1; transform: translateY(4px) scale(0.975); }
+  70% { transform: translateY(-2px) scale(1.008); }
+  100% { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .builder, .reveal, .reveal-card, .builder-progress span { transition: none; }
+  .card-slot.arriving, .reveal-card, .pack.recommended { animation: none; }
+}
