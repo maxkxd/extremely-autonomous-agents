@@ -29,7 +29,10 @@ Personal AI plans (Claude Code, Sign in with ChatGPT) belong on the host the
 person controls: both providers are stricter about plans used from a hosted
 service than from the user's own machine (docs/model-connections.md).
 
-## Later: how it makes money
+## How it makes money
+
+Open-source and free to self-host, with paid plans on top - the Snipe-IT
+model:
 
 - **Cloud hosting** of an organization's agency, instead of running the host
   themselves.
