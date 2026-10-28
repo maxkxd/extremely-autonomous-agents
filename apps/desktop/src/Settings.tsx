@@ -159,36 +159,65 @@ function useRecord<T>(load: () => Promise<T>, store: (v: T) => Promise<unknown>)
 // --- Account -----------------------------------------------------------------
 
 function AccountSection() {
-  const rec = useRecord<Person>(getPerson, savePerson);
+  const [p, setP] = useState<Person | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [ide, setIde] = useState<IdeId>(yourIde);
-  const p = rec.value;
+  useEffect(() => {
+    getPerson().then(setP, e => setError((e as Error).message));
+  }, []);
+  // Everything here saves as you go - there's no Save button to forget.
+  const update = async (patch: Partial<Person>) => {
+    if (!p) return;
+    const next = { ...p, ...patch };
+    setP(next);
+    setError(null);
+    try {
+      await savePerson(next);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const [email, setEmail] = useState<string | null>(null);
+
   return (
     <section className="ssection">
       <h2>Account</h2>
-      <p className="slead">You, as your agents know you. They read this whenever they're built or tailored, and add to it over time.</p>
+      {error && <p className="custom-error">{error}</p>}
       {!p ? (
-        rec.error ? <p className="custom-error">{rec.error}</p> : <p className="snotes-empty">Loading...</p>
+        !error && <p className="snotes-empty">Loading...</p>
       ) : (
         <>
+          <h3>Sign-in</h3>
           <div className="sgrid">
-            <Field label="Name">
+            <Field label="Username">
               <input value={p.name} disabled />
             </Field>
             <Field label="Email">
-              <input value={p.email} placeholder="you@company.com" onChange={e => rec.edit({ email: e.target.value })} />
+              <input
+                value={email ?? p.email}
+                placeholder="you@company.com"
+                onChange={e => setEmail(e.target.value)}
+                onBlur={() => email !== null && email !== p.email && update({ email: email.trim() })}
+              />
             </Field>
           </div>
-          <Field label="Your role" hint="What you do, in your own words.">
-            <input value={p.role} placeholder="e.g. Founder, I run sales and partnerships" onChange={e => rec.edit({ role: e.target.value })} />
-          </Field>
-          <Field label="About you" hint="How you like to work, what you care about, anything an agent working for you should know.">
-            <textarea rows={3} value={p.about} onChange={e => rec.edit({ about: e.target.value })} />
-          </Field>
-          <div className="sfield">
-            <span className="sfield-label">What your agents have learned about you</span>
-            <Notes notes={p.notes} onChange={notes => rec.edit({ notes })} empty="Nothing yet. It fills in as you build and work with agents." />
+          {/* Sign-in isn't built yet: these come with it. */}
+          <div className="srow">
+            <div>
+              <span className="srow-title">Password</span>
+              <span className="srow-sub">••••••••••</span>
+            </div>
+            <div className="srow-actions">
+              <button className="sbtn" disabled title="Comes with sign-in">
+                Change password
+              </button>
+              <button className="sbtn" disabled title="Comes with sign-in">
+                Send reset link
+              </button>
+            </div>
           </div>
-          <SaveBar dirty={rec.dirty} saving={rec.saving} saved={rec.saved} error={rec.error} onSave={rec.save} />
+
+          <Memories notes={p.notes} onChange={notes => update({ notes })} />
         </>
       )}
 
@@ -210,7 +239,59 @@ function AccountSection() {
           </button>
         ))}
       </div>
+
+      <div className="sdanger">
+        <div>
+          <span className="srow-title">Delete account</span>
+          <span className="srow-sub">Deletes your account, your agents and everything they remember, for good.</span>
+        </div>
+        <button className="sbtn danger" disabled title="Comes with sign-in">
+          Delete account
+        </button>
+      </div>
     </section>
+  );
+}
+
+// What your agents know about you. They add to it over time (only lasting
+// things); you can add your own with + and forget anything with the bin.
+function Memories({ notes, onChange }: { notes: string[]; onChange: (n: string[]) => void }) {
+  const [adding, setAdding] = useState(false);
+  const [text, setText] = useState('');
+  const add = () => {
+    const t = text.trim();
+    if (t) onChange([...notes, t]);
+    setText('');
+    setAdding(false);
+  };
+  return (
+    <div className="sfield">
+      <div className="smem-head">
+        <h3>Memories</h3>
+        <button className="smem-add" onClick={() => setAdding(true)} aria-label="Add a memory" title="Add a memory">
+          <Plus size={15} />
+        </button>
+      </div>
+      {adding && (
+        <input
+          className="smem-input"
+          autoFocus
+          value={text}
+          placeholder="Something every agent should know about you"
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') add();
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              setText('');
+              setAdding(false);
+            }
+          }}
+          onBlur={add}
+        />
+      )}
+      <Notes notes={notes} onChange={onChange} empty={adding ? '' : 'Nothing yet. Your agents add lasting things they learn about you here.'} />
+    </div>
   );
 }
 
@@ -354,7 +435,6 @@ function UsageSection() {
   return (
     <section className="ssection">
       <h2>Usage</h2>
-      <p className="slead">This month, across every agent. Placeholder figures until agents run for real.</p>
       <div className="stiles">
         <div className="stile">
           <span className="stile-label">Spend</span>
