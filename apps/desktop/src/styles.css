@@ -316,15 +316,16 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 /* Card drag-to-reorder */
 .drag-grip {
-  display: grid; place-items: center; width: 22px; height: 28px; margin-left: -8px;
+  display: grid; place-items: center; width: 24px; height: 28px; padding: 0; margin-left: -8px;
   border-radius: 6px; color: #4a4a4a; cursor: grab; touch-action: none;
 }
 .agent-card:hover .drag-grip { color: var(--muted); }
 .drag-grip:hover { color: var(--text) !important; background: var(--surface-hover); }
+.card-slot { position: relative; }
+.card-slot.lifted { z-index: 3; }
 .agent-card.dragging {
   border-color: var(--border-strong);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
-  position: relative; z-index: 2;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
 }
 .dragging-card, .dragging-card * { cursor: grabbing !important; user-select: none; }
 

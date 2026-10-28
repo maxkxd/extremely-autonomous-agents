@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CircleCheckBig, GripVertical, Inbox, Pause, Play, Square, User } from 'lucide-react';
 import { ACCOUNT, AGENTS, FEROCITY, rangeLabel, scaleTo, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
@@ -144,7 +144,6 @@ function AgentCard({
   state,
   setState,
   onNavigate,
-  cardRef,
   dragging,
   onGripDown,
 }: {
@@ -153,7 +152,6 @@ function AgentCard({
   state: RunState;
   setState: (s: RunState) => void;
   onNavigate: (v: View) => void;
-  cardRef: (el: HTMLElement | null) => void;
   dragging: boolean;
   onGripDown: (e: React.PointerEvent) => void;
 }) {
@@ -192,7 +190,6 @@ function AgentCard({
     <article
       className={`agent-card fero-${level} is-${state}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
       style={{ '--tx': tx } as React.CSSProperties}
-      ref={cardRef}
     >
       <div className="card-main">
         <header className="card-head">
@@ -297,7 +294,12 @@ export function Dashboard({ range, onNavigate }: { range: TimeRange; onNavigate:
   const [states, setStates] = useState<Record<string, RunState>>({});
   const [order, setOrder] = useState(loadOrder);
   const [dragId, setDragId] = useState<string | null>(null);
-  const cards = useRef(new Map<string, HTMLElement>());
+  // Each card sits in a slot; drag-follow and slide animations transform the
+  // slot, never the card, so they don't fight the card's own ferocity animations.
+  const slots = useRef(new Map<string, HTMLDivElement>());
+  const drag = useRef<{ id: string; grabOffset: number; pointerY: number; translate: number } | null>(null);
+  // Visual tops captured just before a reorder, for the slide (FLIP) animation.
+  const prevTops = useRef<Map<string, number> | null>(null);
 
   useEffect(() => {
     try {
@@ -307,37 +309,84 @@ export function Dashboard({ range, onNavigate }: { range: TimeRange; onNavigate:
     }
   }, [order]);
 
-  // Live reorder: the dragged card moves to sit before the first other card whose
-  // midpoint is below the pointer. Scrolls the dashboard when near its edges.
+  // Keep the dragged card's top edge exactly where the pointer is holding it.
+  const followPointer = () => {
+    const d = drag.current;
+    const el = d && slots.current.get(d.id);
+    if (!d || !el) return;
+    const naturalTop = el.getBoundingClientRect().top - d.translate;
+    d.translate = d.pointerY - d.grabOffset - naturalTop;
+    el.style.transform = `translateY(${d.translate}px)`;
+  };
+
+  // After a reorder, slide every other card from where it was to its new slot.
+  useLayoutEffect(() => {
+    const prev = prevTops.current;
+    prevTops.current = null;
+    if (prev) {
+      for (const [id, el] of slots.current) {
+        if (id === drag.current?.id) continue;
+        const before = prev.get(id);
+        if (before === undefined) continue;
+        el.style.transition = 'none';
+        el.style.transform = '';
+        const delta = before - el.getBoundingClientRect().top;
+        if (!delta) continue;
+        el.style.transform = `translateY(${delta}px)`;
+        el.getBoundingClientRect(); // commit the start position before animating
+        el.style.transition = 'transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+        el.style.transform = '';
+      }
+    }
+    followPointer();
+  }, [order]);
+
   const startDrag = useCallback((id: string, e: React.PointerEvent) => {
     e.preventDefault();
+    const el = slots.current.get(id);
+    if (!el) return;
+    el.style.transition = 'none';
+    drag.current = { id, grabOffset: e.clientY - el.getBoundingClientRect().top, pointerY: e.clientY, translate: 0 };
     setDragId(id);
     document.body.classList.add('dragging-card');
-    const scroller = (e.currentTarget as HTMLElement).closest('.main-body');
+    const scroller = el.closest('.main-body');
 
     const onMove = (ev: PointerEvent) => {
+      const d = drag.current;
+      if (!d) return;
+      d.pointerY = ev.clientY;
       if (scroller) {
         const box = scroller.getBoundingClientRect();
         if (ev.clientY < box.top + 60) scroller.scrollBy(0, -14);
         else if (ev.clientY > box.bottom - 60) scroller.scrollBy(0, 14);
       }
+      followPointer();
+
+      // The dragged card takes the slot before the first other card whose
+      // midpoint is below the dragged card's own centre (layout coordinates,
+      // so in-flight slide animations don't confuse it).
+      const centre = el.offsetTop + d.translate + el.offsetHeight / 2;
       setOrder(prev => {
         const others = prev.filter(x => x !== id);
         let at = others.length;
         for (let i = 0; i < others.length; i++) {
-          const el = cards.current.get(others[i]);
-          if (!el) continue;
-          const r = el.getBoundingClientRect();
-          if (ev.clientY < r.top + r.height / 2) {
+          const o = slots.current.get(others[i]);
+          if (o && centre < o.offsetTop + o.offsetHeight / 2) {
             at = i;
             break;
           }
         }
         const next = [...others.slice(0, at), id, ...others.slice(at)];
-        return next.every((x, i) => x === prev[i]) ? prev : next;
+        if (next.every((x, i) => x === prev[i])) return prev;
+        prevTops.current = new Map([...slots.current].map(([k, s]) => [k, s.getBoundingClientRect().top]));
+        return next;
       });
     };
     const onUp = () => {
+      // Drop: glide the card from wherever it is into its slot.
+      el.style.transition = 'transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+      el.style.transform = '';
+      drag.current = null;
       setDragId(null);
       document.body.classList.remove('dragging-card');
       window.removeEventListener('pointermove', onMove);
@@ -352,17 +401,21 @@ export function Dashboard({ range, onNavigate }: { range: TimeRange; onNavigate:
       {order.map(id => {
         const a = AGENTS.find(x => x.id === id)!;
         return (
-          <AgentCard
+          <div
             key={a.id}
-            agent={a}
-            range={range}
-            state={states[a.id] ?? 'active'}
-            setState={s => setStates(prev => ({ ...prev, [a.id]: s }))}
-            onNavigate={onNavigate}
-            cardRef={el => (el ? cards.current.set(a.id, el) : cards.current.delete(a.id))}
-            dragging={dragId === a.id}
-            onGripDown={e => startDrag(a.id, e)}
-          />
+            className={`card-slot${dragId === a.id ? ' lifted' : ''}`}
+            ref={el => (el ? slots.current.set(a.id, el) : slots.current.delete(a.id))}
+          >
+            <AgentCard
+              agent={a}
+              range={range}
+              state={states[a.id] ?? 'active'}
+              setState={s => setStates(prev => ({ ...prev, [a.id]: s }))}
+              onNavigate={onNavigate}
+              dragging={dragId === a.id}
+              onGripDown={e => startDrag(a.id, e)}
+            />
+          </div>
         );
       })}
     </div>
