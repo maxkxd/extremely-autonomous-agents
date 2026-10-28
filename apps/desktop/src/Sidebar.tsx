@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { ACCOUNT, AGENTS, ORGANIZATIONS, type Department } from './data';
 import { useDismiss } from './useDismiss';
+import type { SettingsSection } from './Settings';
 
 export type View = 'dashboard' | 'approvals' | 'requests' | 'new-agent' | `agent:${string}`;
 
@@ -50,8 +51,8 @@ function Avatar({ label, size = 28 }: { label: string; size?: number }) {
   );
 }
 
-// Switching orgs and creating one are UI only for now.
-function OrgPicker({ initial }: { initial: string }) {
+// Switching orgs is UI only for now; "New organization" opens Settings.
+function OrgPicker({ initial, onNew }: { initial: string; onNew: () => void }) {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState(initial);
   const ref = useRef<HTMLDivElement>(null);
@@ -96,7 +97,13 @@ function OrgPicker({ initial }: { initial: string }) {
           ))}
           <li className="dropdown-sep" role="separator" />
           <li>
-            <button className="dropdown-option" onClick={() => setOpen(false)}>
+            <button
+              className="dropdown-option"
+              onClick={() => {
+                setOpen(false);
+                onNew();
+              }}
+            >
               <span className="option-with-avatar">
                 <Plus size={15} className="option-icon" />
                 New organization
@@ -116,6 +123,8 @@ export function Sidebar({
   onResizeStart,
   approvalsBadge,
   requestsBadge,
+  onOpenSettings,
+  onLogOut,
 }: {
   view: View;
   onSelect: (v: View) => void;
@@ -123,6 +132,8 @@ export function Sidebar({
   onResizeStart: (e: React.PointerEvent) => void;
   approvalsBadge: number; // pending approvals waiting on this person
   requestsBadge: number; // pending requests waiting on this person
+  onOpenSettings: (s: SettingsSection) => void;
+  onLogOut: () => void;
 }) {
   const [dmsOpen, setDmsOpen] = useState(true);
   // Clicking the already-selected nav button replays its icon animation: a new
@@ -133,7 +144,7 @@ export function Sidebar({
     <aside className="sidebar" style={{ width }}>
       <div className="resize-handle" title="Drag to resize" onPointerDown={onResizeStart} />
       {/* Organizations are optional; solo accounts get no org switcher. */}
-      {ACCOUNT.org && <OrgPicker initial={ACCOUNT.org.name} />}
+      {ACCOUNT.org && <OrgPicker initial={ACCOUNT.org.name} onNew={() => onOpenSettings('organization')} />}
 
       <nav className="nav-squares">
         {NAV.map(({ view: v, label, Icon, badge: fixedBadge }) => {
@@ -192,20 +203,20 @@ export function Sidebar({
         )}
       </div>
 
-      <AccountMenu />
+      <AccountMenu onOpenSettings={onOpenSettings} onLogOut={onLogOut} />
     </aside>
   );
 }
 
-// The menu items are UI only for now.
-const ACCOUNT_ITEMS: { label: string; Icon: typeof Settings }[] = [
-  { label: 'Settings', Icon: Settings },
-  { label: 'Connectors', Icon: Plug },
-  { label: 'Usage', Icon: Gauge },
+// Each opens Settings at its section.
+const ACCOUNT_ITEMS: { label: string; Icon: typeof Settings; section: SettingsSection }[] = [
+  { label: 'Settings', Icon: Settings, section: 'account' },
+  { label: 'Connectors', Icon: Plug, section: 'connectors' },
+  { label: 'Usage', Icon: Gauge, section: 'usage' },
 ];
 
 // Same joined dropdown as the org picker, opening upward from the sidebar foot.
-function AccountMenu() {
+function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: SettingsSection) => void; onLogOut: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, open, () => setOpen(false));
@@ -214,9 +225,16 @@ function AccountMenu() {
     <div className={`account-picker${open ? ' open' : ''}`} ref={ref}>
       {open && (
         <ul className="dropdown-menu" role="menu">
-          {ACCOUNT_ITEMS.map(({ label, Icon }) => (
+          {ACCOUNT_ITEMS.map(({ label, Icon, section }) => (
             <li key={label}>
-              <button role="menuitem" className="dropdown-option" onClick={() => setOpen(false)}>
+              <button
+                role="menuitem"
+                className="dropdown-option"
+                onClick={() => {
+                  setOpen(false);
+                  onOpenSettings(section);
+                }}
+              >
                 <span className="option-with-avatar">
                   <Icon size={15} className="option-icon" />
                   {label}
@@ -226,7 +244,14 @@ function AccountMenu() {
           ))}
           <li className="dropdown-sep" role="separator" />
           <li>
-            <button role="menuitem" className="dropdown-option" onClick={() => setOpen(false)}>
+            <button
+              role="menuitem"
+              className="dropdown-option"
+              onClick={() => {
+                setOpen(false);
+                onLogOut();
+              }}
+            >
               <span className="option-with-avatar">
                 <LogOut size={15} className="option-icon" />
                 Log out

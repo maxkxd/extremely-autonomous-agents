@@ -4,7 +4,8 @@ import { BuilderError, build, interview, matchPack, profileInterview, type Build
 import { compose, kpiLabels, listIds, readMeta, remove, save, slug, type AgentFiles } from './files.js';
 import { scanFleet } from './fleet.js';
 import { enqueue, resume } from './jobs.js';
-import { addNotes, loadProfile, saveProfile, type Profile } from './org.js';
+import { CATALOG } from './catalog.js';
+import { addNotes, addPersonNotes, loadPerson, loadProfile, savePerson, saveProfile, type PersonProfile, type Profile } from './org.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
 const PORT = Number(process.env.PORT ?? 5175);
@@ -20,8 +21,13 @@ function send(res: ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data));
 }
 
-// Who the agents work for, and what the fleet already has.
-const context = async (org: string): Promise<Context> => ({ profile: await loadProfile(org), fleet: await scanFleet() });
+// Who you're talking to, the organisation (null when they don't have one), and
+// what the fleet already has.
+const context = async (person: string, org: string | null): Promise<Context> => ({
+  person: await loadPerson(person),
+  profile: org ? await loadProfile(org) : null,
+  fleet: await scanFleet(),
+});
 
 // An agent as the app sees it: the card's details, plus the hidden files as an
 // opaque bundle it hands back on accept. The id is unique among takenIds.
@@ -42,8 +48,9 @@ const routes: Record<string, Route> = {
   // --- The organisation profile ---
   'GET /api/org': async (_req, q) => ({ profile: await loadProfile(q.get('name') ?? '') }),
   'POST /api/org/turn': async req => {
-    const { org, turns } = await body<{ org: string; turns: Turn[] }>(req);
-    const out = await profileInterview(org, turns);
+    const { person, org, turns } = await body<{ person: string; org: string; turns: Turn[] }>(req);
+    const out = await profileInterview(org, await loadPerson(person), turns);
+    await addPersonNotes(person, out.person_notes ?? []);
     return { ...out, confidence: clamp(out.confidence) };
   },
   'POST /api/org': async req => {
@@ -52,23 +59,37 @@ const routes: Record<string, Route> = {
     return { ok: true };
   },
 
+  // --- The person ---
+  'GET /api/person': async (_req, q) => ({ person: await loadPerson(q.get('name') ?? '') }),
+  'POST /api/person': async req => {
+    const { profile } = await body<{ profile: PersonProfile }>(req);
+    await savePerson(profile);
+    return { ok: true };
+  },
+
+  // --- Settings: connectors and the server's own state ---
+  'GET /api/catalog': async () => CATALOG.map(s => ({ server: s.server, what: s.what, tools: s.tools.length })),
+  // Whether a key is set - never the key itself.
+  'GET /api/health': async () => ({ anthropicKey: !!process.env.ANTHROPIC_API_KEY }),
+
   // --- Building an agent ---
   'POST /api/builder/match': async req => {
     const { description, packs } = await body<{ description: string; packs: Pack[] }>(req);
     return matchPack(description, packs);
   },
   'POST /api/builder/turn': async req => {
-    const { org, turns, declinedPack } = await body<{ org: string; turns: Turn[]; declinedPack: string | null }>(req);
-    const out = await interview(await context(org), turns, declinedPack);
+    const { person, org, turns, declinedPack } = await body<{ person: string; org: string | null; turns: Turn[]; declinedPack: string | null }>(req);
+    const out = await interview(await context(person, org), turns, declinedPack);
     return { ...out, confidence: clamp(out.confidence) };
   },
   // The files stay hidden: the app gets the card's details and an opaque
   // bundle it hands back on accept.
   'POST /api/builder/build': async req => {
-    const { org, turns, takenIds } = await body<{ org: string; turns: Turn[]; takenIds: string[] }>(req);
-    const ctx = await context(org);
+    const { person, org, turns, takenIds } = await body<{ person: string; org: string | null; turns: Turn[]; takenIds: string[] }>(req);
+    const ctx = await context(person, org);
     const b = await build(ctx, turns);
-    await addNotes(org, b.profile_notes ?? []);
+    if (org) await addNotes(org, b.profile_notes ?? []);
+    await addPersonNotes(person, b.person_notes ?? []);
     return forApp(b, takenIds, new Set(ctx.fleet.tools.map(t => t.id)));
   },
 
@@ -93,13 +114,13 @@ const routes: Record<string, Route> = {
 
   // --- Agents ---
   'POST /api/agents': async req => {
-    const { org, files, setup } = await body<{ org: string; files: AgentFiles; setup?: { packId: string; index: number } }>(req);
+    const { person, org, files, setup } = await body<{ person: string; org: string | null; files: AgentFiles; setup?: { packId: string; index: number } }>(req);
     await save(files, {
       name: files.name,
       department: files.department,
       output: kpiLabels(files.kpi),
       status: setup ? 'setting-up' : 'ready',
-      setup: setup && { ...setup, org, attempts: 0 },
+      setup: setup && { ...setup, person, org, attempts: 0 },
     });
     if (setup) enqueue(files.id);
     return { ok: true };

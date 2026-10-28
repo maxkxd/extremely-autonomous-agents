@@ -24,7 +24,7 @@ export type Meta = {
   department: string;
   output: string[]; // KPI labels
   status: 'ready' | 'setting-up' | 'generic';
-  setup?: { packId: string; index: number; org: string; attempts: number };
+  setup?: { packId: string; index: number; person: string; org: string | null; attempts: number };
 };
 
 // fleetIds: tools other agents in this fleet already hold, which can be reused.

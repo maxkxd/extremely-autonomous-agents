@@ -3,21 +3,9 @@ import { ArrowUp, Plus, Sparkles } from 'lucide-react';
 import { AGENT_PACKS, type AgentPack } from './packs';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { BuilderChat } from './BuilderChat';
-import {
-  NEW_SESSION,
-  PROFILE_OPENER,
-  addPack,
-  buildAgent,
-  getProfile,
-  matchPack,
-  nextTurn,
-  profileTurn,
-  saveProfile,
-  type BuilderSession,
-  type Built,
-  type Profile,
-  type Turn,
-} from './builder';
+import { ACCOUNT } from './data';
+import { useProfileChat } from './ProfileChat';
+import { addPack, buildAgent, getProfile, matchPack, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
 
 // "Customize your own agent" always takes the last slot of the top row (the
 // 4th card), or follows the packs straight away if there are fewer than three.
@@ -171,55 +159,15 @@ export function NewAgent({
   const customEl = useRef<HTMLElement>(null);
   const [origin, setOrigin] = useState<DOMRect | null>(null);
 
-  // The organisation profile comes first: every agent is written for it. The
-  // first add (a description or a pack) opens a short chat to fill it in, then
-  // carries on with what you were doing.
-  const [hasProfile, setHasProfile] = useState<boolean | null>(null);
-  useEffect(() => {
-    getProfile()
-      .then(p => setHasProfile(!!p))
-      .catch(() => setHasProfile(null)); // server down: ask again on the first add
-  }, []);
-  const [prof, setProf] = useState<BuilderSession>(NEW_SESSION);
-  const [profOrigin, setProfOrigin] = useState<DOMRect | null>(null);
-  const draft = useRef<Profile | null>(null);
-  const pending = useRef<(() => void) | null>(null);
+  // An organization's agents are all written for it, so its profile comes
+  // first: the first add (a description or a pack) opens a short chat to fill
+  // it in, then carries on with what you were doing. A personal account skips
+  // this - its agents start general and get tailored over time.
+  const profileChat = useProfileChat();
   const withProfile = async (from: HTMLElement | null | undefined, action: () => void) => {
-    let known = hasProfile;
-    if (known === null) known = await getProfile().then(p => !!p, () => false);
-    if (known) return action();
-    pending.current = action;
-    setProfOrigin(from?.getBoundingClientRect() ?? null);
-    setProf({ ...NEW_SESSION, phase: 'chat', open: true, turns: [{ role: 'builder', text: PROFILE_OPENER }] });
-  };
-  const profReply = (text: string) => {
-    const turns: Turn[] = [...prof.turns, { role: 'person', text }];
-    setProf(s => ({ ...s, turns, ready: false }));
-    profAsk(turns);
-  };
-  const profAsk = async (turns: Turn[]) => {
-    setProf(s => ({ ...s, thinking: true, error: null }));
-    try {
-      const r = await profileTurn(turns);
-      draft.current = r.profile;
-      setProf(s => ({ ...s, thinking: false, turns: [...s.turns, { role: 'builder', text: r.reply }], confidence: r.confidence, ready: r.ready }));
-    } catch (e) {
-      setProf(s => ({ ...s, thinking: false, error: (e as Error).message }));
-    }
-  };
-  const profSave = async () => {
-    if (!draft.current) return;
-    setProf(s => ({ ...s, phase: 'building', error: null }));
-    try {
-      await saveProfile(draft.current);
-      setHasProfile(true);
-      setProf(NEW_SESSION);
-      const next = pending.current;
-      pending.current = null;
-      next?.();
-    } catch (e) {
-      setProf(s => ({ ...s, phase: 'chat', error: (e as Error).message }));
-    }
+    const org = ACCOUNT.org?.name;
+    if (!org || (await getProfile(org).catch(() => null))) return action();
+    profileChat.start(org, from, action);
   };
 
   // Bring a recommended pack into view.
@@ -333,23 +281,7 @@ export function NewAgent({
           onClose={() => setSession(s => ({ ...s, open: false }))}
         />
       )}
-      {prof.open && profOrigin && (
-        <BuilderChat
-          origin={profOrigin}
-          session={prof}
-          title="Your organisation"
-          buildLabel="Save and continue"
-          buildingText="Saving your organisation"
-          busyLabel="Saving"
-          onReply={profReply}
-          onRetry={() => profAsk(prof.turns)}
-          onBuild={profSave}
-          onClose={() => {
-            pending.current = null;
-            setProf(NEW_SESSION);
-          }}
-        />
-      )}
+      {profileChat.element}
     </div>
   );
 }

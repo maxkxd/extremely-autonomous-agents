@@ -39,8 +39,9 @@ export const NEW_SESSION: BuilderSession = {
   error: null,
 };
 
-// The organisation every agent works for (its profile is kept per organisation).
-const ORG = ACCOUNT.org?.name ?? ACCOUNT.name;
+// Who's asking, and the organisation they belong to (null for a personal
+// account). Read on every request: an account can become an organization.
+const who = () => ({ person: ACCOUNT.name, org: ACCOUNT.org?.name ?? null });
 
 const OFFLINE = 'The app server is not running. Start apps/server (npm run dev).';
 
@@ -51,7 +52,7 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
       path,
       body === undefined
         ? undefined
-        : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ org: ORG, ...body }) },
+        : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...who(), ...body }) },
     );
   } catch {
     throw new Error(OFFLINE);
@@ -74,12 +75,25 @@ export type Profile = {
   notes: string[];
 };
 
-export const getProfile = () => request<{ profile: Profile | null }>(`/api/org?name=${encodeURIComponent(ORG)}`).then(r => r.profile);
-export const profileTurn = (turns: Turn[]) =>
-  post<{ reply: string; confidence: number; ready: boolean; profile: Profile }>('/api/org/turn', { turns });
-export const saveProfile = (profile: Profile) => post<{ ok: true }>('/api/org', { profile });
+// org: the organization's name - passed explicitly while it's being created.
+export const getProfile = (org = ACCOUNT.org?.name ?? '') =>
+  request<{ profile: Profile | null }>(`/api/org?name=${encodeURIComponent(org)}`).then(r => r.profile);
+export const profileTurn = (org: string, turns: Turn[]) =>
+  post<{ reply: string; confidence: number; ready: boolean; profile: Profile }>('/api/org/turn', { org, turns });
+export const saveProfile = (org: string, profile: Profile) => post<{ ok: true }>('/api/org', { org, profile });
 // The profile chat opens with this, so it needs no round trip.
-export const PROFILE_OPENER = `Before I build anything for ${ORG}: what does it do, and who for?`;
+export const profileOpener = (org: string) => `Before I build anything for ${org}: what does it do, and who for?`;
+
+// --- The person (every account has one, organization or not) ---
+
+export type Person = { name: string; email: string; role: string; about: string; notes: string[] };
+export const getPerson = () => request<{ person: Person }>(`/api/person?name=${encodeURIComponent(ACCOUNT.name)}`).then(r => r.person);
+export const savePerson = (profile: Person) => post<{ ok: true }>('/api/person', { profile });
+
+// --- Settings ---
+
+export const getCatalog = () => request<{ server: string; what: string; tools: number }[]>('/api/catalog');
+export const getHealth = () => request<{ anthropicKey: boolean }>('/api/health');
 
 // --- Building ---
 

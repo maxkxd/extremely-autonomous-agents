@@ -54,3 +54,47 @@ export function profileForPrompt(p: Profile): string {
     .filter(Boolean)
     .join('\n');
 }
+
+// --- The person: one per account, organisation or not ---
+
+export type PersonProfile = {
+  name: string;
+  email: string;
+  role: string; // what they do, in their own words
+  about: string; // how they work, what they care about
+  notes: string[]; // learned over time
+};
+
+const PEOPLE = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'people');
+const personFile = (name: string) => join(PEOPLE, `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'me'}.json`);
+
+export async function loadPerson(name: string): Promise<PersonProfile> {
+  try {
+    return JSON.parse(await readFile(personFile(name), 'utf8')) as PersonProfile;
+  } catch {
+    return { name, email: '', role: '', about: '', notes: [] };
+  }
+}
+
+export async function savePerson(p: PersonProfile) {
+  await mkdir(PEOPLE, { recursive: true });
+  await writeFile(personFile(p.name), JSON.stringify(p, null, 2) + '\n');
+}
+
+export async function addPersonNotes(name: string, notes: string[]) {
+  const p = await loadPerson(name);
+  const fresh = notes.map(n => n.trim()).filter(n => n && !p.notes.includes(n));
+  if (fresh.length) await savePerson({ ...p, notes: [...p.notes, ...fresh] });
+}
+
+export function personForPrompt(p: PersonProfile): string {
+  return [
+    `Name: ${p.name}`,
+    p.role && `Role: ${p.role}`,
+    p.email && `Email: ${p.email}`,
+    p.about && `About them: ${p.about}`,
+    p.notes.length ? `Also known:\n${p.notes.map(n => `- ${n}`).join('\n')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}

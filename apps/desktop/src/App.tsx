@@ -7,10 +7,12 @@ import { useElasticScroll } from './useElasticScroll';
 import { AgentDM, stamp, type StampedEntry } from './AgentDM';
 import { NewAgent } from './NewAgent';
 import { AgentReveal } from './AgentReveal';
+import { Settings, type SettingsSection } from './Settings';
 import { NEW_SESSION, agentStatuses, deleteAgentFiles, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
 import { DM_HISTORY } from './dms';
 import { subscribeToDecisions } from './live';
 import {
+  ACCOUNT,
   AGENTS,
   addAgent,
   removeAgent,
@@ -193,6 +195,12 @@ export function App() {
   const mainBody = useRef<HTMLDivElement>(null);
   useElasticScroll(mainBody);
 
+  // Settings (a pop-up over the app), and signing out. There's no real sign-in
+  // yet, so signing out just shows the signed-out screen.
+  const [settings, setSettings] = useState<SettingsSection | null>(null);
+  const [signedOut, setSignedOut] = useState(false);
+  const [, setOrgTick] = useState(0);
+
   // Creating an agent (docs/agent-creation.md). The conversation lives here so
   // it survives leaving the New agent page.
   const [builder, setBuilder] = useState<BuilderSession>(NEW_SESSION);
@@ -303,6 +311,8 @@ export function App() {
           onResizeStart={startDrag}
           approvalsBadge={visibleApprovals(pending, 'mine').length}
           requestsBadge={visibleApprovals(pendingRequests, 'mine').length}
+          onOpenSettings={setSettings}
+          onLogOut={() => setSignedOut(true)}
         />
       )}
       <main className="main">
@@ -392,6 +402,29 @@ export function App() {
           )}
         </div>
       </main>
+      {settings && (
+        <Settings
+          section={settings}
+          onSection={setSettings}
+          onClose={() => setSettings(null)}
+          onOrgChange={() => setOrgTick(t => t + 1)}
+          onLogOut={() => {
+            setSettings(null);
+            setSignedOut(true);
+          }}
+        />
+      )}
+      {signedOut && (
+        <div className="signed-out">
+          <div>
+            <h1>You're signed out</h1>
+            <p>Sign-in isn't built yet, so this is as far as it goes.</p>
+            <button className="sbtn primary" onClick={() => setSignedOut(false)}>
+              Sign back in as {ACCOUNT.name}
+            </button>
+          </div>
+        </div>
+      )}
       {reveal && (
         <AgentReveal
           agents={reveal.built.map(b => b.agent)}

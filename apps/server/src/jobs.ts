@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { customize, type Build } from './builder.js';
 import { scanFleet } from './fleet.js';
 import { compose, kpiLabels, listIds, readMeta, save, writeMeta } from './files.js';
-import { loadProfile } from './org.js';
+import { loadPerson, loadProfile } from './org.js';
 
 // Setting up pack agents (docs/agent-creation.md). Adding a pack saves each
 // agent's generic files at once, so it exists and is valid straight away; this
@@ -43,14 +43,14 @@ function pump() {
 async function run(id: string) {
   const meta = await readMeta(id);
   if (!meta || meta.status !== 'setting-up' || !meta.setup) return;
-  const { packId, index, org } = meta.setup;
+  const { packId, index, person, org } = meta.setup;
   try {
     const { build, packName } = await packTemplate(packId, index);
     // Every other agent counts, including packmates still being set up, so
     // they all converge on the same tool ids.
     const fleet = await scanFleet(id);
-    const profile = await loadProfile(org);
-    const custom = await customize({ profile, fleet }, build, packName);
+    const ctx = { person: await loadPerson(person), profile: org ? await loadProfile(org) : null, fleet };
+    const custom = await customize(ctx, build, packName);
     const files = compose(custom, id, new Set(fleet.tools.map(t => t.id)));
     // Deleted while it was being set up: don't bring it back.
     if (!(await readMeta(id))) return;

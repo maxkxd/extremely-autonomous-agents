@@ -34,18 +34,40 @@ export type Organization = { name: string; members: string[] };
 // Admins can switch Approvals to everyone's; members only see their own agents'.
 export type Account = { name: string; role: 'admin' | 'member'; org: Organization | null };
 
-// Organizations this account belongs to (the first is the current one).
-export const ORGANIZATIONS = ['Acme Ventures', 'Northwind Labs'];
-
-// Preview the no-organization experience with ?noorg, and a non-admin member with ?member.
+// An account starts personal. It becomes an organization from Settings, which
+// is kept in this browser for now. Preview a full organization with other
+// members with ?org, and a non-admin member with ?member.
 const params = new URLSearchParams(window.location.search);
-const noOrg = params.has('noorg');
+const ORG_KEY = 'eaa.organization';
+const DEMO_ORG: Organization = { name: 'Acme Ventures', members: ['Max', 'Priya', 'Jordan'] };
+
+function loadOrg(): Organization | null {
+  if (params.has('org')) return DEMO_ORG;
+  try {
+    return JSON.parse(localStorage.getItem(ORG_KEY) ?? 'null') as Organization | null;
+  } catch {
+    return null;
+  }
+}
 
 export const ACCOUNT: Account = {
   name: 'Max',
   role: params.has('member') ? 'member' : 'admin',
-  org: noOrg ? null : { name: 'Acme Ventures', members: ['Max', 'Priya', 'Jordan'] },
+  org: loadOrg(),
 };
+
+// Organizations this account belongs to (the first is the current one).
+export const ORGANIZATIONS: string[] = ACCOUNT.org ? [ACCOUNT.org.name, ...(params.has('org') ? ['Northwind Labs'] : [])] : [];
+
+export function createOrganization(name: string) {
+  ACCOUNT.org = { name, members: [ACCOUNT.name] };
+  ORGANIZATIONS.splice(0, ORGANIZATIONS.length, name);
+  try {
+    localStorage.setItem(ORG_KEY, JSON.stringify(ACCOUNT.org));
+  } catch {
+    // Storage unavailable - it lasts until the page reloads.
+  }
+}
 
 export const AGENTS: Agent[] = [
   {

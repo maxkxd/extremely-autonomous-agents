@@ -13,18 +13,35 @@ export type RequestResolution = 'diy' | 'rejected' | 'engineered';
 // finds and opens the IDE, and this system's MCP inside it (docs/requests.md).
 // Logos are Simple Icons where they exist; Codex and Antigravity aren't in
 // that set, so they show a generic code icon until their logos are added.
-const AI_IDES = {
+export const AI_IDES = {
   'claude-code': { name: 'Claude Code', logo: siClaude },
   cursor: { name: 'Cursor', logo: siCursor },
   codex: { name: 'Codex', logo: null },
   antigravity: { name: 'Antigravity', logo: null },
 } satisfies Record<string, { name: string; logo: SimpleIcon | null }>;
 
-// PLACEHOLDER: which AI IDE you use. Becomes a setting in the config menu;
-// the button's name and logo follow it.
-const YOUR_IDE: keyof typeof AI_IDES = 'claude-code';
+export type IdeId = keyof typeof AI_IDES;
 
-function IdeLogo({ logo }: { logo: SimpleIcon | null }) {
+// Which AI IDE you use (Settings > Account); the button's name and logo follow it.
+const IDE_KEY = 'eaa.ide';
+export function yourIde(): IdeId {
+  try {
+    const v = localStorage.getItem(IDE_KEY);
+    if (v && v in AI_IDES) return v as IdeId;
+  } catch {
+    // Storage unavailable - use the default.
+  }
+  return 'claude-code';
+}
+export function setYourIde(id: IdeId) {
+  try {
+    localStorage.setItem(IDE_KEY, id);
+  } catch {
+    // Storage unavailable - it lasts until the page reloads.
+  }
+}
+
+export function IdeLogo({ logo }: { logo: SimpleIcon | null }) {
   if (!logo) return <Code2 size={15} strokeWidth={1.9} />;
   return (
     <svg viewBox="0 0 24 24" width={15} height={15} role="img" aria-hidden fill={`#${logo.hex}`}>
@@ -348,10 +365,10 @@ function RequestRow({
                 <button
                   className="rq-btn ide"
                   disabled
-                  title={`Coming soon - opens ${AI_IDES[YOUR_IDE].name} with this request (needs the IDE connector)`}
+                  title={`Coming soon - opens ${AI_IDES[yourIde()].name} with this request (needs the IDE connector)`}
                 >
-                  <IdeLogo logo={AI_IDES[YOUR_IDE].logo} />
-                  Send to {AI_IDES[YOUR_IDE].name}
+                  <IdeLogo logo={AI_IDES[yourIde()].logo} />
+                  Send to {AI_IDES[yourIde()].name}
                 </button>
 
                 <div className="request-own">

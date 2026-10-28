@@ -3,7 +3,7 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import * as z from 'zod/v4';
 import { BASELINE, catalogForPrompt } from './catalog.js';
 import { fleetForPrompt, type Fleet } from './fleet.js';
-import { profileForPrompt, type Profile } from './org.js';
+import { personForPrompt, profileForPrompt, type PersonProfile, type Profile } from './org.js';
 
 // The agent builder (docs/agent-creation.md): one conversation that turns a
 // person's description into a Charter, TOOLS.yaml and KPI.yaml - written for
@@ -17,8 +17,9 @@ const FALLBACK = { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'defau
 
 export type Pack = { id: string; name: string; tagline: string; agents: { name: string; does: string }[] };
 export type Turn = { role: 'person' | 'builder'; text: string };
-// Who the agents work for, and what the fleet already has.
-export type Context = { profile: Profile | null; fleet: Fleet };
+// Who you're talking to, the organisation (if they have one), and what the
+// fleet already has.
+export type Context = { person: PersonProfile; profile: Profile | null; fleet: Fleet };
 
 export class BuilderError extends Error {}
 
@@ -52,10 +53,11 @@ Handing work to another agent is tasks.delegate_task.
 When nothing does a job, you define a new tool yourself and it gets built; the person doesn't have to arrange anything.`;
 
 function contextBlock(ctx: Context): string {
-  const who = ctx.profile
+  const me = `You are talking to the person who owns these agents. What you know about them:\n${personForPrompt(ctx.person)}`;
+  const org = ctx.profile
     ? `The organisation these agents work for:\n${profileForPrompt(ctx.profile)}`
-    : 'No organisation profile yet: keep organisation-specific details general.';
-  return `${who}\n\n${fleetForPrompt(ctx.fleet)}`;
+    : "They aren't set up as an organisation: the agents work for them personally. Keep organisation-specific details general rather than inventing them - they get filled in over time.";
+  return `${me}\n\n${org}\n\n${fleetForPrompt(ctx.fleet)}`;
 }
 
 // The general rules, then this organisation and fleet (both change rarely, so
@@ -120,13 +122,20 @@ const ProfileTurnSchema = z.object({
   confidence: z.number().describe('0-100: how complete the profile is'),
   ready: z.boolean().describe('True when the profile is good enough and you are not asking anything in this reply'),
   profile: ProfileSchema.describe('Your best draft of the profile so far; use empty strings for unknowns'),
+  person_notes: z
+    .array(z.string())
+    .describe("New durable facts about the person you're talking to (their role, how they work), one sentence each. Empty if none."),
 });
 
-export async function profileInterview(orgName: string, turns: Turn[]) {
+export async function profileInterview(orgName: string, person: PersonProfile, turns: Turn[]) {
   return parse(
     ProfileTurnSchema,
     null,
-    `Before any agent is built, you are setting up the organisation profile that every agent's Charter will be written from. The organisation is called "${orgName}" in the app. Find out, in plain words: what it does, who its customers are, what it sells, how it sounds when it writes, and the key people agents should report to or write as (names and roles). Two to four short rounds at most - one or two questions at a time, and fill in what you can infer. When you have enough, set ready to true and say in a sentence that you'll write every agent for them from now on.`,
+    `Before any agent is built, you are setting up the organisation profile that every agent's Charter will be written from. The organisation is called "${orgName}" in the app.
+
+You are talking to the person setting it up. What you already know about them - don't ask for it again, and include them in the profile's people:
+${personForPrompt(person)}
+ Find out, in plain words: what it does, who its customers are, what it sells, how it sounds when it writes, and the key people agents should report to or write as (names and roles). If you don't know the person's own role in it, ask that alongside the people question. Two to four short rounds at most - one or two questions at a time, and fill in what you can infer. When you have enough, set ready to true and say in a sentence that you'll write every agent for them from now on.`,
     // The chat opens with a canned question from the builder; the API needs a
     // person's turn first.
     [{ role: 'user', content: 'Set up our organisation profile.' }, ...transcript(turns)],
@@ -228,6 +237,9 @@ const BuildSchema = z.object({
   profile_notes: z
     .array(z.string())
     .describe('New durable facts about the organisation learned here that every agent should know, one sentence each. Empty if none.'),
+  person_notes: z
+    .array(z.string())
+    .describe("New durable facts about the person you're talking to (their role, preferences, how they like to work), one sentence each. Empty if none."),
 });
 
 export type Build = z.infer<typeof BuildSchema>;
@@ -249,12 +261,12 @@ export async function build(ctx: Context, turns: Turn[]): Promise<Build> {
 // --- 4. Customize a pack agent for this organisation ---
 
 export async function customize(ctx: Context, template: Build, packName: string): Promise<Build> {
-  const { profile_notes: _, ...files } = template;
+  const { profile_notes: _p, person_notes: _n, ...files } = template;
   const out = await parse(
     BuildSchema,
     ctx,
     `This agent was just added from the ready-made "${packName}" pack. Its files below were written for a generic small business. Rewrite them for this organisation and this fleet:
-- Charter: keep its structure, rigour and safety rules, but make it this organisation's: its name, what it sells and to whom, its voice, the real people it reports to or writes as, and its teammates in the fleet by name. Drop generic placeholders. Don't invent facts the profile doesn't give.
+- Charter: keep its structure, rigour and safety rules, but make it theirs: the organisation's name, what it sells and to whom, its voice, the real people it reports to or writes as (starting with the person you know), and its teammates in the fleet by name. Drop generic placeholders. Don't invent facts the profiles don't give - leave those parts general.
 - Tools: wherever a fleet tool does the same job, use the fleet tool's exact id instead (and drop the template's duplicate new tool). Keep the template's narrow, limited tools only when nothing in the fleet already does that. Keep tiers at least as strict as the template unless a narrow tool makes a case safe.
 - Keep its name and department. ${TIERING}
 
