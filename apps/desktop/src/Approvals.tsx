@@ -3,6 +3,7 @@ import { Bot, Check, ChevronDown, Clock, Users, User, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, isMine, type Approval } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { FlashCount } from './FlashCount';
+import { renderApproval } from './approvalTools';
 import { useDismiss } from './useDismiss';
 
 export type ApprovalScope = 'mine' | 'all';
@@ -11,9 +12,11 @@ export type Resolution = 'approved' | 'rejected' | 'expired';
 
 const agentOf = (a: Approval) => AGENTS.find(x => x.id === a.agentId)!;
 
-// Placeholder data gives time remaining; pin each to a real deadline once.
+// Deadline = when the agent made the call + the tool's expiry window. (The
+// placeholder data gives "minutes ago", pinned to the page's load time.)
 const loadedAt = Date.now();
-const deadlineOf = (a: Approval) => loadedAt + a.expiresInHours * 3_600_000;
+const deadlineOf = (a: Approval) =>
+  loadedAt - a.minutesAgo * 60_000 + renderApproval(a.tool, a.args).expiresAfterHours * 3_600_000;
 
 // Live countdown to an approval's expiry, e.g. 3:59:41 (or 4:07 under an hour).
 function Countdown({ deadline, onExpire }: { deadline: number; onExpire: () => void }) {
@@ -178,6 +181,7 @@ function ApprovalCard({
 }) {
   const agent = agentOf(approval);
   const DeptIcon = DEPARTMENT_ICON[agent.department];
+  const card = renderApproval(approval.tool, approval.args);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const [leaving, setLeaving] = useState<Resolution | null>(null);
@@ -204,7 +208,7 @@ function ApprovalCard({
         <div className="approval-main">
           <header className="approval-head">
             <span className="approval-agent">{agent.name}</span>
-            <span className="approval-action">{approval.action}</span>
+            <span className="approval-action">{card.action}</span>
             <span className="approval-time">{timeAgo(approval.minutesAgo)}</span>
             {showOwner && (
               <span className="approval-owner" title="Owner">
@@ -215,14 +219,14 @@ function ApprovalCard({
           </header>
 
           <dl className="approval-fields">
-            {approval.fields.map(f => (
+            {card.fields.map(f => (
               <div key={f.label} className="approval-field">
                 <dt>{f.label}</dt>
                 <dd>{f.value}</dd>
               </div>
             ))}
           </dl>
-          {approval.body && <blockquote className="approval-body">{approval.body}</blockquote>}
+          {card.body !== null && <blockquote className="approval-body">{card.body}</blockquote>}
 
           <footer className="approval-foot">
             <div className="approval-buttons">

@@ -1,3 +1,5 @@
+import type { ApprovalToolId, ToolArgs } from './approvalTools';
+
 // Placeholder data for the UI only - not the real agency roster.
 
 export type Department = 'engineering' | 'marketing' | 'sales' | 'finance' | 'research' | 'operations';
@@ -214,15 +216,15 @@ export const FEROCITY: FerocityLevel[] = [
 
 export const rangeDays = (r: TimeRange) => TIME_RANGES.find(t => t.value === r)!.factor * 30;
 
-// Something an agent wants to do that needs a human yes/no first.
+// A pending approval = an agent's call to a human-approved tool that hasn't
+// run yet. The card's text comes from the tool's definition (approvalTools.ts)
+// filled in with these arguments.
 export type Approval = {
   id: string;
   agentId: string;
-  action: string; // short verb phrase shown after the agent's name
-  minutesAgo: number;
-  expiresInHours: number;
-  fields: { label: string; value: string }[]; // the few facts that matter (to, subject...)
-  body?: string; // the content itself, verbatim
+  tool: ApprovalToolId;
+  args: ToolArgs;
+  minutesAgo: number; // when the agent made the call
 };
 
 // Placeholder approvals for the UI only.
@@ -230,49 +232,48 @@ export const APPROVALS: Approval[] = [
   {
     id: 'ap-1',
     agentId: 'inbox',
-    action: 'wants to send an email',
+    tool: 'email.send',
     minutesAgo: 6,
-    expiresInHours: 4,
-    fields: [
-      { label: 'To', value: 'dana.whitfield@northwindlogistics.com' },
-      { label: 'Subject', value: 'Re: Invoice INV-2291 - payment date' },
-    ],
-    body:
-      "Hi Dana,\n\nThanks for flagging this. INV-2291 was approved on our side yesterday and is scheduled for payment on the 14th with the rest of this month's run.\n\nI'll send the remittance as soon as it clears.\n\nMax",
+    args: {
+      to: 'dana.whitfield@northwindlogistics.com',
+      subject: 'Re: Invoice INV-2291 - payment date',
+      body:
+        "Hi Dana,\n\nThanks for flagging this. INV-2291 was approved on our side yesterday and is scheduled for payment on the 14th with the rest of this month's run.\n\nI'll send the remittance as soon as it clears.\n\nMax",
+    },
   },
   {
     id: 'ap-2',
     agentId: 'leads',
-    action: 'wants to send a LinkedIn connection request',
+    tool: 'linkedin.connect',
     minutesAgo: 22,
-    expiresInHours: 4,
-    fields: [{ label: 'To', value: 'Priyanka Rao - Head of Operations, Tidewater Freight' }],
-    body:
-      "Hi Priyanka - saw your post on consolidating depot reporting. We help ops teams do exactly that without the spreadsheet shuffle. Would be good to connect.",
+    args: {
+      name: 'Priyanka Rao',
+      headline: 'Head of Operations, Tidewater Freight',
+      note: "Hi Priyanka - saw your post on consolidating depot reporting. We help ops teams do exactly that without the spreadsheet shuffle. Would be good to connect.",
+    },
   },
   {
     id: 'ap-3',
     agentId: 'writer',
-    action: 'wants to publish a blog post',
+    tool: 'blog.publish',
     minutesAgo: 48,
-    expiresInHours: 20,
-    fields: [
-      { label: 'Title', value: 'Five signs your asset register has quietly gone stale' },
-      { label: 'Where', value: 'Company blog' },
-    ],
-    body:
-      "Most registers don't fail in one go. They drift: a laptop that changed hands, a forklift that moved sites, a licence that renewed under a different cost centre...",
+    args: {
+      title: 'Five signs your asset register has quietly gone stale',
+      site: 'Company blog',
+      excerpt:
+        "Most registers don't fail in one go. They drift: a laptop that changed hands, a forklift that moved sites, a licence that renewed under a different cost centre...",
+    },
   },
   {
     id: 'ap-4',
     agentId: 'inbox',
-    action: 'wants to archive 38 emails',
+    tool: 'email.archive',
     minutesAgo: 75,
-    expiresInHours: 12,
-    fields: [
-      { label: 'What', value: '38 newsletters and promotions older than 30 days' },
-      { label: 'From', value: 'Mostly SaaS updates, event invites and webinar reminders' },
-    ],
+    args: {
+      count: 38,
+      description: 'Newsletters and promotions older than 30 days',
+      senders: 'Mostly SaaS updates, event invites and webinar reminders',
+    },
   },
 ];
 
