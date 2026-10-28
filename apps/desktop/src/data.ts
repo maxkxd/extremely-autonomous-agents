@@ -18,7 +18,6 @@ export type Agent = {
   openApprovals: number;
   openRequests: number;
   ferocity: number; // index into FEROCITY
-  targetOutput: number; // per week
 };
 
 export type Organization = { name: string; members: string[] };
@@ -57,7 +56,6 @@ export const AGENTS: Agent[] = [
     openApprovals: 0,
     openRequests: 1,
     ferocity: 1,
-    targetOutput: 100,
   },
   {
     id: 'inbox',
@@ -78,7 +76,6 @@ export const AGENTS: Agent[] = [
     openApprovals: 2,
     openRequests: 0,
     ferocity: 2,
-    targetOutput: 450,
   },
   {
     id: 'writer',
@@ -100,7 +97,6 @@ export const AGENTS: Agent[] = [
     openApprovals: 1,
     openRequests: 2,
     ferocity: 1,
-    targetOutput: 40,
   },
   {
     id: 'leads',
@@ -123,7 +119,6 @@ export const AGENTS: Agent[] = [
     openApprovals: 0,
     openRequests: 0,
     ferocity: 3,
-    targetOutput: 600,
   },
   {
     id: 'books',
@@ -144,7 +139,6 @@ export const AGENTS: Agent[] = [
     openApprovals: 0,
     openRequests: 0,
     ferocity: 0,
-    targetOutput: 150,
   },
   {
     id: 'reviewer',
@@ -165,7 +159,6 @@ export const AGENTS: Agent[] = [
     openApprovals: 0,
     openRequests: 1,
     ferocity: 2,
-    targetOutput: 30,
   },
 ];
 

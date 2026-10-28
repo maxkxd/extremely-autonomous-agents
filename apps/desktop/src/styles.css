@@ -251,14 +251,6 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 /* Target output + ferocity */
 .tuning { display: flex; flex-direction: column; gap: 14px; padding-top: 14px; border-top: 1px solid var(--hairline); }
-.tune-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.target-input {
-  width: 84px; height: 30px; padding: 0 8px; border-radius: 7px; text-align: right;
-  font: inherit; font-size: 14px; font-weight: 600; color: var(--text);
-  background: var(--bg); border: 1px solid var(--border);
-}
-.target-input:focus { outline: none; border-color: var(--attention); }
-.target-input::-webkit-inner-spin-button, .target-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
 .ferocity { display: flex; flex-direction: column; gap: 6px; }
 .ferocity-head { display: flex; align-items: baseline; justify-content: space-between; }
@@ -277,10 +269,8 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .ferocity-slider.level-4::-webkit-slider-thumb { background: #fff; box-shadow: 0 0 0 1px var(--fx), 0 0 12px rgba(var(--fx-rgb), 0.8); }
 .ferocity-slider:focus { outline: none; }
-.ferocity-ends { display: flex; justify-content: space-between; font-size: 11px; color: #555; }
-.ferocity-est { display: flex; flex-direction: column; gap: 1px; font-size: 12px; }
-.est-value { font-size: 14px; font-weight: 600; color: var(--muted); }
-.est-value.on-target { color: var(--text); }
+.ferocity-est { display: flex; align-items: baseline; justify-content: space-between; margin-top: 4px; }
+.est-value { font-size: 15px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 
 /* Time-range dropdown: closed it's a flat outlined button; open, the button and
    menu join into one panel of the same width, flush on the background. */

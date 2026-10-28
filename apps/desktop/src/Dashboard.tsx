@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CircleCheckBig, GripVertical, Inbox, Pause, Play, Square, User } from 'lucide-react';
-import { ACCOUNT, AGENTS, FEROCITY, rangeLabel, scaleTo, type Agent, type Slice, type TimeRange } from './data';
+import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
 
 // Slice colours come from --slice-0..4 on the card (styles.css): blue-to-gray
@@ -86,28 +86,25 @@ function timeAgo(minutes: number): string {
 const count = (n: number) => n.toLocaleString();
 const dollars = (n: number) => `$${n.toFixed(2)}`;
 
-// Target output and ferocity. Ferocity picks a FEROCITY level (schedule +
-// self-booking); the estimate is this agent's output per run times that level's
-// expected runs, so you can see whether a level would hit the target.
-function Tuning({ agent, level, setLevel }: { agent: Agent; level: number; setLevel: (l: number) => void }) {
-  const [target, setTarget] = useState(agent.targetOutput);
+// Ferocity picks a FEROCITY level (schedule + self-booking). The estimate is
+// this agent's output per run times that level's expected runs over the
+// dashboard's selected time frame, matching the rest of the card.
+function Tuning({
+  agent,
+  range,
+  level,
+  setLevel,
+}: {
+  agent: Agent;
+  range: TimeRange;
+  level: number;
+  setLevel: (l: number) => void;
+}) {
   const perRun = agent.output.reduce((n, s) => n + s.value, 0) / Math.max(agent.runs, 1);
-  const estWeek = Math.round(perRun * FEROCITY[level].runsPerDay * 7);
-  const onTarget = estWeek >= target;
+  const estimate = Math.round(perRun * FEROCITY[level].runsPerDay * rangeDays(range));
 
   return (
     <div className="tuning">
-      <label className="tune-row">
-        <span className="stat-label">Target output / week</span>
-        <input
-          className="target-input"
-          type="number"
-          min={0}
-          value={target}
-          onChange={e => setTarget(Math.max(0, Number(e.target.value) || 0))}
-        />
-      </label>
-
       <div className="ferocity">
         <div className="ferocity-head">
           <span className="stat-label">Ferocity</span>
@@ -125,13 +122,9 @@ function Tuning({ agent, level, setLevel }: { agent: Agent; level: number; setLe
           aria-valuetext={FEROCITY[level].name}
           style={{ '--fill': `${(level / (FEROCITY.length - 1)) * 100}%` } as React.CSSProperties}
         />
-        <div className="ferocity-ends">
-          <span>Chill</span>
-          <span>Apocalyptic</span>
-        </div>
         <div className="ferocity-est" title={`${FEROCITY[level].cadence} (placeholder schedule)`}>
-          <span className={`est-value${onTarget ? ' on-target' : ''}`}>~{count(estWeek)} / week</span>
-          <span className="muted">{FEROCITY[level].cadence}</span>
+          <span className="stat-label">Est. Output:</span>
+          <span className="est-value">{count(estimate)}</span>
         </div>
       </div>
     </div>
@@ -271,7 +264,7 @@ function AgentCard({
           </button>
         </div>
 
-        <Tuning agent={agent} level={level} setLevel={setLevel} />
+        <Tuning agent={agent} range={range} level={level} setLevel={setLevel} />
       </aside>
     </article>
   );
