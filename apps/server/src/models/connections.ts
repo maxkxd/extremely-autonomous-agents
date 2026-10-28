@@ -632,6 +632,10 @@ export async function setModelLevels(connection: string, info: ModelInfo) {
   });
 }
 
+// A model's level names where they differ from ours, from the last list()
+// (the runner refreshes it every tick).
+export const nativeEffortSync = (connection: string, model: string) => cached[connection]?.native?.[model];
+
 // What to send a provider for one of our effort levels on a model, for the
 // runner: the provider's own name where it differs (our "max" as "xhigh").
 export async function nativeEffort(connection: string, model: string, effort: Effort): Promise<string> {

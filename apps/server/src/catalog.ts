@@ -187,9 +187,11 @@ export const BASELINE: { server: string; tool: CatalogTool }[] = [
   ['tasks', t('delegate_task', 'T1', 'Hand work to another agent')],
   ['requests', t('request_resource', 'T1', 'Ask a person for something only a person can give (a key, an account, spend)')],
   ['requests', t('list_my_requests', 'T0', 'Its open requests')],
-  ['memory', t('propose_memory', 'T1', 'Propose something to remember; a person approves it')],
-  ['ops', t('propose_own_followup_run', 'T1', 'Book its own next run')],
-  ['channel', t('post_to_own_channel', 'T0', 'Its run post in its DM channel')],
+  ['memory', t('remember', 'T0', 'Save a note to its own memory for future runs')],
+  ['files', t('write_file', 'T0', 'Write a file in its own workspace (work it builds up)')],
+  ['files', t('read_file', 'T0', 'Read a file from its own workspace')],
+  ['files', t('list_files', 'T0', 'List its workspace')],
+  ['ops', t('book_next_run', 'T0', 'Book its own next run')],
 ].map(([server, tool]) => ({ server: server as string, tool: tool as CatalogTool }));
 
 export const toolId = (server: string, name: string) => `${server}.${name}`;

@@ -200,6 +200,8 @@ const routes: Record<string, Route> = {
       department: files.department,
       output: kpiLabels(files.kpi),
       status: setup ? 'setting-up' : 'ready',
+      owner: person,
+      org,
       setup: setup && { ...setup, person, org, attempts: 0 },
     });
     await setChoices(files.id, files.models ?? []);
