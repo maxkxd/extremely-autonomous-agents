@@ -219,7 +219,10 @@ ul { list-style: none; margin: 0; padding: 0; }
 .stat-value { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .stat-value.small { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
 .outcome { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.outcome.running { background: var(--attention); }
+.outcome.succeeded { background: var(--fx, var(--attention)); }
+/* Running: gray that slowly breathes between darker and lighter. */
+.outcome.running { background: #6a6a6a; animation: running-breathe 2.2s ease-in-out infinite; }
+@keyframes running-breathe { 0%, 100% { background-color: #4a4a4a; } 50% { background-color: #a8a8a8; } }
 .outcome.failed { background: #c75b5b; }
 
 .controls { display: flex; gap: 8px; }
@@ -446,7 +449,7 @@ ul { list-style: none; margin: 0; padding: 0; }
   text-shadow: 0 0 14px rgba(var(--fx-rgb), 0.55);
 }
 .agent-card.fero-4 .card-name .dept-icon { color: var(--fx); }
-.agent-card.fero-4 .outcome.running { background: var(--fx); }
+.agent-card.fero-4 .outcome.succeeded { background: var(--fx); }
 
 /* One-off jolt on the way UP into the two obvious levels. */
 .agent-card.kick-soft { animation: kick-soft 0.4s ease-out; }
@@ -479,5 +482,5 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-card, .agent-card .chart-glow, .agent-card .chart-sonar::before { animation: none !important; }
+  .agent-card, .agent-card .chart-glow, .agent-card .chart-sonar::before, .outcome.running { animation: none !important; }
 }
