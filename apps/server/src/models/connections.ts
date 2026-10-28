@@ -17,7 +17,9 @@ const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data');
 const STATE = join(DATA, 'connections.json');
 const PORT = Number(process.env.PORT ?? 5175);
 
-type Saved = { label: string; models: string[]; baseUrl?: string; connectedAt: string };
+// broken: a key that was saved but didn't check out, and why - kept so the
+// row can say so until it's fixed, retried or removed.
+type Saved = { label: string; models: string[]; baseUrl?: string; connectedAt: string; broken?: string };
 type State = { connections: Record<string, Saved>; chatgptHostId?: string; chatgptClientId?: string };
 
 async function load(): Promise<State> {
@@ -68,6 +70,7 @@ export type ConnectionView = {
   models: number;
   pending?: { userCode?: string; verificationUri?: string }; // a sign-in in progress
   setupNeeded?: string; // why it can't connect yet, in plain words
+  broken?: string; // a saved key that didn't check out, and why
   lastError?: string; // why the last sign-in didn't finish
   claudeCode?: ClaudeCodeStatus;
 };
@@ -87,9 +90,10 @@ export async function list(): Promise<ConnectionView[]> {
       baseUrl: saved?.baseUrl ?? p.baseUrl,
       editableBaseUrl: p.editableBaseUrl,
       oneClick: p.oneClick,
-      connected: !!saved,
+      connected: !!saved && !saved.broken,
       label: saved?.label,
       models: saved?.models.length ?? 0,
+      broken: saved?.broken,
     };
     if (p.id === 'claude-code') {
       view.claudeCode = cc;
@@ -106,15 +110,64 @@ export async function list(): Promise<ConnectionView[]> {
 
 // --- API keys and local servers ---------------------------------------------
 
+// What people paste: stray spaces and line breaks, quotes, a "Bearer " prefix.
+export const cleanKey = (key: string) =>
+  key
+    .replace(/\s+/g, '')
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/^bearer/i, '');
+
+// Distinctive key prefixes, to catch a key pasted into the wrong provider.
+const PREFIXES: [string, string][] = [
+  ['sk-ant-', 'Anthropic'],
+  ['sk-or-', 'OpenRouter'],
+  ['AIza', 'Google Gemini'],
+  ['xai-', 'xAI'],
+  ['gsk_', 'Groq'],
+];
+function wrongProvider(id: string, key: string): string | null {
+  const hit = PREFIXES.find(([prefix]) => key.startsWith(prefix));
+  if (!hit || hit[1] === provider(id)?.name) return null;
+  return `This looks like a${/^[AEIOU]/.test(hit[1]) ? 'n' : ''} ${hit[1]} key, not a ${provider(id)?.name} one.`;
+}
+
+// Saves a key and checks it with the provider. A key that doesn't check out
+// is still saved, marked broken with the reason, so it shows up as needing
+// attention instead of vanishing; the error is also thrown to the caller.
 export async function connectKey(id: string, key: string, baseUrl?: string) {
   const p = provider(id);
   if (!p || p.kind === 'plan') throw new ConnectError('Unknown provider.');
-  const k = key.trim();
+  const k = p.kind === 'key' ? cleanKey(key) : '';
   if (p.kind === 'key' && !k) throw new ConnectError('Paste the key first.');
-  const models = await verify(id, k, baseUrl?.trim() || p.baseUrl);
+  const url = p.editableBaseUrl ? baseUrl?.trim() || p.baseUrl : undefined;
   if (p.kind === 'key') await setSecret(id, { key: k });
-  const label = p.kind === 'local' ? `${models.length} model${models.length === 1 ? '' : 's'} on this computer` : mask(k);
-  await connected(id, label, models, p.editableBaseUrl ? baseUrl?.trim() || p.baseUrl : undefined);
+  try {
+    const wrong = wrongProvider(id, k);
+    if (wrong) throw new ConnectError(wrong);
+    const models = await verify(id, k, url);
+    const label = p.kind === 'local' ? `${models.length} model${models.length === 1 ? '' : 's'} on this computer` : mask(k);
+    await connected(id, label, models, url);
+  } catch (e) {
+    const reason = e instanceof ConnectError ? e.message : "That key couldn't be checked.";
+    // A local server that isn't running isn't a broken key: just say so.
+    if (p.kind === 'key') await markBroken(id, mask(k), reason, url);
+    throw e instanceof ConnectError ? e : new ConnectError(reason);
+  }
+}
+
+async function markBroken(id: string, label: string, reason: string, baseUrl?: string) {
+  await update(s => {
+    s.connections[id] = { label, models: [], baseUrl, connectedAt: new Date().toISOString(), broken: reason };
+  });
+}
+
+// Checks a saved key again (the provider may have been down, or the key fixed
+// on their side).
+export async function retryKey(id: string) {
+  const saved = (await load()).connections[id];
+  const secret = await getSecret<{ key: string }>(id);
+  if (!saved || !secret) throw new ConnectError('There is no saved key to check.');
+  await connectKey(id, secret.key, saved.baseUrl);
 }
 
 // --- PKCE helpers -------------------------------------------------------------

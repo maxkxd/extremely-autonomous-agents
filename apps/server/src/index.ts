@@ -116,6 +116,11 @@ const routes: Record<string, Route> = {
     await conn.connectKey(id, key ?? '', baseUrl);
     return { ok: true };
   },
+  'POST /api/connections/retry': async req => {
+    const { id } = await body<{ id: string }>(req);
+    await conn.retryKey(id);
+    return { ok: true };
+  },
   'POST /api/connections/disconnect': async req => {
     const { id } = await body<{ id: string }>(req);
     await conn.disconnect(id);

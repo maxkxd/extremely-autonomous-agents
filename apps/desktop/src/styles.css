@@ -1551,3 +1551,11 @@ a.sbtn { text-decoration: none; color: inherit; }
 .spin-icon.solo { position: static; color: var(--muted); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin-icon { animation-duration: 2.4s; } }
+
+/* A saved key that didn't check out. */
+.mbroken {
+  margin-left: 8px; padding: 1px 7px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; color: #e5797c; background: rgba(229, 121, 124, 0.12); vertical-align: 1px;
+}
+.mbroken-sub { color: #d98a8c; }
+.srow2-control .slink:disabled { opacity: 0.5; cursor: default; }
