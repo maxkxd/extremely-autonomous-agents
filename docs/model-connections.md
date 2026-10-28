@@ -92,6 +92,37 @@ level (low / medium / high / max). #1 runs; #2 and #3 take over when it can't.
   opens with its arrow. Click away to close.
 - Copilot picks its own model, so it offers one choice: "auto".
 
+### Only models that can run an agent, with honest effort
+
+`apps/server/src/models/caps.ts` (tested). An agent needs a model that takes
+text, writes text and calls tools. When a connection is made, its list is cut
+to those, and each model's effort levels are recorded; the picker and the
+builder only ever see that list.
+
+| Connection | Agent-capable | Effort levels |
+| --- | --- | --- |
+| Anthropic | all listed | `capabilities.effort` per model (Haiku 4.5: none) |
+| OpenRouter | text in and out, and `tools` in `supported_parameters` | all four if it takes `reasoning` |
+| Gemini | `generateContent` models | low/medium/high if `thinking` |
+| ChatGPT plan | listed models | its `supported_reasoning_levels` |
+| Ollama | `tools` in `/api/show` capabilities | low/medium/high for gpt-oss |
+| Claude plan | Opus, Sonnet, Haiku | all four (`claude --effort`) |
+| OpenAI, xAI, Groq | known model names | known families (o-series, gpt-5+, grok-3-mini, gpt-oss) |
+| Mistral, DeepSeek, custom, Copilot | known model names | none |
+
+Every provider's list also goes through a filter of known non-chat names
+(embeddings, speech, images, moderation, realtime, search previews...).
+
+Our levels map onto each provider's own: low/medium/high as named, and **max**
+is the provider's top level above high (`xhigh` or `max`). A model that takes
+no effort setting shows the Effort row greyed out ("Not adjustable for this
+model") and the runner sends none. The builder's pick is moved to the nearest
+level the model takes. An agent that already holds a model its connection no
+longer offers is flagged on its card like an agent with no model.
+
+Connections saved before this check (`caps` missing in
+`data/connections.json`) are checked again when the server starts.
+
 ## Running an agent on Claude Code (for the runtime)
 
 Tested on a Claude plan (`scripts/claude-code-test.ts`). Without isolation,

@@ -252,4 +252,5 @@ createServer(async (req, res) => {
 }).listen(PORT, () => {
   console.log(`eaa server on http://localhost:${PORT}`);
   resume();
+  void conn.recheckCapabilities();
 });

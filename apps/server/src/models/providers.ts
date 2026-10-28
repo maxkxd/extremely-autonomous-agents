@@ -49,6 +49,8 @@ export const PROVIDERS: Provider[] = [
   { id: 'ollama', name: 'Ollama', kind: 'local', what: 'Models running on this computer', baseUrl: 'http://localhost:11434', editableBaseUrl: true },
 ];
 
+import { anthropicModels, geminiModels, keepChat, knownEfforts, ollamaModel, openRouterModels, type ModelInfo } from './caps.js';
+
 export const provider = (id: string) => PROVIDERS.find(p => p.id === id);
 
 export class ConnectError extends Error {}
@@ -70,41 +72,58 @@ async function getJson(url: string, headers: Record<string, string> = {}) {
 
 const ids = (list: unknown, field = 'id') =>
   Array.isArray(list) ? list.map(m => String((m as Record<string, unknown>)[field] ?? '')).filter(Boolean) : [];
+// Providers that only list ids: effort from what's known about each family.
+const named = (id: string, list: string[]): ModelInfo[] => list.map(m => ({ id: m, efforts: knownEfforts(id, m) }));
 
 const trimSlash = (u: string) => u.replace(/\/+$/, '');
 
-// Checks a key (or local server) and returns the models it can use.
-export async function verify(id: string, key: string, baseUrl?: string): Promise<string[]> {
+// Checks a key (or local server) and returns the models it can run agents on.
+export async function verify(id: string, key: string, baseUrl?: string): Promise<ModelInfo[]> {
+  return keepChat(await listModels(id, key, baseUrl));
+}
+
+async function listModels(id: string, key: string, baseUrl?: string): Promise<ModelInfo[]> {
   const bearer = { authorization: `Bearer ${key}` };
   switch (id) {
     case 'anthropic':
-      return ids((await getJson('https://api.anthropic.com/v1/models?limit=1000', { 'x-api-key': key, 'anthropic-version': '2023-06-01' })).data);
+      return anthropicModels((await getJson('https://api.anthropic.com/v1/models?limit=1000', { 'x-api-key': key, 'anthropic-version': '2023-06-01' })).data);
     case 'openai':
-      return ids((await getJson('https://api.openai.com/v1/models', bearer)).data);
+      return named(id, ids((await getJson('https://api.openai.com/v1/models', bearer)).data));
     case 'google':
-      return ids(
-        (await getJson(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(key)}`)).models,
-        'name',
-      ).map(n => n.replace(/^models\//, ''));
+      return geminiModels((await getJson(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(key)}`)).models);
     case 'openrouter': {
       // The key itself is checked; the model list is public.
       await getJson('https://openrouter.ai/api/v1/key', bearer);
-      return ids((await getJson('https://openrouter.ai/api/v1/models')).data);
+      return openRouterModels((await getJson('https://openrouter.ai/api/v1/models')).data);
     }
     case 'xai':
-      return ids((await getJson('https://api.x.ai/v1/models', bearer)).data);
+      return named(id, ids((await getJson('https://api.x.ai/v1/models', bearer)).data));
     case 'mistral':
-      return ids((await getJson('https://api.mistral.ai/v1/models', bearer)).data);
+      return named(id, ids((await getJson('https://api.mistral.ai/v1/models', bearer)).data));
     case 'deepseek':
-      return ids((await getJson('https://api.deepseek.com/models', bearer)).data);
+      return named(id, ids((await getJson('https://api.deepseek.com/models', bearer)).data));
     case 'groq':
-      return ids((await getJson('https://api.groq.com/openai/v1/models', bearer)).data);
+      return named(id, ids((await getJson('https://api.groq.com/openai/v1/models', bearer)).data));
     case 'custom': {
       if (!baseUrl) throw new ConnectError('Add the API base URL (ending in /v1).');
-      return ids((await getJson(`${trimSlash(baseUrl)}/models`, bearer)).data);
+      return named(id, ids((await getJson(`${trimSlash(baseUrl)}/models`, bearer)).data));
     }
-    case 'ollama':
-      return ids((await getJson(`${trimSlash(baseUrl || 'http://localhost:11434')}/api/tags`)).models, 'name');
+    case 'ollama': {
+      // Each model says what it can do; one that won't say is kept.
+      const base = trimSlash(baseUrl || 'http://localhost:11434');
+      const names = ids((await getJson(`${base}/api/tags`)).models, 'name');
+      const shown = await Promise.all(
+        names.map(async name => {
+          try {
+            const res = await fetch(`${base}/api/show`, { method: 'POST', body: JSON.stringify({ model: name }), signal: AbortSignal.timeout(10000) });
+            return ollamaModel(name, res.ok ? await res.json() : null);
+          } catch {
+            return ollamaModel(name, null);
+          }
+        }),
+      );
+      return shown.filter((m): m is ModelInfo => !!m);
+    }
     default:
       throw new ConnectError('Unknown provider.');
   }
