@@ -13,6 +13,7 @@ export type RunPost = {
   trigger: 'scheduled' | 'self-booked' | 'your message' | 'handoff';
   outcome: 'succeeded' | 'failed';
   cost: number; // dollars
+  costKnown?: boolean; // false: a model whose price isn't known
   seconds: number;
   text: string; // the run's final result text
   tools: ToolLine[];

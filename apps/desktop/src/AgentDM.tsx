@@ -62,7 +62,7 @@ function RunPostView({
           onClick={() => navigator.clipboard?.writeText(post.id).catch(() => {})}
         >
           {ok ? <CircleCheck size={13} strokeWidth={2} /> : <CircleAlert size={13} strokeWidth={2} />}
-          {post.trigger} · {post.tools.length} action{post.tools.length === 1 ? '' : 's'} · ${post.cost.toFixed(2)} ·{' '}
+          {post.trigger} · {post.tools.length} action{post.tools.length === 1 ? '' : 's'} · {post.costKnown === false ? 'cost unknown' : `$${post.cost.toFixed(2)}`} ·{' '}
           {duration(post.seconds)}
         </button>
         <p className="dm-text">{post.text}</p>
