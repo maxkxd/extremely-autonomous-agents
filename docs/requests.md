@@ -40,6 +40,29 @@ the new tool. The Fleet Engineer writes that note.
 - it has been rerouted too many times (rerouting costs runs of several agents,
   so it's capped rather than allowed to bounce around)
 
+## Ferocity and requests
+
+An agent's ferocity sets how hard it works **and how much it asks for**. Low
+ferocity makes do; high ferocity hunts for anything that would get more done.
+Example - an outreach agent that already has a LinkedIn connection:
+
+| Ferocity | Asks for... |
+|---|---|
+| Chill | An email box only if it literally has no way to reach anyone. Has LinkedIn, so it just uses that. |
+| Steady | An email box too - "it would make me much more effective". |
+| Driven | Email, plus enrichment data or a second channel with a clear payoff. |
+| Relentless | Anything that removes a limit on output. |
+| Apocalyptic | WhatsApp, SMS, phone calls, every channel it can think of - whatever gets more outreach done. |
+
+Apocalyptic is the paperclip maximiser **inside a fence**: the agent can want
+everything, but it can only *ask*. Every new tool, channel or access still has
+to come through a request (rerouted, built behind a human approval, or decided
+by a person), so its appetite never turns into capability on its own.
+
+Each level's instruction text lives with the level itself (`FEROCITY[].requestStance`
+in `apps/desktop/src/data.ts`) so it's ready to drop into the agent's run
+instructions. Like the schedules there, the wording is a first draft.
+
 ## Built-in agents
 
 Every organization (and solo account) gets the **Conductor** and the **Fleet

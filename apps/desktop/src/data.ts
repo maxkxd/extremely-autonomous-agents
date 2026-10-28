@@ -220,14 +220,59 @@ export type FerocityLevel = {
   cron: string;
   selfBook: 'never' | 'when-work-left' | 'always';
   runsPerDay: number; // expected, for the estimate
+  // How readily the agent files resource requests at this level - the text
+  // that goes into its run instructions (docs/requests.md, "Ferocity and
+  // requests"). Higher levels ask for more to get more done, but asking is
+  // all it can do: anything new still goes through a request or approval.
+  requestStance: string;
 };
 
 export const FEROCITY: FerocityLevel[] = [
-  { name: 'Chill', cadence: 'Once a day', cron: '0 9 * * *', selfBook: 'never', runsPerDay: 1 },
-  { name: 'Steady', cadence: 'Every 4 hours', cron: '0 */4 * * *', selfBook: 'never', runsPerDay: 6 },
-  { name: 'Driven', cadence: 'Hourly, chains when work is left', cron: '0 * * * *', selfBook: 'when-work-left', runsPerDay: 30 },
-  { name: 'Relentless', cadence: 'Every 15 min, always chains', cron: '*/15 * * * *', selfBook: 'always', runsPerDay: 120 },
-  { name: 'Apocalyptic', cadence: 'Non-stop, back-to-back runs', cron: '*/5 * * * *', selfBook: 'always', runsPerDay: 288 },
+  {
+    name: 'Chill',
+    cadence: 'Once a day',
+    cron: '0 9 * * *',
+    selfBook: 'never',
+    runsPerDay: 1,
+    requestStance:
+      'Make do with the tools you have. Only file a request when you are genuinely blocked and cannot do the work at all any other way.',
+  },
+  {
+    name: 'Steady',
+    cadence: 'Every 4 hours',
+    cron: '0 */4 * * *',
+    selfBook: 'never',
+    runsPerDay: 6,
+    requestStance:
+      'File a request when a tool or resource would make you clearly more effective at your core job, not just when you are blocked.',
+  },
+  {
+    name: 'Driven',
+    cadence: 'Hourly, chains when work is left',
+    cron: '0 * * * *',
+    selfBook: 'when-work-left',
+    runsPerDay: 30,
+    requestStance:
+      'Actively look for tools, access and data that would increase your output, and request the ones with a clear payoff.',
+  },
+  {
+    name: 'Relentless',
+    cadence: 'Every 15 min, always chains',
+    cron: '*/15 * * * *',
+    selfBook: 'always',
+    runsPerDay: 120,
+    requestStance:
+      'Treat every limit on your output as something to remove. Request any tool, channel or access that would let you do more or go faster.',
+  },
+  {
+    name: 'Apocalyptic',
+    cadence: 'Non-stop, back-to-back runs',
+    cron: '*/5 * * * *',
+    selfBook: 'always',
+    runsPerDay: 288,
+    requestStance:
+      'Maximise output by any means available. Think of every possible way to get more of your work done and request whatever it takes - new channels, new tools, more access. You can only ask: everything you request still needs a human or the Fleet Engineer to grant it.',
+  },
 ];
 
 export const rangeDays = (r: TimeRange) => TIME_RANGES.find(t => t.value === r)!.factor * 30;
