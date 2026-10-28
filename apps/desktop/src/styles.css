@@ -1439,7 +1439,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .sdanger { margin-top: 22px; border-color: #3a2526; }
 .sbtn.danger { color: #e5797c; border-color: #5a3335; }
 .sbtn.danger:hover:not(:disabled) { background: #2a1d1e; }
-.smem-head { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.smem-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; }
 .smem-head h3 { margin: 0; }
 .smem-add { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; color: var(--muted); }
 .smem-add:hover { background: var(--surface-hover); color: var(--text); }
