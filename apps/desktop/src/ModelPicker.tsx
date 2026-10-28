@@ -127,7 +127,8 @@ export function ModelPanel({
     const clean = next.filter(Boolean).slice(0, SLOTS);
     onChange(clean);
     onCheck?.(connection, model);
-    setSlot(Math.min(clean.length, SLOTS - 1));
+    // On to the next slot (never past the first empty one).
+    setSlot(Math.min(slot + 1, clean.length, SLOTS - 1));
   };
   const remove = (i: number) => {
     const next = choices.filter((_, j) => j !== i);
@@ -184,7 +185,7 @@ export function ModelPanel({
                     remove(i);
                   }}
                 >
-                  <X size={12} />
+                  <X size={14} />
                 </span>
               )}
             </button>
