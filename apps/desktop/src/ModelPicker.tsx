@@ -40,7 +40,7 @@ export function ModelRow({
     >
       <span className="stat-label">Model</span>
       <span className="model-row-value">
-        {problem && <AlertTriangle size={13} strokeWidth={2.2} />}
+        {problem && <AlertTriangle size={12} strokeWidth={2.2} />}
         {first ? (
           <>
             <span className="model-row-name">{modelLabel(first)}</span>
