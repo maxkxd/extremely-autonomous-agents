@@ -10,6 +10,7 @@ import { callHttp } from './http.js';
 import { callMcpTool, listMcpTools, type McpTool } from './mcp-client.js';
 import { MODULES, type CodeModule } from './modules/index.js';
 import { codeHash, installPlugin, pluginModule, readPlugin } from './plugins.js';
+import { resolvePermissions } from './sandbox.js';
 import { safeFetch } from '../runner/net.js';
 import type { Kit } from './modules/types.js';
 
@@ -81,7 +82,7 @@ export async function loadIntegrations() {
   for (const { integration } of loaded) {
     const hash = states()[integration.id]?.codeHash;
     if (integration.kind !== 'code' || MODULES[integration.module] || !hash) continue;
-    await installPlugin(integration.module, hash).catch(e => problems.push({ file: `${integration.module}.ts`, error: (e as Error).message }));
+    await installPlugin(integration.module, hash, resolvePermissions(integration.permissions)).catch(e => problems.push({ file: `${integration.module}.ts`, error: (e as Error).message }));
   }
   register();
 }
@@ -389,7 +390,15 @@ export async function publishPreview(id: string) {
   const integration = find(id);
   if (!integration) throw new Error(`No integration "${id}".`);
   const src = await integrationSource(id);
-  return { name: integration.name, kind: integration.kind, yaml: src?.yaml ?? '', code: src?.code ?? null, codeHash: src?.code ? codeHash(src.code) : null };
+  const plugin = integration.kind === 'code' && !!src?.code;
+  return {
+    name: integration.name,
+    kind: integration.kind,
+    yaml: src?.yaml ?? '',
+    code: src?.code ?? null,
+    codeHash: src?.code ? codeHash(src.code) : null,
+    permissions: plugin && integration.kind === 'code' ? resolvePermissions(integration.permissions) : null,
+  };
 }
 
 // Makes a draft live. A plugin is loaded only if its code is what was approved.
@@ -398,7 +407,7 @@ export async function publishIntegration(id: string, approvedHash: string | null
   if (!integration) throw new Error(`No integration "${id}".`);
   if (integration.kind === 'code' && !MODULES[integration.module]) {
     if (!approvedHash) throw new Error('Approve its code first.');
-    await installPlugin(integration.module, approvedHash);
+    await installPlugin(integration.module, approvedHash, resolvePermissions(integration.permissions));
     putState(id, { ...states()[id], codeHash: approvedHash });
   }
   putState(id, { ...states()[id], draft: false });
