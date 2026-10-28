@@ -1391,7 +1391,14 @@ ul { list-style: none; margin: 0; padding: 0; }
 .side-option.on { border-color: var(--attention); }
 .side-check { color: var(--attention); }
 
-.sorg-convert { margin: 0; font-size: 14px; color: var(--muted); }
+/* Centred in the whole settings pane, under the heading. */
+.sorg-center {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  pointer-events: none;
+}
+.sorg-center > * { pointer-events: auto; }
+.sorg-center .sbtn { align-self: center; }
+.sorg-convert { margin: 0; font-size: 15px; color: var(--muted); }
 .smembers { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
 .smembers li { display: flex; align-items: center; gap: 10px; }
 

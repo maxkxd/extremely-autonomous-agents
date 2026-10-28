@@ -478,10 +478,12 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
     return (
       <section className="ssection">
         <h2>Organization</h2>
-        <p className="sorg-convert">Convert your account into an organization</p>
-        <button className="sbtn primary" ref={startBtn} onClick={start}>
-          Get started
-        </button>
+        <div className="sorg-center">
+          <p className="sorg-convert">Convert your account into an organization</p>
+          <button className="sbtn primary" ref={startBtn} onClick={start}>
+            Get started
+          </button>
+        </div>
         {chat.element}
       </section>
     );
