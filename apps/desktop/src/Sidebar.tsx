@@ -121,6 +121,9 @@ export function Sidebar({
   requestsBadge: number; // pending requests waiting on this person
 }) {
   const [dmsOpen, setDmsOpen] = useState(true);
+  // Clicking the already-selected nav button replays its icon animation: a new
+  // key remounts the icon, which restarts the CSS animation.
+  const [replay, setReplay] = useState<Record<string, number>>({});
 
   return (
     <aside className="sidebar" style={{ width }}>
@@ -135,9 +138,12 @@ export function Sidebar({
             <button
               key={v}
               className={`nav-square${view === v ? ' active' : ''}`}
-              onClick={() => onSelect(v)}
+              onClick={() => {
+                if (view === v) setReplay(r => ({ ...r, [v]: (r[v] ?? 0) + 1 }));
+                onSelect(v);
+              }}
             >
-              <Icon size={32} strokeWidth={1.75} />
+              <Icon key={replay[v] ?? 0} size={32} strokeWidth={1.75} />
               <span>{label}</span>
               {badge ? <span className="square-badge">{badge}</span> : null}
             </button>

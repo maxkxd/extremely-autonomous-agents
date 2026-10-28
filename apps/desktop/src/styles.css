@@ -801,23 +801,38 @@ ul { list-style: none; margin: 0; padding: 0; }
    (A CSS animation starts when its selector starts matching, so .active does it.) */
 .nav-square svg rect, .nav-square svg path { transform-box: fill-box; transform-origin: center; }
 
-/* Dashboard: the four tiles stretch and squash in turn. */
-.nav-square.active .lucide-layout-dashboard rect { animation: tile-squash-v 0.75s cubic-bezier(0.3, 0.7, 0.4, 1) both; }
-.nav-square.active .lucide-layout-dashboard rect:nth-child(even) { animation-name: tile-squash-h; }
-.nav-square.active .lucide-layout-dashboard rect:nth-child(2) { animation-delay: 0.06s; }
-.nav-square.active .lucide-layout-dashboard rect:nth-child(3) { animation-delay: 0.12s; }
-.nav-square.active .lucide-layout-dashboard rect:nth-child(4) { animation-delay: 0.18s; }
-@keyframes tile-squash-v {
-  0%, 100% { transform: none; }
-  30% { transform: scale(0.72, 1.3); }
-  55% { transform: scale(1.15, 0.86); }
-  78% { transform: scale(0.96, 1.04); }
+/* Dashboard: the four blocks slide clockwise round the square, each taking
+   the next slot's position and shape (tall <-> short), one full lap back home.
+   Slots (lucide layout-dashboard): A 3,3 7x9 · B 14,3 7x5 · C 14,12 7x9 · D 3,16 7x5.
+   Uses SVG geometry as CSS properties (x / y / height). */
+.nav-square.active .lucide-layout-dashboard rect { animation: 1.15s cubic-bezier(0.45, 0, 0.25, 1) both; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(1) { animation-name: tile-a; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(2) { animation-name: tile-b; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(3) { animation-name: tile-c; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(4) { animation-name: tile-d; }
+@keyframes tile-a {
+  0%, 100% { x: 3px; y: 3px; height: 9px; }
+  25% { x: 14px; y: 3px; height: 5px; }
+  50% { x: 14px; y: 12px; height: 9px; }
+  75% { x: 3px; y: 16px; height: 5px; }
 }
-@keyframes tile-squash-h {
-  0%, 100% { transform: none; }
-  30% { transform: scale(1.3, 0.72); }
-  55% { transform: scale(0.86, 1.15); }
-  78% { transform: scale(1.04, 0.96); }
+@keyframes tile-b {
+  0%, 100% { x: 14px; y: 3px; height: 5px; }
+  25% { x: 14px; y: 12px; height: 9px; }
+  50% { x: 3px; y: 16px; height: 5px; }
+  75% { x: 3px; y: 3px; height: 9px; }
+}
+@keyframes tile-c {
+  0%, 100% { x: 14px; y: 12px; height: 9px; }
+  25% { x: 3px; y: 16px; height: 5px; }
+  50% { x: 3px; y: 3px; height: 9px; }
+  75% { x: 14px; y: 3px; height: 5px; }
+}
+@keyframes tile-d {
+  0%, 100% { x: 3px; y: 16px; height: 5px; }
+  25% { x: 3px; y: 3px; height: 9px; }
+  50% { x: 14px; y: 3px; height: 5px; }
+  75% { x: 14px; y: 12px; height: 9px; }
 }
 
 /* Approvals: the tick wipes away and redraws itself, with a little pop. */
