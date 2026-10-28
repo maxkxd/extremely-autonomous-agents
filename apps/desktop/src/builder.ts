@@ -82,7 +82,8 @@ export const profileTurn = (org: string, turns: Turn[]) =>
   post<{ reply: string; confidence: number; ready: boolean; profile: Profile }>('/api/org/turn', { org, turns });
 export const saveProfile = (org: string, profile: Profile) => post<{ ok: true }>('/api/org', { org, profile });
 // The profile chat opens with this, so it needs no round trip.
-export const profileOpener = (org: string) => `Before I build anything for ${org}: what does it do, and who for?`;
+export const profileOpener = (org: string) =>
+  org ? `Before I build anything for ${org}: what does it do, and who for?` : "Let's set up your organization. What's it called, what does it do, and who for?";
 
 // --- The person (every account has one, organization or not) ---
 

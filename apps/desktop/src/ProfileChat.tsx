@@ -11,10 +11,11 @@ export function useProfileChat() {
   const [origin, setOrigin] = useState<DOMRect | null>(null);
   const org = useRef('');
   const draft = useRef<Profile | null>(null);
-  const done = useRef<(() => void) | null>(null);
+  const done = useRef<((name: string) => void) | null>(null);
 
-  // orgName: the organization being described. onSaved runs once its profile is saved.
-  const start = (orgName: string, from: Element | null | undefined, onSaved: () => void) => {
+  // orgName: the organization being described, or '' to ask for its name too.
+  // onSaved gets the name once its profile is saved.
+  const start = (orgName: string, from: Element | null | undefined, onSaved: (name: string) => void) => {
     org.current = orgName;
     draft.current = null;
     done.current = onSaved;
@@ -47,13 +48,15 @@ export function useProfileChat() {
 
   const save = async () => {
     if (!draft.current) return;
+    const name = org.current || draft.current.name.trim();
+    if (!name) return setSession(s => ({ ...s, error: "Tell it what the organization's called first." }));
     setSession(s => ({ ...s, phase: 'building', error: null }));
     try {
-      await saveProfile(org.current, draft.current);
+      await saveProfile(name, { ...draft.current, name });
       setSession(NEW_SESSION);
       const next = done.current;
       done.current = null;
-      next?.();
+      next?.(name);
     } catch (e) {
       setSession(s => ({ ...s, phase: 'chat', error: (e as Error).message }));
     }

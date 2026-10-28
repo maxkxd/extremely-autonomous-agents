@@ -136,7 +136,7 @@ export async function profileInterview(orgName: string, person: PersonProfile, t
   return parse(
     ProfileTurnSchema,
     null,
-    `Before any agent is built, you are setting up the organisation profile that every agent's Charter will be written from. The organisation is called "${orgName}" in the app.
+    `Before any agent is built, you are setting up the organisation profile that every agent's Charter will be written from. ${orgName ? `The organisation is called "${orgName}" in the app.` : "You don't know its name yet: get it first, and put it in the profile's name."}
 
 You are talking to the person setting it up. What you already know about them - don't ask for it again, and include them in the profile's people:
 ${personForPrompt(person)}

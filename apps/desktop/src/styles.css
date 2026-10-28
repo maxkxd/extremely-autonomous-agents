@@ -1391,10 +1391,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .side-option.on { border-color: var(--attention); }
 .side-check { color: var(--attention); }
 
-.sorg-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px; border-radius: 14px; border: 1px dashed var(--border-strong); }
-.sorg-empty h3 { margin: 0; font-size: 18px; }
-.sorg-empty p { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--muted); }
-.sorg-empty .sfield { align-self: stretch; }
+.sorg-convert { margin: 0; font-size: 14px; color: var(--muted); }
 .smembers { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
 .smembers li { display: flex; align-items: center; gap: 10px; }
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Building2, Check, ChevronDown, Gauge, LogOut, Plug, Plus, Sparkles, Trash2, User, X } from 'lucide-react';
+import { Building2, Check, ChevronDown, Gauge, LogOut, Plug, Plus, Trash2, User, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, createOrganization } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { AI_IDES, IdeLogo, setYourIde, yourIde, type IdeId } from './Requests';
@@ -466,42 +466,22 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
   const org = ACCOUNT.org;
   const chat = useProfileChat();
   chatOpen.current = !!chat.element;
-  const [name, setName] = useState('');
   const startBtn = useRef<HTMLButtonElement>(null);
 
   if (!org) {
-    const create = async () => {
-      const n = name.trim();
-      if (!n) return;
-      const made = () => {
-        createOrganization(n);
+    // The chat asks for the name along with everything else.
+    const start = () =>
+      chat.start('', startBtn.current, name => {
+        createOrganization(name);
         onOrgChange();
-      };
-      // Already described (e.g. set up before): no need to ask again.
-      if (await getProfile(n).catch(() => null)) return made();
-      chat.start(n, startBtn.current, made);
-    };
+      });
     return (
       <section className="ssection">
         <h2>Organization</h2>
-        <div className="sorg-empty">
-          <div className="custom-mark">
-            <Building2 size={22} strokeWidth={1.6} />
-          </div>
-          <h3>Make this into an organization</h3>
-          <p>
-            Your account is personal, so your agents start general and get tailored to you over time. Make it an
-            organization and every agent is written for your company from the start - what it does, who it sells to,
-            how it sounds and who's who - and you can add people later.
-          </p>
-          <Field label="Organization name">
-            <input value={name} placeholder="e.g. Acme Ventures" onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} />
-          </Field>
-          <button className="sbtn primary" ref={startBtn} disabled={!name.trim()} onClick={create}>
-            <Sparkles size={15} strokeWidth={2} />
-            Get started
-          </button>
-        </div>
+        <p className="sorg-convert">Convert your account into an organization</p>
+        <button className="sbtn primary" ref={startBtn} onClick={start}>
+          Get started
+        </button>
         {chat.element}
       </section>
     );
