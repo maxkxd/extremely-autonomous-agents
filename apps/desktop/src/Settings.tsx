@@ -109,53 +109,85 @@ function Notes({ notes, onChange, empty }: { notes: string[]; onChange: (n: stri
   );
 }
 
-function SaveBar({ dirty, saving, saved, error, onSave }: { dirty: boolean; saving: boolean; saved: boolean; error: string | null; onSave: () => void }) {
-  return (
-    <div className="ssave">
-      {error && <span className="custom-error">{error}</span>}
-      {saved && !dirty && (
-        <span className="ssaved">
-          <Check size={14} /> Saved
-        </span>
-      )}
-      <button className="sbtn primary" disabled={!dirty || saving} onClick={onSave}>
-        {saving ? 'Saving...' : 'Save'}
-      </button>
-    </div>
-  );
-}
-
 // Load, edit and save one server-side record.
+// How long after you stop typing a change is saved.
+const SAVE_AFTER_MS = 600;
+
+// Load one server-side record and save it as you edit: a moment after you
+// stop typing, and straight away if Settings closes first.
 function useRecord<T>(load: () => Promise<T>, store: (v: T) => Promise<unknown>) {
   const [value, setValue] = useState<T | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const latest = useRef<T | null>(null);
+  const dirty = useRef(false);
   useEffect(() => {
-    load().then(setValue, e => setError((e as Error).message));
+    load().then(v => {
+      latest.current = v;
+      setValue(v);
+    }, e => setError((e as Error).message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const edit = (patch: Partial<T>) => {
-    setValue(v => (v ? { ...v, ...patch } : v));
-    setDirty(true);
-    setSaved(false);
-  };
-  const save = async () => {
-    if (!value) return;
-    setSaving(true);
+  const save = useSerialSave(async () => {
+    if (!dirty.current || !latest.current) return;
+    dirty.current = false;
+    setStatus('saving');
     setError(null);
     try {
-      await store(value);
-      setDirty(false);
-      setSaved(true);
+      await store(latest.current);
+      setStatus('saved');
     } catch (e) {
+      dirty.current = true;
       setError((e as Error).message);
-    } finally {
-      setSaving(false);
+      setStatus('idle');
     }
+  });
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const edit = (patch: Partial<T>) => {
+    if (!latest.current) return;
+    latest.current = { ...latest.current, ...patch };
+    dirty.current = true;
+    setValue(latest.current);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(save, SAVE_AFTER_MS);
   };
-  return { value, edit, dirty, saving, saved, error, save };
+  // Closing Settings: save whatever hasn't been yet.
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current);
+      save();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  return { value, edit, status, error };
+}
+
+// Run saves one after another, so a later save can't land before an earlier one.
+function useSerialSave(run: () => Promise<void>) {
+  const chain = useRef(Promise.resolve());
+  const fn = useRef(run);
+  fn.current = run;
+  return () => {
+    chain.current = chain.current.then(() => fn.current());
+    return chain.current;
+  };
+}
+
+function SaveStatus({ status, error }: { status: 'idle' | 'saving' | 'saved'; error: string | null }) {
+  if (error) return <span className="custom-error">{error}</span>;
+  if (status === 'idle') return null;
+  return (
+    <span className="ssaved">
+      {status === 'saving' ? (
+        'Saving...'
+      ) : (
+        <>
+          <Check size={14} /> Saved
+        </>
+      )}
+    </span>
+  );
 }
 
 // --- Account -----------------------------------------------------------------
@@ -218,13 +250,29 @@ function Row({ label, sub, children }: { label: string; sub?: string; children: 
 function SavedInput({ value, placeholder, onSave }: { value: string; placeholder?: string; onSave: (v: string) => void }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
+  // Saves a moment after you stop typing, when you leave the field, and if
+  // Settings closes while you're still in it.
+  const latest = useRef({ text, value, onSave });
+  latest.current = { text, value, onSave };
+  const flush = () => {
+    const l = latest.current;
+    if (l.text.trim() !== l.value) l.onSave(l.text.trim());
+  };
+  useEffect(() => {
+    if (text.trim() === value) return;
+    const t = setTimeout(flush, SAVE_AFTER_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => flush(), []);
   return (
     <input
       className="srow2-input"
       value={text}
       placeholder={placeholder}
       onChange={e => setText(e.target.value)}
-      onBlur={() => text.trim() !== value && onSave(text.trim())}
+      onBlur={flush}
       onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
     />
   );
@@ -240,16 +288,23 @@ function AccountSection() {
     getPerson().then(setP, e => setError((e as Error).message));
   }, []);
   // Everything here saves as you go - there's no Save button to forget.
-  const update = async (patch: Partial<Person>) => {
-    if (!p) return;
-    const next = { ...p, ...patch };
-    setP(next);
-    setError(null);
+  // Several fields can save at once (e.g. on close), so each merges into the
+  // latest copy rather than the one it rendered with, and saves run in order.
+  const latest = useRef<Person | null>(null);
+  latest.current ??= p;
+  const save = useSerialSave(async () => {
     try {
-      await savePerson(next);
+      await savePerson(latest.current!);
     } catch (e) {
       setError((e as Error).message);
     }
+  });
+  const update = (patch: Partial<Person>) => {
+    if (!latest.current) return;
+    latest.current = { ...latest.current, ...patch };
+    setP(latest.current);
+    setError(null);
+    save();
   };
   const pickPhoto = async (file: File | undefined) => {
     if (!file) return;
@@ -296,11 +351,13 @@ function AccountSection() {
                 }}
               />
             </Row>
-            <Row label="Full name">
-              <SavedInput value={p.full_name ?? ''} placeholder={p.name} onSave={full_name => update({ full_name })} />
-            </Row>
-            <Row label="What should agents call you?">
-              <SavedInput value={p.call_me ?? ''} placeholder={p.name} onSave={call_me => update({ call_me })} />
+            {/* One name for people and agents alike; clearing call_me retires the old separate field. */}
+            <Row label="Display name">
+              <SavedInput
+                value={p.full_name || p.call_me || ''}
+                placeholder={p.name}
+                onSave={full_name => update({ full_name, call_me: '' })}
+              />
             </Row>
           </div>
 
@@ -362,6 +419,16 @@ function Memories({ notes, onChange }: { notes: string[]; onChange: (n: string[]
     setText('');
     setAdding(false);
   };
+  // Settings closing mid-memory: keep what you typed.
+  const latest = useRef({ text, notes, onChange });
+  latest.current = { text, notes, onChange };
+  useEffect(
+    () => () => {
+      const l = latest.current;
+      if (l.text.trim()) l.onChange([...l.notes, l.text.trim()]);
+    },
+    [],
+  );
   return (
     <div className="sfield">
       <div className="smem-head">
@@ -501,7 +568,9 @@ function OrganizationProfile({ name, members }: { name: string; members: string[
             <span className="sfield-label">What agents have learned</span>
             <Notes notes={p.notes} onChange={notes => rec.edit({ notes })} empty="Nothing yet." />
           </div>
-          <SaveBar dirty={rec.dirty} saving={rec.saving} saved={rec.saved} error={rec.error} onSave={rec.save} />
+          <div className="ssave">
+            <SaveStatus status={rec.status} error={rec.error} />
+          </div>
         </>
       )}
       <h3>Members</h3>
