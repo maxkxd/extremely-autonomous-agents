@@ -804,125 +804,137 @@ ul { list-style: none; margin: 0; padding: 0; }
 /* Dashboard: two quarter-turns clockwise round the icon's centre. Blocks stay
    upright and keep their size; each swings along an arc to the next slot of
    its kind. Turn 1 lands in the mirrored layout (tall/short swap sides), turn 2
-   lands back in the original layout. Arc keyframes are generated (sampled
+   lands back in the original layout; each overshoots its slot and springs back. Arc keyframes are generated (sampled
    circle, ease baked in, so the CSS runs linear). The arcs swing slightly past
    the 24x24 box, so the icon may draw outside it while animating. */
 .nav-square .lucide-layout-dashboard { overflow: visible; }
-.nav-square.active .lucide-layout-dashboard rect { animation: 0.7s linear both; } /* ~0.22s turn, ~0.25s hold, ~0.22s turn */
+.nav-square.active .lucide-layout-dashboard rect { animation: 0.42s linear both; } /* two ~0.21s springy turns, no hold */
 .nav-square.active .lucide-layout-dashboard rect:nth-child(1) { animation-name: tile-1; }
 .nav-square.active .lucide-layout-dashboard rect:nth-child(2) { animation-name: tile-2; }
 .nav-square.active .lucide-layout-dashboard rect:nth-child(3) { animation-name: tile-3; }
 .nav-square.active .lucide-layout-dashboard rect:nth-child(4) { animation-name: tile-4; }
 @keyframes tile-1 {
   0.0% { x: 3.0px; y: 3.0px; }
-  2.67% { x: 3.14px; y: 2.84px; }
-  5.33% { x: 3.57px; y: 2.38px; }
-  8.0% { x: 4.34px; y: 1.74px; }
-  10.67% { x: 5.46px; y: 1.08px; }
-  13.33% { x: 6.89px; y: 0.58px; }
-  16.0% { x: 8.5px; y: 0.39px; }
-  18.67% { x: 10.11px; y: 0.58px; }
-  21.33% { x: 11.54px; y: 1.08px; }
-  24.0% { x: 12.66px; y: 1.74px; }
-  26.67% { x: 13.43px; y: 2.38px; }
-  29.33% { x: 13.86px; y: 2.84px; }
-  32.0% { x: 14.0px; y: 3.0px; }
-  68% { x: 14.0px; y: 3.0px; }
-  70.67% { x: 14.1px; y: 3.13px; }
-  73.33% { x: 14.39px; y: 3.52px; }
-  76.0% { x: 14.79px; y: 4.19px; }
-  78.67% { x: 15.19px; y: 5.11px; }
-  81.33% { x: 15.49px; y: 6.25px; }
-  84.0% { x: 15.61px; y: 7.5px; }
-  86.67% { x: 15.49px; y: 8.75px; }
-  89.33% { x: 15.19px; y: 9.89px; }
-  92.0% { x: 14.79px; y: 10.81px; }
-  94.67% { x: 14.39px; y: 11.48px; }
-  97.33% { x: 14.1px; y: 11.87px; }
+  3.57% { x: 6.01px; y: 0.84px; }
+  7.14% { x: 8.98px; y: 0.41px; }
+  10.71% { x: 11.27px; y: 0.96px; }
+  14.29% { x: 12.82px; y: 1.85px; }
+  17.86% { x: 13.76px; y: 2.72px; }
+  21.43% { x: 14.29px; y: 3.37px; }
+  25.0% { x: 14.55px; y: 3.77px; }
+  28.57% { x: 14.64px; y: 3.92px; }
+  32.14% { x: 14.62px; y: 3.88px; }
+  35.71% { x: 14.51px; y: 3.71px; }
+  39.29% { x: 14.36px; y: 3.48px; }
+  42.86% { x: 14.19px; y: 3.25px; }
+  46.43% { x: 14.06px; y: 3.07px; }
+  50.0% { x: 14.0px; y: 3.0px; }
+  53.57% { x: 15.34px; y: 5.56px; }
+  57.14% { x: 15.6px; y: 7.87px; }
+  60.71% { x: 15.27px; y: 9.67px; }
+  64.29% { x: 14.72px; y: 10.94px; }
+  67.86% { x: 14.18px; y: 11.77px; }
+  71.43% { x: 13.76px; y: 12.28px; }
+  75.0% { x: 13.51px; y: 12.54px; }
+  78.57% { x: 13.41px; y: 12.64px; }
+  82.14% { x: 13.43px; y: 12.61px; }
+  85.71% { x: 13.54px; y: 12.51px; }
+  89.29% { x: 13.69px; y: 12.35px; }
+  92.86% { x: 13.84px; y: 12.19px; }
+  96.43% { x: 13.96px; y: 12.05px; }
   100.0% { x: 14.0px; y: 12.0px; }
 }
 @keyframes tile-2 {
   0.0% { x: 14.0px; y: 3.0px; }
-  2.67% { x: 14.19px; y: 3.17px; }
-  5.33% { x: 14.72px; y: 3.68px; }
-  8.0% { x: 15.46px; y: 4.59px; }
-  10.67% { x: 16.22px; y: 5.92px; }
-  13.33% { x: 16.8px; y: 7.6px; }
-  16.0% { x: 17.01px; y: 9.5px; }
-  18.67% { x: 16.8px; y: 11.4px; }
-  21.33% { x: 16.22px; y: 13.08px; }
-  24.0% { x: 15.46px; y: 14.41px; }
-  26.67% { x: 14.72px; y: 15.32px; }
-  29.33% { x: 14.19px; y: 15.83px; }
-  32.0% { x: 14.0px; y: 16.0px; }
-  68% { x: 14.0px; y: 16.0px; }
-  70.67% { x: 13.84px; y: 16.13px; }
-  73.33% { x: 13.37px; y: 16.49px; }
-  76.0% { x: 12.56px; y: 16.99px; }
-  78.67% { x: 11.43px; y: 17.5px; }
-  81.33% { x: 10.04px; y: 17.87px; }
-  84.0% { x: 8.5px; y: 18.01px; }
-  86.67% { x: 6.96px; y: 17.87px; }
-  89.33% { x: 5.57px; y: 17.5px; }
-  92.0% { x: 4.44px; y: 16.99px; }
-  94.67% { x: 3.63px; y: 16.49px; }
-  97.33% { x: 3.16px; y: 16.13px; }
+  3.57% { x: 16.5px; y: 6.57px; }
+  7.14% { x: 17.0px; y: 10.06px; }
+  10.71% { x: 16.36px; y: 12.77px; }
+  14.29% { x: 15.33px; y: 14.59px; }
+  17.86% { x: 14.33px; y: 15.71px; }
+  21.43% { x: 13.57px; y: 16.34px; }
+  25.0% { x: 13.11px; y: 16.66px; }
+  28.57% { x: 12.93px; y: 16.77px; }
+  32.14% { x: 12.98px; y: 16.74px; }
+  35.71% { x: 13.17px; y: 16.62px; }
+  39.29% { x: 13.44px; y: 16.43px; }
+  42.86% { x: 13.71px; y: 16.23px; }
+  46.43% { x: 13.92px; y: 16.07px; }
+  50.0% { x: 14.0px; y: 16.0px; }
+  53.57% { x: 10.88px; y: 17.67px; }
+  57.14% { x: 8.04px; y: 18.0px; }
+  60.71% { x: 5.84px; y: 17.59px; }
+  64.29% { x: 4.28px; y: 16.9px; }
+  67.86% { x: 3.27px; y: 16.22px; }
+  71.43% { x: 2.67px; y: 15.7px; }
+  75.0% { x: 2.35px; y: 15.39px; }
+  78.57% { x: 2.23px; y: 15.26px; }
+  82.14% { x: 2.26px; y: 15.29px; }
+  85.71% { x: 2.39px; y: 15.43px; }
+  89.29% { x: 2.58px; y: 15.62px; }
+  92.86% { x: 2.77px; y: 15.8px; }
+  96.43% { x: 2.93px; y: 15.94px; }
   100.0% { x: 3.0px; y: 16.0px; }
 }
 @keyframes tile-3 {
   0.0% { x: 14.0px; y: 12.0px; }
-  2.67% { x: 13.86px; y: 12.16px; }
-  5.33% { x: 13.43px; y: 12.62px; }
-  8.0% { x: 12.66px; y: 13.26px; }
-  10.67% { x: 11.54px; y: 13.92px; }
-  13.33% { x: 10.11px; y: 14.42px; }
-  16.0% { x: 8.5px; y: 14.61px; }
-  18.67% { x: 6.89px; y: 14.42px; }
-  21.33% { x: 5.46px; y: 13.92px; }
-  24.0% { x: 4.34px; y: 13.26px; }
-  26.67% { x: 3.57px; y: 12.62px; }
-  29.33% { x: 3.14px; y: 12.16px; }
-  32.0% { x: 3.0px; y: 12.0px; }
-  68% { x: 3.0px; y: 12.0px; }
-  70.67% { x: 2.9px; y: 11.87px; }
-  73.33% { x: 2.61px; y: 11.48px; }
-  76.0% { x: 2.21px; y: 10.81px; }
-  78.67% { x: 1.81px; y: 9.89px; }
-  81.33% { x: 1.51px; y: 8.75px; }
-  84.0% { x: 1.39px; y: 7.5px; }
-  86.67% { x: 1.51px; y: 6.25px; }
-  89.33% { x: 1.81px; y: 5.11px; }
-  92.0% { x: 2.21px; y: 4.19px; }
-  94.67% { x: 2.61px; y: 3.52px; }
-  97.33% { x: 2.9px; y: 3.13px; }
+  3.57% { x: 10.99px; y: 14.16px; }
+  7.14% { x: 8.02px; y: 14.59px; }
+  10.71% { x: 5.73px; y: 14.04px; }
+  14.29% { x: 4.18px; y: 13.15px; }
+  17.86% { x: 3.24px; y: 12.28px; }
+  21.43% { x: 2.71px; y: 11.63px; }
+  25.0% { x: 2.45px; y: 11.23px; }
+  28.57% { x: 2.36px; y: 11.08px; }
+  32.14% { x: 2.38px; y: 11.12px; }
+  35.71% { x: 2.49px; y: 11.29px; }
+  39.29% { x: 2.64px; y: 11.52px; }
+  42.86% { x: 2.81px; y: 11.75px; }
+  46.43% { x: 2.94px; y: 11.93px; }
+  50.0% { x: 3.0px; y: 12.0px; }
+  53.57% { x: 1.66px; y: 9.44px; }
+  57.14% { x: 1.4px; y: 7.13px; }
+  60.71% { x: 1.73px; y: 5.33px; }
+  64.29% { x: 2.28px; y: 4.06px; }
+  67.86% { x: 2.82px; y: 3.23px; }
+  71.43% { x: 3.24px; y: 2.72px; }
+  75.0% { x: 3.49px; y: 2.46px; }
+  78.57% { x: 3.59px; y: 2.36px; }
+  82.14% { x: 3.57px; y: 2.39px; }
+  85.71% { x: 3.46px; y: 2.49px; }
+  89.29% { x: 3.31px; y: 2.65px; }
+  92.86% { x: 3.16px; y: 2.81px; }
+  96.43% { x: 3.04px; y: 2.95px; }
   100.0% { x: 3.0px; y: 3.0px; }
 }
 @keyframes tile-4 {
   0.0% { x: 3.0px; y: 16.0px; }
-  2.67% { x: 2.81px; y: 15.83px; }
-  5.33% { x: 2.28px; y: 15.32px; }
-  8.0% { x: 1.54px; y: 14.41px; }
-  10.67% { x: 0.78px; y: 13.08px; }
-  13.33% { x: 0.2px; y: 11.4px; }
-  16.0% { x: -0.01px; y: 9.5px; }
-  18.67% { x: 0.2px; y: 7.6px; }
-  21.33% { x: 0.78px; y: 5.92px; }
-  24.0% { x: 1.54px; y: 4.59px; }
-  26.67% { x: 2.28px; y: 3.68px; }
-  29.33% { x: 2.81px; y: 3.17px; }
-  32.0% { x: 3.0px; y: 3.0px; }
-  68% { x: 3.0px; y: 3.0px; }
-  70.67% { x: 3.16px; y: 2.87px; }
-  73.33% { x: 3.63px; y: 2.51px; }
-  76.0% { x: 4.44px; y: 2.01px; }
-  78.67% { x: 5.57px; y: 1.5px; }
-  81.33% { x: 6.96px; y: 1.13px; }
-  84.0% { x: 8.5px; y: 0.99px; }
-  86.67% { x: 10.04px; y: 1.13px; }
-  89.33% { x: 11.43px; y: 1.5px; }
-  92.0% { x: 12.56px; y: 2.01px; }
-  94.67% { x: 13.37px; y: 2.51px; }
-  97.33% { x: 13.84px; y: 2.87px; }
+  3.57% { x: 0.5px; y: 12.43px; }
+  7.14% { x: 0.0px; y: 8.94px; }
+  10.71% { x: 0.64px; y: 6.23px; }
+  14.29% { x: 1.67px; y: 4.41px; }
+  17.86% { x: 2.67px; y: 3.29px; }
+  21.43% { x: 3.43px; y: 2.66px; }
+  25.0% { x: 3.89px; y: 2.34px; }
+  28.57% { x: 4.07px; y: 2.23px; }
+  32.14% { x: 4.02px; y: 2.26px; }
+  35.71% { x: 3.83px; y: 2.38px; }
+  39.29% { x: 3.56px; y: 2.57px; }
+  42.86% { x: 3.29px; y: 2.77px; }
+  46.43% { x: 3.08px; y: 2.93px; }
+  50.0% { x: 3.0px; y: 3.0px; }
+  53.57% { x: 6.12px; y: 1.33px; }
+  57.14% { x: 8.96px; y: 1.0px; }
+  60.71% { x: 11.16px; y: 1.41px; }
+  64.29% { x: 12.72px; y: 2.1px; }
+  67.86% { x: 13.73px; y: 2.78px; }
+  71.43% { x: 14.33px; y: 3.3px; }
+  75.0% { x: 14.65px; y: 3.61px; }
+  78.57% { x: 14.77px; y: 3.74px; }
+  82.14% { x: 14.74px; y: 3.71px; }
+  85.71% { x: 14.61px; y: 3.57px; }
+  89.29% { x: 14.42px; y: 3.38px; }
+  92.86% { x: 14.23px; y: 3.2px; }
+  96.43% { x: 14.07px; y: 3.06px; }
   100.0% { x: 14.0px; y: 3.0px; }
 }
 
