@@ -204,6 +204,14 @@ export function App() {
     mainBody.current?.scrollTo({ top: 0 });
     window.setTimeout(() => setReveal(null), 450);
   };
+  // The smash plays once: forget the new agent as soon as it has landed, or
+  // when you leave the dashboard, so coming back doesn't replay it.
+  useEffect(() => {
+    if (!arrivingId) return;
+    if (view !== 'dashboard') return setArrivingId(null);
+    const t = window.setTimeout(() => setArrivingId(null), 1000);
+    return () => window.clearTimeout(t);
+  }, [arrivingId, view]);
   const [width, setWidth] = useState(() => clamp(readStored(WIDTH_KEY, DEFAULT_WIDTH)));
   const [shut, setShut] = useState(() => readStored(SHUT_KEY, false));
 
