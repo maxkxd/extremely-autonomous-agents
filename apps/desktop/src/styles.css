@@ -1704,3 +1704,5 @@ a.sbtn { text-decoration: none; color: inherit; }
 .sint-help { margin: 0 0 2px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
 .masked { -webkit-text-security: disc; }
 .sint-kind.draft { color: var(--attention); border-color: var(--attention); }
+.text-link { color: #7aa3e4; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.text-link:hover { color: #a9c3ee; }

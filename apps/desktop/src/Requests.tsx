@@ -5,6 +5,7 @@ import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { visibleApprovals, type ApprovalScope, type Resolution } from './Approvals';
 import { sendRequestMessage } from './builder';
+import { Linkify } from './Linkify';
 
 // How a request left the page: you did it, you rejected it, or the Fleet
 // Engineer sorted it after you tasked it.
@@ -321,7 +322,9 @@ function RequestRow({
                         Fleet Engineer
                       </span>
                     )}
-                    <div className="eng-text">{m.text}</div>
+                    <div className="eng-text">
+                      <Linkify text={m.text} />
+                    </div>
                   </div>
                 ))}
                 {typing && (
