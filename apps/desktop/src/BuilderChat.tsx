@@ -2,6 +2,24 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, Hammer, RotateCcw, Sparkles, X } from 'lucide-react';
 import type { BuilderSession } from './builder';
 
+// A build takes up to a minute or so: count up so it never looks stuck.
+function BuildingNote() {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const start = Date.now();
+    const id = setInterval(() => setSecs(Math.floor((Date.now() - start) / 1000)), 250);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="bmsg is-builder building-note">
+      <span className="building-text">Building your agent - this could take a minute</span>
+      <span className="building-timer">
+        {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
+      </span>
+    </div>
+  );
+}
+
 // The agent builder's conversation, in a pop-up that grows out of the custom
 // card. The blue bar across the top is the builder's own confidence that it
 // understands the agent well enough to build it.
@@ -91,7 +109,7 @@ export function BuilderChat({
               <span />
             </div>
           )}
-          {building && <div className="bmsg is-builder building-note">Writing its instructions and tools...</div>}
+          {building && <BuildingNote />}
           {session.error && (
             <div className="builder-error">
               {session.error}

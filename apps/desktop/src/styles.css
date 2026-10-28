@@ -1160,7 +1160,10 @@ ul { list-style: none; margin: 0; padding: 0; }
 .bmsg.typing span:nth-child(2) { animation-delay: 0.15s; }
 .bmsg.typing span:nth-child(3) { animation-delay: 0.3s; }
 @keyframes typing { 0%, 60%, 100% { opacity: 0.25; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
-.building-note { color: var(--muted); animation: soft-pulse 1.4s ease-in-out infinite; }
+.building-note { display: flex; align-items: baseline; gap: 10px; color: var(--muted); }
+.building-text { animation: soft-pulse 1.4s ease-in-out infinite; }
+/* The timer doesn't pulse, so it reads as steadily ticking. */
+.building-timer { font-variant-numeric: tabular-nums; color: var(--text); }
 .builder-error { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .builder-error button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 7px; color: var(--text); border: 1px solid var(--border-strong); }
 
