@@ -45,14 +45,24 @@ type ToolDef = {
   preview?: (args: Record<string, unknown>, ctx: RunCtx) => Promise<Record<string, unknown>>;
 };
 
-// A request goes to the Fleet Engineer first (docs/requests.md); the engineer's
-// own requests go straight to a person.
+export type Wake = (agentId: string, trigger: string, task: string) => void;
+
+// Where a new request goes first: the Conductor (conductor.ts) sets this;
+// without it, straight to the Fleet Engineer.
+let router: ((requestId: number, wake: Wake) => Promise<void>) | null = null;
+export const setRequestRouter = (fn: typeof router) => void (router = fn);
+
+// A request goes to the Conductor, which hands it to a related agent or to the
+// Fleet Engineer (docs/requests.md); direct: straight to the engineer (a tool
+// the builder invented - always the engineer's). The engineer's own requests
+// go to a person.
 export function fileRequest(
   agentId: string,
   runId: string | null,
   r: { what: string; why: string; evidence?: string | null; expected_effect?: string | null },
   now: number,
-  wake: (agentId: string, trigger: string, task: string) => void,
+  wake: Wake,
+  direct = false,
 ): number {
   const toEngineer = agentId !== FLEET_ENGINEER;
   const id = Number(
@@ -68,7 +78,9 @@ export function fileRequest(
       toEngineer ? 'engineer' : 'person',
     ).lastInsertRowid,
   );
-  if (toEngineer) wake(FLEET_ENGINEER, 'request', `Request #${id} from ${agentId}: ${r.what.slice(0, 300)}`);
+  if (!toEngineer) return id;
+  if (router && !direct) void router(id, wake);
+  else wake(FLEET_ENGINEER, 'request', `Request #${id} from ${agentId}: ${r.what.slice(0, 300)}`);
   return id;
 }
 

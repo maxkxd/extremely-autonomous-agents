@@ -239,6 +239,7 @@ const routes: Record<string, Route> = {
         },
         Date.now(),
         (a, trigger, task) => book(a, trigger as 'request', task),
+        true,
       );
     return { ok: true };
   },

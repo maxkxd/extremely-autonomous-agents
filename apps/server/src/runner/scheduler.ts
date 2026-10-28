@@ -3,6 +3,7 @@ import { loadIntegrations } from '../integrations/index.js';
 import './web.js'; // registers the web tools
 import './browser.js'; // registers the browser tools
 import { ensureFleetEngineer, startEngineer } from './engineer.js';
+import './conductor.js'; // routes new requests
 import { availableModels, nativeEffortSync } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';
