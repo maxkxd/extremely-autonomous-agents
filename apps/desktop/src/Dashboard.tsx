@@ -187,7 +187,7 @@ function AgentCard({
 
   return (
     <article
-      className={`agent-card fero-${level} is-${state}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
+      className={`agent-card fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
       style={{ '--tx': tx } as React.CSSProperties}
     >
       <div className="card-main">
