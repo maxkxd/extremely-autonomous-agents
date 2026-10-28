@@ -290,6 +290,7 @@ export function App() {
               entries={dms[view.slice('agent:'.length)] ?? []}
               thinking={!!dmRunning[view.slice('agent:'.length)]}
               onSend={text => sendDm(view.slice('agent:'.length), text)}
+              approvalOutcomes={resolved}
             />
           ) : (
             <div className="main-empty">Coming next.</div>

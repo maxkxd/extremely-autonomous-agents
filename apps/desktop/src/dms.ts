@@ -1,7 +1,10 @@
 // Agent DM channels (docs/agent-dms.md): one post per run, plus direct
 // messages. Placeholder history for the UI only.
 
-export type ToolLine = { server: string; tool: string; fields: string[] }; // field NAMES only
+// One tool call in a run post. Field NAMES only, never values.
+// status: ok / failed, or for a human-approved tool, decided by its approval:
+// pending until it's approved (ok) or rejected / expired (failed).
+export type ToolLine = { server: string; tool: string; fields: string[]; status: 'ok' | 'failed'; approvalId?: string };
 
 export type RunPost = {
   kind: 'run';
@@ -26,7 +29,8 @@ const run = (
   seconds: number,
   cost: number,
   text: string,
-  tools: [string, string, string[]][] = [],
+  // [server, tool, fields, status?] - status 'failed', or an approval id (pending until decided)
+  tools: [string, string, string[], string?][] = [],
   outcome: RunPost['outcome'] = 'succeeded',
 ): RunPost => ({
   kind: 'run',
@@ -37,7 +41,13 @@ const run = (
   cost,
   seconds,
   text,
-  tools: tools.map(([server, tool, fields]) => ({ server, tool, fields })),
+  tools: tools.map(([server, tool, fields, st]) => ({
+    server,
+    tool,
+    fields,
+    status: st === 'failed' ? 'failed' : 'ok',
+    approvalId: st && st !== 'failed' ? st : undefined,
+  })),
 });
 
 export const DM_HISTORY: Record<string, DmEntry[]> = {
@@ -49,13 +59,14 @@ export const DM_HISTORY: Record<string, DmEntry[]> = {
     run('41c2', 250, 'scheduled', 64, 0.08, 'Triaged 28 new emails. Drafted replies to Dana (invoice timing) and the venue (Thursday clash) - both are waiting in Approvals.', [
       ['gmail', 'list_messages', ['query', 'max_results']],
       ['gmail', 'create_draft', ['to', 'subject', 'body']],
-      ['agency-approvals', 'request_approval', ['tool', 'args']],
+      ['gmail', 'send_email', ['to', 'subject', 'body'], 'ap-1'],
     ]),
     { kind: 'you', minutesAgo: 42, text: 'Why did the Northwind invoice get flagged instead of filed?' },
     run('4b77', 41, 'your message', 22, 0.03, "It came from a new sender address (ap@northwind-logistics.co rather than the usual northwindlogistics.com), so I flagged it instead of filing it in case it's a spoof. The domain checks out - it's their new billing system. I'll file their invoices automatically from now on."),
-    run('4c10', 11, 'scheduled', 58, 0.07, 'Triaged 19 new emails: 15 labelled, 4 archived. Nothing needs you.', [
+    run('4c10', 11, 'scheduled', 58, 0.07, 'Triaged 19 new emails: 15 labelled. Asked to archive 38 old newsletters - waiting on approval.', [
       ['gmail', 'list_messages', ['query', 'max_results']],
       ['gmail', 'modify_labels', ['message_ids', 'add_labels']],
+      ['gmail', 'archive_messages', ['query', 'count'], 'ap-4'],
     ]),
   ],
   leads: [
@@ -68,8 +79,13 @@ export const DM_HISTORY: Record<string, DmEntry[]> = {
       ['agency-requests', 'request_resource', ['what', 'why']],
     ]),
     run('8012', 27, 'scheduled', 95, 0.21, "Enrichment API timed out three times in a row, so I stopped this run rather than half-finish the batch. I'll retry on the next run.", [
-      ['enrich', 'lookup_company', ['domain']],
+      ['linkedin', 'search_people', ['keywords', 'filters']],
+      ['enrich', 'lookup_company', ['domain'], 'failed'],
     ], 'failed'),
+    run('8031', 23, 'self-booked', 61, 0.12, 'Retried enrichment (fine this time). Asked to connect with Priyanka Rao at Tidewater Freight - waiting on approval.', [
+      ['enrich', 'lookup_company', ['domain']],
+      ['linkedin', 'send_connection_request', ['profile_id', 'note'], 'ap-2'],
+    ]),
   ],
   research: [
     run('2d11', 400, 'scheduled', 260, 0.61, 'Wrote the weekly market brief (6 sources). Two figures are older than 2024 - flagged in the brief and filed a request for a current data source.', [
@@ -89,7 +105,7 @@ export const DM_HISTORY: Record<string, DmEntry[]> = {
     ]),
     run('5b90', 190, 'self-booked', 300, 0.79, 'Wrote the "five signs your asset register has gone stale" post. Publishing needs approval - it\'s in Approvals.', [
       ['cms', 'create_draft', ['title', 'body', 'tags']],
-      ['agency-approvals', 'request_approval', ['tool', 'args']],
+      ['cms', 'publish_post', ['post_id', 'site'], 'ap-3'],
     ]),
   ],
   books: [

@@ -2,7 +2,8 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { CircleAlert, CircleCheck, Loader2, SendHorizontal } from 'lucide-react';
 import { ACCOUNT, AGENTS } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
-import type { DmEntry, RunPost } from './dms';
+import type { DmEntry, RunPost, ToolLine } from './dms';
+import type { Resolution } from './Approvals';
 
 // Placeholder history is "minutes ago"; pin it to the page's load time.
 const loadedAt = Date.now();
@@ -19,9 +20,28 @@ function dayLabel(t: number) {
   return d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' });
 }
 
+// A human-approved call is pending until its approval is decided.
+type ToolState = 'ok' | 'failed' | 'pending';
+function toolState(t: ToolLine, outcomes: Record<string, Resolution>): ToolState {
+  if (!t.approvalId) return t.status;
+  const o = outcomes[t.approvalId];
+  return o === 'approved' ? 'ok' : o ? 'failed' : 'pending';
+}
+const TOOL_TITLE: Record<ToolState, string> = { ok: 'Succeeded', failed: 'Failed', pending: 'Waiting on approval' };
+
 const duration = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`);
 
-function RunPostView({ post, agentName, Icon }: { post: StampedEntry & RunPost; agentName: string; Icon: typeof CircleCheck }) {
+function RunPostView({
+  post,
+  agentName,
+  Icon,
+  outcomes,
+}: {
+  post: StampedEntry & RunPost;
+  agentName: string;
+  Icon: typeof CircleCheck;
+  outcomes: Record<string, Resolution>;
+}) {
   const ok = post.outcome === 'succeeded';
   return (
     <div className="dm-post">
@@ -44,7 +64,7 @@ function RunPostView({ post, agentName, Icon }: { post: StampedEntry & RunPost; 
           <ul className="dm-tools">
             {post.tools.map((t, i) => (
               <li key={i}>
-                <span className="dm-tool-dot" />
+                <span className={`dm-tool-dot ${toolState(t, outcomes)}`} title={TOOL_TITLE[toolState(t, outcomes)]} />
                 {t.server} · {t.tool} · <span className="dm-tool-fields">{t.fields.join(', ')}</span>
               </li>
             ))}
@@ -60,11 +80,13 @@ export function AgentDM({
   entries,
   thinking,
   onSend,
+  approvalOutcomes,
 }: {
   agentId: string;
   entries: StampedEntry[];
   thinking: boolean;
   onSend: (text: string) => void;
+  approvalOutcomes: Record<string, Resolution>;
 }) {
   const agent = AGENTS.find(a => a.id === agentId)!;
   const Icon = DEPARTMENT_ICON[agent.department];
@@ -105,7 +127,7 @@ export function AgentDM({
             <div key={i}>
               {divider}
               {e.kind === 'run' ? (
-                <RunPostView post={e as StampedEntry & RunPost} agentName={agent.name} Icon={Icon} />
+                <RunPostView post={e as StampedEntry & RunPost} agentName={agent.name} Icon={Icon} outcomes={approvalOutcomes} />
               ) : (
                 <div className="dm-post">
                   <div className="dm-avatar you">{ACCOUNT.name.charAt(0)}</div>
