@@ -15,7 +15,7 @@ import {
   Search,
   Settings2,
 } from 'lucide-react';
-import { ACCOUNT, AGENTS, ORGANIZATIONS, totalOpenApprovals, totalOpenRequests, type Department } from './data';
+import { ACCOUNT, AGENTS, ORGANIZATIONS, totalOpenRequests, type Department } from './data';
 import { useDismiss } from './useDismiss';
 
 export type View = 'dashboard' | 'approvals' | 'requests' | `agent:${string}`;
@@ -32,7 +32,7 @@ export const DEPARTMENT_ICON: Record<Department, typeof Code> = {
 
 const NAV: { view: View; label: string; Icon: typeof LayoutDashboard; badge?: number }[] = [
   { view: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-  { view: 'approvals', label: 'Approvals', Icon: CircleCheckBig, badge: totalOpenApprovals },
+  { view: 'approvals', label: 'Approvals', Icon: CircleCheckBig }, // badge comes from live pending approvals
   { view: 'requests', label: 'Requests', Icon: Inbox, badge: totalOpenRequests },
 ];
 
@@ -108,11 +108,13 @@ export function Sidebar({
   onSelect,
   width,
   onResizeStart,
+  approvalsBadge,
 }: {
   view: View;
   onSelect: (v: View) => void;
   width: number;
   onResizeStart: (e: React.PointerEvent) => void;
+  approvalsBadge: number; // pending approvals waiting on this person
 }) {
   const [dmsOpen, setDmsOpen] = useState(true);
 
@@ -123,17 +125,20 @@ export function Sidebar({
       {ACCOUNT.org && <OrgPicker initial={ACCOUNT.org.name} />}
 
       <nav className="nav-squares">
-        {NAV.map(({ view: v, label, Icon, badge }) => (
-          <button
-            key={v}
-            className={`nav-square${view === v ? ' active' : ''}`}
-            onClick={() => onSelect(v)}
-          >
-            <Icon size={32} strokeWidth={1.75} />
-            <span>{label}</span>
-            {badge ? <span className="square-badge">{badge}</span> : null}
-          </button>
-        ))}
+        {NAV.map(({ view: v, label, Icon, badge: fixedBadge }) => {
+          const badge = v === 'approvals' ? approvalsBadge : fixedBadge;
+          return (
+            <button
+              key={v}
+              className={`nav-square${view === v ? ' active' : ''}`}
+              onClick={() => onSelect(v)}
+            >
+              <Icon size={32} strokeWidth={1.75} />
+              <span>{label}</span>
+              {badge ? <span className="square-badge">{badge}</span> : null}
+            </button>
+          );
+        })}
       </nav>
 
       <div className="dms">

@@ -15,23 +15,25 @@ export type Agent = {
   cost: Slice[];
   runs: number;
   lastRun: { minutesAgo: number; outcome: 'succeeded' | 'failed' | 'running' };
-  openApprovals: number;
   openRequests: number;
   ferocity: number; // index into FEROCITY
 };
 
 export type Organization = { name: string; members: string[] };
 
-export type Account = { name: string; org: Organization | null };
+// Admins can switch Approvals to everyone's; members only see their own agents'.
+export type Account = { name: string; role: 'admin' | 'member'; org: Organization | null };
 
 // Organizations this account belongs to (the first is the current one).
 export const ORGANIZATIONS = ['Acme Ventures', 'Northwind Labs'];
 
-// Preview the no-organization experience with ?noorg in the URL.
-const noOrg = new URLSearchParams(window.location.search).has('noorg');
+// Preview the no-organization experience with ?noorg, and a non-admin member with ?member.
+const params = new URLSearchParams(window.location.search);
+const noOrg = params.has('noorg');
 
 export const ACCOUNT: Account = {
   name: 'Max',
+  role: params.has('member') ? 'member' : 'admin',
   org: noOrg ? null : { name: 'Acme Ventures', members: ['Max', 'Priya', 'Jordan'] },
 };
 
@@ -53,7 +55,6 @@ export const AGENTS: Agent[] = [
     ],
     runs: 96,
     lastRun: { minutesAgo: 4, outcome: 'running' },
-    openApprovals: 0,
     openRequests: 1,
     ferocity: 1,
   },
@@ -73,7 +74,6 @@ export const AGENTS: Agent[] = [
     ],
     runs: 720,
     lastRun: { minutesAgo: 11, outcome: 'succeeded' },
-    openApprovals: 2,
     openRequests: 0,
     ferocity: 2,
   },
@@ -94,7 +94,6 @@ export const AGENTS: Agent[] = [
     ],
     runs: 58,
     lastRun: { minutesAgo: 190, outcome: 'succeeded' },
-    openApprovals: 1,
     openRequests: 2,
     ferocity: 1,
   },
@@ -116,7 +115,6 @@ export const AGENTS: Agent[] = [
     ],
     runs: 184,
     lastRun: { minutesAgo: 27, outcome: 'failed' },
-    openApprovals: 0,
     openRequests: 0,
     ferocity: 3,
   },
@@ -136,7 +134,6 @@ export const AGENTS: Agent[] = [
     ],
     runs: 30,
     lastRun: { minutesAgo: 1440, outcome: 'succeeded' },
-    openApprovals: 0,
     openRequests: 0,
     ferocity: 0,
   },
@@ -156,13 +153,11 @@ export const AGENTS: Agent[] = [
     ],
     runs: 141,
     lastRun: { minutesAgo: 2, outcome: 'running' },
-    openApprovals: 0,
     openRequests: 1,
     ferocity: 2,
   },
 ];
 
-export const totalOpenApprovals = AGENTS.reduce((n, a) => n + a.openApprovals, 0);
 export const totalOpenRequests = AGENTS.reduce((n, a) => n + a.openRequests, 0);
 
 export type TimeRange = 'today' | 'week' | 'month' | 'year' | 'all';
@@ -208,3 +203,68 @@ export const FEROCITY: FerocityLevel[] = [
 ];
 
 export const rangeDays = (r: TimeRange) => TIME_RANGES.find(t => t.value === r)!.factor * 30;
+
+// Something an agent wants to do that needs a human yes/no first.
+export type Approval = {
+  id: string;
+  agentId: string;
+  action: string; // short verb phrase shown after the agent's name
+  minutesAgo: number;
+  expiresInHours: number;
+  fields: { label: string; value: string }[]; // the few facts that matter (to, subject...)
+  body?: string; // the content itself, verbatim
+};
+
+// Placeholder approvals for the UI only.
+export const APPROVALS: Approval[] = [
+  {
+    id: 'ap-1',
+    agentId: 'inbox',
+    action: 'wants to send an email',
+    minutesAgo: 6,
+    expiresInHours: 4,
+    fields: [
+      { label: 'To', value: 'dana.whitfield@northwindlogistics.com' },
+      { label: 'Subject', value: 'Re: Invoice INV-2291 - payment date' },
+    ],
+    body:
+      "Hi Dana,\n\nThanks for flagging this. INV-2291 was approved on our side yesterday and is scheduled for payment on the 14th with the rest of this month's run.\n\nI'll send the remittance as soon as it clears.\n\nMax",
+  },
+  {
+    id: 'ap-2',
+    agentId: 'leads',
+    action: 'wants to send a LinkedIn connection request',
+    minutesAgo: 22,
+    expiresInHours: 4,
+    fields: [{ label: 'To', value: 'Priyanka Rao - Head of Operations, Tidewater Freight' }],
+    body:
+      "Hi Priyanka - saw your post on consolidating depot reporting. We help ops teams do exactly that without the spreadsheet shuffle. Would be good to connect.",
+  },
+  {
+    id: 'ap-3',
+    agentId: 'writer',
+    action: 'wants to publish a blog post',
+    minutesAgo: 48,
+    expiresInHours: 20,
+    fields: [
+      { label: 'Title', value: 'Five signs your asset register has quietly gone stale' },
+      { label: 'Where', value: 'Company blog' },
+    ],
+    body:
+      "Most registers don't fail in one go. They drift: a laptop that changed hands, a forklift that moved sites, a licence that renewed under a different cost centre...",
+  },
+  {
+    id: 'ap-4',
+    agentId: 'inbox',
+    action: 'wants to archive 38 emails',
+    minutesAgo: 75,
+    expiresInHours: 12,
+    fields: [
+      { label: 'What', value: '38 newsletters and promotions older than 30 days' },
+      { label: 'From', value: 'Mostly SaaS updates, event invites and webinar reminders' },
+    ],
+  },
+];
+
+// Agents each person owns (owner names live on the agents).
+export const isMine = (agentId: string) => AGENTS.find(a => a.id === agentId)?.owner === ACCOUNT.name;

@@ -500,3 +500,96 @@ ul { list-style: none; margin: 0; padding: 0; }
 @media (prefers-reduced-motion: reduce) {
   .agent-card, .agent-card .chart-glow, .agent-card .chart-sonar::before, .outcome.running { animation: none !important; }
 }
+
+/* ---------------------------------------------------------------------------
+   Approvals: message-style cards (Discord-like), not dashboard cards.
+   --------------------------------------------------------------------------- */
+.header-tools { display: flex; align-items: center; gap: 10px; }
+
+/* Admin "Mine / Everyone" switch */
+.segmented {
+  display: flex; height: 34px; padding: 3px; gap: 2px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg);
+}
+.segmented button {
+  display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 5px;
+  font-size: 13px; font-weight: 500; color: var(--muted);
+}
+.segmented button:hover { color: var(--text); }
+.segmented button.on { background: var(--surface-hover); color: var(--text); }
+
+/* Agent filter: same joined dropdown as the time-frame picker */
+.agent-filter { position: relative; width: 200px; --dd-bg: var(--bg); }
+.agent-filter .filter-label { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-filter.open .range-btn { border-color: var(--border-strong); border-bottom-color: transparent; border-radius: 8px 8px 0 0; }
+.agent-filter.open .chev { transform: rotate(180deg); }
+.option-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.approvals { display: flex; flex-direction: column; gap: 12px; padding: 24px 28px 40px; max-width: 860px; }
+.approvals-empty { flex-direction: column; gap: 10px; padding: 80px 0; }
+
+.approval {
+  display: flex; gap: 14px; padding: 16px 18px 14px;
+  background: var(--bg); border: 1px solid var(--hairline); border-radius: 12px;
+  transition: opacity 0.26s, transform 0.26s;
+}
+.approval:hover { border-color: var(--border); }
+.approval.leaving { opacity: 0; transform: translateX(16px); }
+.approval.leaving.rejected { transform: translateX(-16px); }
+
+.approval-avatar {
+  flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%;
+  display: grid; place-items: center; color: var(--text);
+  background: var(--surface-hover); border: 1px solid var(--border);
+}
+.approval-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.approval-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+.approval-agent { font-size: 15px; font-weight: 600; }
+.approval-action { font-size: 14px; color: var(--muted); }
+.approval-time { font-size: 12px; color: #5f5f5f; }
+.approval-owner { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 12px; color: var(--muted); }
+
+.approval-fields { margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.approval-field { display: flex; gap: 10px; font-size: 13px; }
+.approval-field dt { width: 56px; flex-shrink: 0; color: var(--muted); }
+.approval-field dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* The content, verbatim, as a quote block with a thin left bar. */
+.approval-body {
+  margin: 0; padding: 10px 14px; white-space: pre-wrap;
+  font-size: 13.5px; line-height: 1.55; color: #cfcfcf;
+  background: var(--sidebar); border-left: 3px solid var(--border-strong); border-radius: 4px 8px 8px 4px;
+}
+
+.approval-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
+.approval-buttons { display: flex; gap: 8px; }
+.approval-expiry { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #5f5f5f; }
+
+.ap-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px;
+  border-radius: 8px; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--border-strong); color: var(--text);
+}
+.ap-btn:disabled { opacity: 0.5; cursor: default; }
+.ap-btn.approve { background: var(--attention); border-color: var(--attention); color: var(--attention-text); }
+.ap-btn.approve:hover:not(:disabled) { filter: brightness(1.12); }
+.ap-btn.reject:hover:not(:disabled), .ap-btn.reject.on { background: var(--surface-hover); }
+.ap-btn.ghost { border-color: transparent; color: var(--muted); }
+.ap-btn.ghost:hover { color: var(--text); }
+.ap-btn.confirm-reject { background: #e6e6e6; border-color: #e6e6e6; color: #141414; }
+.ap-btn.confirm-reject:hover { background: #fff; }
+
+/* Reject drawer: grows out of the bottom of the card. */
+.reject-drawer { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.22s ease; margin-top: -10px; }
+.reject-drawer.open { grid-template-rows: 1fr; margin-top: 0; }
+.reject-inner { overflow: hidden; display: flex; flex-direction: column; gap: 8px; }
+.reject-drawer.open .reject-inner { padding-top: 12px; border-top: 1px solid var(--hairline); }
+.reject-reason {
+  width: 100%; resize: vertical; min-height: 56px; padding: 9px 12px; border-radius: 8px;
+  font: inherit; font-size: 13.5px; color: var(--text);
+  background: var(--sidebar); border: 1px solid var(--border);
+}
+.reject-reason:focus { outline: none; border-color: var(--border-strong); }
+.reject-reason::placeholder { color: #5f5f5f; }
+.reject-actions { display: flex; justify-content: flex-end; gap: 8px; }

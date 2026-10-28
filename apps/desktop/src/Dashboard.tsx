@@ -197,6 +197,7 @@ function AgentCard({
   state,
   setState,
   onNavigate,
+  openApprovals,
   dragging,
   onGripDown,
 }: {
@@ -205,6 +206,7 @@ function AgentCard({
   state: RunState;
   setState: (s: RunState) => void;
   onNavigate: (v: View) => void;
+  openApprovals: number;
   dragging: boolean;
   onGripDown: (e: React.PointerEvent) => void;
 }) {
@@ -256,19 +258,19 @@ function AgentCard({
             <span className="head-counts">
               <a
                 className={`head-count${agent.openRequests ? ' has' : ''}`}
-                title={`${agent.openRequests} open requests`}
+                title={`${agent.openRequests} open request${agent.openRequests === 1 ? '' : 's'}`}
                 onClick={() => onNavigate('requests')}
               >
                 <Inbox size={14} strokeWidth={1.75} />
                 {agent.openRequests}
               </a>
               <a
-                className={`head-count${agent.openApprovals ? ' has' : ''}`}
-                title={`${agent.openApprovals} open approvals`}
+                className={`head-count${openApprovals ? ' has' : ''}`}
+                title={`${openApprovals} open approval${openApprovals === 1 ? '' : 's'}`}
                 onClick={() => onNavigate('approvals')}
               >
                 <CircleCheckBig size={14} strokeWidth={1.75} />
-                {agent.openApprovals}
+                {openApprovals}
               </a>
             </span>
           </div>
@@ -345,7 +347,15 @@ function loadOrder(): string[] {
   }
 }
 
-export function Dashboard({ range, onNavigate }: { range: TimeRange; onNavigate: (v: View) => void }) {
+export function Dashboard({
+  range,
+  onNavigate,
+  approvalCounts,
+}: {
+  range: TimeRange;
+  onNavigate: (v: View) => void;
+  approvalCounts: Record<string, number>;
+}) {
   const [states, setStates] = useState<Record<string, RunState>>({});
   const [order, setOrder] = useState(loadOrder);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -467,6 +477,7 @@ export function Dashboard({ range, onNavigate }: { range: TimeRange; onNavigate:
               state={states[a.id] ?? 'active'}
               setState={s => setStates(prev => ({ ...prev, [a.id]: s }))}
               onNavigate={onNavigate}
+              openApprovals={approvalCounts[a.id] ?? 0}
               dragging={dragId === a.id}
               onGripDown={e => startDrag(a.id, e)}
             />

@@ -4,7 +4,8 @@ import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
 import { useElasticScroll } from './useElasticScroll';
-import type { TimeRange } from './data';
+import { APPROVALS, type TimeRange } from './data';
+import { Approvals, ApprovalsToolbar, visibleApprovals, type ApprovalScope, type Resolution } from './Approvals';
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 480;
@@ -36,6 +37,16 @@ const clamp = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
 export function App() {
   const [view, setView] = useState<View>('dashboard');
   const [range, setRange] = useState<TimeRange>('week');
+  // Approvals: resolved ones drop out of every count (sidebar badge, dashboard).
+  const [resolved, setResolved] = useState<Record<string, Resolution>>({});
+  const pending = APPROVALS.filter(a => !resolved[a.id]);
+  const [scope, setScope] = useState<ApprovalScope>('mine');
+  const [agentFilterRaw, setAgentFilter] = useState<string | null>(null);
+  // A filter on an agent with nothing left in scope falls back to all agents.
+  const agentFilter =
+    agentFilterRaw && visibleApprovals(pending, scope).some(a => a.agentId === agentFilterRaw) ? agentFilterRaw : null;
+  const approvalCounts: Record<string, number> = {};
+  for (const a of pending) approvalCounts[a.agentId] = (approvalCounts[a.agentId] ?? 0) + 1;
   const mainBody = useRef<HTMLDivElement>(null);
   useElasticScroll(mainBody);
   const [width, setWidth] = useState(() => clamp(readStored(WIDTH_KEY, DEFAULT_WIDTH)));
@@ -80,16 +91,38 @@ export function App() {
           <ChevronRight size={14} />
         </div>
       ) : (
-        <Sidebar view={view} onSelect={setView} width={width} onResizeStart={startDrag} />
+        <Sidebar
+          view={view}
+          onSelect={setView}
+          width={width}
+          onResizeStart={startDrag}
+          approvalsBadge={visibleApprovals(pending, 'mine').length}
+        />
       )}
       <main className="main">
         <header className="main-header">
           <h1>{viewLabel(view)}</h1>
           {view === 'dashboard' && <RangePicker value={range} onChange={setRange} />}
+          {view === 'approvals' && (
+            <ApprovalsToolbar
+              pending={pending}
+              scope={scope}
+              setScope={setScope}
+              agentFilter={agentFilter}
+              setAgentFilter={setAgentFilter}
+            />
+          )}
         </header>
         <div className="main-body" ref={mainBody}>
           {view === 'dashboard' ? (
-            <Dashboard range={range} onNavigate={setView} />
+            <Dashboard range={range} onNavigate={setView} approvalCounts={approvalCounts} />
+          ) : view === 'approvals' ? (
+            <Approvals
+              pending={pending}
+              scope={scope}
+              agentFilter={agentFilter}
+              onResolve={(id, r) => setResolved(prev => ({ ...prev, [id]: r }))}
+            />
           ) : (
             <div className="main-empty">Coming next.</div>
           )}
