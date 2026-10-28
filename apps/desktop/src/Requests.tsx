@@ -153,7 +153,7 @@ function RequestRow({
 }: {
   request: ResourceRequest;
   showOwner: boolean;
-  onDecide: (r: RequestResolution) => void;
+  onDecide: (r: RequestResolution, note: string) => void;
   onGone: () => void;
   onProposeBuild: () => string; // raises the build approval, returns its id
   approvalOutcomes: Record<string, Resolution>;
@@ -188,7 +188,7 @@ function RequestRow({
     if (leaving) return;
     setDrawer(null);
     setLeaving(r);
-    onDecide(r);
+    onDecide(r, note);
     later(EXIT_MS, () => setCollapsing(true));
     later(EXIT_MS + COLLAPSE_MS, onGone);
   };
@@ -349,7 +349,7 @@ function RequestRow({
               </div>
 
               <div className="request-actions">
-                {!replying && !waitingOnApproval && !finished && (
+                {!request.live && !replying && !waitingOnApproval && !finished && (
                   <button
                     className="rq-btn engineer"
                     onClick={taskEngineer}
@@ -448,7 +448,7 @@ export function Requests({
   pending: ResourceRequest[];
   scope: ApprovalScope;
   agentFilter: string | null;
-  onDecide: (id: string, r: RequestResolution) => void;
+  onDecide: (id: string, r: RequestResolution, note: string) => void;
   onGone: (id: string) => void;
   onProposeBuild: (r: ResourceRequest) => string;
   approvalOutcomes: Record<string, Resolution>;
@@ -471,7 +471,7 @@ export function Requests({
           key={r.id}
           request={r}
           showOwner={!!ACCOUNT.org && scope === 'all'}
-          onDecide={res => onDecide(r.id, res)}
+          onDecide={(res, note) => onDecide(r.id, res, note)}
           onGone={() => onGone(r.id)}
           onProposeBuild={() => onProposeBuild(r)}
           approvalOutcomes={approvalOutcomes}

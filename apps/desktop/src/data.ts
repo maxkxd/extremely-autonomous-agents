@@ -22,6 +22,11 @@ export type Agent = {
   // Approval outcomes per month (scaled to the time frame like the other stats).
   decisions: Decisions;
   ferocity: number; // index into FEROCITY
+  // A real agent run by the runner: its numbers are live, for the selected
+  // time frame already (not placeholder monthly figures to scale).
+  live?: boolean;
+  runsPerDay?: number[]; // expected runs a day at each ferocity level
+  perRun?: number | null; // output actions per run, recently
   // A pack agent still being customized for the organisation: it isn't run,
   // and DMs to it wait, until this clears.
   settingUp?: boolean;
@@ -443,6 +448,7 @@ export const DECIDED_EARLIER_TODAY = { approved: 6, rejected: 2 };
 export type ResourceRequest = {
   id: string;
   agentId: string;
+  live?: number; // a real agent's request: its id on the server
   summary: string; // one sentence: what the agent needs
   detail: string; // the agent's fuller explanation
   minutesAgo: number;

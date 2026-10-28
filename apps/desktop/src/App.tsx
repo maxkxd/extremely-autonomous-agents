@@ -5,10 +5,11 @@ import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
 import { useElasticScroll } from './useElasticScroll';
 import { AgentDM, stamp, type StampedEntry } from './AgentDM';
+import { LiveDM } from './LiveDM';
 import { NewAgent } from './NewAgent';
 import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
-import { NEW_SESSION, agentStatuses, deleteAgentFiles, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
+import { NEW_SESSION, agentStatuses, answerRequest, deleteAgentFiles, getLiveRequests, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
 import { DM_HISTORY } from './dms';
 import { subscribeToDecisions } from './live';
 import {
@@ -143,7 +144,39 @@ export function App() {
   // Requests: same shape as approvals - decided on click, removed after the exit.
   const [, setRequestResolved] = useState<Record<string, RequestResolution>>({});
   const [requestGone, setRequestGone] = useState<Record<string, true>>({});
-  const pendingRequests = REQUESTS.filter(r => !requestGone[r.id] && exists(r.agentId));
+  // Requests real agents filed. The Fleet Engineer isn't running yet, so they
+  // come straight to you; your DIY note or reason is the agent's answer.
+  const [liveRequests, setLiveRequests] = useState<ResourceRequest[]>([]);
+  useEffect(() => {
+    const load = () =>
+      getLiveRequests().then(
+        list =>
+          setLiveRequests(
+            list
+              .filter(r => r.status === 'open')
+              .map(r => ({
+                id: `live-${r.id}`,
+                live: r.id,
+                agentId: r.agent_id,
+                summary: r.what,
+                detail: [r.why, r.evidence && `What I tried: ${r.evidence}`, r.expected_effect && `What changes once I have it: ${r.expected_effect}`]
+                  .filter(Boolean)
+                  .join('\n\n'),
+                minutesAgo: Math.max(0, Math.round((Date.now() - r.created_at) / 60_000)),
+                engineer: {
+                  plan: "The Fleet Engineer isn't running yet, so this request comes straight to you. Press DIY and say what you did or decided (the agent sees it at the start of its next run), or Reject it with a reason.",
+                  build: { toolName: '', does: '', access: '' },
+                  done: '',
+                },
+              })),
+          ),
+        () => {},
+      );
+    load();
+    const t = window.setInterval(load, 5000);
+    return () => window.clearInterval(t);
+  }, []);
+  const pendingRequests = [...REQUESTS, ...liveRequests].filter(r => !requestGone[r.id] && exists(r.agentId));
   const [requestScope, setRequestScope] = useState<ApprovalScope>('mine');
   const [requestFilterRaw, setRequestFilter] = useState<string | null>(null);
   const requestFilter =
@@ -152,7 +185,7 @@ export function App() {
       : null;
   const [convos, setConvos] = useState<Record<string, Convo>>({});
   const updateConvo = (id: string, fn: (c: Convo) => Convo) =>
-    setConvos(prev => ({ ...prev, [id]: fn(prev[id] ?? startConvo(REQUESTS.find(r => r.id === id)!)) }));
+    setConvos(prev => ({ ...prev, [id]: fn(prev[id] ?? startConvo([...REQUESTS, ...liveRequests].find(r => r.id === id)!)) }));
   const requestCounts: Record<string, number> = {};
   for (const r of pendingRequests) requestCounts[r.agentId] = (requestCounts[r.agentId] ?? 0) + 1;
   // Agent DMs: history plus anything sent this session, per agent. Kept here
@@ -192,6 +225,12 @@ export function App() {
       setDmRunning(prev => ({ ...prev, [agentId]: false }));
     }, 2400);
   };
+  // Agents the runner actually runs (they have files on the server): their DM
+  // channels are real. Checked on start and whenever agents come or go.
+  const [realIds, setRealIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    agentStatuses().then(s => setRealIds(new Set(Object.keys(s))), () => {});
+  }, [AGENTS.length]);
   const mainBody = useRef<HTMLDivElement>(null);
   useElasticScroll(mainBody);
 
@@ -375,7 +414,11 @@ export function App() {
               pending={pendingRequests}
               scope={requestScope}
               agentFilter={requestFilter}
-              onDecide={(id, r) => setRequestResolved(prev => ({ ...prev, [id]: r }))}
+              onDecide={(id, r, note) => {
+                setRequestResolved(prev => ({ ...prev, [id]: r }));
+                const live = liveRequests.find(x => x.id === id)?.live;
+                if (live) answerRequest(live, r === 'rejected' ? 'rejected' : 'done', note).catch(() => {});
+              }}
               onGone={id => setRequestGone(prev => ({ ...prev, [id]: true }))}
               onProposeBuild={proposeBuild}
               approvalOutcomes={resolved}
@@ -389,6 +432,8 @@ export function App() {
               setSession={setBuilder}
               onBuilt={built => setReveal({ built, leaving: false, error: null })}
             />
+          ) : view.startsWith('agent:') && realIds.has(view.slice('agent:'.length)) ? (
+            <LiveDM key={view} agentId={view.slice('agent:'.length)} approvalOutcomes={resolved} />
           ) : view.startsWith('agent:') ? (
             <AgentDM
               agentId={view.slice('agent:'.length)}

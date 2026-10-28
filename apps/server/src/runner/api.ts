@@ -3,7 +3,7 @@ import { listIds, readMeta } from '../files.js';
 import { PROVIDERS } from '../models/providers.js';
 import { loadAgent } from './agent.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
-import { LEVELS } from './ferocity.js';
+import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { spentToday } from './pricing.js';
 import { stateOf } from './run.js';
 import { abortRun, book, isRunning } from './scheduler.js';
@@ -26,8 +26,22 @@ export const runnerRoutes: Record<string, Route> = {
       const meta = await readMeta(id);
       if (!meta) continue;
       const st = stateOf(id);
+      const agent = await loadAgent(id);
       // KPI labels ("ideas written") for each output action.
-      const labels = new Map((await loadAgent(id))?.output.map(o => [o.action, o.label] as const) ?? []);
+      const labels = new Map(agent?.output.map(o => [o.action, o.label] as const) ?? []);
+      // Expected runs a day at each level, for the card's estimate: its plan's
+      // schedules, and at Apocalyptic back-to-back runs of its usual length.
+      const avg = one<{ ms: number | null }>(
+        "SELECT AVG(ended_at - started_at) AS ms FROM (SELECT ended_at, started_at FROM runs WHERE agent_id = ? AND status = 'succeeded' AND ended_at IS NOT NULL ORDER BY started_at DESC LIMIT 20)",
+        id,
+      )?.ms;
+      const runsPerDay = agent
+        ? [...agent.ferocity.every_hours.map(h => 24 / h), Math.min(1000, 86_400_000 / ((avg ?? 120_000) + APOCALYPTIC_GAP_MS))]
+        : [1, 1.5, 2, 4, 100];
+      const perRun = one<{ acts: number | null }>(
+        "SELECT AVG(acts) AS acts FROM (SELECT acts FROM runs WHERE agent_id = ? AND status = 'succeeded' ORDER BY started_at DESC LIMIT 20)",
+        id,
+      )?.acts;
       const last = one<{ started_at: number; ended_at: number | null; status: string }>(
         'SELECT started_at, ended_at, status FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1',
         id,
@@ -59,6 +73,8 @@ export const runnerRoutes: Record<string, Route> = {
         costUnknown: costs.some(c => c.unknown > 0),
         decisions: { approved: decisions?.approved ?? 0, rejected: decisions?.rejected ?? 0, expired: decisions?.expired ?? 0 },
         spendCapUsd: st.spend_cap_usd,
+        runsPerDay,
+        perRun: perRun ?? null, // output actions per run, recently (null: never run)
       };
     }
     return out;
@@ -114,6 +130,21 @@ export const runnerRoutes: Record<string, Route> = {
   // --- Requests (docs/requests.md) ---
   'GET /api/runner/requests': async () =>
     all('SELECT id, agent_id, run_id, what, why, evidence, expected_effect, status, answer, created_at, answered_at FROM requests ORDER BY created_at DESC'),
+
+  // A person's answer: done (with what they did or decided) or turned down.
+  // The agent is told at the start of its next run.
+  'POST /api/runner/requests/answer': async (_req, _q, body) => {
+    const { id, status, answer } = await body<{ id: number; status: 'done' | 'rejected'; answer?: string }>();
+    if (status !== 'done' && status !== 'rejected') throw new Error('Answer with done or rejected.');
+    exec(
+      "UPDATE requests SET status = ?, answer = ?, answered_at = ? WHERE id = ? AND status = 'open'",
+      status,
+      answer?.trim() ? answer.trim().slice(0, 4000) : null,
+      Date.now(),
+      Number(id),
+    );
+    return { ok: true };
+  },
 
   // --- Spend caps (Settings -> Usage) ---
   'GET /api/usage': async () => {

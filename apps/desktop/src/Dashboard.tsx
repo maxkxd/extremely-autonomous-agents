@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { CircleCheckBig, Ellipsis, GripVertical, Pause, Play, Square, Trash2, User, Wrench } from 'lucide-react';
 import { DeleteAgentDialog } from './DeleteAgentDialog';
 import { ModelPanel, ModelRow, useModelChecks, useModelSlide, type Checks } from './ModelPicker';
-import { getAgentModels, getAvailableModels, setAgentModels, type AvailableModels, type ModelChoice } from './builder';
+import { getAgentModels, getAvailableModels, getLiveAgents, runNow, setAgentModels, setAgentRunner, type AvailableModels, type LiveAgent, type ModelChoice } from './builder';
 import { useDismiss } from './useDismiss';
 import { FlashCount } from './FlashCount';
 import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
@@ -165,8 +165,12 @@ function Tuning({
   level: number;
   setLevel: (l: number) => void;
 }) {
-  const perRun = agent.output.reduce((n, s) => n + s.value, 0) / Math.max(agent.runs, 1);
-  const estimate = Math.round(perRun * FEROCITY[level].runsPerDay * rangeDays(range));
+  // A real agent: its recent output per run times the runs its own plan gives
+  // this level. Placeholder agents use the placeholder schedules.
+  const perRun = agent.live ? agent.perRun : agent.output.reduce((n, s) => n + s.value, 0) / Math.max(agent.runs, 1);
+  const perDay = agent.live && agent.runsPerDay ? agent.runsPerDay[level] : FEROCITY[level].runsPerDay;
+  const estimate = perRun == null ? null : Math.round(perRun * perDay * rangeDays(range));
+  const cadence = agent.live ? runsLabel(perDay) : `${FEROCITY[level].cadence} (placeholder schedule)`;
 
   return (
     <div className="tuning">
@@ -187,13 +191,21 @@ function Tuning({
           aria-valuetext={FEROCITY[level].name}
           style={{ '--fill': `${(level / (FEROCITY.length - 1)) * 100}%` } as React.CSSProperties}
         />
-        <div className="ferocity-est" title={`${FEROCITY[level].cadence} (placeholder schedule)`}>
+        <div className="ferocity-est" title={cadence}>
           <span className="stat-label">Est. Output:</span>
-          <span className="est-value">{count(estimate)}</span>
+          <span className="est-value">{estimate == null ? '-' : count(estimate)}</span>
         </div>
       </div>
     </div>
   );
+}
+
+// "About 3 runs a day", "About 1 run a week", "Non-stop: about 400 runs a day".
+function runsLabel(perDay: number): string {
+  if (perDay >= 48) return `Non-stop: about ${Math.round(perDay)} runs a day`;
+  if (perDay >= 1) return `About ${Math.round(perDay * 10) / 10} run${perDay >= 1.05 ? 's' : ''} a day`;
+  const perWeek = perDay * 7;
+  return `About ${Math.round(perWeek * 10) / 10} run${perWeek >= 1.05 ? 's' : ''} a week`;
 }
 
 export function AgentCard({
@@ -214,6 +226,8 @@ export function AgentCard({
   onModels,
   checks,
   onCheck,
+  onLevel,
+  onRunNow,
 }: {
   agent: Agent;
   range: TimeRange;
@@ -232,6 +246,8 @@ export function AgentCard({
   onModels?: (next: ModelChoice[]) => void;
   checks?: Checks; // whether each model really works on this account
   onCheck?: (connection: string, model: string) => void;
+  onLevel?: (level: number) => void; // a real agent: save its ferocity
+  onRunNow?: () => void; // a real agent: start a run now
 }) {
   // The model picker: the right column slides over the pies to make room.
   const cardRef = useRef<HTMLElement>(null);
@@ -257,7 +273,15 @@ export function AgentCard({
     setTx(!up ? '1.6s' : next >= 3 ? '0s' : '0.9s');
     setKick(up && next >= 3 ? (next === 4 ? 'hard' : 'soft') : null);
     setLevelState(next);
+    userSetAt.current = Date.now();
+    onLevel?.(next);
   };
+  // A real agent's level comes from the runner; follow it when it changes
+  // there (but not over a change you just made that hasn't come back yet).
+  const userSetAt = useRef(0);
+  useEffect(() => {
+    if (agent.live && agent.ferocity !== level && Date.now() - userSetAt.current > 6000) setLevelState(agent.ferocity);
+  }, [agent.live, agent.ferocity]);
   useEffect(() => {
     if (!kick) return;
     const t = setTimeout(() => setKick(null), 500);
@@ -266,8 +290,8 @@ export function AgentCard({
   // Stopping halts an in-flight run; draining lets it finish.
   const last = agent.lastRun;
   const outcome = !last ? 'never' : state === 'stopped' && last.outcome === 'running' ? 'stopped' : last.outcome;
-  const output = agent.output.map(s => ({ ...s, value: scaleTo(range, s.value) }));
-  const cost = agent.cost.map(s => ({ ...s, value: scaleTo(range, s.value, false) }));
+  const output = agent.live ? agent.output : agent.output.map(s => ({ ...s, value: scaleTo(range, s.value) }));
+  const cost = agent.live ? agent.cost : agent.cost.map(s => ({ ...s, value: scaleTo(range, s.value, false) }));
 
   return (
     <article
@@ -281,7 +305,7 @@ export function AgentCard({
         <GripVertical size={16} />
       </button>
       )}
-      {onDelete && !preview && <CardMenu onDelete={onDelete} />}
+      {onDelete && !preview && <CardMenu onDelete={onDelete} onRunNow={onRunNow} />}
       <div className="card-main">
         <header className="card-head">
           <div className="card-name">
@@ -392,7 +416,7 @@ export function AgentCard({
 }
 
 // The card's three-dot menu, top right.
-function CardMenu({ onDelete }: { onDelete: () => void }) {
+function CardMenu({ onDelete, onRunNow }: { onDelete: () => void; onRunNow?: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
@@ -404,6 +428,18 @@ function CardMenu({ onDelete }: { onDelete: () => void }) {
       </button>
       {open && (
         <div className="card-menu-list" role="menu">
+          {onRunNow && (
+            <button
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onRunNow();
+              }}
+            >
+              <Play size={14} strokeWidth={2} />
+              Run now
+            </button>
+          )}
           <button
             role="menuitem"
             className="danger"
@@ -464,6 +500,36 @@ export function Dashboard({
     getAvailableModels().then(setAvailable, () => {});
   }, [arrivingIds.join(',')]);
   const { checks, check } = useModelChecks(Object.values(modelChoices).flat(), setAvailable);
+  // Real agents' state and stats from the runner, refreshed every few seconds.
+  const [live, setLive] = useState<Record<string, LiveAgent>>({});
+  useEffect(() => {
+    let stop = false;
+    const load = () => getLiveAgents(Math.max(1, Math.round(rangeDays(range)))).then(l => !stop && setLive(l), () => {});
+    load();
+    const t = setInterval(load, 4000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [range, arrivingIds.join(',')]);
+  // A placeholder card, or a real one with the runner's numbers.
+  const view = (a: Agent): Agent => {
+    const l = live[a.id];
+    if (!l) return a;
+    const minutes = l.lastRun ? Math.max(0, Math.round((Date.now() - l.lastRun.at) / 60_000)) : 0;
+    return {
+      ...a,
+      live: true,
+      ferocity: l.ferocity,
+      runs: l.runs,
+      lastRun: l.running ? { minutesAgo: 0, outcome: 'running' } : l.lastRun && { minutesAgo: minutes, outcome: l.lastRun.outcome },
+      output: l.output.map(o => ({ label: o.label, value: o.value })),
+      cost: l.cost,
+      decisions: l.decisions,
+      runsPerDay: l.runsPerDay,
+      perRun: l.perRun,
+    };
+  };
   const changeModels = (id: string, next: ModelChoice[]) => {
     setModelChoices(prev => ({ ...prev, [id]: next }));
     setAgentModels(id, next).catch(() => {});
@@ -618,8 +684,10 @@ export function Dashboard({
     <div className="dashboard">
       {order.map(id => {
         // Gone from AGENTS already: its slot just plays its exit.
-        const a = AGENTS.find(x => x.id === id) ?? (removing === id ? deletedCard.current : undefined);
-        if (!a) return null;
+        const found = AGENTS.find(x => x.id === id) ?? (removing === id ? deletedCard.current : undefined);
+        if (!found) return null;
+        const a = view(found);
+        const l = live[a.id];
         return (
           <div
             key={a.id}
@@ -629,12 +697,15 @@ export function Dashboard({
             <AgentCard
               agent={a}
               range={range}
-              state={states[a.id] ?? 'active'}
-              setState={s => setStates(prev => ({ ...prev, [a.id]: s }))}
+              state={states[a.id] ?? l?.state ?? 'active'}
+              setState={s => {
+                setStates(prev => ({ ...prev, [a.id]: s }));
+                if (l) setAgentRunner(a.id, { state: s }).catch(() => {});
+              }}
               onNavigate={onNavigate}
               openApprovals={approvalCounts[a.id] ?? 0}
               openRequests={requestCounts[a.id] ?? 0}
-              decisions={{
+              decisions={l ? a.decisions : {
                 approved: scaleTo(range, a.decisions.approved) + (newDecisions[a.id]?.approved ?? 0),
                 rejected: scaleTo(range, a.decisions.rejected) + (newDecisions[a.id]?.rejected ?? 0),
                 expired: scaleTo(range, a.decisions.expired) + (newDecisions[a.id]?.expired ?? 0),
@@ -647,6 +718,8 @@ export function Dashboard({
               onModels={next => changeModels(a.id, next)}
               checks={checks}
               onCheck={check}
+              onLevel={l ? level => setAgentRunner(a.id, { ferocity: level }).catch(() => {}) : undefined}
+              onRunNow={l ? () => runNow(a.id).catch(() => {}) : undefined}
             />
           </div>
         );

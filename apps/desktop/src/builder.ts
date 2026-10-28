@@ -1,5 +1,6 @@
 import { ACCOUNT, AGENTS, type Agent, type Department } from './data';
 import { AGENT_PACKS } from './packs';
+import type { StampedEntry } from './AgentDM';
 
 // Client side of the agent builder (docs/agent-creation.md). The server
 // (apps/server) does the thinking with Claude; the Charter, TOOLS.yaml and
@@ -205,6 +206,44 @@ export const getAvailableModels = () => request<AvailableModels[]>('/api/models'
 export const getAgentModels = () => request<Record<string, ModelChoice[]>>('/api/agents/models');
 export const setAgentModels = (id: string, choices: ModelChoice[]) =>
   post<{ choices: ModelChoice[] }>('/api/agents/models', { id, choices });
+// --- The runner (docs/runner.md): real agents' cards, state and runs ---
+
+export type RunState = 'active' | 'draining' | 'stopped';
+export type LiveAgent = {
+  ferocity: number;
+  state: RunState;
+  running: boolean;
+  runs: number;
+  lastRun: { at: number; outcome: 'succeeded' | 'failed' | 'running' } | null;
+  output: { tool: string; label: string; value: number }[];
+  cost: { label: string; value: number }[];
+  costUnknown: boolean;
+  decisions: { approved: number; rejected: number; expired: number };
+  spendCapUsd: number | null;
+  runsPerDay: number[]; // expected at each ferocity level
+  perRun: number | null; // output actions per run, recently
+};
+export const getLiveAgents = (days: number) => request<Record<string, LiveAgent>>(`/api/runner/agents?days=${days}`);
+export const setAgentRunner = (id: string, patch: { ferocity?: number; state?: RunState; spendCapUsd?: number | null }) =>
+  post<{ ok: boolean }>('/api/runner/agent', { id, ...patch });
+export const runNow = (id: string) => post<{ ok: boolean }>('/api/runner/run-now', { id });
+// A real agent's DM channel: run posts and your messages, oldest first.
+export const getDm = (id: string) =>
+  request<(StampedEntry & { at: number })[]>(`/api/dm?id=${encodeURIComponent(id)}`).then(list =>
+    list.map(e => ({ ...e, minutesAgo: 0 }) as StampedEntry),
+  );
+export const sendDm = (id: string, text: string) => post<{ ok: boolean }>('/api/dm', { id, text });
+// Requests real agents filed (docs/requests.md), and your answer to one.
+export type LiveRequest = { id: number; agent_id: string; what: string; why: string; evidence: string | null; expected_effect: string | null; status: string; created_at: number };
+export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
+export const answerRequest = (id: number, status: 'done' | 'rejected', answer: string) =>
+  post<{ ok: boolean }>('/api/runner/requests/answer', { id, status, answer });
+
+// Daily spend caps (Settings -> Usage): the organisation's, and each agent's.
+export type Usage = { orgCapUsd: number | null; spentTodayUsd: number; agents: { id: string; name: string; capUsd: number | null; spentTodayUsd: number }[] };
+export const getUsage = () => request<Usage>('/api/usage');
+export const setOrgCap = (orgCapUsd: number | null) => post<{ ok: boolean }>('/api/usage', { orgCapUsd });
+
 // Whether a model really works on this account: one tiny test request when
 // it's picked. unsure: the check got no real answer (busy, down).
 export type ModelCheck = { ok: boolean; reason?: string; unsure?: boolean; at: number; pending?: boolean };

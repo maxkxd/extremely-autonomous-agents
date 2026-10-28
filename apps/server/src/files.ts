@@ -74,6 +74,12 @@ export function compose(
     // The runaway backstop, NOT the cadence. Cadence is the agent's ferocity.
     limits: { max_runs_per_day: Math.max(1, Math.round(b.max_runs_per_day)) },
     kill_switch_scope_keys: ['fleet:*', `department:${b.department}`, `agent:${id}`],
+    // How hard it works at each ferocity level (docs/runner.md). Read by the
+    // runner; agents built without one use its defaults.
+    ...(b.ferocity ? { ferocity: ferocityPlan(b.ferocity, tiers) } : {}),
+    natural_limits: (b.natural_limits ?? [])
+      .filter(l => tiers[l.tool] && l.max > 0 && l.per_hours > 0)
+      .map(l => ({ tool: l.tool, max: Math.round(l.max), per_hours: l.per_hours, why: l.why })),
   };
   const kpi = {
     agent_id: id,
@@ -88,6 +94,25 @@ export function compose(
     charter: b.charter.trim() + '\n',
     tools: `# TOOLS - ${b.name} (${id})\n# Written by the agent builder.\n#\n${why}\n${stringify(tools)}`,
     kpi: `# KPI - ${b.name}: successful calls of these actions are its output.\n${stringify(kpi)}`,
+  };
+}
+
+// The builder's ferocity plan in the runner's shape (runner/agent.ts). Floors
+// only count tools the agent holds; schedules never get faster than every
+// 15 minutes below Apocalyptic.
+function ferocityPlan(f: NonNullable<Build['ferocity']>, tiers: Record<string, Tier>) {
+  const hours = (h: number, fallback: number) => (Number.isFinite(h) && h > 0 ? Math.max(0.25, h) : fallback);
+  const chill = hours(f.chill_every_hours, 24);
+  const whole = (n: number, min: number) => Math.max(min, Math.round(Number.isFinite(n) ? n : min));
+  const floor = whole(f.relentless_floor, 1);
+  return {
+    every_hours: [chill, hours(f.steady_every_hours, chill / 1.5), hours(f.driven_every_hours, chill / 2), hours(f.relentless_every_hours, chill / 4)],
+    soft_floor: whole(f.driven_soft_floor, 1),
+    floor,
+    apocalyptic_floor: Math.max(whole(f.apocalyptic_floor, floor * 3), floor + 1),
+    counts: f.counts.filter(id => tiers[id]),
+    hint: f.hint,
+    extra_effort: f.extra_effort,
   };
 }
 

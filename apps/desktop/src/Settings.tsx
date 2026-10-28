@@ -11,12 +11,16 @@ import {
   getCatalog,
   getPerson,
   getProfile,
+  getUsage,
   linkKeyPeople,
   savePerson,
   saveProfile,
+  setAgentRunner,
+  setOrgCap,
   type KeyPerson,
   type Person,
   type Profile,
+  type Usage,
 } from './builder';
 
 export type SettingsSection = 'account' | 'organization' | 'usage' | 'connectors';
@@ -641,6 +645,7 @@ function UsageSection() {
           <span className="stile-value">{AGENTS.length}</span>
         </div>
       </div>
+      <SpendLimits />
       <h3>By agent</h3>
       <ul className="susage">
         {rows.map(({ a, spend }) => {
@@ -661,6 +666,68 @@ function UsageSection() {
         })}
       </ul>
     </section>
+  );
+}
+
+// Daily spending limits (docs/runner.md, "Money and limits"): one for the
+// whole organisation and one per agent. Hitting one pauses pay-per-use models
+// until tomorrow; plans and local models carry on. Blank = no limit.
+function SpendLimits() {
+  const [usage, setUsage] = useState<Usage | null>(null);
+  useEffect(() => {
+    getUsage().then(setUsage, () => {});
+  }, []);
+  if (!usage) return null;
+  const parse = (v: string) => {
+    const n = Number(v.replace(/[$,\s]/g, ''));
+    return v.trim() === '' || !Number.isFinite(n) || n < 0 ? null : n;
+  };
+  return (
+    <div className="sgroup">
+      <h3>Daily spending limits</h3>
+      <p className="slead">
+        When a limit is reached, agents stop using pay-per-use keys until tomorrow. Plans and local models aren't affected. Leave blank for no limit.
+      </p>
+      <ul className="slimits">
+        <li>
+          <span className="slimit-name">Whole organisation</span>
+          <span className="slimit-spent">{money(usage.spentTodayUsd)} today</span>
+          <CapInput value={usage.orgCapUsd} onSave={v => setOrgCap(parse(v)).catch(() => {})} label="Daily limit for the whole organisation" />
+        </li>
+        {usage.agents.map(a => (
+          <li key={a.id}>
+            <span className="slimit-name">{a.name}</span>
+            <span className="slimit-spent">{money(a.spentTodayUsd)} today</span>
+            <CapInput value={a.capUsd} onSave={v => setAgentRunner(a.id, { spendCapUsd: parse(v) }).catch(() => {})} label={`Daily limit for ${a.name}`} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// A dollar amount that saves when you leave it (or press Enter).
+function CapInput({ value, onSave, label }: { value: number | null; onSave: (v: string) => void; label: string }) {
+  const [text, setText] = useState(value == null ? '' : String(value));
+  const saved = useRef(text);
+  const save = () => {
+    if (text === saved.current) return;
+    saved.current = text;
+    onSave(text);
+  };
+  return (
+    <label className="slimit-input">
+      <span>$</span>
+      <input
+        inputMode="decimal"
+        placeholder="No limit"
+        aria-label={label}
+        value={text}
+        onChange={e => setText(e.target.value)}
+        onBlur={save}
+        onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+      />
+    </label>
   );
 }
 
