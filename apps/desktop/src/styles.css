@@ -1052,7 +1052,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 @container (max-width: 470px) { .packs { grid-template-columns: minmax(0, 1fr); } }
 
 .pack {
-  display: flex; flex-direction: column; border-radius: 14px; overflow: hidden;
+  display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; min-height: 560px;
   background: var(--bg); border: 1px solid var(--hairline); transition: border-color 0.15s;
 }
 .pack:hover { border-color: var(--border); }
@@ -1061,12 +1061,12 @@ ul { list-style: none; margin: 0; padding: 0; }
   padding: 7px 0; text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
   background: var(--attention); color: var(--attention-text);
 }
-.pack-body { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 22px 22px 20px; }
+.pack-body { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 30px 24px 24px; }
 .pack-name { margin: 0; font-size: 21px; font-weight: 700; }
 .pack-tagline { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
 .pack-count { font-size: 12px; font-weight: 600; color: #6a6a6a; text-transform: uppercase; letter-spacing: 0.05em; }
 .pack-divider { height: 1px; background: var(--hairline); margin: 4px 0; }
-.pack-agents { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 14px; flex: 1; }
+.pack-agents { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 20px; flex: 1; }
 .pack-agents li { display: flex; gap: 10px; }
 .pack-agent-icon { flex-shrink: 0; margin-top: 2px; color: var(--muted); }
 .pack-agent-name { font-size: 14px; font-weight: 600; }
