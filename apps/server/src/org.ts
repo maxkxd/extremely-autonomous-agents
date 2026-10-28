@@ -58,7 +58,9 @@ export function profileForPrompt(p: Profile): string {
 // --- The person: one per account, organisation or not ---
 
 export type PersonProfile = {
-  name: string;
+  name: string; // the account's username
+  full_name?: string;
+  call_me?: string; // what agents should call them
   email: string;
   role: string; // what they do, in their own words
   about: string; // how they work, what they care about
@@ -89,7 +91,8 @@ export async function addPersonNotes(name: string, notes: string[]) {
 
 export function personForPrompt(p: PersonProfile): string {
   return [
-    `Name: ${p.name}`,
+    `Name: ${p.full_name || p.name}`,
+    p.call_me && `Call them: ${p.call_me}`,
     p.role && `Role: ${p.role}`,
     p.email && `Email: ${p.email}`,
     p.about && `About them: ${p.about}`,

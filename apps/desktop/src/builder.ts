@@ -86,7 +86,7 @@ export const profileOpener = (org: string) => `Before I build anything for ${org
 
 // --- The person (every account has one, organization or not) ---
 
-export type Person = { name: string; email: string; role: string; about: string; notes: string[] };
+export type Person = { name: string; full_name?: string; call_me?: string; email: string; role: string; about: string; notes: string[] };
 export const getPerson = () => request<{ person: Person }>(`/api/person?name=${encodeURIComponent(ACCOUNT.name)}`).then(r => r.person);
 export const savePerson = (profile: Person) => post<{ ok: true }>('/api/person', { profile });
 

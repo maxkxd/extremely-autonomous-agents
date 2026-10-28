@@ -4,6 +4,7 @@ import { ACCOUNT, AGENTS, createOrganization } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { AI_IDES, IdeLogo, setYourIde, yourIde, type IdeId } from './Requests';
 import { useProfileChat } from './ProfileChat';
+import { ACCEPT, removePhoto, setPhoto, usePhoto } from './photo';
 import {
   getCatalog,
   getHealth,
@@ -158,10 +159,41 @@ function useRecord<T>(load: () => Promise<T>, store: (v: T) => Promise<unknown>)
 
 // --- Account -----------------------------------------------------------------
 
+// One setting: what it is on the left, its control on the right.
+function Row({ label, sub, children }: { label: string; sub?: string; children: React.ReactNode }) {
+  return (
+    <div className="srow2">
+      <div className="srow2-text">
+        <span className="srow2-label">{label}</span>
+        {sub && <span className="srow2-sub">{sub}</span>}
+      </div>
+      <div className="srow2-control">{children}</div>
+    </div>
+  );
+}
+
+// A text field that saves when you leave it.
+function SavedInput({ value, placeholder, onSave }: { value: string; placeholder?: string; onSave: (v: string) => void }) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  return (
+    <input
+      className="srow2-input"
+      value={text}
+      placeholder={placeholder}
+      onChange={e => setText(e.target.value)}
+      onBlur={() => text.trim() !== value && onSave(text.trim())}
+      onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+    />
+  );
+}
+
 function AccountSection() {
   const [p, setP] = useState<Person | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ide, setIde] = useState<IdeId>(yourIde);
+  const photo = usePhoto();
+  const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     getPerson().then(setP, e => setError((e as Error).message));
   }, []);
@@ -177,7 +209,15 @@ function AccountSection() {
       setError((e as Error).message);
     }
   };
-  const [email, setEmail] = useState<string | null>(null);
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    try {
+      await setPhoto(file);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   return (
     <section className="ssection">
@@ -187,67 +227,95 @@ function AccountSection() {
         !error && <p className="snotes-empty">Loading...</p>
       ) : (
         <>
-          <h3>Sign-in</h3>
-          <div className="sgrid">
-            <Field label="Username">
-              <input value={p.name} disabled />
-            </Field>
-            <Field label="Email">
+          <div className="sgroup">
+            <h3>Profile</h3>
+            <Row label="Profile photo" sub="PNG, JPEG or WebP, up to 10MB.">
+              <button
+                className="sphoto"
+                onClick={() => fileInput.current?.click()}
+                title={photo ? 'Change photo' : 'Upload a photo'}
+                aria-label={photo ? 'Change photo' : 'Upload a photo'}
+              >
+                {photo ? <img src={photo} alt="" /> : (p.full_name || p.name).charAt(0)}
+              </button>
+              {photo && (
+                <button className="slink" onClick={removePhoto}>
+                  Remove
+                </button>
+              )}
               <input
-                value={email ?? p.email}
-                placeholder="you@company.com"
-                onChange={e => setEmail(e.target.value)}
-                onBlur={() => email !== null && email !== p.email && update({ email: email.trim() })}
+                ref={fileInput}
+                type="file"
+                accept={ACCEPT}
+                hidden
+                onChange={e => {
+                  pickPhoto(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
               />
-            </Field>
+            </Row>
+            <Row label="Full name">
+              <SavedInput value={p.full_name ?? ''} placeholder={p.name} onSave={full_name => update({ full_name })} />
+            </Row>
+            <Row label="What should agents call you?">
+              <SavedInput value={p.call_me ?? ''} placeholder={p.name} onSave={call_me => update({ call_me })} />
+            </Row>
           </div>
-          {/* Sign-in isn't built yet: these come with it. */}
-          <div className="srow">
-            <div>
-              <span className="srow-title">Password</span>
-              <span className="srow-sub">••••••••••</span>
-            </div>
-            <div className="srow-actions">
+
+          <div className="sgroup">
+            <h3>Sign-in</h3>
+            <Row label="Username">
+              <input className="srow2-input" value={p.name} disabled />
+            </Row>
+            <Row label="Email">
+              <SavedInput value={p.email} placeholder="you@company.com" onSave={email => update({ email })} />
+            </Row>
+            {/* Sign-in isn't built yet: these come with it. */}
+            <Row label="Password" sub="Change it, or get a reset link by email.">
               <button className="sbtn" disabled title="Comes with sign-in">
-                Change password
+                Change
               </button>
               <button className="sbtn" disabled title="Comes with sign-in">
                 Send reset link
               </button>
-            </div>
+            </Row>
           </div>
 
-          <Memories notes={p.notes} onChange={notes => update({ notes })} />
+          <div className="sgroup">
+            <Memories notes={p.notes} onChange={notes => update({ notes })} />
+          </div>
         </>
       )}
 
-      <h3>Your AI IDE</h3>
-      <p className="slead">Where "Send to" on a request opens it.</p>
-      <div className="side-options">
-        {(Object.keys(AI_IDES) as IdeId[]).map(id => (
-          <button
-            key={id}
-            className={`side-option${ide === id ? ' on' : ''}`}
-            onClick={() => {
-              setIde(id);
-              setYourIde(id);
-            }}
-          >
-            <IdeLogo logo={AI_IDES[id].logo} />
-            {AI_IDES[id].name}
-            {ide === id && <Check size={14} className="side-check" />}
-          </button>
-        ))}
+      <div className="sgroup">
+        <h3>Preferences</h3>
+        <Row label="AI IDE" sub='Where "Send to" on a request opens it.'>
+          <span className="sselect">
+            <IdeLogo logo={AI_IDES[ide].logo} />
+            <select
+              value={ide}
+              onChange={e => {
+                const id = e.target.value as IdeId;
+                setIde(id);
+                setYourIde(id);
+              }}
+            >
+              {(Object.keys(AI_IDES) as IdeId[]).map(id => (
+                <option key={id} value={id}>
+                  {AI_IDES[id].name}
+                </option>
+              ))}
+            </select>
+          </span>
+        </Row>
       </div>
 
-      <div className="sdanger">
-        <div>
-          <span className="srow-title">Delete account</span>
-          <span className="srow-sub">Deletes your account, your agents and everything they remember, for good.</span>
-        </div>
-        <button className="sbtn danger" disabled title="Comes with sign-in">
-          Delete account
-        </button>
+      <div className="sgroup sgroup-danger">
+        <Row label="Delete account">
+          <button className="sbtn danger" disabled title="Comes with sign-in">
+            Delete account
+          </button>
+        </Row>
       </div>
     </section>
   );

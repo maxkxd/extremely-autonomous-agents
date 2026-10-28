@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { ACCOUNT, AGENTS, ORGANIZATIONS, type Department } from './data';
 import { useDismiss } from './useDismiss';
+import { usePhoto } from './photo';
 import type { SettingsSection } from './Settings';
 
 export type View = 'dashboard' | 'approvals' | 'requests' | 'new-agent' | `agent:${string}`;
@@ -49,6 +50,13 @@ function Avatar({ label, size = 28 }: { label: string; size?: number }) {
       {label.charAt(0)}
     </span>
   );
+}
+
+// Your own avatar: your profile photo once you've set one (Settings > Account).
+function MyAvatar({ size }: { size: number }) {
+  const photo = usePhoto();
+  if (!photo) return <Avatar label={ACCOUNT.name} size={size} />;
+  return <img className="avatar" src={photo} alt="" style={{ width: size, height: size, objectFit: 'cover' }} />;
 }
 
 // Switching orgs is UI only for now; "New organization" opens Settings.
@@ -267,7 +275,7 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
         aria-expanded={open}
         onClick={() => setOpen(o => !o)}
       >
-        <Avatar label={ACCOUNT.name} size={34} />
+        <MyAvatar size={34} />
         <span className="switcher-text">
           <span className="switcher-title">{ACCOUNT.name}</span>
           <span className="switcher-sub">{ACCOUNT.org ? `Member of ${ACCOUNT.org.name}` : 'Personal account'}</span>
