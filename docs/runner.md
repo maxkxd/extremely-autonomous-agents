@@ -1,6 +1,6 @@
 # The runner: how agents actually run
 
-The design, agreed 2026-10-28. Not built yet; this is what gets built. Modelled
+The design, agreed 2026-10-28. Step 1 (below) is built: `apps/server/src/runner/`. Modelled
 on the WAR agency runner, keeping what worked there and building in its
 lessons from day one (see "From WAR" at the end).
 
@@ -138,6 +138,36 @@ Technical choices: our own tool loop for API-key providers; Claude Code and
 Copilot get the agent's tools through an MCP server (Claude Code runs
 isolated, as in model-connections.md); runs, actions and spend stored in
 SQLite on the organisation's host.
+
+## Status (2026-10-29)
+
+Step 1 is built and tested:
+
+- **Runs on every connection**, tested live: a two-turn tool loop on all ten
+  API-key and plan providers, runs handed between providers mid-way, and
+  whole runs through Claude Code and Copilot (isolated, the agent's tools only).
+- **Ferocity**: schedules per level, Apocalyptic back to back, floors with
+  nudges (tested with a scripted model; live, stating the floor alone got
+  real models past it - 64 actions against a floor of 60 on Claude Code).
+- **Built-in tools**: memory, its own workspace, requests, tasks and
+  handoffs, booking its next run. Natural limits, T2 queued for approval.
+- **In the app**: real agents' cards (state, stats, ferocity, Drain/Stop,
+  Run now), DM channels, requests (your DIY/Reject answer reaches the agent),
+  daily spending limits in Settings -> Usage.
+- **The builder** writes each agent's ferocity plan and natural limits.
+  First real one: "Morning Wallpaper" capped its wallpaper change at once a
+  day and put higher-level effort into stocking ideas, as designed.
+
+Not yet:
+
+- **Approvals** are stored when an agent calls a T2 tool, but the Approvals
+  page still shows placeholders and an approved action doesn't run yet. No
+  real T2 tool exists until the integration steps.
+- **The Conductor and the Fleet Engineer** aren't running: requests come
+  straight to a person.
+- **Memory compaction** is tested with a scripted summary, not yet live.
+- **Spend caps** are tested in code, not yet against a real bill.
+- DeepSeek's prices aren't in the price book, so its runs show "cost unknown".
 
 ## From WAR (what its runner taught us)
 
