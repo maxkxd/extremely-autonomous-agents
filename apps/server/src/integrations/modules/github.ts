@@ -188,7 +188,7 @@ type Pull = {
   html_url: string;
   created_at: string;
 };
-type PullFile = { filename: string; status: string; additions: number; deletions: number };
+type PullFile = { filename: string; status: string; additions: number; deletions: number; patch?: string };
 type Review = { user: User; state: string; body: string; submitted_at: string };
 
 const getPullRequest: CodeTool = {
@@ -210,13 +210,17 @@ const getPullRequest: CodeTool = {
       commentsOf(token, repo, n),
     ]);
     const checks = await api<{ check_runs: { name: string; status: string; conclusion: string | null }[] }>(token, `/repos/${repo}/commits/${p.head.sha}/check-runs?per_page=50`).catch(() => ({ check_runs: [] }));
-    const diff = args.include_diff === false ? '' : await api<string>(token, `/repos/${repo}/pulls/${n}`, { accept: 'application/vnd.github.diff' });
+    // From each file's own patch: GitHub refuses a whole diff past 300 files.
+    const diff =
+      args.include_diff === false ? '' : files.map(f => `diff ${f.filename}\n${f.patch ?? '(no text diff: binary, or too large for GitHub to show)'}`).join('\n\n');
+    const shown = files.slice(0, 60);
+    const more = p.changed_files - shown.length;
     const state = p.merged ? 'merged' : p.draft ? `${p.state} (draft)` : p.state;
     const parts = [
       UNTRUSTED,
       `${repo}#${p.number}: ${p.title}\nState: ${state} · by @${p.user.login} on ${day(p.created_at)} · ${p.head.ref} -> ${p.base.ref} · +${p.additions} -${p.deletions} in ${p.changed_files} file${p.changed_files === 1 ? '' : 's'}${p.mergeable === false ? ' · has conflicts' : ''}\n${p.html_url}`,
       p.body?.trim() || '(no description)',
-      `Files:\n${files.map(f => `- ${f.filename} (${f.status}, +${f.additions} -${f.deletions})`).join('\n')}`,
+      `Files:\n${shown.map(f => `- ${f.filename} (${f.status}, +${f.additions} -${f.deletions})`).join('\n')}${more > 0 ? `\n- ...and ${more} more` : ''}`,
       checks.check_runs.length && `Checks:\n${checks.check_runs.map(c => `- ${c.name}: ${c.conclusion ?? c.status}`).join('\n')}`,
       reviews.length && `Reviews:\n${reviews.map(r => `- @${r.user.login}: ${r.state}${r.body ? ` - ${r.body}` : ''}`).join('\n')}`,
       comments.length && `--- Comments ---\n\n${comments.join('\n\n')}`,
