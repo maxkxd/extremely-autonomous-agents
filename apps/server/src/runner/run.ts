@@ -9,6 +9,7 @@ import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { backoffMs, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
 import { costOf, isFree, spentToday } from './pricing.js';
+import type { Harness } from './harness.js';
 import { ModelError, type Adapter, type Msg } from './providers.js';
 import { execute, toolHealth, toolsFor, type RunCtx } from './tools.js';
 
@@ -22,6 +23,7 @@ export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 
 export type RunDeps = {
   now: () => number;
   adapter: (connection: string) => Adapter | null;
+  harness: (connection: string) => Harness | null; // plans with their own agent loop
   // The model, if it can be used now: connected, not failed its check.
   modelInfo: (c: ModelChoice) => { usable: boolean; efforts: Effort[]; native?: Partial<Record<Effort, string>> };
   cost: (connection: string, model: string, input: number, output: number) => Promise<number | null>;
@@ -60,7 +62,9 @@ export function eligibleModels(agent: AgentDef, deps: RunDeps): ModelChoice[] {
   const orgCap = getSetting<number | null>('spend_cap_org_usd', null);
   const overOrg = orgCap != null && spentToday(now) >= orgCap;
   const overAgent = st.spend_cap_usd != null && spentToday(now, agent.id) >= st.spend_cap_usd;
-  return agent.models.filter(c => deps.modelInfo(c).usable && deps.adapter(c.connection) && (isFree(c.connection) || (!overOrg && !overAgent)));
+  return agent.models.filter(
+    c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)) && (isFree(c.connection) || (!overOrg && !overAgent)),
+  );
 }
 
 // --- The instructions -----------------------------------------------------------
@@ -209,7 +213,8 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
       // A model for this turn: the first eligible one, falling back down the list.
       const tried = new Set<string>();
       let turn: Awaited<ReturnType<Adapter>> | null = null;
-      while (!turn) {
+      let harnessDone = false;
+      while (!turn && !harnessDone) {
         const eligible = eligibleModels(agent, deps).filter(c => !tried.has(choiceKey(c)));
         const pick = pickModel(eligible, health, () => true, deps.now());
         if (!pick) throw new Error(tried.size ? 'Every model failed this turn.' : 'No model it can use right now (none connected, all failed their checks, or a spend cap reached).');
@@ -217,11 +222,53 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
         tried.add(choiceKey(c));
         const info = deps.modelInfo(c);
         const level = info.efforts.length ? fitEffort(c.effort, info.efforts) : null;
+        const effort = level ? (info.native?.[level] ?? level) : undefined;
+        // A plan with its own agent loop runs the rest of the run itself.
+        const harness = deps.harness(c.connection);
+        if (harness) {
+          try {
+            const out = await harness({
+              model: c.model,
+              effort,
+              system,
+              opening: harnessOpening(id, messages),
+              tools: specs,
+              call: async call => {
+                const r = await execute(ctx, call, ids);
+                acts += r.counted;
+                return { content: r.content, error: r.error };
+              },
+              next: () => {
+                if (floor && acts < floor.floor && nudges < floor.nudges) {
+                  nudges++;
+                  return nudgeText(agent, acts, floor.floor, nudges, floor.nudges, floor.soft);
+                }
+                return null;
+              },
+              signal,
+            });
+            health = recordSuccess(health, c);
+            used = c;
+            input += out.usage.input;
+            output += out.usage.output;
+            if (out.text) summary = out.text;
+            harnessDone = true;
+          } catch (e) {
+            if (signal?.aborted) throw e;
+            health = recordFailure(health, c, deps.now());
+            putHealth(health);
+            if (!(e instanceof ModelError)) throw e;
+            error = `${c.connection}/${c.model}: ${e.message}`;
+            // Whoever takes over is told what this run already did.
+            messages.push({ role: 'user', text: doneSoFar(id) });
+          }
+          continue;
+        }
         try {
           turn = await deps.adapter(c.connection)!({
             connection: c.connection,
             model: c.model,
-            effort: level ? (info.native?.[level] ?? level) : undefined,
+            effort,
             system,
             messages,
             tools: specs,
@@ -238,6 +285,8 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
         }
       }
       putHealth(health);
+      if (harnessDone) break;
+      if (!turn) continue;
       input += turn.usage.input;
       output += turn.usage.output;
       const c = await deps.cost(used!.connection, used!.model, turn.usage.input, turn.usage.output);
@@ -294,6 +343,21 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
 
   if (deps.compact && used) void compactMemory(agent, used, deps).catch(() => {});
   return { id, status, acts, nudges, summary, error };
+}
+
+// What this run already did, for a model taking over part-way.
+function doneSoFar(runId: string): string {
+  const done = all<{ tool: string; outcome: string }>('SELECT tool, outcome FROM actions WHERE run_id = ? ORDER BY id', runId);
+  return done.length
+    ? `The model running this so far stopped part-way. It already did, in this run (don't redo these): ${done.map(d => `${d.tool} (${d.outcome})`).join(', ')}. Carry on from there.`
+    : 'The model running this so far stopped before doing anything. Carry on.';
+}
+
+// A harness starts from text: the opening, plus anything already done this run.
+function harnessOpening(runId: string, messages: Msg[]): string {
+  const first = messages[0];
+  const opening = first?.role === 'user' ? first.text : '';
+  return messages.length > 1 ? `${opening}\n\n${doneSoFar(runId)}` : opening;
 }
 
 // The run's post in the agent's DM channel (docs/agent-dms.md): the shape the
