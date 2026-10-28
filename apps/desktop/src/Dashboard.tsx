@@ -364,7 +364,7 @@ export function AgentCard({
         <div className="stats">
           <div className="stat">
             <span className="stat-label">Runs · {rangeLabel(range).toLowerCase()}</span>
-            <span className="stat-value">{count(scaleTo(range, agent.runs))}</span>
+            <span className="stat-value">{count(agent.live ? agent.runs : scaleTo(range, agent.runs))}</span>
           </div>
           <div className="stat">
             <span className="stat-label">Last run</span>
