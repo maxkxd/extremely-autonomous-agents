@@ -30,7 +30,7 @@ export function ModelRow({
   readOnly?: boolean;
 }) {
   const first = choices[0];
-  const problem = !first ? 'No model - choose one' : !isUsable(first, available) && available.length ? 'Not connected' : null;
+  const problem = !first ? 'No model' : !isUsable(first, available) && available.length ? 'Not connected' : null;
   return (
     <button
       className={`model-row${problem ? ' flagged' : ''}${open ? ' open' : ''}`}
