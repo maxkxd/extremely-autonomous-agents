@@ -1,6 +1,4 @@
-import { availableModels } from '../models/connections.js';
-import { harnessFor } from '../runner/harness.js';
-import { adapterFor } from '../runner/providers.js';
+import { ask, CAREFUL } from '../runner/quick.js';
 import type { Permissions } from './sandbox.js';
 
 // The independent security review of a code plugin (docs/integrations.md): a
@@ -29,26 +27,6 @@ Answer with JSON only, no prose around it:
 - can_do: 2-6 short plain-English lines for someone who can't read code, saying concretely what this can do on their computer (e.g. "Changes your desktop wallpaper", "Saves images in Pictures\\Morning Wallpaper", "Downloads images from public websites"). Include the scary parts plainly.
 - verdict "fix" if any concern is high; "fix" names what to change. Otherwise "approve" and fix "".`;
 
-// A quick, capable model the person has connected: an API model if there is one, else their Claude plan.
-async function reviewer(): Promise<{ connection: string; model: string } | null> {
-  const avail = await availableModels().catch(() => []);
-  const prefer: [string, RegExp][] = [
-    ['anthropic', /sonnet-5/],
-    ['anthropic', /sonnet/],
-    ['chatgpt', /./],
-    ['openai', /^gpt-5\.\d+$|^gpt-5\.\d+-20/],
-    ['google', /pro|flash/],
-    ['openrouter', /anthropic\/claude-sonnet|openai\/gpt-5/],
-    ['claude-code', /sonnet/],
-    ['copilot', /./],
-  ];
-  for (const [connection, re] of prefer) {
-    const model = avail.find(a => a.connection === connection)?.models.find(m => re.test(m));
-    if (model) return { connection, model };
-  }
-  return null;
-}
-
 export function parseReview(text: string): Review {
   const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
   const r = JSON.parse(json) as Partial<{ verdict: string; can_do: string[]; concerns: { severity: string; what: string }[]; fix: string }>;
@@ -62,18 +40,9 @@ export function parseReview(text: string): Review {
 }
 
 export async function reviewPlugin(p: { name: string; yaml: string; code: string; permissions: Permissions }): Promise<Review> {
-  const who = await reviewer();
-  if (!who) throw new Error("No model is connected that can review the plugin's code. Connect one in Settings -> Connectors.");
   const perms = `Declared permissions - read: ${p.permissions.read.join(', ') || 'none'}; write: ${p.permissions.write.join(', ') || 'none'}; start programs: ${p.permissions.commands ? 'yes' : 'no'}.`;
   const prompt = `Review this plugin, "${p.name}".\n\n${perms}\n\n--- Definition ---\n${p.yaml}\n\n--- Code ---\n${p.code}`;
-  let text: string;
-  const adapter = adapterFor(who.connection);
-  if (adapter) {
-    text = (await adapter({ connection: who.connection, model: who.model, system: SYSTEM, messages: [{ role: 'user', text: prompt }], tools: [], maxTokens: 2000 })).text;
-  } else {
-    const harness = harnessFor(who.connection)!;
-    text = (await harness({ model: who.model, system: SYSTEM, opening: prompt, tools: [], call: async () => ({ content: '', error: true }), next: () => null })).text;
-  }
+  const text = await ask(CAREFUL, SYSTEM, prompt);
   try {
     return parseReview(text);
   } catch {
