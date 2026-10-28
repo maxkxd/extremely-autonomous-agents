@@ -4,6 +4,8 @@ import { BuilderError, build, interview, matchPack, profileInterview, type Build
 import { compose, kpiLabels, listIds, readMeta, remove, save, slug, type AgentFiles } from './files.js';
 import { scanFleet } from './fleet.js';
 import { enqueue, resume } from './jobs.js';
+import * as conn from './models/connections.js';
+import { ConnectError } from './models/providers.js';
 import { CATALOG } from './catalog.js';
 import { addNotes, addPersonNotes, loadPerson, loadProfile, savePerson, saveProfile, type PersonProfile, type Profile } from './org.js';
 
@@ -19,6 +21,27 @@ async function body<T>(req: IncomingMessage): Promise<T> {
 function send(res: ServerResponse, status: number, data: unknown) {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(data));
+}
+
+// The page a provider's sign-in lands on, in the browser window it opened.
+class Html {
+  constructor(readonly body: string) {}
+}
+const escape = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+function landing(ok: boolean, message: string) {
+  return new Html(`<!doctype html><meta charset="utf-8"><title>${ok ? 'Connected' : 'Not connected'}</title>
+<body style="margin:0;height:100vh;display:grid;place-items:center;background:#141414;color:#e6e6e6;font-family:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;text-align:center">
+<div><h1 style="font-size:22px;margin:0 0 8px">${ok ? 'Connected' : 'Not connected'}</h1>
+<p style="color:#8a8a8a;margin:0">${escape(message)}</p></div>
+<script>${ok ? 'setTimeout(() => window.close(), 1200)' : ''}</script></body>`);
+}
+async function callback(finish: () => Promise<void>) {
+  try {
+    await finish();
+    return landing(true, 'You can close this window and go back to the app.');
+  } catch (e) {
+    return landing(false, e instanceof ConnectError ? e.message : 'Something went wrong. Try again from Settings.');
+  }
 }
 
 // Who you're talking to, the organisation (null when they don't have one), and
@@ -71,6 +94,33 @@ const routes: Record<string, Route> = {
   'GET /api/catalog': async () => CATALOG.map(s => ({ server: s.server, what: s.what, tools: s.tools.length })),
   // Whether a key is set - never the key itself.
   'GET /api/health': async () => ({ anthropicKey: !!process.env.ANTHROPIC_API_KEY }),
+
+  // --- AI model connections (docs/model-connections.md) ---
+  'GET /api/connections': async () => conn.list(),
+  'POST /api/connections/key': async req => {
+    const { id, key, baseUrl } = await body<{ id: string; key: string; baseUrl?: string }>(req);
+    await conn.connectKey(id, key ?? '', baseUrl);
+    return { ok: true };
+  },
+  'POST /api/connections/disconnect': async req => {
+    const { id } = await body<{ id: string }>(req);
+    await conn.disconnect(id);
+    return { ok: true };
+  },
+  // Returns the provider's sign-in page; the app opens it in a new window.
+  'POST /api/connections/oauth/start': async req => {
+    const { id } = await body<{ id: string }>(req);
+    if (id === 'openrouter') return { url: conn.openRouterStart() };
+    if (id === 'chatgpt') return { url: await conn.chatGptStart() };
+    throw new ConnectError('That provider has no sign-in.');
+  },
+  'GET /api/oauth/openrouter/callback': async (_req, q) => callback(() => conn.openRouterCallback(q)),
+  'GET /api/oauth/chatgpt/callback': async (_req, q) => callback(() => conn.chatGptCallback(q)),
+  'POST /api/connections/copilot/start': async () => conn.copilotStart(),
+  'POST /api/connections/claude-code/check': async () => {
+    await conn.claudeCodeConnect();
+    return { ok: true };
+  },
 
   // --- Building an agent ---
   'POST /api/builder/match': async req => {
@@ -146,9 +196,15 @@ createServer(async (req, res) => {
   const route = routes[`${req.method} ${url.pathname}`];
   if (!route) return send(res, 404, { error: 'Not found' });
   try {
-    send(res, 200, await route(req, url.searchParams));
+    const out = await route(req, url.searchParams);
+    if (out instanceof Html) {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(out.body);
+    }
+    send(res, 200, out);
   } catch (e) {
     if (e instanceof BuilderError) return send(res, 502, { error: e.message });
+    if (e instanceof ConnectError) return send(res, 400, { error: e.message });
     console.error(e);
     send(res, 500, { error: 'Something went wrong on the server.' });
   }

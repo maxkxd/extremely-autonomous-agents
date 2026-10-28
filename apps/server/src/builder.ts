@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import * as z from 'zod/v4';
 import { BASELINE, catalogForPrompt } from './catalog.js';
+import { anthropicKey } from './models/connections.js';
 import { fleetForPrompt, type Fleet } from './fleet.js';
 import { personForPrompt, profileForPrompt, type PersonProfile, type Profile } from './org.js';
 
@@ -9,7 +10,8 @@ import { personForPrompt, profileForPrompt, type PersonProfile, type Profile } f
 // person's description into a Charter, TOOLS.yaml and KPI.yaml - written for
 // their organisation, and reusing the tools their fleet already has.
 
-const client = new Anthropic();
+// The Anthropic key: from Settings > Connectors if there is one, else the server's own.
+const clientFor = async () => new Anthropic({ apiKey: await anthropicKey() });
 const MODEL = 'claude-opus-5-5';
 // On a policy decline, rerun the request on Anthropic's recommended fallback
 // model instead of returning the refusal.
@@ -80,6 +82,7 @@ async function parse<T extends z.ZodType>(
   effort: 'low' | 'medium' | 'high',
 ): Promise<z.infer<T>> {
   try {
+    const client = await clientFor();
     const res = await client.beta.messages.parse({
       model: MODEL,
       // Just under where the SDK insists on streaming; a build writes a whole Charter.

@@ -153,3 +153,30 @@ export const deleteAgentFiles = (id: string) => post<{ ok: true }>('/api/agents/
 
 export type AgentStatus = { status: 'ready' | 'setting-up' | 'generic'; name: string; department: Department; output: string[] };
 export const agentStatuses = () => request<Record<string, AgentStatus>>('/api/agents/status');
+
+// --- AI model connections (docs/model-connections.md) ---
+
+export type Connection = {
+  id: string;
+  name: string;
+  kind: 'plan' | 'key' | 'local';
+  what: string;
+  keyUrl?: string;
+  keyPrefix?: string;
+  baseUrl?: string;
+  editableBaseUrl?: boolean;
+  oneClick?: boolean;
+  connected: boolean;
+  label?: string;
+  models: number;
+  pending?: { userCode?: string; verificationUri?: string };
+  setupNeeded?: string;
+  claudeCode?: { installed: boolean; version?: string; loggedIn: boolean; authMethod?: string };
+};
+
+export const getConnections = () => request<Connection[]>('/api/connections');
+export const connectKey = (id: string, key: string, baseUrl?: string) => post<{ ok: true }>('/api/connections/key', { id, key, baseUrl });
+export const disconnectModel = (id: string) => post<{ ok: true }>('/api/connections/disconnect', { id });
+export const startSignIn = (id: string) => post<{ url: string }>('/api/connections/oauth/start', { id });
+export const startCopilot = () => post<{ userCode: string; verificationUri: string }>('/api/connections/copilot/start', {});
+export const connectClaudeCode = () => post<{ ok: true }>('/api/connections/claude-code/check', {});
