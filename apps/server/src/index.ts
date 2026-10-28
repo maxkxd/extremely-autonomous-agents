@@ -135,6 +135,14 @@ const routes: Record<string, Route> = {
     await conn.claudeCodeConnect();
     return { ok: true };
   },
+  'POST /api/connections/claude-code/install': async () => {
+    await conn.claudeCodeInstall();
+    return { ok: true };
+  },
+  'POST /api/connections/claude-code/login': async () => {
+    await conn.claudeCodeLogin();
+    return { ok: true };
+  },
 
   // --- Building an agent ---
   'POST /api/builder/match': async req => {

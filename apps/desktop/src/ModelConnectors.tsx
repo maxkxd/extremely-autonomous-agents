@@ -12,7 +12,17 @@ import {
   siX,
   type SimpleIcon,
 } from 'simple-icons';
-import { connectKey, disconnectModel, getConnections, startCopilot, startSignIn, connectClaudeCode, type Connection } from './builder';
+import {
+  connectClaudeCode,
+  connectKey,
+  disconnectModel,
+  getConnections,
+  installClaudeCode,
+  signInClaudeCode,
+  startCopilot,
+  startSignIn,
+  type Connection,
+} from './builder';
 
 // Settings > Connectors: the AI models your agents run on (docs/model-connections.md).
 // Plans you already pay for, connected through each provider's own sanctioned
@@ -306,14 +316,28 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
   );
 
   if (c.id === 'claude-code') {
+    // One button that does whatever's next: install Claude Code, sign in to
+    // it, or use the plan it's signed in with. Install and sign-in open in a
+    // terminal window (Anthropic's own installer and login); this row follows
+    // along and connects by itself when the sign-in finishes.
     const cc = c.claudeCode;
+    const task = cc?.task;
     const sub = c.connected
       ? `${c.label} · signed in with your Claude account`
-      : !cc?.installed
-        ? 'Install Claude Code, then sign in to it with your Claude account.'
-        : !cc.loggedIn
-          ? 'Open a terminal, run claude and sign in with your Claude account.'
-          : 'Claude Code is signed in. Your agents can run on your plan.';
+      : task === 'installing'
+        ? 'Installing Claude Code in the window that opened...'
+        : task === 'signing-in'
+          ? 'Finish signing in to your Claude account in your browser.'
+          : !cc?.installed
+            ? 'Use your Claude plan through Claude Code, Anthropic\'s own app.'
+            : cc.loggedIn
+              ? 'Claude Code is signed in. Your agents can run on your plan.'
+              : 'Sign in to Claude Code with your Claude account.';
+    const start = (fn: () => Promise<unknown>) =>
+      act(async () => {
+        await fn();
+        watch(c.id);
+      });
     return (
       <RowShell
         c={c}
@@ -328,16 +352,16 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
         {c.connected ? (
           disconnect
         ) : !cc?.installed ? (
-          <a className="sbtn" href="https://code.claude.com/docs/en/setup" target="_blank" rel="noreferrer">
-            Get Claude Code
-          </a>
+          <SpinButton className="sbtn primary" spinning={busy || !!task} onClick={() => start(installClaudeCode)}>
+            Install Claude Code
+          </SpinButton>
         ) : cc.loggedIn ? (
-          <SpinButton className="sbtn primary" spinning={busy} onClick={() => act(connectClaudeCode)}>
+          <SpinButton className="sbtn primary" spinning={busy || waiting} onClick={() => act(connectClaudeCode)}>
             Use my Claude plan
           </SpinButton>
         ) : (
-          <SpinButton spinning={busy} onClick={() => act(refresh)}>
-            Check again
+          <SpinButton className="sbtn primary" spinning={busy || !!task} onClick={() => start(signInClaudeCode)}>
+            Sign in to Claude
           </SpinButton>
         )}
       </RowShell>

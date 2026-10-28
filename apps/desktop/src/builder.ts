@@ -178,7 +178,7 @@ export type Connection = {
   pending?: { userCode?: string; verificationUri?: string };
   setupNeeded?: string;
   lastError?: string;
-  claudeCode?: { installed: boolean; version?: string; loggedIn: boolean; authMethod?: string };
+  claudeCode?: { installed: boolean; version?: string; loggedIn: boolean; authMethod?: string; task?: 'installing' | 'signing-in' };
 };
 
 export const getConnections = () => request<Connection[]>('/api/connections');
@@ -187,3 +187,5 @@ export const disconnectModel = (id: string) => post<{ ok: true }>('/api/connecti
 export const startSignIn = (id: string) => post<{ url: string }>('/api/connections/oauth/start', { id });
 export const startCopilot = () => post<{ userCode: string; verificationUri: string }>('/api/connections/copilot/start', {});
 export const connectClaudeCode = () => post<{ ok: true }>('/api/connections/claude-code/check', {});
+export const installClaudeCode = () => post<{ ok: true }>('/api/connections/claude-code/install', {});
+export const signInClaudeCode = () => post<{ ok: true }>('/api/connections/claude-code/login', {});
