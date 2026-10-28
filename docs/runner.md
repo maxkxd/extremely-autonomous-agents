@@ -26,6 +26,27 @@ Everything the builder sets lives in the agent's TOOLS.yaml under `ferocity:`
 threshold), so changing an agent's level on its card changes its behaviour
 straight away, without a rebuild.
 
+## When more of the main action isn't better
+
+Some jobs have a natural limit: an agent that changes the desktop wallpaper
+every morning gets the job done on Chill, and at Relentless or Apocalyptic
+must not "produce output" by changing it every few minutes. Setting it that
+high is the person's call; the builder still makes it do something useful:
+
+- **Natural limits on actions.** The builder can cap any action by what the
+  job needs (`set_wallpaper`: at most once a day). The runner enforces it at
+  every ferocity and refuses a call past it with a reason that points the agent
+  at its other work ("Already done today. Put your effort into what's next").
+- **What extra effort means, per agent.** For each level above Chill, the
+  builder writes what more output looks like for this job and which actions
+  count toward its floor there. Wallpaper agent at Apocalyptic: stockpile and
+  rate candidate images and jokes for future mornings, plan themes, and file
+  requests asking what the person likes - its floor is met by building that
+  library, never by changing the wallpaper again.
+- **Refused calls don't count.** An action refused by a natural limit doesn't
+  count toward the floor, or an agent could meet it by hammering the same
+  refused call. (Actions waiting in Approvals still count, as above.)
+
 ## One run
 
 - One run = one conversation with the model and its tool loop, using the
@@ -42,7 +63,8 @@ straight away, without a rebuild.
 - What counts is the agent's output actions (KPI.yaml). An action counts **when
   the agent tries it**, including a T2 action that's now waiting in Approvals,
   and including one that fails. Batch actions count once per item (one
-  `queue_leads` with 5 leads = 5).
+  `queue_leads` with 5 leads = 5). A call refused by a natural limit doesn't
+  count (see "When more of the main action isn't better").
 - When a run would end below its floor, the runner sends one more message in
   the same conversation, so nothing it already found is lost:
 
