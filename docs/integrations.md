@@ -28,6 +28,37 @@ search services: Brave Search, Tavily, Serper, Exa - also the reference
 examples of the format). Added ones live in `data/integrations/`. Keys are in
 the vault; connection state and an MCP server's tools in the runner's store.
 
+## The Fleet Engineer's loop (agreed 2026-10-29)
+
+Adding and testing integrations is the Fleet Engineer's job, not a
+developer's. What was done by hand to bring web search live is the loop it
+runs for every new service:
+
+1. **Write the definition** from the service's API docs (it has web research)
+   for a request that needs a new service - HTTP or MCP, a code plugin only
+   where those can't do it and the setting allows. Saved as a **draft**: not
+   live, no agent can call it.
+2. **Ask for what only a person can give** - an API key, an OAuth sign-in,
+   an account or a paid plan. It says exactly what to do and where; the key
+   or sign-in goes into Settings -> Connectors, never into a conversation.
+3. **Woken when it's in.** Connecting a draft's key or finishing its sign-in
+   wakes the Fleet Engineer with that integration's id (not a timer, not
+   polling).
+4. **Test it like a person would**: the definition's own test, then real
+   calls with real-looking inputs and the edge cases - empty and missing
+   inputs, limits, a bad key's error, what the agent actually sees. It fixes
+   the definition and re-tests until the answers are clean.
+5. **Make it live** - behind a person's approval (building a tool always is,
+   docs/requests.md) - give the tool to the agent that asked, close the
+   request with a note on what it can now do, and tell the agent on its
+   next run.
+
+Needs, none built yet: draft integrations; OAuth sign-in; the wake on
+connect (a new trigger, alongside scheduled, self-booked, handoff, your
+message and approval); the Fleet Engineer's own tools (write / test / fix /
+publish an integration, give a tool to an agent); approvals that actually
+run when approved; and the Fleet Engineer running at all.
+
 ## Safety
 
 - **Agents can't reach this computer or its network** (`runner/net.ts`):
@@ -74,7 +105,7 @@ Not yet:
 
 - **OAuth sign-in** for integrations (Zoho-style, and MCP servers that need
   it) - only no-sign-in, API key and bearer token so far.
-- **Code plugins**, and the **Fleet Engineer** adding integrations.
+- **Code plugins**, and the **Fleet Engineer** adding integrations (its loop is above).
 - **MCP servers on this computer** (local addresses are refused, like
   everything else agents reach).
 - **PDFs** in `fetch_page`.
