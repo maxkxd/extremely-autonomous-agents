@@ -572,7 +572,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .approval-expiry { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #5f5f5f; font-variant-numeric: tabular-nums; }
 
 .ap-btn {
-  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px;
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; white-space: nowrap;
   border-radius: 8px; font-size: 13px; font-weight: 600;
   border: 1px solid var(--border-strong); color: var(--text);
 }
@@ -606,7 +606,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .reject-reason:focus { outline: none; border-color: var(--border-strong); }
 .reject-reason::placeholder { color: #5f5f5f; }
-.reject-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.reject-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 
 /* ---- Approve / reject exits -------------------------------------------------
    Each card sits in a wrapper that owns its spacing; after the card has flown
@@ -751,7 +751,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .request-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; }
 .request-own { display: flex; gap: 8px; margin-left: auto; }
 .rq-btn {
-  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 13px; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 13px; border-radius: 8px; white-space: nowrap;
   font-size: 13px; font-weight: 600; color: var(--text); border: 1px solid var(--border-strong);
 }
 .rq-btn:disabled { opacity: 0.55; cursor: default; }
@@ -785,3 +785,9 @@ ul { list-style: none; margin: 0; padding: 0; }
   .request-expand, .request-body, .request-wrap { transition: none; }
   .spin { animation: none; }
 }
+
+/* Task Fleet Engineer note box */
+.ap-btn.confirm-engineer { background: var(--attention); border-color: var(--attention); color: var(--attention-text); }
+.ap-btn.confirm-engineer:hover { filter: brightness(1.12); }
+.drawer-hint { margin-right: auto; align-self: center; font-size: 12px; color: #6a6a6a; }
+.request-trail li.you .trail-by { color: #7aa3e4; }

@@ -26,6 +26,13 @@ function timeAgo(minutes: number): string {
 }
 
 type Engineer = 'idle' | 'working' | 'replied';
+type Drawer = 'engineer' | 'diy' | 'reject';
+
+const PLACEHOLDER: Record<Drawer, string> = {
+  engineer: "Anything that helps the Fleet Engineer, e.g. what you've set up or what to build (optional)",
+  diy: 'What you did and how it fixed it, the agent will see this (optional)',
+  reject: 'Reason for rejecting, the agent will see this (optional)',
+};
 
 function RequestRow({
   request,
@@ -41,7 +48,9 @@ function RequestRow({
   const agent = agentOf(request);
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   const [open, setOpen] = useState(false);
-  const [drawer, setDrawer] = useState<'diy' | 'reject' | null>(null);
+  const [drawer, setDrawer] = useState<Drawer | null>(null);
+  // Notes you sent the Fleet Engineer - shown in the trail as your steps.
+  const [handoffs, setHandoffs] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [engineer, setEngineer] = useState<Engineer>('idle');
   const [leaving, setLeaving] = useState<RequestResolution | null>(null);
@@ -59,19 +68,27 @@ function RequestRow({
     later(EXIT_MS + COLLAPSE_MS, onGone);
   };
 
-  // PLACEHOLDER: simulated Fleet Engineer. Succeeds -> the request leaves;
-  // can't -> it adds an addendum explaining why, and the request stays.
-  const taskEngineer = () => {
+  // Task the Fleet Engineer, optionally with a note ("I've bought the seat and
+  // have the API key - build the tool").
+  // PLACEHOLDER: simulated engineer. It succeeds if it could already, or if you
+  // gave it something to go on; otherwise it adds an addendum and stays.
+  const taskEngineer = (withNote: string) => {
     setDrawer(null);
+    if (withNote.trim()) setHandoffs(h => [...h, withNote.trim()]);
+    setNote('');
     setEngineer('working');
     later(ENGINEER_MS, () => {
-      if (request.engineerReply.ok) resolve('engineered');
+      if (request.engineerReply.ok || withNote.trim()) resolve('engineered');
       else setEngineer('replied');
     });
   };
 
-  const openDrawer = (kind: 'diy' | 'reject', e: React.MouseEvent) => {
-    if (e.shiftKey) return resolve(kind === 'diy' ? 'diy' : 'rejected'); // shift-click: no note
+  // Each action opens its note box; shift-click skips the note and goes.
+  const openDrawer = (kind: Drawer, e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      if (kind === 'engineer') return taskEngineer('');
+      return resolve(kind === 'diy' ? 'diy' : 'rejected');
+    }
     setDrawer(d => (d === kind ? null : kind));
   };
 
@@ -112,6 +129,12 @@ function RequestRow({
                     <span className="trail-text">{step.text}</span>
                   </li>
                 ))}
+                {handoffs.map((text, i) => (
+                  <li key={`you-${i}`} className="you">
+                    <span className="trail-by">You</span>
+                    <span className="trail-text">{text}</span>
+                  </li>
+                ))}
               </ol>
 
               {engineer === 'replied' && (
@@ -126,9 +149,10 @@ function RequestRow({
 
               <div className="request-actions">
                 <button
-                  className="rq-btn engineer"
-                  onClick={taskEngineer}
+                  className={`rq-btn engineer${drawer === 'engineer' ? ' on' : ''}`}
+                  onClick={e => openDrawer('engineer', e)}
                   disabled={engineer === 'working' || !!leaving}
+                  title="Shift-click to send without a note"
                 >
                   {engineer === 'working' ? <Loader2 size={14} className="spin" /> : <Hammer size={14} strokeWidth={1.9} />}
                   {engineer === 'working' ? 'Fleet Engineer is on it' : engineer === 'replied' ? 'Task again' : 'Task Fleet Engineer'}
@@ -171,32 +195,39 @@ function RequestRow({
                   <div className="reject-inner">
                     <textarea
                       className="reject-reason"
-                      placeholder={
-                        drawer === 'reject'
-                          ? 'Reason for rejecting, the agent will see this (optional)'
-                          : 'What you did and how it fixed it, the agent will see this (optional)'
-                      }
+                      placeholder={drawer ? PLACEHOLDER[drawer] : ''}
                       value={note}
                       onChange={e => setNote(e.target.value)}
                       rows={2}
                     />
                     <div className="reject-actions">
+                      {drawer === 'engineer' && (
+                        // Keys go in the (future) config menu, never in a free-text note.
+                        <span className="drawer-hint">Don't paste API keys or passwords here - you'll add those in settings.</span>
+                      )}
                       <button className="ap-btn ghost" onClick={() => setDrawer(null)}>
                         Cancel
                       </button>
-                      <button
-                        className={`ap-btn ${drawer === 'reject' ? 'confirm-reject' : 'confirm-diy'}`}
-                        onClick={() => resolve(drawer === 'reject' ? 'rejected' : 'diy')}
-                      >
-                        {drawer === 'reject' ? (
-                          <>Reject{note.trim() ? ' with reason' : ''}</>
-                        ) : (
-                          <>
-                            <Check size={14} strokeWidth={2.25} />
-                            Mark done
-                          </>
-                        )}
-                      </button>
+                      {drawer === 'engineer' ? (
+                        <button className="ap-btn confirm-engineer" onClick={() => taskEngineer(note)}>
+                          <Hammer size={14} strokeWidth={1.9} />
+                          Send to Fleet Engineer
+                        </button>
+                      ) : (
+                        <button
+                          className={`ap-btn ${drawer === 'reject' ? 'confirm-reject' : 'confirm-diy'}`}
+                          onClick={() => resolve(drawer === 'reject' ? 'rejected' : 'diy')}
+                        >
+                          {drawer === 'reject' ? (
+                            <>Reject{note.trim() ? ' with reason' : ''}</>
+                          ) : (
+                            <>
+                              <Check size={14} strokeWidth={2.25} />
+                              Mark done
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
