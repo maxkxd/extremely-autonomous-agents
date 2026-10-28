@@ -184,7 +184,10 @@ export const runnerRoutes: Record<string, Route> = {
   'GET /api/settings/code-plugins': async () => ({ allowed: pluginsAllowed() }),
   'POST /api/settings/code-plugins': async (_req, _q, body) => {
     const { allowed } = await body<{ allowed: boolean }>();
+    const was = pluginsAllowed();
     setSetting('code_plugins', !!allowed);
+    // Turned on: the Fleet Engineer may have requests waiting on exactly this.
+    if (allowed && !was) book(FLEET_ENGINEER, 'request reply', 'The person turned on code plugins in Settings. Pick up any request that was waiting on them.');
     return { allowed: pluginsAllowed() };
   },
 
