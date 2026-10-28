@@ -1,14 +1,14 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { stringify } from 'yaml';
+import { parse, stringify } from 'yaml';
 import type { Build } from './builder.js';
 import { BASELINE, CATALOG_INDEX, toolId, type Tier } from './catalog.js';
 
 // Turns a build into the agent's three files, shaped like the agency
 // runner's (docs/agent-creation.md), and writes them on accept.
 
-const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'agents');
+export const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'agents');
 
 export const slug = (name: string) =>
   name
@@ -16,12 +16,22 @@ export const slug = (name: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '') || 'agent';
 
-export type AgentFiles = { id: string; charter: string; tools: string; kpi: string };
+export type AgentFiles = { id: string; name: string; department: string; charter: string; tools: string; kpi: string };
 
-export function compose(b: Build, id: string): AgentFiles {
+// Kept beside the files: what the app shows on the card, and set-up state.
+export type Meta = {
+  name: string;
+  department: string;
+  output: string[]; // KPI labels
+  status: 'ready' | 'setting-up' | 'generic';
+  setup?: { packId: string; index: number; org: string; attempts: number };
+};
+
+// fleetIds: tools other agents in this fleet already hold, which can be reused.
+export function compose(b: Build, id: string, fleetIds: Set<string> = new Set()): AgentFiles {
   const newIds = new Set(b.new_tools.map(t => toolId(t.server, t.name)));
-  // Only tools that exist: catalogue tools, or ones this build defines.
-  const picked = b.tools.filter(t => CATALOG_INDEX.has(t.id) || newIds.has(t.id));
+  // Only tools that exist: the fleet's, the catalogue's, or ones this build defines.
+  const picked = b.tools.filter(t => fleetIds.has(t.id) || CATALOG_INDEX.has(t.id) || newIds.has(t.id));
   const tiers: Record<string, Tier> = {};
   for (const { server, tool } of BASELINE) tiers[toolId(server, tool.name)] = tool.tier;
   for (const t of picked) tiers[t.id] = t.tier;
@@ -56,6 +66,8 @@ export function compose(b: Build, id: string): AgentFiles {
   const why = picked.map(t => `#   ${t.id} [${t.tier}] - ${t.why}`).join('\n');
   return {
     id,
+    name: b.name,
+    department: b.department,
     charter: b.charter.trim() + '\n',
     tools: `# TOOLS - ${b.name} (${id})\n# Written by the agent builder.\n#\n${why}\n${stringify(tools)}`,
     kpi: `# KPI - ${b.name}: successful calls of these actions are its output.\n${stringify(kpi)}`,
@@ -70,7 +82,7 @@ function safeJson(s: string): unknown {
   }
 }
 
-export async function save(files: AgentFiles) {
+export async function save(files: AgentFiles, meta: Meta) {
   const dir = join(DATA, slug(files.id));
   await mkdir(dir, { recursive: true });
   await Promise.all([
@@ -78,7 +90,30 @@ export async function save(files: AgentFiles) {
     writeFile(join(dir, 'TOOLS.yaml'), files.tools),
     writeFile(join(dir, 'KPI.yaml'), files.kpi),
   ]);
+  await writeMeta(files.id, meta);
   return dir;
+}
+
+export const kpiLabels = (kpiYaml: string) =>
+  ((parse(kpiYaml) as { output?: { label: string }[] }).output ?? []).map(o => o.label);
+
+export async function readMeta(id: string): Promise<Meta | null> {
+  try {
+    return JSON.parse(await readFile(join(DATA, slug(id), 'meta.json'), 'utf8')) as Meta;
+  } catch {
+    return null;
+  }
+}
+
+export const writeMeta = (id: string, meta: Meta) =>
+  writeFile(join(DATA, slug(id), 'meta.json'), JSON.stringify(meta, null, 2) + '\n');
+
+export async function listIds(): Promise<string[]> {
+  try {
+    return (await readdir(DATA, { withFileTypes: true })).filter(d => d.isDirectory()).map(d => d.name);
+  } catch {
+    return [];
+  }
 }
 
 // Deleting an agent removes its files for good. Placeholder agents have none.

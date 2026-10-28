@@ -3,7 +3,7 @@ import { ArrowUp, Hammer, RotateCcw, Sparkles, X } from 'lucide-react';
 import type { BuilderSession } from './builder';
 
 // A build takes up to a minute or so: count up so it never looks stuck.
-function BuildingNote() {
+function BuildingNote({ text }: { text: string }) {
   const [secs, setSecs] = useState(0);
   useEffect(() => {
     const start = Date.now();
@@ -12,7 +12,7 @@ function BuildingNote() {
   }, []);
   return (
     <div className="bmsg is-builder building-note">
-      <span className="building-text">Building your agent - this could take a minute</span>
+      <span className="building-text">{text}</span>
       <span className="building-timer">
         {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
       </span>
@@ -30,7 +30,15 @@ export function BuilderChat({
   onRetry,
   onBuild,
   onClose,
+  title = 'New agent',
+  buildLabel = 'Build agent',
+  buildingText = 'Building your agent - this could take a minute',
+  busyLabel = 'Building',
 }: {
+  title?: string;
+  busyLabel?: string;
+  buildLabel?: string;
+  buildingText?: string;
   origin: DOMRect;
   session: BuilderSession;
   onReply: (text: string) => void;
@@ -88,9 +96,9 @@ export function BuilderChat({
         <header className="builder-head">
           <span className="builder-title">
             <Sparkles size={16} strokeWidth={1.75} />
-            New agent
+            {title}
           </span>
-          <span className="builder-confidence">{building ? 'Building' : `${session.confidence}%`}</span>
+          <span className="builder-confidence">{building ? busyLabel : `${session.confidence}%`}</span>
           <button className="builder-close" onClick={onClose} disabled={building} aria-label="Close" title="Close (keeps the conversation)">
             <X size={18} />
           </button>
@@ -109,7 +117,7 @@ export function BuilderChat({
               <span />
             </div>
           )}
-          {building && <BuildingNote />}
+          {building && <BuildingNote text={buildingText} />}
           {session.error && (
             <div className="builder-error">
               {session.error}
@@ -126,7 +134,7 @@ export function BuilderChat({
           {session.ready && !building && (
             <button className="builder-build" onClick={onBuild}>
               <Hammer size={15} strokeWidth={2} />
-              Build agent
+              {buildLabel}
             </button>
           )}
           <div className="builder-compose">

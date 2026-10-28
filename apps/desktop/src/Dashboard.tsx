@@ -254,7 +254,7 @@ export function AgentCard({
 
   return (
     <article
-      className={`agent-card${preview ? ' preview' : ''} fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
+      className={`agent-card${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
       style={{ '--tx': tx } as React.CSSProperties}
     >
       {/* Drag handle: centred on the card's left edge. */}
@@ -269,7 +269,13 @@ export function AgentCard({
           <div className="card-name">
             <DeptIcon size={18} strokeWidth={1.75} className="dept-icon" />
             <h2>{agent.name}</h2>
-            {state !== 'active' && <span className="state-pill">{state === 'draining' ? 'Draining' : 'Stopped'}</span>}
+            {agent.settingUp ? (
+              <span className="state-pill setting-up" title="Being tailored to your organisation. It won't run until it's done.">
+                Setting up
+              </span>
+            ) : (
+              state !== 'active' && <span className="state-pill">{state === 'draining' ? 'Draining' : 'Stopped'}</span>
+            )}
             <span className="head-counts">
               <a
                 className={`head-count${openRequests ? ' has' : ''}`}

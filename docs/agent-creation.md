@@ -7,6 +7,18 @@ actions count as its output). The person creating the agent never sees any of
 these files. They describe what they want, in a conversation, and the agent
 builder writes the files.
 
+## Your organisation comes first
+
+Every agent is written for one organisation, the way a real employee's brief
+would be: it names the company, what it sells and to whom, the voice it writes
+in, and the actual people it reports to or writes as. That comes from the
+**organisation profile** (`apps/server/data/orgs/<org>.json`).
+
+The first time you add anything (a description or a pack), a short chat in the
+same pop-up fills the profile in: what you do, who for, your voice and the key
+people. Then it carries on with what you were doing. The builder adds durable
+facts it learns in later conversations to the profile's notes.
+
 ## The flow
 
 1. **Write into the box.** The "Customize your own agent" card on the New agent
@@ -33,6 +45,31 @@ builder writes the files.
 7. **Accept.** Everything fades back to the dashboard and the card smashes into
    it, pushing the other cards out of the way. A new agent **always starts on
    Chill**.
+
+## Adding a pack
+
+Clicking a pack's Add button goes straight to the black reveal with all its
+agents (up to three, sized to fit), X to cancel, hold to add. They all smash
+into the dashboard at once, on Chill.
+
+Pack agents ship **pre-built** (`apps/server/packs/`, by
+`scripts/build-packs.ts`): each was written with the closest real WAR agency
+agent's Charter and TOOLS.yaml as a reference, then reviewed. They're generic on
+purpose. **Adding a pack then tailors each one to you in the background:**
+
+1. On accept, each agent's generic files are saved at once, so it exists and is
+   valid straight away, marked **setting up**.
+2. The server rewrites it for your organisation profile and fleet (about half a
+   minute to a couple of minutes per agent, three at a time): your company,
+   customers, voice and people go into the Charter; wherever a tool your fleet
+   already has does the same job, it switches to that exact tool and drops its
+   own duplicate. Tiers stay at least as strict as the template.
+3. The server owns this work: it carries on if the app is closed and resumes
+   after a restart. If it fails three times, the agent keeps its generic files
+   (still valid, just not tailored).
+
+While an agent is setting up, its card says so, it can't be run or tuned, and a
+DM sent to it waits and is answered once it's ready.
 
 ## Tiers
 
@@ -63,14 +100,21 @@ unattended.
 
 ## Where tools come from
 
+The builder always prefers what exists, in this order:
+
+- **Your fleet's tools**: every tool any of your agents already holds, including
+  ones the builder made for them. It reuses them by their exact id, so there's
+  one `gmail.send_email`, not `email_marketing.send` and `email_dev.send`
+  beside it, unless a different system or different safety limits are a real
+  reason.
 - **The catalogue** (`apps/server/src/catalog.ts`): common integrations (email,
   calendar, Slack, LinkedIn, accounting, GitHub, docs, CMS, web), each tool with
   a default tier. Most of the tools your existing agents use are in it too.
 - **The fleet baseline**: plumbing every agent gets (tasks, requests, memory,
   its DM channel, booking its own follow-up run). The builder never needs to
   pick these.
-- **New tools**, which the builder defines when nothing in the catalogue does
-  the job. Each one gets a name, a description, an input schema, a tier and a
+- **New tools**, which the builder defines when nothing in the fleet or the
+  catalogue does the job. Each one gets a name, a description, an input schema, a tier and a
   note on how it works.
 
 ## The files
@@ -86,6 +130,8 @@ gitignored because it's per install.
   backstop, not the cadence: cadence is ferocity).
 - `KPI.yaml`: the actions that count as output. These are the slices of the
   card's Output pie.
+- `meta.json`: the card's details and set-up state (`ready`, `setting-up`,
+  `generic`).
 
 ## Models
 
@@ -100,4 +146,7 @@ the key into the app or a chat.
 - **What "built" means for a new tool.** For now, building a tool means writing
   its full definition into TOOLS.yaml. Generating its code waits for the agent
   runtime, which doesn't exist yet.
-- **Adding a pack.** What the pack card's Add button does isn't designed yet.
+- **Editing the organisation profile.** It's filled in once by the chat and
+  added to by the builder; editing it directly belongs in the settings page.
+- **Reused tools' definitions** live with the agent that first defined them. If
+  that agent is deleted, the definition should move to one that still uses it.

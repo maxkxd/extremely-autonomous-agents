@@ -7,13 +7,14 @@ import { useElasticScroll } from './useElasticScroll';
 import { AgentDM, stamp, type StampedEntry } from './AgentDM';
 import { NewAgent } from './NewAgent';
 import { AgentReveal } from './AgentReveal';
-import { NEW_SESSION, deleteAgentFiles, saveAgent, type BuilderSession, type Built } from './builder';
+import { NEW_SESSION, agentStatuses, deleteAgentFiles, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
 import { DM_HISTORY } from './dms';
 import { subscribeToDecisions } from './live';
 import {
   AGENTS,
   addAgent,
   removeAgent,
+  updateAgent,
   APPROVALS,
   DECIDED_EARLIER_TODAY,
   REQUESTS,
@@ -161,9 +162,15 @@ export function App() {
   // PLACEHOLDER: your message wakes the agent; a run later posts its reply in
   // the same channel. Simulated until real agents exist.
   const sendDm = (agentId: string, text: string) => {
-    const name = AGENTS.find(a => a.id === agentId)!.name;
     setDms(prev => ({ ...prev, [agentId]: [...(prev[agentId] ?? []), stamp({ kind: 'you', minutesAgo: 0, text }, Date.now())] }));
     setDmRunning(prev => ({ ...prev, [agentId]: true }));
+    // Still being set up: it answers once it's ready (see the set-up poll below).
+    if (AGENTS.find(a => a.id === agentId)?.settingUp) heldDms.current.add(agentId);
+    else answerDm(agentId);
+  };
+  const heldDms = useRef(new Set<string>());
+  const answerDm = (agentId: string) => {
+    const name = AGENTS.find(a => a.id === agentId)?.name ?? 'This agent';
     window.setTimeout(() => {
       const reply = stamp(
         {
@@ -196,7 +203,7 @@ export function App() {
   const acceptReveal = async () => {
     if (!reveal) return;
     try {
-      await Promise.all(reveal.built.map(b => saveAgent(b.files)));
+      await Promise.all(reveal.built.map(b => saveAgent(b)));
     } catch (e) {
       setReveal({ ...reveal, error: (e as Error).message });
       return;
@@ -218,6 +225,35 @@ export function App() {
     const t = window.setTimeout(() => setArrivingIds([]), 1000);
     return () => window.clearTimeout(t);
   }, [arrivingIds, view]);
+
+  // Pack agents are customized on the server after they're added. While any
+  // is still setting up, check every few seconds; when one is ready its card
+  // picks up its final details and any DM sent meanwhile gets answered.
+  const [, setAgentsTick] = useState(0);
+  const anySettingUp = AGENTS.some(a => a.settingUp);
+  useEffect(() => {
+    if (!anySettingUp) return;
+    const check = async () => {
+      let statuses;
+      try {
+        statuses = await agentStatuses();
+      } catch {
+        return; // server down: try again next tick
+      }
+      let changed = false;
+      for (const a of AGENTS) {
+        const s = statuses[a.id];
+        if (!a.settingUp || !s || s.status === 'setting-up') continue;
+        updateAgent(a.id, { settingUp: false, output: outputSlices(s.output) });
+        changed = true;
+        if (heldDms.current.delete(a.id)) answerDm(a.id);
+      }
+      if (changed) setAgentsTick(t => t + 1);
+    };
+    check();
+    const id = window.setInterval(check, 3000);
+    return () => window.clearInterval(id);
+  }, [anySettingUp]);
   const [width, setWidth] = useState(() => clamp(readStored(WIDTH_KEY, DEFAULT_WIDTH)));
   const [shut, setShut] = useState(() => readStored(SHUT_KEY, false));
 

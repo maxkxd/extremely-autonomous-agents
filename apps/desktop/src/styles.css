@@ -1283,3 +1283,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .confirm-delete { background: #c94a4e; color: #fff; }
 .confirm-delete:hover:not(:disabled) { background: #d85357; }
 .confirm-delete:disabled { background: #3a2a2b; color: #8a6a6b; cursor: default; }
+
+/* A pack agent being tailored to the organisation: it can't be run or tuned yet. */
+.state-pill.setting-up { background: transparent; border: 1px solid var(--border-strong); color: var(--muted); animation: soft-pulse 1.6s ease-in-out infinite; }
+.agent-card.setting-up .controls, .agent-card.setting-up .tuning { opacity: 0.45; pointer-events: none; }

@@ -22,6 +22,9 @@ export type Agent = {
   // Approval outcomes per month (scaled to the time frame like the other stats).
   decisions: Decisions;
   ferocity: number; // index into FEROCITY
+  // A pack agent still being customized for the organisation: it isn't run,
+  // and DMs to it wait, until this clears.
+  settingUp?: boolean;
 };
 
 export type Decisions = { approved: number; rejected: number; expired: number };
@@ -212,6 +215,18 @@ const loadDeleted = (): string[] => {
 for (const id of loadDeleted()) {
   const i = AGENTS.findIndex(a => a.id === id);
   if (i >= 0) AGENTS.splice(i, 1);
+}
+
+// Update a created agent (e.g. when its set-up finishes), here and in storage.
+export function updateAgent(id: string, patch: Partial<Agent>) {
+  const a = AGENTS.find(x => x.id === id);
+  if (!a) return;
+  Object.assign(a, patch);
+  try {
+    localStorage.setItem(CREATED_KEY, JSON.stringify(loadCreated().map(x => (x.id === id ? { ...x, ...patch } : x))));
+  } catch {
+    // Storage unavailable - it re-syncs from the server next time.
+  }
 }
 
 export function removeAgent(id: string) {

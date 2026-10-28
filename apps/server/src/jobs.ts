@@ -1,0 +1,76 @@
+import { readFile } from 'node:fs/promises';
+import { customize, type Build } from './builder.js';
+import { scanFleet } from './fleet.js';
+import { compose, kpiLabels, listIds, readMeta, save, writeMeta } from './files.js';
+import { loadProfile } from './org.js';
+
+// Setting up pack agents (docs/agent-creation.md). Adding a pack saves each
+// agent's generic files at once, so it exists and is valid straight away; this
+// then rewrites them for the organisation and fleet in the background. The
+// server owns the work - it carries on if the app closes, and resumes after a
+// restart. An agent is not run until its set-up has finished.
+
+const PACKS = new URL('../packs/', import.meta.url);
+const MAX_ATTEMPTS = 3;
+const CONCURRENCY = 3;
+
+const queue: string[] = [];
+const active = new Set<string>();
+
+export async function packTemplate(packId: string, index: number): Promise<{ build: Build; packName: string }> {
+  if (!/^[a-z0-9-]+$/.test(packId)) throw new Error('Unknown pack');
+  const builds = JSON.parse(await readFile(new URL(`${packId}.json`, PACKS), 'utf8')) as Build[];
+  return { build: builds[index], packName: packId.charAt(0).toUpperCase() + packId.slice(1) };
+}
+
+export function enqueue(id: string) {
+  if (active.has(id) || queue.includes(id)) return;
+  queue.push(id);
+  pump();
+}
+
+function pump() {
+  while (active.size < CONCURRENCY && queue.length) {
+    const id = queue.shift()!;
+    active.add(id);
+    run(id).finally(() => {
+      active.delete(id);
+      pump();
+    });
+  }
+}
+
+async function run(id: string) {
+  const meta = await readMeta(id);
+  if (!meta || meta.status !== 'setting-up' || !meta.setup) return;
+  const { packId, index, org } = meta.setup;
+  try {
+    const { build, packName } = await packTemplate(packId, index);
+    // Every other agent counts, including packmates still being set up, so
+    // they all converge on the same tool ids.
+    const fleet = await scanFleet(id);
+    const profile = await loadProfile(org);
+    const custom = await customize({ profile, fleet }, build, packName);
+    const files = compose(custom, id, new Set(fleet.tools.map(t => t.id)));
+    // Deleted while it was being set up: don't bring it back.
+    if (!(await readMeta(id))) return;
+    await save(files, { name: files.name, department: files.department, output: kpiLabels(files.kpi), status: 'ready' });
+    console.log(`set up ${id}`);
+  } catch (e) {
+    const attempts = meta.setup.attempts + 1;
+    console.error(`setting up ${id} failed (attempt ${attempts}):`, (e as Error).message);
+    if (!(await readMeta(id))) return;
+    if (attempts >= MAX_ATTEMPTS) {
+      // Give up and keep the generic files: the agent still works, just not tailored.
+      await writeMeta(id, { ...meta, status: 'generic', setup: { ...meta.setup, attempts } });
+    } else {
+      await writeMeta(id, { ...meta, setup: { ...meta.setup, attempts } });
+      setTimeout(() => enqueue(id), 5000 * attempts);
+    }
+  }
+}
+
+// On boot: pick up anything a restart interrupted.
+export async function resume() {
+  for (const id of await listIds()) if ((await readMeta(id))?.status === 'setting-up') enqueue(id);
+}

@@ -82,7 +82,8 @@ Below is a reference: the real Charter and TOOLS.yaml of the closest agent in a 
 ${await reference(a.name)}
 
 Use the catalogue's tools wherever they fit. Anything that reaches people outside the organisation, spends money or can't be undone waits for approval, unless a narrower tool can make a specific case safe. Where a business's choice matters (e.g. which email or accounting system), the catalogue's servers already cover the common products.`;
-      const b = await build([{ role: 'person', text: brief }]);
+      // Generic on purpose: no organisation, no fleet. They're customized when added.
+      const b = await build({ profile: null, fleet: { agents: [], tools: [] } }, [{ role: 'person', text: brief }]);
       return { ...b, name: a.name, department: a.department as Build['department'] };
     },
   })),
