@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Globe, Plus } from 'lucide-react';
 import { SpinButton } from './ModelConnectors';
 import {
@@ -187,6 +187,7 @@ function SignInRow({ i, refresh, open, setOpen }: RowProps) {
   const [clientSecret, setClientSecret] = useState('');
   const [busy, setBusy] = useState(false);
   const [waiting, setWaiting] = useState<number | null>(null); // when the sign-in window opened
+  const popup = useRef<Window | null>(null);
   const [error, setError] = useState<string | null>(null);
   // While its window is open, look often; it's done once a test newer than the start lands.
   useEffect(() => {
@@ -199,10 +200,17 @@ function SignInRow({ i, refresh, open, setOpen }: RowProps) {
       }
       return;
     }
-    const t = window.setTimeout(refresh, 1500);
+    // The window closes itself after landing; closed with no new test means it
+    // was cancelled or the service refused it - stop waiting (one last look first).
+    let closedAt: number | null = null;
+    const t = window.setInterval(() => {
+      refresh();
+      if (popup.current?.closed) closedAt ??= Date.now();
+      if (closedAt && Date.now() - closedAt > 4000) setWaiting(null);
+    }, 1500);
     const give = window.setTimeout(() => setWaiting(null), 5 * 60_000);
     return () => {
-      window.clearTimeout(t);
+      window.clearInterval(t);
       window.clearTimeout(give);
     };
   }, [waiting, i.test?.at]);
@@ -211,7 +219,7 @@ function SignInRow({ i, refresh, open, setOpen }: RowProps) {
     setError(null);
     try {
       const { url } = await startIntegrationSignIn(i.id, { clientId: clientId.trim() || undefined, clientSecret: clientSecret.trim() || undefined });
-      window.open(url, '_blank', 'popup,width=520,height=720');
+      popup.current = window.open(url, '_blank', 'popup,width=520,height=720');
       setWaiting(Date.now());
       setClientId('');
       setClientSecret('');
@@ -289,15 +297,19 @@ function SignInRow({ i, refresh, open, setOpen }: RowProps) {
                 className="srow2-input mwide"
                 autoFocus
                 autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
                 spellCheck={false}
                 value={clientId}
                 placeholder={signIn.hasClient ? 'New OAuth client ID' : 'OAuth client ID'}
                 onChange={e => setClientId(e.target.value)}
               />
+              {/* Masked text, not a password field: browsers would offer to save the client as a login. */}
               <input
-                className="srow2-input mwide"
-                type="password"
+                className="srow2-input mwide masked"
                 autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
                 spellCheck={false}
                 value={clientSecret}
                 placeholder="Client secret"

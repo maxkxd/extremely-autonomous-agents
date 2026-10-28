@@ -7,14 +7,15 @@ import type { OAuthDef } from './schema.js';
 // Signing in to an integration with OAuth 2 (authorization code + PKCE), for
 // any definition with `auth: oauth2` - shipped ones (Gmail) and ones the Fleet
 // Engineer writes. The person brings their own OAuth client; the sign-in runs
-// in their browser and lands back on this server, on 127.0.0.1 (a loopback
-// address, which desktop OAuth clients accept on any port).
+// in their browser and lands back on this server at http://127.0.0.1:<port>,
+// exactly that - no path: Google's desktop clients match the loopback address
+// exactly and document it without one. The server's root takes the landing.
 //
 // The token endpoint comes from a definition someone may have written, so it
 // goes through the safe fetcher like every other call agents can cause.
 
 const PORT = Number(process.env.PORT ?? 5175);
-export const OAUTH_REDIRECT = `http://127.0.0.1:${PORT}/api/integrations/oauth/callback`;
+export const OAUTH_REDIRECT = `http://127.0.0.1:${PORT}`;
 
 export type OAuthSecret = {
   clientId: string;
