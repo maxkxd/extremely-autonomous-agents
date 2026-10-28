@@ -21,7 +21,7 @@ masked hint (`sk-ant…fgAA`) and a model count. `data/` is gitignored.
 |---|---|---|
 | **Claude** (Pro/Max) | The person's own **Claude Code**, signed in through Anthropic's own flow | Allowed. Anthropic does **not** allow apps to offer Claude.ai login, route requests through Free/Pro/Max credentials, or collect/store Claude credentials or session tokens. It does allow an end user to sign in to the **unmodified** Claude Code binary with their own plan, including where a product runs Claude Code - so that's the route. This app only reads `claude auth status` (signed in or not; an API key in the environment doesn't count). Plan limits assume ordinary individual use, so a busy fleet can hit them. Running Claude Code inside a product requires the Commercial Terms and these conditions: binary unmodified, each user authenticates themselves, no reselling/intermediating usage. [Anthropic: Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance) |
 | **ChatGPT** (Go/Plus/Pro) | **Sign in with ChatGPT** (OAuth + PKCE, dynamic client registration, Responses API on the plan) | Official since DevDay 2026. Self-serve for open-source and locally hosted apps; **a paid or remotely hosted app needs OpenAI's approval via their interest form before it ships**. Users set per-app weekly caps at chatgpt.com/settings/usage. Implemented from the documented protocol - OpenAI's devkit is noncommercial-licensed, so it isn't used. [OpenAI: Sign in with ChatGPT](https://developers.openai.com/siwc) |
-| **GitHub Copilot** (Pro/Pro+/Business/Enterprise) | GitHub OAuth App device sign-in, then the official **Copilot SDK** (MIT) | Official (Copilot SDK GA June 2026). Usage bills to each user's own Copilot plan; models include Claude, GPT and Gemini. [GitHub: Copilot SDK OAuth setup](https://docs.github.com/en/copilot/how-tos/copilot-sdk/setup/github-oauth) |
+| **GitHub Copilot** (Pro/Pro+/Business/Enterprise, and the free student plan) | GitHub OAuth App device sign-in, then the official **Copilot SDK** (MIT) | Official (Copilot SDK GA June 2026). Usage bills to each user's own Copilot plan; models include Claude, GPT and Gemini. With an app sign-in, `listModels()` can come back empty while prompts work (Copilot picks the model) - tested on a student plan. [GitHub: Copilot SDK OAuth setup](https://docs.github.com/en/copilot/how-tos/copilot-sdk/setup/github-oauth) |
 | Google Gemini (AI Pro/Ultra) | - | **Not allowed.** Google prohibits third-party use of Gemini CLI's login and has suspended accounts for it; the consumer Pro/Ultra path is deprecated. Use an AI Studio key. |
 | xAI (SuperGrok) | - | **Not yet.** A few partners accept SuperGrok sign-in, but there's no open developer program; tools that do it reuse the Grok CLI's client ID. Use an API key. |
 | GLM / Kimi / MiniMax / Qwen coding plans | - | Not offered: their plan keys are generally limited to coding tools. |
@@ -52,9 +52,13 @@ Copilot sign-in needs a GitHub OAuth App registered for this product:
    `GITHUB_OAUTH_CLIENT_ID=...` and restart the server. No client secret is
    needed for device sign-in.
 
-## Before selling the product
+## Before launching the paid hosted plan
 
-- **OpenAI**: submit the Sign in with ChatGPT interest form for a paid app.
+The product is open-source and self-hosted, with a paid hosted plan (the
+Snipe-IT model). The self-hosted version is "open-source and locally hosted",
+which is OpenAI's self-serve case. Only the hosted plan needs more:
+
+- **OpenAI**: submit the Sign in with ChatGPT interest form for the hosted (paid) offering.
 - **Anthropic**: running Claude Code in a product is under the Commercial
   Terms; for anything beyond the conditions above, contact Anthropic sales.
 
