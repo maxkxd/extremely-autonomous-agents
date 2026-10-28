@@ -5,7 +5,8 @@ import { DEPARTMENT_ICON } from './Sidebar';
 import { useDismiss } from './useDismiss';
 
 export type ApprovalScope = 'mine' | 'all';
-export type Resolution = 'approved' | 'rejected';
+// 'expired' = nobody answered in time; like a rejection, the action does not happen.
+export type Resolution = 'approved' | 'rejected' | 'expired';
 
 const agentOf = (a: Approval) => AGENTS.find(x => x.id === a.agentId)!;
 
@@ -14,13 +15,18 @@ const loadedAt = Date.now();
 const deadlineOf = (a: Approval) => loadedAt + a.expiresInHours * 3_600_000;
 
 // Live countdown to an approval's expiry, e.g. 3:59:41 (or 4:07 under an hour).
-function Countdown({ deadline }: { deadline: number }) {
+function Countdown({ deadline, onExpire }: { deadline: number; onExpire: () => void }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
   const total = Math.max(0, Math.floor((deadline - now) / 1000));
+  const expired = total === 0;
+  useEffect(() => {
+    if (expired) onExpire();
+    // onExpire changes identity every render; firing on the edge is what matters.
+  }, [expired]);
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const sec = String(total % 60).padStart(2, '0');
@@ -167,6 +173,7 @@ function ApprovalCard({
   // (EXIT_MS, CSS keyframes). Then the empty slot closes (COLLAPSE_MS) so the
   // cards below glide up, and only then is the result handed up.
   const resolve = (r: Resolution) => {
+    if (leaving) return; // already on its way out (e.g. expired while rejecting)
     setRejecting(false);
     setLeaving(r);
     setTimeout(() => setCollapsing(true), EXIT_MS);
@@ -222,7 +229,8 @@ function ApprovalCard({
             </div>
             <span className="approval-expiry" title="Time left to respond - if it runs out, the action does not happen">
               <Clock size={12} strokeWidth={1.75} />
-              <Countdown deadline={deadlineOf(approval)} />
+              {/* Running out plays the reject exit; the action does not happen. */}
+              <Countdown deadline={deadlineOf(approval)} onExpire={() => resolve('expired')} />
             </span>
           </footer>
 
