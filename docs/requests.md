@@ -96,8 +96,10 @@ Engineer**.
     reply is the steps that would unblock it (buy this, create that key, tell
     me which file is current) and what it will do once they're done. Secrets
     (API keys, passwords) never go in the conversation - they go in settings.
-  - **Send to your AI IDE** (Claude Code, Cursor, Antigravity, Codex...) -
-    *not built yet*. Finds the IDE you use, opens it and places a prompt in it.
+  - **Send to your AI IDE** - one button named and branded for the IDE you
+    use ("Send to Claude Code" with Claude's logo, Cursor's for Cursor...).
+    Which IDE is a setting in the config menu (for now `YOUR_IDE` in
+    `Requests.tsx`). *Not built yet*. Finds the IDE you use, opens it and places a prompt in it.
     Needs a proper connector, and the IDE needs this system's MCP so it can read
     requests and create tools directly. The point is off-platform work the
     agency can't do itself (e.g. changing settings on your computer).

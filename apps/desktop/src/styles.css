@@ -745,12 +745,9 @@ ul { list-style: none; margin: 0; padding: 0; }
 .rq-btn.engineer:hover:not(:disabled) { background: var(--attention); filter: brightness(1.12); }
 .rq-btn.engineer:disabled { opacity: 0.85; }
 
-.ide-group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.ide-label { font-size: 12px; color: #5f5f5f; margin-right: 2px; }
-.rq-chip {
-  height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; color: #6f6f6f;
-  border: 1px dashed var(--border); cursor: not-allowed;
-}
+/* Send to your AI IDE: one button, named and branded for the IDE you use. */
+.rq-btn.ide:disabled { opacity: 1; color: #8a8a8a; border-style: dashed; cursor: not-allowed; }
+.rq-btn.ide svg { flex-shrink: 0; }
 
 .ap-btn.confirm-diy { background: #3fb27f; border-color: #3fb27f; color: #0f1a14; }
 .ap-btn.confirm-diy:hover { filter: brightness(1.1); }

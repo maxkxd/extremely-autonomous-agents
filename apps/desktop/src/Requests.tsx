@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, Hammer, Hand, Loader2, SendHorizontal, User, X } from 'lucide-react';
+import { Check, ChevronRight, Code2, Hammer, Hand, Loader2, SendHorizontal, User, X } from 'lucide-react';
+import { siClaude, siCursor, type SimpleIcon } from 'simple-icons';
 import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { visibleApprovals, type ApprovalScope, type Resolution } from './Approvals';
@@ -10,7 +11,27 @@ export type RequestResolution = 'diy' | 'rejected' | 'engineered';
 
 // AI IDEs a request can be handed to. Not built yet: needs a connector that
 // finds and opens the IDE, and this system's MCP inside it (docs/requests.md).
-const IDES = ['Claude Code', 'Cursor', 'Antigravity', 'Codex'];
+// Logos are Simple Icons where they exist; Codex and Antigravity aren't in
+// that set, so they show a generic code icon until their logos are added.
+const AI_IDES = {
+  'claude-code': { name: 'Claude Code', logo: siClaude },
+  cursor: { name: 'Cursor', logo: siCursor },
+  codex: { name: 'Codex', logo: null },
+  antigravity: { name: 'Antigravity', logo: null },
+} satisfies Record<string, { name: string; logo: SimpleIcon | null }>;
+
+// PLACEHOLDER: which AI IDE you use. Becomes a setting in the config menu;
+// the button's name and logo follow it.
+const YOUR_IDE: keyof typeof AI_IDES = 'claude-code';
+
+function IdeLogo({ logo }: { logo: SimpleIcon | null }) {
+  if (!logo) return <Code2 size={15} strokeWidth={1.9} />;
+  return (
+    <svg viewBox="0 0 24 24" width={15} height={15} role="img" aria-hidden fill={`#${logo.hex}`}>
+      <path d={logo.path} />
+    </svg>
+  );
+}
 
 // PLACEHOLDER timings for the simulated Fleet Engineer.
 const ENGINEER_MS = 2200; // thinking before each reply
@@ -283,14 +304,15 @@ function RequestRow({
                   </button>
                 )}
 
-                <div className="ide-group" title="Coming soon - needs the IDE connector">
-                  <span className="ide-label">Send to your AI IDE</span>
-                  {IDES.map(ide => (
-                    <button key={ide} className="rq-chip" disabled>
-                      {ide}
-                    </button>
-                  ))}
-                </div>
+                {/* Opens your AI IDE with this request as a prompt - not built yet. */}
+                <button
+                  className="rq-btn ide"
+                  disabled
+                  title={`Coming soon - opens ${AI_IDES[YOUR_IDE].name} with this request (needs the IDE connector)`}
+                >
+                  <IdeLogo logo={AI_IDES[YOUR_IDE].logo} />
+                  Send to {AI_IDES[YOUR_IDE].name}
+                </button>
 
                 <div className="request-own">
                   <button
