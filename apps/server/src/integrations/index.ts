@@ -203,6 +203,11 @@ export function listIntegrations() {
 
 export const integrationProblems = () => problems;
 
+// The ids of tools a connected integration provides, which a build may use.
+export function integrationToolIds(): string[] {
+  return [...providers()].filter(([, { by }]) => by.some(p => isConnected(p.integration.id))).map(([id]) => id);
+}
+
 // Tools from connected integrations, for the builder's catalogue.
 export function integrationToolsForPrompt(): string {
   const lines: string[] = [];

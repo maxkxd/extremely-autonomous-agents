@@ -5,6 +5,7 @@ import { DEPARTMENT_ICON } from './Sidebar';
 import { AI_IDES, IdeLogo, setYourIde, yourIde, type IdeId } from './Requests';
 import { useProfileChat } from './ProfileChat';
 import { ModelConnectors } from './ModelConnectors';
+import { Integrations } from './Integrations';
 import { useDismiss } from './useDismiss';
 import { ACCEPT, removePhoto, setPhoto, usePhoto } from './photo';
 import {
@@ -734,33 +735,12 @@ function CapInput({ value, onSave, label }: { value: number | null; onSave: (v: 
 // --- Connectors --------------------------------------------------------------
 
 function ConnectorsSection() {
-  const [catalog, setCatalog] = useState<{ server: string; what: string; tools: number }[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    getCatalog().then(setCatalog, e => setError((e as Error).message));
-  }, []);
   return (
     <section className="ssection">
       <h2>Connectors</h2>
       <p className="slead">Keys and sign-ins go here - never in a chat with an agent.</p>
       <ModelConnectors />
-      <div className="sgroup">
-        <h3>Integrations</h3>
-        {error && <p className="custom-error">{error}</p>}
-        <ul className="sconnectors">
-          {(catalog ?? []).map(c => (
-            <li key={c.server}>
-              <span className="sconn-name">{c.what}</span>
-              <span className="sconn-what">
-                {c.server} · {c.tools} tools
-              </span>
-              <button className="sbtn" disabled title="Coming soon">
-                Connect
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <Integrations />
     </section>
   );
 }

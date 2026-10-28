@@ -1439,6 +1439,14 @@ ul { list-style: none; margin: 0; padding: 0; }
 .sconn-name { font-size: 14px; font-weight: 600; }
 .sconn-what { grid-row: 2; font-size: 12.5px; color: var(--muted); }
 .sconnectors li > :last-child { grid-column: 2; grid-row: 1 / span 2; }
+.sconnectors li.with-form { grid-template-rows: auto auto auto; }
+.sint-form { grid-column: 1 / -1; grid-row: 3; padding: 10px 0 0; }
+.sint-actions { display: inline-flex; gap: 8px; justify-content: flex-end; }
+.sint-kind { margin-left: 8px; padding: 1px 6px; border-radius: 5px; font-size: 10.5px; font-weight: 700; color: var(--muted); border: 1px solid var(--border); vertical-align: 1px; }
+.sint-bad { color: #e2b45b; }
+.sint-auth { display: flex; gap: 18px; font-size: 13px; color: var(--muted); }
+.sint-auth label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.sconn-name svg { vertical-align: -2px; margin-right: 4px; color: var(--muted); }
 .sconn-state { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; max-width: 260px; text-align: right; }
 .sconn-state.ok { color: #7cc4a0; }
 .sconn-state.warn { color: #e2b45b; }

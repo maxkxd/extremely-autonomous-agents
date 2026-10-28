@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { integrationToolIds } from './integrations/index.js';
 import { customize, type Build } from './builder.js';
 import { scanFleet } from './fleet.js';
 import { compose, kpiLabels, listIds, readMeta, save, writeMeta } from './files.js';
@@ -53,7 +54,7 @@ async function run(id: string) {
     const fleet = await scanFleet(id);
     const ctx = { person: await loadPerson(person), profile: org ? await loadProfile(org) : null, fleet, models: await availableModels() };
     const custom = await customize(ctx, build, packName);
-    const files = compose(custom, id, new Set(fleet.tools.map(t => t.id)), ctx.models);
+    const files = compose(custom, id, new Set([...fleet.tools.map(t => t.id), ...integrationToolIds()]), ctx.models);
     // Deleted while it was being set up: don't bring it back.
     if (!(await readMeta(id))) return;
     await setChoices(id, files.models);

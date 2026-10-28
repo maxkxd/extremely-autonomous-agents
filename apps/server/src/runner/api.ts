@@ -1,7 +1,16 @@
 import type { IncomingMessage } from 'node:http';
 import { listIds, readMeta } from '../files.js';
 import { PROVIDERS } from '../models/providers.js';
+import {
+  addIntegration,
+  connectIntegration,
+  disconnectIntegration,
+  integrationProblems,
+  listIntegrations,
+  removeIntegration,
+} from '../integrations/index.js';
 import { loadAgent } from './agent.js';
+import { openProfileForSignIn, profileStatus } from './browser.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { spentToday } from './pricing.js';
@@ -153,6 +162,44 @@ export const runnerRoutes: Record<string, Route> = {
     );
     return { ok: true };
   },
+
+  // --- Integrations (docs/integrations.md) ---
+  'GET /api/integrations': async () => ({ integrations: listIntegrations(), problems: integrationProblems(), profile: profileStatus() }),
+  'POST /api/integrations/connect': async (_req, _q, body) => {
+    const { id, key } = await body<{ id: string; key?: string }>();
+    return connectIntegration(id, key);
+  },
+  'POST /api/integrations/disconnect': async (_req, _q, body) => {
+    const { id } = await body<{ id: string }>();
+    await disconnectIntegration(id);
+    return { ok: true };
+  },
+  // A person adds a remote MCP server by its address (or a full definition).
+  'POST /api/integrations/add': async (_req, _q, body) => {
+    const b = await body<{ definition?: unknown; name?: string; url?: string; auth?: 'none' | 'bearer' | 'header'; header?: string; key?: string }>();
+    const name = b.name?.trim() || (b.url ? new URL(b.url).hostname.replace(/^www\.|^mcp\./, '') : '');
+    const def =
+      b.definition ??
+      ({
+        kind: 'mcp',
+        id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'mcp',
+        name,
+        what: `MCP server at ${b.url ? new URL(b.url).host : ''}`,
+        url: b.url,
+        auth: b.auth === 'bearer' ? { type: 'bearer' } : b.auth === 'header' ? { type: 'api_key', header: b.header || 'x-api-key' } : { type: 'none' },
+      } as const);
+    const integration = await addIntegration(def);
+    // Connect straight away, so its tools are discovered.
+    const result = await connectIntegration(integration.id, b.key).catch(e => ({ ok: false, message: (e as Error).message }));
+    return { id: integration.id, ...result };
+  },
+  'POST /api/integrations/remove': async (_req, _q, body) => {
+    const { id } = await body<{ id: string }>();
+    await removeIntegration(id);
+    return { ok: true };
+  },
+  // Opens the agents' signed-in browser profile so the person can sign in.
+  'POST /api/browser/sign-in': async () => openProfileForSignIn(),
 
   // --- Spend caps (Settings -> Usage) ---
   'GET /api/usage': async () => {
