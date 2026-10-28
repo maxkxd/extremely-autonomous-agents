@@ -40,7 +40,7 @@ registerTools([
 ]);
 
 const woken: { agent: string; task: string }[] = [];
-const wake = (agentId: string, _t: 'approval', task: string) => void woken.push({ agent: agentId, task });
+const wake = (agentId: string, _t: string, task: string) => void woken.push({ agent: agentId, task });
 
 async function queue(now = Date.now()) {
   exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES ('r1', ?, 'scheduled', 0, 'running', ?)", agent.id, now);

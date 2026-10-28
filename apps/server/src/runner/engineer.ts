@@ -143,11 +143,15 @@ const openRequest = (raw: unknown): RequestRow => {
 };
 
 // An agent's tools that nothing provides yet, with what its builder wrote for them.
-async function missingTools(agentId: string): Promise<string> {
+async function stillMissing(agentId: string) {
   const agent = await loadAgent(agentId);
-  if (!agent) return '';
+  if (!agent) return { agent: null, missing: [] };
   const live = new Set((await listIntegrations()).filter(i => i.connected && !i.draft).flatMap(i => i.tools.map(t => t.id)));
-  const missing = agent.newTools.filter(t => !live.has(t.id));
+  return { agent, missing: agent.newTools.filter(t => !live.has(t.id)) };
+}
+async function missingTools(agentId: string): Promise<string> {
+  const { agent, missing } = await stillMissing(agentId);
+  if (!agent) return '';
   return missing.length
     ? `\n  Tools it expects that nothing provides yet:\n${missing.map(t => `  - ${t.id} [${agent.tiers[t.id] ?? 'T1'}]: ${t.description}\n    input: ${JSON.stringify(t.input_schema)}`).join('\n')}`
     : '';
@@ -366,16 +370,27 @@ const TOOLS: ToolDef[] = [
         code_hash: p.codeHash,
       };
     },
-    impl: async a => {
+    impl: async (a, ctx) => {
       const r = openRequest(a.request_id);
       const agentId = String(a.for_agent);
       const out = await publishIntegration(String(a.integration_id), (a.code_hash as string | null) ?? null);
       const wanted = ((a.tools as { id: string; tier: Tier }[]) ?? []).filter(t => out.tools.some(x => x.id === t.id));
-      await giveTools(agentId, wanted.length ? wanted : out.tools);
+      const given = wanted.length ? wanted : out.tools;
+      await giveTools(agentId, given);
       const tested = out.test ? ` Its test as it went live: ${out.test}` : '';
-      const answer = `${String(a.summary)}\n\nYou now have: ${(wanted.length ? wanted : out.tools).map(t => t.id).join(', ')}.`;
+      const ids = given.map(t => t.id).join(', ');
+      postToRequest(r.id, 'engineer', `${String(a.name ?? a.integration_id)} is live and given to ${await nameOf(agentId)}: ${ids}.${tested}`);
+      // The request closes only once nothing the agent needs is missing; otherwise
+      // it goes back to the engineer for the rest.
+      const { missing } = await stillMissing(agentId);
+      if (missing.length) {
+        setStage(r.id, 'engineer');
+        const rest = missing.map(t => t.id).join(', ');
+        ctx.wake(FLEET_ENGINEER, 'request', `${ids} went live for ${agentId}. Request #${r.id} still needs: ${rest}.`);
+        return `Live: ${String(a.name ?? a.integration_id)} for ${agentId}.${tested} Request #${r.id} stays open for: ${rest}.`;
+      }
+      const answer = `${String(a.summary)}\n\nYou now have: ${ids}.`;
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
-      postToRequest(r.id, 'engineer', `Live and given to ${await nameOf(agentId)}.${tested}`);
       return `Live: ${String(a.name ?? a.integration_id)} for ${agentId}.${tested}`;
     },
   },
