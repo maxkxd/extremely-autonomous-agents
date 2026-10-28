@@ -70,3 +70,17 @@ which is OpenAI's self-serve case. Only the hosted plan needs more:
   `scripts/chatgpt-test.ts`); Claude Code runs via the `claude` CLI, not
   the Agent SDK with plan credentials.
 - Amazon Bedrock and Google Vertex need cloud credentials rather than a key.
+
+## Running an agent on Claude Code (for the runtime)
+
+Tested on a Claude plan (`scripts/claude-code-test.ts`). Without isolation,
+`claude -p` loads the person's own setup - their claude.ai connectors, plugins,
+hooks and skills - and answers as their assistant. An agent must only ever
+have its own tools, so every agent run is isolated:
+
+    claude -p <task> --output-format json       --setting-sources "" --strict-mcp-config --mcp-config <the agent's servers>       --tools "" --disable-slash-commands --system-prompt <the agent's Charter>
+
+run in its own empty working folder, with `ANTHROPIC_API_KEY` /
+`ANTHROPIC_AUTH_TOKEN` removed from its environment so it uses the Claude
+account. Asked to list its tools, an isolated session answers "none". Don't use
+`--bare`: it isolates too, but refuses the Claude account login.
