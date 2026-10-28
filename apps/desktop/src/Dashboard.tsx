@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { CircleCheckBig, GripVertical, Inbox, Pause, Play, Square, User } from 'lucide-react';
+import { CircleCheckBig, GripVertical, Pause, Play, Square, User, Wrench } from 'lucide-react';
 import { FlashCount } from './FlashCount';
 import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
@@ -266,7 +266,7 @@ function AgentCard({
                 title={`${openRequests} open request${openRequests === 1 ? '' : 's'}`}
                 onClick={() => onNavigate('requests')}
               >
-                <Inbox size={14} strokeWidth={1.75} />
+                <Wrench size={14} strokeWidth={1.75} />
                 {openRequests}
               </a>
               <a

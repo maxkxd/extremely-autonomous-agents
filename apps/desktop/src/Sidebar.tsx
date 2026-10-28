@@ -6,7 +6,7 @@ import {
   Check,
   LayoutDashboard,
   CircleCheckBig,
-  Inbox,
+  Wrench,
   Plus,
   Code,
   Megaphone,
@@ -35,7 +35,7 @@ export const DEPARTMENT_ICON: Record<Department, typeof Code> = {
 const NAV: { view: View; label: string; Icon: typeof LayoutDashboard; badge?: number }[] = [
   { view: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { view: 'approvals', label: 'Approvals', Icon: CircleCheckBig }, // badge comes from live pending approvals
-  { view: 'requests', label: 'Requests', Icon: Inbox }, // badge comes from live pending requests
+  { view: 'requests', label: 'Requests', Icon: Wrench }, // badge comes from live pending requests
 ];
 
 function Avatar({ label, size = 28 }: { label: string; size?: number }) {

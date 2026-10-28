@@ -796,3 +796,58 @@ ul { list-style: none; margin: 0; padding: 0; }
 /* Request waiting on the Fleet Engineer's build approval */
 .request-status.approval { color: #f2c46d; background: rgba(242, 196, 109, 0.12); }
 .rq-btn.open-approvals { align-self: flex-start; }
+
+/* ---- Sidebar nav: each icon plays a little animation when it becomes selected.
+   (A CSS animation starts when its selector starts matching, so .active does it.) */
+.nav-square svg rect, .nav-square svg path { transform-box: fill-box; transform-origin: center; }
+
+/* Dashboard: the four tiles stretch and squash in turn. */
+.nav-square.active .lucide-layout-dashboard rect { animation: tile-squash-v 0.75s cubic-bezier(0.3, 0.7, 0.4, 1) both; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(even) { animation-name: tile-squash-h; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(2) { animation-delay: 0.06s; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(3) { animation-delay: 0.12s; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(4) { animation-delay: 0.18s; }
+@keyframes tile-squash-v {
+  0%, 100% { transform: none; }
+  30% { transform: scale(0.72, 1.3); }
+  55% { transform: scale(1.15, 0.86); }
+  78% { transform: scale(0.96, 1.04); }
+}
+@keyframes tile-squash-h {
+  0%, 100% { transform: none; }
+  30% { transform: scale(1.3, 0.72); }
+  55% { transform: scale(0.86, 1.15); }
+  78% { transform: scale(1.04, 0.96); }
+}
+
+/* Approvals: the tick wipes away and redraws itself, with a little pop. */
+.nav-square.active .lucide-circle-check-big path:nth-child(2) {
+  stroke-dasharray: 26;
+  animation: retick 0.7s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.nav-square.active .lucide-circle-check-big path:nth-child(1) { animation: tick-ring 0.7s ease-out both; }
+@keyframes retick {
+  0% { stroke-dashoffset: 0; }
+  28% { stroke-dashoffset: -26; }
+  29% { stroke-dashoffset: 26; }
+  100% { stroke-dashoffset: 0; }
+}
+@keyframes tick-ring {
+  0%, 40% { transform: none; }
+  70% { transform: scale(1.1); }
+  100% { transform: none; }
+}
+
+/* Requests: the wrench twists like tightening a bolt, then settles. */
+.nav-square.active .lucide-wrench { transform-origin: 72% 28%; animation: wrench-twist 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) both; }
+@keyframes wrench-twist {
+  0%, 100% { transform: none; }
+  25% { transform: rotate(-42deg); }
+  50% { transform: rotate(14deg); }
+  72% { transform: rotate(-6deg); }
+  88% { transform: rotate(2deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-square.active svg, .nav-square.active svg rect, .nav-square.active svg path { animation: none !important; }
+}
