@@ -235,7 +235,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .ctl-btn.stop:hover { background: #ffffff; }
 /* --fx is the card accent: blue, or red at Apocalyptic (even when stopped). */
 .ctl-btn.resume { background: var(--fx); border-color: var(--fx); color: var(--attention-text); transition: background-color var(--tx), border-color var(--tx); }
-.ctl-btn.resume:hover { filter: brightness(1.12); }
+.ctl-btn.resume:hover:not(:disabled) { background: var(--fx); filter: brightness(1.12); }
 
 /* Open requests / approvals: tiny icon + number beside the agent name. */
 .head-counts { display: flex; align-items: center; gap: 12px; margin-left: 10px; }

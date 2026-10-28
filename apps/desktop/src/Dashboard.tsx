@@ -253,6 +253,7 @@ function AgentCard({
             reads in a dark UI; Resume takes the attention blue. */}
         <div className="controls">
           <button
+            key={state === 'draining' ? 'drain-resume' : 'drain'}
             className={`ctl-btn${state === 'draining' ? ' resume' : ''}`}
             disabled={state === 'stopped'}
             onClick={() => setState(state === 'draining' ? 'active' : 'draining')}
@@ -261,6 +262,7 @@ function AgentCard({
             {state === 'draining' ? 'Resume' : 'Drain'}
           </button>
           <button
+            key={state === 'stopped' ? 'stop-resume' : 'stop'}
             className={`ctl-btn ${state === 'stopped' ? 'resume' : 'stop'}`}
             onClick={() => setState(state === 'stopped' ? 'active' : 'stopped')}
           >
