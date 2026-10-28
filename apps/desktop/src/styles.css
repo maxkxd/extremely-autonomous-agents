@@ -323,7 +323,22 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .agent-card:hover .drag-grip { color: var(--muted); }
 .drag-grip:hover { color: var(--text) !important; background: var(--surface-hover); }
-.card-slot { position: relative; }
+/* The slot is a size container so each card can adapt to the width it has
+   (sidebar width and window size both change it). */
+.card-slot { position: relative; container-type: inline-size; }
+
+/* Medium: not enough room for name column + two pies + side panel in one row,
+   so the name goes back above the pies. */
+@container (max-width: 1080px) {
+  .card-main { flex-direction: column; gap: 14px; }
+  .card-head { width: auto; }
+  .card-head .card-name { flex-wrap: nowrap; }
+}
+/* Narrow: the side panel drops below the pies. */
+@container (max-width: 720px) {
+  .agent-card { flex-direction: column; }
+  .card-side { width: auto; border-left: none; border-top: 1px solid var(--hairline); }
+}
 .card-slot.lifted { z-index: 3; }
 .agent-card.dragging {
   border-color: var(--border-strong);

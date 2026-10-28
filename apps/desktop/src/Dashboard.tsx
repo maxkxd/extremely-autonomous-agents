@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CircleCheckBig, GripVertical, Inbox, Pause, Play, Square, User } from 'lucide-react';
 import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
@@ -13,13 +13,30 @@ type RunState = 'active' | 'draining' | 'stopped';
 const SIZE = 220;
 const R = 82;
 const C = 2 * Math.PI * R;
-// Surface-coloured gap between slices so neighbours never touch.
+// Gap between slices, in viewBox units. Cut with a mask of straight lines so the
+// gap is the same width from the inner edge to the outer edge (a dash gap along
+// the arc is an angle, so it would be wider at the outside), and it's truly
+// see-through so the card background and glow show through it.
 const GAP = 3;
+const CUT_FROM = R - 34; // past the ring's inner edge (ring is 44 wide, 50 when hovered)
+const CUT_TO = R + 34; // past its outer edge
 
 // No legend: hovering a slice highlights it and shows its label, value and share.
 function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; format: (n: number) => string }) {
   const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
+  const maskId = `cuts${useId().replace(/:/g, '')}`;
   const total = slices.reduce((n, s) => n + s.value, 0);
+  const shown = slices.filter(x => x.value > 0).length;
+  // Slice boundaries as fractions of the circle, for the gap cuts.
+  const bounds: number[] = [];
+  if (total > 0 && shown > 1) {
+    let acc = 0;
+    for (const sl of slices) {
+      if (sl.value <= 0) continue;
+      bounds.push(acc / total);
+      acc += sl.value;
+    }
+  }
   let offset = 0;
 
   return (
@@ -33,13 +50,32 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
         role="img"
         aria-label={`${caption}: ${format(total)}`}
       >
-        <g transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}>
+        <defs>
+          <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width={SIZE} height={SIZE}>
+            <rect width={SIZE} height={SIZE} fill="white" />
+            {bounds.map(f => {
+              const a = f * 2 * Math.PI;
+              const c = SIZE / 2;
+              return (
+                <line
+                  key={f}
+                  x1={c + CUT_FROM * Math.cos(a)}
+                  y1={c + CUT_FROM * Math.sin(a)}
+                  x2={c + CUT_TO * Math.cos(a)}
+                  y2={c + CUT_TO * Math.sin(a)}
+                  stroke="black"
+                  strokeWidth={GAP}
+                />
+              );
+            })}
+          </mask>
+        </defs>
+        <g transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`} mask={`url(#${maskId})`}>
           {/* Track only for an empty chart - otherwise it would fill the slice gaps. */}
           {total <= 0 && <circle cx={SIZE / 2} cy={SIZE / 2} r={R} className="donut-track" />}
           {slices.map((s, i) => {
             if (s.value <= 0 || total <= 0) return null;
             const len = (s.value / total) * C;
-            const visible = slices.filter(x => x.value > 0).length > 1 ? Math.max(len - GAP, 0.5) : len;
             const seg = (
               <circle
                 key={s.label}
@@ -47,7 +83,7 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
                 cy={SIZE / 2}
                 r={R}
                 stroke={sliceVar(i)}
-                strokeDasharray={`${visible} ${C - visible}`}
+                strokeDasharray={`${len} ${C - len}`}
                 strokeDashoffset={-offset}
                 className={`donut-seg${hover ? (hover.i === i ? ' hot' : ' dim') : ''}`}
                 onMouseMove={e => {
