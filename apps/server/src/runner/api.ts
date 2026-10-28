@@ -7,6 +7,7 @@ import {
   disconnectIntegration,
   integrationProblems,
   listIntegrations,
+  recheckStale,
   removeIntegration,
   startIntegrationSignIn,
 } from '../integrations/index.js';
@@ -204,7 +205,7 @@ export const runnerRoutes: Record<string, Route> = {
   },
 
   // --- Integrations (docs/integrations.md) ---
-  'GET /api/integrations': async () => ({ integrations: await listIntegrations(), problems: integrationProblems(), profile: profileStatus() }),
+  'GET /api/integrations': async () => (recheckStale(), { integrations: await listIntegrations(), problems: integrationProblems(), profile: profileStatus() }),
   'POST /api/integrations/connect': async (_req, _q, body) => {
     const { id, key } = await body<{ id: string; key?: string }>();
     return connectIntegration(id, key);
