@@ -144,6 +144,9 @@ export function ApprovalsToolbar({
 
 // ---- The cards -------------------------------------------------------------
 
+const EXIT_MS = 620; // glow/tint, then fly off (matches the CSS keyframes)
+const COLLAPSE_MS = 240; // the gap closing behind it
+
 function ApprovalCard({
   approval,
   showOwner,
@@ -158,87 +161,95 @@ function ApprovalCard({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const [leaving, setLeaving] = useState<Resolution | null>(null);
+  const [collapsing, setCollapsing] = useState(false);
 
-  // Play the exit (fade + collapse), then hand the result up.
+  // Exit: approve glows green and flies right, reject turns red and flies left
+  // (EXIT_MS, CSS keyframes). Then the empty slot closes (COLLAPSE_MS) so the
+  // cards below glide up, and only then is the result handed up.
   const resolve = (r: Resolution) => {
+    setRejecting(false);
     setLeaving(r);
-    setTimeout(() => onResolve(r), 260);
+    setTimeout(() => setCollapsing(true), EXIT_MS);
+    setTimeout(() => onResolve(r), EXIT_MS + COLLAPSE_MS);
   };
 
   return (
-    <article className={`approval${leaving ? ` leaving ${leaving}` : ''}`}>
-      <div className="approval-avatar" aria-hidden>
-        <DeptIcon size={18} strokeWidth={1.75} />
-      </div>
-      <div className="approval-main">
-        <header className="approval-head">
-          <span className="approval-agent">{agent.name}</span>
-          <span className="approval-action">{approval.action}</span>
-          <span className="approval-time">{timeAgo(approval.minutesAgo)}</span>
-          {showOwner && (
-            <span className="approval-owner" title="Owner">
-              <User size={12} strokeWidth={1.75} />
-              {agent.owner}
-            </span>
-          )}
-        </header>
+    <div className={`approval-wrap${collapsing ? ' collapsing' : ''}`}>
+      <article className={`approval${leaving ? ` leaving ${leaving}` : ''}`}>
+        <div className="approval-avatar" aria-hidden>
+          <DeptIcon size={18} strokeWidth={1.75} />
+        </div>
+        <div className="approval-main">
+          <header className="approval-head">
+            <span className="approval-agent">{agent.name}</span>
+            <span className="approval-action">{approval.action}</span>
+            <span className="approval-time">{timeAgo(approval.minutesAgo)}</span>
+            {showOwner && (
+              <span className="approval-owner" title="Owner">
+                <User size={12} strokeWidth={1.75} />
+                {agent.owner}
+              </span>
+            )}
+          </header>
 
-        <dl className="approval-fields">
-          {approval.fields.map(f => (
-            <div key={f.label} className="approval-field">
-              <dt>{f.label}</dt>
-              <dd>{f.value}</dd>
+          <dl className="approval-fields">
+            {approval.fields.map(f => (
+              <div key={f.label} className="approval-field">
+                <dt>{f.label}</dt>
+                <dd>{f.value}</dd>
+              </div>
+            ))}
+          </dl>
+          {approval.body && <blockquote className="approval-body">{approval.body}</blockquote>}
+
+          <footer className="approval-foot">
+            <div className="approval-buttons">
+              <button className="ap-btn approve" onClick={() => resolve('approved')} disabled={!!leaving}>
+                <Check size={15} strokeWidth={2.25} />
+                Approve
+              </button>
+              <button
+                className={`ap-btn reject${rejecting ? ' on' : ''}`}
+                onClick={() => setRejecting(r => !r)}
+                disabled={!!leaving}
+                aria-expanded={rejecting}
+              >
+                <X size={15} strokeWidth={2.25} />
+                Reject
+              </button>
             </div>
-          ))}
-        </dl>
-        {approval.body && <blockquote className="approval-body">{approval.body}</blockquote>}
+            <span className="approval-expiry" title="Time left to respond - if it runs out, the action does not happen">
+              <Clock size={12} strokeWidth={1.75} />
+              <Countdown deadline={deadlineOf(approval)} />
+            </span>
+          </footer>
 
-        <footer className="approval-foot">
-          <div className="approval-buttons">
-            <button className="ap-btn approve" onClick={() => resolve('approved')} disabled={!!leaving}>
-              <Check size={15} strokeWidth={2.25} />
-              Approve
-            </button>
-            <button
-              className={`ap-btn reject${rejecting ? ' on' : ''}`}
-              onClick={() => setRejecting(r => !r)}
-              disabled={!!leaving}
-              aria-expanded={rejecting}
-            >
-              <X size={15} strokeWidth={2.25} />
-              Reject
-            </button>
-          </div>
-          <span className="approval-expiry" title="Time left to respond - if it runs out, the action does not happen">
-            <Clock size={12} strokeWidth={1.75} />
-            <Countdown deadline={deadlineOf(approval)} />
-          </span>
-        </footer>
-
-        {/* Reject expands out of the bottom of the card; the reason is optional. */}
-        {/* inert while closed: hidden from screen readers, keyboard and find-in-page. */}
-        <div className={`reject-drawer${rejecting ? ' open' : ''}`} {...(rejecting ? {} : { inert: '' })}>
-          <div className="reject-inner">
-            <textarea
-              className="reject-reason"
-              placeholder="Reason for rejecting, the agent will see this (optional)"
-              value={reason}
-              onChange={e => setReason(e.target.value)}
-              rows={2}
-             
-            />
-            <div className="reject-actions">
-              <button className="ap-btn ghost" onClick={() => setRejecting(false)}>
-                Cancel
-              </button>
-              <button className="ap-btn confirm-reject" onClick={() => resolve('rejected')}>
-                Reject{reason.trim() ? ' with reason' : ''}
-              </button>
+          {/* Reject expands out of the bottom of the card; the reason is optional. */}
+          {/* inert while closed: hidden from screen readers, keyboard and find-in-page. */}
+          <div className={`reject-drawer${rejecting ? ' open' : ''}`} {...(rejecting ? {} : { inert: '' })}>
+            <div className="reject-clip">
+              <div className="reject-inner">
+                <textarea
+                  className="reject-reason"
+                  placeholder="Reason for rejecting, the agent will see this (optional)"
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  rows={2}
+                />
+                <div className="reject-actions">
+                  <button className="ap-btn ghost" onClick={() => setRejecting(false)}>
+                    Cancel
+                  </button>
+                  <button className="ap-btn confirm-reject" onClick={() => resolve('rejected')}>
+                    Reject{reason.trim() ? ' with reason' : ''}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </article>
+      </article>
+    </div>
   );
 }
 
@@ -255,7 +266,7 @@ export function Approvals({
 }) {
   const shown = visibleApprovals(pending, scope)
     .filter(a => !agentFilter || a.agentId === agentFilter)
-    .sort((a, b) => a.minutesAgo - b.minutesAgo);
+    .sort((a, b) => b.minutesAgo - a.minutesAgo); // oldest first; new ones arrive at the bottom
 
   if (shown.length === 0) {
     return (

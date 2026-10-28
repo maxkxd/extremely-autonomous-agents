@@ -525,17 +525,16 @@ ul { list-style: none; margin: 0; padding: 0; }
 .agent-filter.open .chev { transform: rotate(180deg); }
 .option-count { color: var(--muted); font-variant-numeric: tabular-nums; }
 
-.approvals { display: flex; flex-direction: column; gap: 12px; padding: 24px 28px 40px; max-width: 860px; }
+/* No gap: each card's wrapper carries its own spacing so it can collapse to 0. */
+.approvals { display: flex; flex-direction: column; padding: 24px 28px 28px; max-width: 860px; overflow-x: clip; }
 .approvals-empty { flex-direction: column; gap: 10px; padding: 80px 0; }
 
 .approval {
   display: flex; gap: 14px; padding: 16px 18px 14px;
   background: var(--bg); border: 1px solid var(--hairline); border-radius: 12px;
-  transition: opacity 0.26s, transform 0.26s;
+  transition: border-color 0.15s;
 }
 .approval:hover { border-color: var(--border); }
-.approval.leaving { opacity: 0; transform: translateX(16px); }
-.approval.leaving.rejected { transform: translateX(-16px); }
 
 .approval-avatar {
   flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%;
@@ -580,11 +579,20 @@ ul { list-style: none; margin: 0; padding: 0; }
 .ap-btn.confirm-reject { background: #e6e6e6; border-color: #e6e6e6; color: #141414; }
 .ap-btn.confirm-reject:hover { background: #fff; }
 
-/* Reject drawer: grows out of the bottom of the card. */
-.reject-drawer { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.22s ease; margin-top: -10px; }
+/* Reject drawer: grows out of the bottom of the card, opening and closing.
+   Rows animate the height; the content fades and slides in with it. */
+.reject-drawer {
+  display: grid; grid-template-rows: 0fr; margin-top: -10px;
+  transition: grid-template-rows 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), margin-top 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
 .reject-drawer.open { grid-template-rows: 1fr; margin-top: 0; }
-.reject-inner { overflow: hidden; display: flex; flex-direction: column; gap: 8px; }
-.reject-drawer.open .reject-inner { padding-top: 12px; border-top: 1px solid var(--hairline); }
+.reject-clip { min-height: 0; overflow: hidden; }
+.reject-inner {
+  display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--hairline);
+  opacity: 0; transform: translateY(-6px);
+  transition: opacity 0.2s ease, transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.reject-drawer.open .reject-inner { opacity: 1; transform: none; transition-delay: 0.05s; }
 .reject-reason {
   width: 100%; resize: vertical; min-height: 56px; padding: 9px 12px; border-radius: 8px;
   font: inherit; font-size: 13.5px; color: var(--text);
@@ -593,3 +601,35 @@ ul { list-style: none; margin: 0; padding: 0; }
 .reject-reason:focus { outline: none; border-color: var(--border-strong); }
 .reject-reason::placeholder { color: #5f5f5f; }
 .reject-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ---- Approve / reject exits -------------------------------------------------
+   Each card sits in a wrapper that owns its spacing; after the card has flown
+   off, the wrapper collapses so the cards below glide up into the gap. */
+.approval-wrap {
+  display: grid; grid-template-rows: 1fr; margin-bottom: 12px;
+  transition: grid-template-rows 0.24s cubic-bezier(0.2, 0.8, 0.2, 1), margin-bottom 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.approval-wrap > .approval { min-height: 0; }
+.approval-wrap.collapsing { grid-template-rows: 0fr; margin-bottom: 0; }
+.approval-wrap.collapsing > .approval { overflow: hidden; padding-top: 0; padding-bottom: 0; border-width: 0; }
+
+.approval.leaving.approved { animation: approve-out 0.62s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
+.approval.leaving.rejected { animation: reject-out 0.62s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
+@keyframes approve-out {
+  0% { transform: none; opacity: 1; }
+  12% { border-color: #3fb27f; box-shadow: 0 0 0 1px #3fb27f, 0 0 30px rgba(63, 178, 127, 0.45); background-color: rgba(63, 178, 127, 0.06); transform: scale(1.01); }
+  42% { border-color: #3fb27f; box-shadow: 0 0 0 1px #3fb27f, 0 0 30px rgba(63, 178, 127, 0.45); background-color: rgba(63, 178, 127, 0.06); transform: none; opacity: 1; }
+  100% { border-color: #3fb27f; box-shadow: 0 0 0 1px #3fb27f, 0 0 30px rgba(63, 178, 127, 0.3); background-color: rgba(63, 178, 127, 0.06); transform: translateX(110%) rotate(1.5deg); opacity: 0; }
+}
+@keyframes reject-out {
+  0% { transform: none; opacity: 1; }
+  12% { border-color: #e5484d; box-shadow: 0 0 0 1px #e5484d, 0 0 30px rgba(229, 72, 77, 0.4); background-color: rgba(229, 72, 77, 0.08); transform: scale(0.99); }
+  42% { border-color: #e5484d; box-shadow: 0 0 0 1px #e5484d, 0 0 30px rgba(229, 72, 77, 0.4); background-color: rgba(229, 72, 77, 0.08); transform: none; opacity: 1; }
+  100% { border-color: #e5484d; box-shadow: 0 0 0 1px #e5484d, 0 0 30px rgba(229, 72, 77, 0.25); background-color: rgba(229, 72, 77, 0.08); transform: translateX(-110%) rotate(-1.5deg); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .approval.leaving.approved, .approval.leaving.rejected { animation-name: fade-out; }
+  @keyframes fade-out { to { opacity: 0; } }
+  .reject-drawer, .reject-inner, .approval-wrap { transition: none; }
+}
