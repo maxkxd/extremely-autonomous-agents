@@ -106,6 +106,13 @@ Engineer**.
   - **DIY** - you did it yourself; write what you did / how it fixed it.
   - **Reject** - write why (optional).
 
+## Guiding people
+
+The Fleet Engineer knows every button on the Requests and Approvals screens so
+it can steer confused people to the right one (e.g. "done" while it's waiting
+on its build approval -> go to Approvals and press Approve). What it's told
+about the UI lives in [fleet-engineer-ui-guide.md](fleet-engineer-ui-guide.md).
+
 ## Status
 
 UI only. The Fleet Engineer's response is simulated, the IDE buttons are

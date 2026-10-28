@@ -65,23 +65,62 @@ const PLACEHOLDER: Record<Drawer, string> = {
 };
 
 // PLACEHOLDER: the simulated Fleet Engineer's next reply, until the real one
-// exists. It follows the real rule: never just "why it can't" - its first
-// reply is always what you need to do. Once it can, it designs the tool and
-// asks to build it - which is a human approval, not something it just does.
+// exists. It follows the real rules: always tell the person what to do next
+// (never just "why it can't"), and know the app's buttons well enough to steer
+// people to them (docs/fleet-engineer-ui-guide.md). Building a tool is always
+// a human approval, never something it just does. Simple keyword matching.
 const SAYS_DONE = /\b(done|did it|finished|sorted|set (it )?up|added|bought|got (it|the)|created|uploaded|it'?s (the )?20\d\d)\b/i;
-function engineerReply(request: ResourceRequest, latest: string) {
+const LOOKS_SECRET = /\b(sk-[A-Za-z0-9]{8,}|(api[ _-]?key|password|passwd|token|secret)\s*[:=]\s*\S+|[A-Za-z0-9_\-]{32,})/i;
+const MENTIONS_SECRET = /\b(api[ _-]?keys?|passwords?|tokens?|secrets?|credentials?|log ?ins?)\b/i;
+const WANTS_DIY = /\b(diy|myself|i('ll| will) (do|handle|sort|fix) (it|this))\b/i;
+const WANTS_REJECT = /\b(reject|don'?t (want|need)|not (needed|doing)|no thanks|cancel|forget it|ignore)\b/i;
+const ASKS_IDE = /\b(claude|cursor|codex|antigravity|ide)\b/i;
+const ASKS_HELP = /\b(help|how do i|what do i|what now|confus\w*|which button|where (do|is))\b|\?\s*$/i;
+
+function engineerReply(request: ResourceRequest, latest: string, waitingOnApproval: boolean) {
   const { engineer } = request;
-  const ready = engineer.canDoNow || SAYS_DONE.test(latest);
-  if (ready) {
-    return {
-      text: `I've designed "${engineer.build.toolName}" for ${agentOf(request).name}. Building it needs your approval - it's waiting in Approvals.`,
-      readyToBuild: true,
-    };
+  const agentName = agentOf(request).name;
+  const say = (text: string, readyToBuild = false) => ({ text, readyToBuild });
+
+  if (LOOKS_SECRET.test(latest)) {
+    return say(
+      "That looks like a key or password - please don't share secrets in chat. Keys go in Settings > Connections (coming soon); for now just tell me it's done and I'll leave a slot for the key.",
+    );
   }
-  return {
-    text: "Got it. Work through the steps above, then reply here (just \"done\" is fine) and I'll design the tool.",
-    readyToBuild: false,
-  };
+  if (waitingOnApproval) {
+    return say(
+      `Replying here doesn't approve it. Open Approvals (the button above, or Approvals in the sidebar) and press Approve on "Fleet Engineer wants to build a new tool for ${agentName}: ${engineer.build.toolName}". Once it's approved I'll build it and close this request.`,
+    );
+  }
+  if (WANTS_DIY.test(latest)) {
+    return say(
+      "If you'd rather handle it yourself, press DIY under this conversation. You can add a note on what you did (optional) - the agent will see it - and the request closes.",
+    );
+  }
+  if (WANTS_REJECT.test(latest)) {
+    return say(
+      `If ${agentName} doesn't need this, press Reject under this conversation. Add a reason if you like (optional) - ${agentName} will see it and stop asking.`,
+    );
+  }
+  if (ASKS_IDE.test(latest)) {
+    return say(
+      "The Send to your-IDE button isn't live yet. When it is, it'll open your AI IDE with this request ready as a prompt, for anything that has to happen off-platform. Until then: follow the steps above, or press DIY if you handle it yourself.",
+    );
+  }
+  if (MENTIONS_SECRET.test(latest)) {
+    return say(
+      "Don't paste keys or passwords here. They'll go in Settings > Connections once that's built. Just reply \"done\" when you have them and I'll build the tool with a slot for the key.",
+    );
+  }
+  if (engineer.canDoNow || SAYS_DONE.test(latest)) {
+    return say(`I've designed "${engineer.build.toolName}" for ${agentName}. Building it needs your approval - it's waiting in Approvals.`, true);
+  }
+  if (ASKS_HELP.test(latest)) {
+    return say(
+      'Everything I need is in my first message above. Once those steps are done, reply "done" here and I\'ll design the tool. Other options are below: DIY if you handle it yourself, Reject if it isn\'t needed.',
+    );
+  }
+  return say("Got it. Work through the steps above, then reply here (just \"done\" is fine) and I'll design the tool.");
 }
 
 function RequestRow({
@@ -147,7 +186,7 @@ function RequestRow({
     setDrawer(null);
     setThinking(true);
     later(ENGINEER_MS, () => {
-      const reply = engineerReply(request, mine);
+      const reply = engineerReply(request, mine, waitingOnApproval);
       setThread(t => [...t, { from: 'engineer', text: reply.text }]);
       setThinking(false);
       if (reply.readyToBuild) setBuildApproval(onProposeBuild());
@@ -255,7 +294,7 @@ function RequestRow({
                     Open Approvals
                   </button>
                 )}
-                {replying && !leaving && !finished && !waitingOnApproval && (
+                {replying && !leaving && !finished && (
                   <div className="eng-composer">
                     <textarea
                       ref={composer}
