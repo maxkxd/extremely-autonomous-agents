@@ -101,17 +101,15 @@ success, decides the tool is broken and complains again. Telling the model
    last worked 2 hours ago"). Agents are told never to record a tool failure
    in memory: a tool that doesn't work gets a resource request, and the agent
    is told when it's fixed.
-2. **One memory per subject.** Every memory has a subject (a lead, a page, a
-   preference, a way of doing something). Writing about a subject replaces
-   what was there, so repeated notes about one thing collapse into the latest.
-3. **Newest wins.** Memories are given newest first, each with its age ("3
-   days ago"), and the run instructions say a newer memory overrides an older
-   one it disagrees with.
-4. **A cap, with compaction.** Each agent's memory has a size cap. Past it,
+2. **Newest wins.** Memories are kept as written - nothing is replaced when a
+   new one is added - and given newest first, each with its age ("3 days
+   ago"). The run instructions say a newer memory overrides an older one it
+   disagrees with.
+3. **A cap, with compaction.** Each agent's memory has a size cap. Past it,
    the oldest memories are summarised into a dated block ("Earlier, Jan-Mar:
    ...") that ranks below anything recent and leaves out anything a newer
    memory contradicts. Stored on the host, never a growing pile of files.
-5. **Idle runs teach nothing.** A run that found nothing to do isn't written
+4. **Idle runs teach nothing.** A run that found nothing to do isn't written
    down as a lesson.
 
 ## Money and limits
