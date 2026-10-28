@@ -60,8 +60,11 @@ async function getJson(url: string, headers: Record<string, string> = {}) {
   } catch {
     throw new ConnectError(`Couldn't reach ${new URL(url).host}.`);
   }
-  if (res.status === 401 || res.status === 403) throw new ConnectError("That key wasn't accepted.");
-  if (!res.ok) throw new ConnectError(`The provider answered ${res.status}.`);
+  // Some providers answer a bad key with 400 rather than 401.
+  if (res.status === 400 || res.status === 401 || res.status === 403)
+    throw new ConnectError("That key wasn't accepted - it may be incomplete, revoked or for a different account.");
+  if (res.status === 429) throw new ConnectError('The provider is busy right now (429). Try again in a minute.');
+  if (!res.ok) throw new ConnectError(`The provider had a problem (${res.status}). Try again later.`);
   return res.json() as Promise<Record<string, unknown>>;
 }
 

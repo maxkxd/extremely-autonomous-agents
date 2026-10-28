@@ -178,11 +178,13 @@ export type Connection = {
   pending?: { userCode?: string; verificationUri?: string };
   setupNeeded?: string;
   lastError?: string;
+  broken?: string; // a saved key that didn't check out, and why
   claudeCode?: { installed: boolean; version?: string; loggedIn: boolean; authMethod?: string; task?: 'installing' | 'signing-in' };
 };
 
 export const getConnections = () => request<Connection[]>('/api/connections');
 export const connectKey = (id: string, key: string, baseUrl?: string) => post<{ ok: true }>('/api/connections/key', { id, key, baseUrl });
+export const retryKey = (id: string) => post<{ ok: true }>('/api/connections/retry', { id });
 export const disconnectModel = (id: string) => post<{ ok: true }>('/api/connections/disconnect', { id });
 export const startSignIn = (id: string) => post<{ url: string }>('/api/connections/oauth/start', { id });
 export const startCopilot = () => post<{ userCode: string; verificationUri: string }>('/api/connections/copilot/start', {});

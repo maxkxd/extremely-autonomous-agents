@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Cpu, ExternalLink, Loader2 } from 'lucide-react';
+import { AlertTriangle, Cpu, ExternalLink, Loader2 } from 'lucide-react';
 import {
   siAnthropic,
   siClaude,
@@ -16,6 +16,7 @@ import {
   connectClaudeCode,
   connectKey,
   disconnectModel,
+  retryKey,
   getConnections,
   installClaudeCode,
   signInClaudeCode,
@@ -115,6 +116,8 @@ export function ModelConnectors() {
   // connected. If that window is closed without finishing, give the server a
   // couple of seconds to land it, then stop.
   const [waiting, setWaiting] = useState<string | null>(null);
+  // Only one key form is open at a time; opening one closes (and saves) the other.
+  const [openId, setOpenId] = useState<string | null>(null);
   const watching = useRef<ReturnType<typeof setInterval>>();
   const watch = (id: string, popup?: Window | null) => {
     clearInterval(watching.current);
@@ -152,13 +155,29 @@ export function ModelConnectors() {
       <div className="sgroup">
         <h3>API keys</h3>
         {group('key').map(c => (
-          <KeyRow key={c.id} c={c} refresh={refresh} watch={watch} waiting={waiting === c.id} />
+          <KeyRow
+            key={c.id}
+            c={c}
+            refresh={refresh}
+            watch={watch}
+            waiting={waiting === c.id}
+            open={openId === c.id}
+            setOpen={o => setOpenId(o ? c.id : null)}
+          />
         ))}
       </div>
       <div className="sgroup">
         <h3>On this computer</h3>
         {group('local').map(c => (
-          <KeyRow key={c.id} c={c} refresh={refresh} watch={watch} waiting={waiting === c.id} />
+          <KeyRow
+            key={c.id}
+            c={c}
+            refresh={refresh}
+            watch={watch}
+            waiting={waiting === c.id}
+            open={openId === c.id}
+            setOpen={o => setOpenId(o ? c.id : null)}
+          />
         ))}
       </div>
     </>
@@ -237,6 +256,11 @@ function RowShell({ c, sub, children, below }: { c: Connection; sub: React.React
             <span className="srow2-label">
               {c.name}
               {c.connected && <span className="mconnected">Connected</span>}
+              {c.broken && (
+                <span className="mbroken" title={c.broken}>
+                  <AlertTriangle size={13} strokeWidth={2.2} /> Key not working
+                </span>
+              )}
             </span>
             <span className="srow2-sub">{sub}</span>
           </span>
@@ -250,40 +274,115 @@ function RowShell({ c, sub, children, below }: { c: Connection; sub: React.React
 
 const modelCount = (n: number) => (n ? ` · ${n} model${n === 1 ? '' : 's'}` : '');
 
-function KeyRow({ c, refresh, watch, waiting }: RowProps) {
-  const [open, setOpen] = useState(false);
+// An API key (or a local server). Typing a key and moving on - opening another
+// row's form, leaving Connectors, closing Settings - saves it and checks it in
+// the background. A key that doesn't check out is kept and marked broken, with
+// the reason, until it's retried, replaced or removed. Cancel or Escape discards.
+function KeyRow({
+  c,
+  refresh,
+  watch,
+  waiting,
+  open,
+  setOpen,
+}: RowProps & { open: boolean; setOpen: (open: boolean) => void }) {
   const [key, setKey] = useState('');
   const [baseUrl, setBaseUrl] = useState(c.baseUrl ?? '');
-  const { busy, error, act } = useAction(refresh);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { busy, error: actionError, act } = useAction(refresh);
   const local = c.kind === 'local';
+
+  const draft = useRef({ key, baseUrl });
+  draft.current = { key, baseUrl };
+  const hasDraft = () => !local && draft.current.key.trim() !== '';
+
+  const save = async (k: string, url: string) => {
+    setChecking(true);
+    setError(null);
+    try {
+      await connectKey(c.id, k, c.editableBaseUrl ? url : undefined);
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    } finally {
+      setChecking(false);
+      refresh();
+    }
+  };
+
+  // Explicit Connect: on success the form closes; on failure it stays open
+  // with the reason (the key is kept, marked broken).
   const connect = async () => {
-    if (await act(() => connectKey(c.id, key, c.editableBaseUrl ? baseUrl : undefined))) {
+    if (checking || (!local && !key.trim())) return;
+    if (await save(key, baseUrl)) {
       setKey('');
       setOpen(false);
     }
   };
-  const signIn = () =>
-    act(async () => {
-      const { url } = await startSignIn(c.id);
-      watch(c.id, openSignIn(url));
-    });
+  const cancel = () => {
+    setKey('');
+    setError(null);
+    setOpen(false);
+  };
+
+  // Closed because another row's form opened: keep what was typed.
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    if (wasOpen.current && !open && hasDraft()) {
+      const { key: k, baseUrl: url } = draft.current;
+      setKey('');
+      save(k, url);
+    }
+    wasOpen.current = open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  // Leaving Connectors or closing Settings with a key typed in: save it. The
+  // result (connected or broken) is waiting next time.
+  useEffect(
+    () => () => {
+      if (wasOpen.current && hasDraft())
+        connectKey(c.id, draft.current.key, c.editableBaseUrl ? draft.current.baseUrl : undefined).catch(() => {});
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const shownError = error ?? actionError;
+  // Worth retrying only when the provider was down or busy, not for a bad key.
+  const unreachable = !!c.broken && /couldn't reach|busy|had a problem/i.test(c.broken);
+  const sub = checking
+    ? 'Checking the key...'
+    : c.connected
+      ? `${c.label}${modelCount(c.models)}`
+      : c.broken
+        ? `${c.label} · ${c.broken}`
+        : c.what;
 
   return (
     <RowShell
       c={c}
-      sub={c.connected ? `${c.label}${modelCount(c.models)}` : c.what}
+      sub={<span className={c.broken && !checking ? 'mbroken-sub' : undefined}>{sub}</span>}
       below={
-        (open || error) && (
+        open ? (
           <div className="mform">
-            {open && c.editableBaseUrl && (
+            {c.editableBaseUrl && (
               <input
                 className="srow2-input mwide"
                 value={baseUrl}
                 placeholder="API base URL, e.g. https://api.together.xyz/v1"
                 onChange={e => setBaseUrl(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') connect();
+                  if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    cancel();
+                  }
+                }}
               />
             )}
-            {open && !local && (
+            {!local && (
               <input
                 className="srow2-input mwide"
                 type="password"
@@ -291,48 +390,77 @@ function KeyRow({ c, refresh, watch, waiting }: RowProps) {
                 autoComplete="off"
                 spellCheck={false}
                 value={key}
-                placeholder={c.keyPrefix ? `${c.keyPrefix}...` : 'API key'}
-                onChange={e => setKey(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && connect()}
+                placeholder={c.broken ? 'Paste a new key' : c.keyPrefix ? `${c.keyPrefix}...` : 'API key'}
+                onChange={e => {
+                  setKey(e.target.value);
+                  setError(null);
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') connect();
+                  if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    cancel();
+                  }
+                }}
               />
             )}
-            {open && (
-              <div className="mform-actions">
-                {c.keyUrl && (
-                  <a className="slink" href={c.keyUrl} target="_blank" rel="noreferrer">
-                    Get a key <ExternalLink size={12} />
-                  </a>
-                )}
-                <button className="sbtn" onClick={() => setOpen(false)} disabled={busy}>
-                  Cancel
-                </button>
-                <SpinButton className="sbtn primary" spinning={busy} onClick={connect} disabled={!local && !key.trim()}>
-                  Connect
-                </SpinButton>
-              </div>
-            )}
-            {error && <span className="custom-error">{error}</span>}
+            <div className="mform-actions">
+              {c.keyUrl && (
+                <a className="slink" href={c.keyUrl} target="_blank" rel="noreferrer">
+                  Get a key <ExternalLink size={12} />
+                </a>
+              )}
+              <button className="sbtn" onClick={cancel} disabled={checking}>
+                Cancel
+              </button>
+              <SpinButton className="sbtn primary" spinning={checking} onClick={connect} disabled={!local && !key.trim()}>
+                Connect
+              </SpinButton>
+            </div>
+            {shownError && <span className="custom-error">{shownError}</span>}
           </div>
+        ) : (
+          shownError &&
+          !c.broken && (
+            <div className="mform">
+              <span className="custom-error">{shownError}</span>
+            </div>
+          )
         )
       }
     >
       {c.connected ? (
-        <button className="sbtn" disabled={busy} onClick={() => act(() => disconnectModel(c.id))}>
+        <SpinButton spinning={busy} onClick={() => act(() => disconnectModel(c.id))}>
           Disconnect
-        </button>
+        </SpinButton>
+      ) : open ? null : c.broken ? (
+        <>
+          {unreachable && (
+            <SpinButton spinning={busy || checking} onClick={() => act(() => retryKey(c.id))}>
+              Retry
+            </SpinButton>
+          )}
+          <button className="sbtn" disabled={checking} onClick={() => setOpen(true)}>
+            Replace key
+          </button>
+          <button className="slink" disabled={busy || checking} onClick={() => act(() => disconnectModel(c.id))}>
+            Remove
+          </button>
+        </>
       ) : (
-        !open && (
-          <>
-            {c.oneClick && (
-              <SpinButton spinning={busy || waiting} onClick={signIn}>
-                Sign in
-              </SpinButton>
-            )}
-            <button className="sbtn" onClick={() => setOpen(true)}>
-              {local ? 'Connect' : 'Add key'}
-            </button>
-          </>
-        )
+        <>
+          {c.oneClick && (
+            <SpinButton spinning={busy || waiting} onClick={() => act(async () => {
+              const { url } = await startSignIn(c.id);
+              watch(c.id, openSignIn(url));
+            })}>
+              Sign in
+            </SpinButton>
+          )}
+          <SpinButton spinning={checking} onClick={() => setOpen(true)}>
+            {local ? 'Connect' : 'Add key'}
+          </SpinButton>
+        </>
       )}
     </RowShell>
   );
