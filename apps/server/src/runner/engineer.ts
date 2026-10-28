@@ -187,11 +187,6 @@ export async function giveTools(agentId: string, tools: { id: string; tier: Tier
   await writeFile(file, doc.toString());
 }
 
-// The first few sentences of a text, for a card that must stay short.
-export function firstSentences(text: string, n: number): string {
-  // A sentence ends at . ! or ? followed by a space - not the dot in a name like desktop.set_wallpaper.
-  return text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?]) /).slice(0, n).join(' ');
-}
 
 const nameOf = async (agentId: string) => (await readMeta(agentId))?.name ?? agentId;
 
@@ -388,7 +383,7 @@ const TOOLS: ToolDef[] = [
         name: p.name,
         for_agent_name: await nameOf(String(a.for_agent)),
         tools_list: ((a.tools as { id: string; tier: string }[]) ?? []).map(t => `${t.id} (${t.tier})`).join(', '),
-        review: [firstSentences(String(a.summary), 3), bullets.map(x => `- ${x}`).join('\n')].filter(Boolean).join('\n\n'),
+        review: [String(a.summary).trim(), bullets.map(x => `- ${x}`).join('\n')].filter(Boolean).join('\n\n'),
         code_view: `${p.yaml}${p.code ? `\n--- Plugin code (runs in a sandbox on this computer) ---\n${p.code}` : ''}`,
         code_hash: p.codeHash,
       };
