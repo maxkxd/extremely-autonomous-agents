@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Cpu, ExternalLink } from 'lucide-react';
+import { Cpu, ExternalLink, Loader2 } from 'lucide-react';
 import {
   siAnthropic,
   siClaude,
@@ -66,17 +66,29 @@ export function ModelConnectors() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingId]);
 
-  // A sign-in finishes in another window: check back until it's connected.
+  // A sign-in finishes in another window: check every second until it's
+  // connected. If that window is closed without finishing, give the server a
+  // couple of seconds to land it, then stop.
+  const [waiting, setWaiting] = useState<string | null>(null);
   const watching = useRef<ReturnType<typeof setInterval>>();
-  const watch = (id: string) => {
+  const watch = (id: string, popup?: Window | null) => {
     clearInterval(watching.current);
+    setWaiting(id);
     const until = Date.now() + SIGN_IN_WAIT_MS;
-    watching.current = setInterval(async () => {
+    let closedAt = 0;
+    const stop = () => {
+      clearInterval(watching.current);
+      setWaiting(null);
+    };
+    const check = async () => {
       const next = await getConnections().catch(() => null);
       if (next) setList(next);
       const c = next?.find(x => x.id === id);
-      if ((c?.connected && !c.pending) || Date.now() > until) clearInterval(watching.current);
-    }, 2000);
+      if (c?.connected && !c.pending) return stop();
+      if (popup?.closed) closedAt ||= Date.now();
+      if (Date.now() > until || (closedAt && Date.now() - closedAt > 2500)) stop();
+    };
+    watching.current = setInterval(check, 1000);
   };
   useEffect(() => () => clearInterval(watching.current), []);
 
@@ -88,26 +100,65 @@ export function ModelConnectors() {
         <h3>Your AI plans</h3>
         <p className="slead">Use a subscription you already pay for. Each connects through the provider's own sign-in.</p>
         {group('plan').map(c => (
-          <PlanRow key={c.id} c={c} refresh={refresh} watch={watch} />
+          <PlanRow key={c.id} c={c} refresh={refresh} watch={watch} waiting={waiting === c.id} />
         ))}
       </div>
       <div className="sgroup">
         <h3>API keys</h3>
         {group('key').map(c => (
-          <KeyRow key={c.id} c={c} refresh={refresh} watch={watch} />
+          <KeyRow key={c.id} c={c} refresh={refresh} watch={watch} waiting={waiting === c.id} />
         ))}
       </div>
       <div className="sgroup">
         <h3>On this computer</h3>
         {group('local').map(c => (
-          <KeyRow key={c.id} c={c} refresh={refresh} watch={watch} />
+          <KeyRow key={c.id} c={c} refresh={refresh} watch={watch} waiting={waiting === c.id} />
         ))}
       </div>
     </>
   );
 }
 
-type RowProps = { c: Connection; refresh: () => Promise<unknown>; watch: (id: string) => void };
+type RowProps = {
+  c: Connection;
+  refresh: () => Promise<unknown>;
+  watch: (id: string, popup?: Window | null) => void;
+  waiting: boolean; // a sign-in for this row is in progress
+};
+
+// A button that turns into a grey spinner while its action runs. It keeps its
+// width (the label stays, invisibly) so the row doesn't jump.
+function SpinButton({
+  spinning,
+  className = 'sbtn',
+  disabled,
+  title,
+  onClick,
+  children,
+}: {
+  spinning: boolean;
+  className?: string;
+  disabled?: boolean;
+  title?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      className={`${className}${spinning ? ' spinning' : ''}`}
+      disabled={disabled || spinning}
+      title={title}
+      onClick={onClick}
+      aria-busy={spinning}
+    >
+      <span className="spin-label">{children}</span>
+      {spinning && <Loader2 size={15} className="spin-icon" aria-hidden />}
+    </button>
+  );
+}
+
+// Opens a provider's sign-in in a small window.
+const openSignIn = (url: string) => window.open(url, '_blank', 'popup,width=520,height=720');
 
 // Runs one action, keeping its error next to the row.
 function useAction(refresh: () => Promise<unknown>) {
@@ -153,7 +204,7 @@ function RowShell({ c, sub, children, below }: { c: Connection; sub: React.React
 
 const modelCount = (n: number) => (n ? ` · ${n} model${n === 1 ? '' : 's'}` : '');
 
-function KeyRow({ c, refresh, watch }: RowProps) {
+function KeyRow({ c, refresh, watch, waiting }: RowProps) {
   const [open, setOpen] = useState(false);
   const [key, setKey] = useState('');
   const [baseUrl, setBaseUrl] = useState(c.baseUrl ?? '');
@@ -168,8 +219,7 @@ function KeyRow({ c, refresh, watch }: RowProps) {
   const signIn = () =>
     act(async () => {
       const { url } = await startSignIn(c.id);
-      window.open(url, '_blank', 'popup,width=520,height=720');
-      watch(c.id);
+      watch(c.id, openSignIn(url));
     });
 
   return (
@@ -210,9 +260,9 @@ function KeyRow({ c, refresh, watch }: RowProps) {
                 <button className="sbtn" onClick={() => setOpen(false)} disabled={busy}>
                   Cancel
                 </button>
-                <button className="sbtn primary" onClick={connect} disabled={busy || (!local && !key.trim())}>
-                  {busy ? 'Checking...' : 'Connect'}
-                </button>
+                <SpinButton className="sbtn primary" spinning={busy} onClick={connect} disabled={!local && !key.trim()}>
+                  Connect
+                </SpinButton>
               </div>
             )}
             {error && <span className="custom-error">{error}</span>}
@@ -228,9 +278,9 @@ function KeyRow({ c, refresh, watch }: RowProps) {
         !open && (
           <>
             {c.oneClick && (
-              <button className="sbtn" disabled={busy} onClick={signIn}>
+              <SpinButton spinning={busy || waiting} onClick={signIn}>
                 Sign in
-              </button>
+              </SpinButton>
             )}
             <button className="sbtn" onClick={() => setOpen(true)}>
               {local ? 'Connect' : 'Add key'}
@@ -242,7 +292,7 @@ function KeyRow({ c, refresh, watch }: RowProps) {
   );
 }
 
-function PlanRow({ c, refresh, watch }: RowProps) {
+function PlanRow({ c, refresh, watch, waiting }: RowProps) {
   const { busy, error, act } = useAction(refresh);
   const disconnect = (
     <button className="sbtn" disabled={busy} onClick={() => act(() => disconnectModel(c.id))}>
@@ -282,13 +332,13 @@ function PlanRow({ c, refresh, watch }: RowProps) {
             Get Claude Code
           </a>
         ) : cc.loggedIn ? (
-          <button className="sbtn primary" disabled={busy} onClick={() => act(connectClaudeCode)}>
+          <SpinButton className="sbtn primary" spinning={busy} onClick={() => act(connectClaudeCode)}>
             Use my Claude plan
-          </button>
+          </SpinButton>
         ) : (
-          <button className="sbtn" disabled={busy} onClick={() => act(refresh)}>
+          <SpinButton spinning={busy} onClick={() => act(refresh)}>
             Check again
-          </button>
+          </SpinButton>
         )}
       </RowShell>
     );
@@ -305,19 +355,18 @@ function PlanRow({ c, refresh, watch }: RowProps) {
             {disconnect}
           </>
         ) : (
-          <button
+          <SpinButton
             className="sbtn primary"
-            disabled={busy}
+            spinning={busy || waiting}
             onClick={() =>
               act(async () => {
                 const { url } = await startSignIn('chatgpt');
-                window.open(url, '_blank', 'popup,width=520,height=720');
-                watch('chatgpt');
+                watch('chatgpt', openSignIn(url));
               })
             }
           >
             Sign in with ChatGPT
-          </button>
+          </SpinButton>
         )}
       </RowShell>
     );
@@ -354,11 +403,13 @@ function PlanRow({ c, refresh, watch }: RowProps) {
           <a className="sbtn primary" href={c.pending!.verificationUri} target="_blank" rel="noreferrer">
             Open GitHub <ExternalLink size={12} />
           </a>
+          <Loader2 size={15} className="spin-icon solo" aria-label="Waiting for GitHub" />
         </>
       ) : (
-        <button
+        <SpinButton
           className="sbtn primary"
-          disabled={busy || !!c.setupNeeded}
+          spinning={busy || waiting}
+          disabled={!!c.setupNeeded}
           title={c.setupNeeded}
           onClick={() =>
             act(async () => {
@@ -369,7 +420,7 @@ function PlanRow({ c, refresh, watch }: RowProps) {
           }
         >
           Connect
-        </button>
+        </SpinButton>
       )}
     </RowShell>
   );
