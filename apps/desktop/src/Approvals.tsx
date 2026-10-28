@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Check, ChevronDown, CircleCheckBig, Clock, Users, User, X } from 'lucide-react';
+import { Bot, Check, ChevronDown, Clock, Users, User, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, isMine, type Approval } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { useDismiss } from './useDismiss';
@@ -280,9 +280,8 @@ export function Approvals({
 
   if (shown.length === 0) {
     return (
-      <div className="main-empty approvals-empty">
-        <CircleCheckBig size={28} strokeWidth={1.5} />
-        <span>{scope === 'all' ? 'Nothing is waiting for approval.' : 'Nothing is waiting on you.'}</span>
+      <div className="main-empty">
+        {scope === 'all' ? 'No approvals are waiting.' : 'No approvals are waiting on you.'}
       </div>
     );
   }
