@@ -1719,3 +1719,4 @@ a.sbtn { text-decoration: none; color: inherit; }
 .switch.on { background: var(--attention); border-color: var(--attention); }
 .switch.on::after { transform: translateX(16px); background: #fff; }
 .switch:focus-visible { outline: 2px solid var(--attention); outline-offset: 2px; }
+.approval-code { margin: 6px 0 0; padding: 10px 12px; max-height: 360px; overflow: auto; font-size: 12px; line-height: 1.5; white-space: pre; color: #cfcfcf; background: var(--sidebar); border: 1px solid var(--hairline); border-radius: 8px; }

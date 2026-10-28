@@ -87,3 +87,10 @@ test('a plugin reaches the network only through kit.fetch', async () => {
   assert.equal(networkProblems("run('Invoke-WebRequest -Uri $u')").length, 1);
   await assert.rejects(writePlugin('zz-test-net', "export default { tools: [] }; fetch('http://localhost')"), /only through kit.fetch/);
 });
+
+test('the approval card keeps the summary to a few sentences', async () => {
+  const { firstSentences } = await import('./engineer.js');
+  assert.equal(firstSentences('One. Two!  Three? Four.', 3), 'One. Two! Three?');
+  assert.equal(firstSentences('Renders at 1280x720. Sets the wallpaper', 3), 'Renders at 1280x720. Sets the wallpaper');
+  assert.equal(firstSentences('Gives desktop.set_wallpaper and original-wallpaper.jpg backups. Tested. Fine. Extra.', 3), 'Gives desktop.set_wallpaper and original-wallpaper.jpg backups. Tested. Fine.');
+});

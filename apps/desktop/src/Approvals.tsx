@@ -51,12 +51,14 @@ function timeAgo(minutes: number): string {
 // admin switches to "Everyone". Solo accounts (no org) own every agent.
 // An item belongs to the owner of the agent it's FOR (e.g. a tool the Fleet
 // Engineer wants to build for Lead Finder), else of the agent that raised it.
-export function visibleApprovals<T extends { agentId: string; forAgentId?: string }>(
+// A real approval says whose it is (the server knows each agent's owner); one
+// with no owner on file is everyone's.
+export function visibleApprovals<T extends { agentId: string; forAgentId?: string; owner?: string | null }>(
   pending: T[],
   scope: ApprovalScope,
 ): T[] {
   if (!ACCOUNT.org || scope === 'all') return pending;
-  return pending.filter(a => isMine(a.forAgentId ?? a.agentId));
+  return pending.filter(a => (a.owner !== undefined ? a.owner === null || a.owner.trim().toLowerCase() === ACCOUNT.name.trim().toLowerCase() : isMine(a.forAgentId ?? a.agentId)));
 }
 
 // ---- Today's tally beside the page title -----------------------------------
@@ -174,6 +176,19 @@ export function ApprovalsToolbar({
 
 // ---- The cards -------------------------------------------------------------
 
+// The technical side (a plugin's code), out of the way until asked for.
+function ApprovalDetails({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="approval-details">
+      <button className="body-toggle" onClick={() => setOpen(o => !o)}>
+        {open ? 'Hide code' : 'Show code'}
+      </button>
+      {open && <pre className="approval-code">{text}</pre>}
+    </div>
+  );
+}
+
 // A long body is clamped to a few lines with a fade and a Show more toggle, so
 // one big approval can't push everything else (and its buttons) off screen.
 function ApprovalBody({ text }: { text: string }) {
@@ -281,6 +296,7 @@ function ApprovalCard({
             </dl>
           )}
           {card.body !== null && <ApprovalBody text={card.body} />}
+          {card.details && <ApprovalDetails text={card.details} />}
 
           <footer className="approval-foot">
             <div className="approval-buttons">
