@@ -141,6 +141,7 @@ const PREFIXES: [string, string][] = [
   ['sk-ant-', 'Anthropic'],
   ['sk-or-', 'OpenRouter'],
   ['AIza', 'Google Gemini'],
+  ['AQ.', 'Google Gemini'],
   ['xai-', 'xAI'],
   ['gsk_', 'Groq'],
 ];
