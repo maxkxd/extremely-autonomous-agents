@@ -78,3 +78,12 @@ test("giving tools adds them to the agent's TOOLS.yaml, keeping the builder's ti
   assert.equal(y.tool_tiers['pexels.get_photo'], 'T0');
   assert.deepEqual(y.servers, ['tasks', 'images', 'pexels']);
 });
+
+test('a plugin reaches the network only through kit.fetch', async () => {
+  const { networkProblems } = await import('../integrations/plugins.js');
+  assert.deepEqual(networkProblems("const r = await kit.fetch('https://x.com')"), []);
+  assert.equal(networkProblems("const r = await fetch('http://192.168.1.1')").length, 1);
+  assert.equal(networkProblems("import http from 'node:http'").length, 1);
+  assert.equal(networkProblems("run('Invoke-WebRequest -Uri $u')").length, 1);
+  await assert.rejects(writePlugin('zz-test-net', "export default { tools: [] }; fetch('http://localhost')"), /only through kit.fetch/);
+});

@@ -21,8 +21,23 @@ export async function readPlugin(module: string): Promise<string | null> {
   return readFile(file(module), 'utf8').catch(() => null);
 }
 
+// Network access other than kit.fetch (which refuses this computer and its
+// network). Not a sandbox - the person's approval, code shown, is the real
+// gate - but it stops the engineer writing it by accident.
+const OWN_NETWORK = [
+  [/(?<![\w.])fetch\s*\(/, 'fetch() - use kit.fetch(url, init), the third argument to run'],
+  [/['"](node:)?(http|https|http2|net|tls|dgram|dns)['"]/, 'node network modules - use kit.fetch'],
+  [/\b(undici|axios|XMLHttpRequest|WebSocket)\b/, 'other network clients - use kit.fetch'],
+  [/\b(Invoke-WebRequest|Invoke-RestMethod|curl(\.exe)?|wget|Net\.WebClient|Start-BitsTransfer)\b/i, 'downloading from a shell - fetch it with kit.fetch first'],
+] as const;
+export function networkProblems(code: string): string[] {
+  return OWN_NETWORK.filter(([re]) => re.test(code)).map(([, why]) => why);
+}
+
 // Saves a plugin's code. It isn't loaded: that waits for a person's approval.
 export async function writePlugin(module: string, code: string) {
+  const bad = networkProblems(code);
+  if (bad.length) throw new Error(`Plugins reach the network only through kit.fetch. Found: ${bad.join('; ')}.`);
   await mkdir(PLUGINS, { recursive: true });
   await writeFile(file(module), code);
   installed.delete(module);
@@ -36,6 +51,8 @@ export async function installPlugin(module: string, approvedHash: string): Promi
   const code = await readPlugin(module);
   if (code == null) throw new Error(`The plugin "${module}" has no code.`);
   if (codeHash(code) !== approvedHash) throw new Error(`The plugin "${module}" changed after it was approved, so it won't run. Propose it again.`);
+  const bad = networkProblems(code);
+  if (bad.length) throw new Error(`The plugin "${module}" reaches the network other than through kit.fetch (${bad.join('; ')}), so it won't run. Rewrite it with kit.fetch and propose it again.`);
   const loaded = (await import(`${pathToFileURL(file(module)).href}?v=${approvedHash.slice(0, 12)}`)) as { default?: unknown };
   const mod = loaded.default as CodeModule | undefined;
   if (!mod || !Array.isArray(mod.tools) || !mod.tools.length) throw new Error(`The plugin "${module}" must export default { tools: [...] }.`);
