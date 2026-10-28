@@ -46,13 +46,17 @@ async function callback(finish: () => Promise<void>) {
 }
 
 // Who you're talking to, the organisation (null when they don't have one), and
-// what the fleet already has. The key people are checked against the members
-// first (a no-op once they have been), so the builder knows who has an account.
-const context = async (person: string, org: string | null, members: string[] = []): Promise<Context> => ({
-  person: await loadPerson(person),
-  profile: org ? ((await linkPeople(org, members).catch(() => null)) ?? (await loadProfile(org))) : null,
-  fleet: await scanFleet(),
-});
+// what the fleet already has. The builder never waits on linking key people to
+// members: it uses the links as they stand and starts a check in the background
+// (a no-op once everyone's been checked), so the next turn has them.
+const context = async (person: string, org: string | null, members: string[] = []): Promise<Context> => {
+  if (org) linkPeople(org, members).catch(e => console.error('Linking key people failed:', e));
+  return {
+    person: await loadPerson(person),
+    profile: org ? await loadProfile(org) : null,
+    fleet: await scanFleet(),
+  };
+};
 
 // An agent as the app sees it: the card's details, plus the hidden files as an
 // opaque bundle it hands back on accept. The id is unique among takenIds.

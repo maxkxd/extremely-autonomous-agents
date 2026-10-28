@@ -40,9 +40,17 @@ the organisation loses their link. A check runs:
 
 - when the profile chat saves,
 - when you finish a key person's row in Settings,
-- before the builder interviews or builds, so its brief is always current.
+- when the builder interviews or builds. It doesn't wait for the check: it uses
+  the links as they are, and the check it starts is ready by its next turn.
 
-Once everyone has been checked, a check does nothing and costs nothing.
+All of these run in the background, and nothing visible happens apart from the
+picture appearing. Once everyone has been checked, a check does nothing and
+costs nothing. If a check fails, the person just stays unlinked until the next one.
+
+**When sign-up is built:** someone joining (or leaving) an organisation must
+start a check (`linkPeople(org, members)` in the background), and so should a
+member editing their own profile. Until then, a new member is only linked at
+the next check above, and the member list is sent by the app.
 
 ## The flow
 
