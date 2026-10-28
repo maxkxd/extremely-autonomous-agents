@@ -210,7 +210,9 @@ function ApprovalCard({
               </button>
               <button
                 className={`ap-btn reject${rejecting ? ' on' : ''}`}
-                onClick={() => setRejecting(r => !r)}
+                title="Shift-click to reject without a reason"
+                // Shift-click skips the reason box and rejects straight away.
+                onClick={e => (e.shiftKey ? resolve('rejected') : setRejecting(r => !r))}
                 disabled={!!leaving}
                 aria-expanded={rejecting}
               >
