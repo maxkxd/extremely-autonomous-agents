@@ -187,6 +187,12 @@ export async function giveTools(agentId: string, tools: { id: string; tier: Tier
   await writeFile(file, doc.toString());
 }
 
+// The first few sentences of a text, for a card that must stay short.
+export function firstSentences(text: string, n: number): string {
+  // A sentence ends at . ! or ? followed by a space - not the dot in a name like desktop.set_wallpaper.
+  return text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?]) /).slice(0, n).join(' ');
+}
+
 const nameOf = async (agentId: string) => (await readMeta(agentId))?.name ?? agentId;
 
 const TOOLS: ToolDef[] = [
@@ -352,7 +358,7 @@ const TOOLS: ToolDef[] = [
         request_id: int('The request it answers'),
         for_agent: str('The agent that gets its tools'),
         tools: toolsArg,
-        summary: str('What it does, and what you tested and saw - the person reads this'),
+        summary: str('For the person approving: at most 3 plain sentences - what it gives the agent, and that it tested fine. The card shows only this and a few bullets.'),
       },
       ['integration_id', 'request_id', 'for_agent', 'tools', 'summary'],
     ),
@@ -363,24 +369,17 @@ const TOOLS: ToolDef[] = [
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
       const p = await publishPreview(String(a.integration_id));
       // A plugin is reviewed by a separate model first; a serious finding sends it back.
-      let plain = '';
+      // The card: up to 3 sentences from the engineer, then up to 5 plain bullets.
+      // For a plugin the bullets come from the review - what it can do on this
+      // computer - plus anything it rated worth a person's attention.
+      let bullets: string[] = [];
       if (p.code && p.permissions) {
         const r = await reviewPlugin({ name: p.name, yaml: p.yaml, code: p.code, permissions: p.permissions });
         if (r.verdict === 'fix')
           throw new Error(
             `The security review sent the plugin back - it wasn't proposed. Concerns: ${r.concerns.map(c => `(${c.severity}) ${c.what}`).join('; ')}. What to change: ${r.fix || 'see the concerns'}. Fix it (engineer.write_plugin / engineer.write_integration) and propose it again.`,
           );
-        const allowed = [
-          p.permissions.write.length ? `Writes files only in: ${p.permissions.write.join(', ')}` : 'Writes no files',
-          p.permissions.read.length ? `Reads files in: ${p.permissions.read.join(', ')}` : '',
-          p.permissions.commands ? 'Starts programs on this computer - what those programs do is not contained by the sandbox' : 'Starts no programs',
-          'Reaches only public websites (never this computer or your network)',
-        ].filter(Boolean);
-        plain = [
-          `What it can do on your computer:\n${r.canDo.map(x => `- ${x}`).join('\n')}`,
-          `What the sandbox allows it:\n${allowed.map(x => `- ${x}`).join('\n')}`,
-          r.concerns.length ? `The security review's notes:\n${r.concerns.map(c => `- (${c.severity}) ${c.what}`).join('\n')}` : 'The security review found nothing to worry about.',
-        ].join('\n\n');
+        bullets = [...r.canDo.slice(0, 4), ...r.concerns.filter(c => c.severity === 'medium').map(c => `Worth knowing: ${c.what}`)].slice(0, 5);
       }
       setStage(Number(a.request_id), 'approval');
       // Said on the request every time, so the person knows it's their move.
@@ -389,7 +388,8 @@ const TOOLS: ToolDef[] = [
         name: p.name,
         for_agent_name: await nameOf(String(a.for_agent)),
         tools_list: ((a.tools as { id: string; tier: string }[]) ?? []).map(t => `${t.id} (${t.tier})`).join(', '),
-        review: `${plain ? `${plain}\n\n--- The Fleet Engineer's summary ---\n` : ''}${String(a.summary)}\n\n--- Definition ---\n${p.yaml}${p.code ? `\n--- Plugin code (runs in a sandbox on this computer) ---\n${p.code}` : ''}`,
+        review: [firstSentences(String(a.summary), 3), bullets.map(x => `- ${x}`).join('\n')].filter(Boolean).join('\n\n'),
+        code_view: `${p.yaml}${p.code ? `\n--- Plugin code (runs in a sandbox on this computer) ---\n${p.code}` : ''}`,
         code_hash: p.codeHash,
       };
     },

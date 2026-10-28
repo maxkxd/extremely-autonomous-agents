@@ -377,6 +377,7 @@ export type Approval = {
   expiresAt?: number; // live ones: the server's deadline
   live?: boolean; // a real agent's queued call, decided on the server
   paused?: boolean; // its agent is stopped: shown greyed, can't be decided until it's resumed
+  owner?: string | null; // a real one: whose decision it is, from the server (null: anyone's)
   minutesAgo: number; // when the agent made the call (placeholder data)
   createdAt?: number; // ms timestamp, for approvals raised while the app is open
   // Whose owner decides it, when that isn't the calling agent - e.g. the

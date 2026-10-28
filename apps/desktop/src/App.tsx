@@ -94,6 +94,7 @@ export function App() {
               createdAt: a.createdAt,
               expiresAt: a.expiresAt,
               paused: a.agentStopped,
+              owner: a.owner,
               // The Fleet Engineer is owned by no one: its approvals belong to
               // the owner of the agent they're for.
               forAgentId: a.agentId === 'fleet' && typeof a.args.for_agent === 'string' ? a.args.for_agent : undefined,

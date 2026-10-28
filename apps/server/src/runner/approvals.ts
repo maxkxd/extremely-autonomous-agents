@@ -1,5 +1,5 @@
 import { readMeta } from '../files.js';
-import { loadAgent } from './agent.js';
+import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { all, one, run as exec } from './db.js';
 import { stateOf } from './run.js';
 import { runApproved } from './tools.js';
@@ -19,8 +19,17 @@ export async function pendingApprovals(now = Date.now()) {
   const rows = all<ApprovalRow>("SELECT * FROM approvals WHERE status = 'pending' AND expires_at > ? ORDER BY created_at", now);
   const names = new Map<string, string>();
   for (const r of rows) if (!names.has(r.agent_id)) names.set(r.agent_id, (await readMeta(r.agent_id))?.name ?? r.agent_id);
+  // Whose decision it is: the owner of the agent it's for - for the Fleet
+  // Engineer (owned by no one), the agent it's building for, whose owner is the
+  // person who built that agent.
+  const ownerOf = async (r: ApprovalRow) => {
+    const forAgent = (JSON.parse(r.args) as { for_agent?: unknown }).for_agent;
+    const id = r.agent_id === FLEET_ENGINEER && typeof forAgent === 'string' ? forAgent : r.agent_id;
+    return (await readMeta(id))?.owner ?? null;
+  };
+  const owners = await Promise.all(rows.map(ownerOf));
   // A stopped agent's approvals stay (their clock keeps running) but wait for it to be turned back on.
-  return rows.map(r => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, agentStopped: stateOf(r.agent_id, now).state === 'stopped', tool: r.tool, args: JSON.parse(r.args) as Record<string, unknown>, createdAt: r.created_at, expiresAt: r.expires_at }));
+  return rows.map((r, i) => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, owner: owners[i], agentStopped: stateOf(r.agent_id, now).state === 'stopped', tool: r.tool, args: JSON.parse(r.args) as Record<string, unknown>, createdAt: r.created_at, expiresAt: r.expires_at }));
 }
 
 const argsLine = (args: Record<string, unknown>) =>
