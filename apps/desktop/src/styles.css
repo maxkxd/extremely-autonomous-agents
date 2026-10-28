@@ -332,48 +332,76 @@ ul { list-style: none; margin: 0; padding: 0; }
    Ferocity effects. Each level keeps everything below it:
      fero-0 Chill       - plain
      fero-1 Steady      - pies glow
-     fero-2 Driven      - pies pulse + sonar ring; level name glows
-     fero-3 Relentless  - the card itself glows and twitches
+     fero-2 Driven      - glow breathes + sonar rings; level name glows
+     fero-3 Relentless  - the card itself glows and twitches side to side
      fero-4 Apocalyptic - everything turns red, harder and faster
    is-stopped overrides all of it: gray slices, no motion.
+
+   Transitions: every effect fades over --tx, set per change by the card
+   (Dashboard.tsx): ~0.9s gentle fade going up to Steady/Driven, 0s (abrupt)
+   going up to Relentless/Apocalyptic, ~1.6s slow ease for any step down.
+   Glow and sonar live on always-mounted layers so their opacity can fade;
+   adding or removing an animation cannot.
    First pass - expect to fine-tune intensities and timings.
    --------------------------------------------------------------------------- */
 .agent-card {
   --slice-0: #3f7bd6; --slice-1: #7aa3e4; --slice-2: #b4cbf0; --slice-3: #6b6b6b; --slice-4: #a0a0a0;
   --fx: var(--attention); --fx-rgb: 63, 123, 214;
-  --pulse: 2.4s; --twitch: 3.4s;
-  transition: box-shadow 0.4s, border-color 0.4s, background 0.4s;
+  --pulse: 2.4s; --twitch: 3.4s; --tx: 0.9s;
+  transition: box-shadow var(--tx), border-color var(--tx), background-color var(--tx);
 }
+.agent-card.fero-3 { --pulse: 1.7s; }
 .agent-card.fero-4 {
   --slice-0: #e5484d; --slice-1: #f0787b; --slice-2: #f6aaac; --slice-3: #7d3436; --slice-4: #b35558;
   --fx: #e5484d; --fx-rgb: 229, 72, 77;
   --pulse: 1.1s; --twitch: 1.7s;
 }
-.agent-card.fero-3 { --pulse: 1.7s; }
 .agent-card.is-stopped {
   --slice-0: #5c5c5c; --slice-1: #7c7c7c; --slice-2: #9c9c9c; --slice-3: #3f3f3f; --slice-4: #4c4c4c;
+  --tx: 0.6s;
 }
+
+/* Everything colour-driven fades at the card's --tx. */
+.donut-seg { transition: stroke var(--tx), opacity 0.12s, stroke-width 0.12s; }
+.agent-card .card-name h2, .agent-card .card-name .dept-icon, .agent-card .ferocity-name,
+.agent-card .head-count, .agent-card .outcome {
+  transition: color var(--tx), text-shadow var(--tx), background-color var(--tx), letter-spacing var(--tx);
+}
+.donut { position: relative; z-index: 1; transition: filter var(--tx); }
 
 /* Steady+: pies glow */
 .agent-card:not(.fero-0) .donut { filter: drop-shadow(0 0 8px rgba(var(--fx-rgb), 0.35)); }
 
-/* Driven+: pies pulse, sonar ring, glowing level name */
-.agent-card.fero-2 .donut, .agent-card.fero-3 .donut, .agent-card.fero-4 .donut {
-  animation: donut-pulse var(--pulse) ease-in-out infinite;
+/* Glow layer (Driven+): a soft halo behind the pie that breathes. */
+.chart-glow {
+  position: absolute; left: 50%; top: 50%; width: 200px; height: 200px; margin: -100px 0 0 -100px;
+  border-radius: 50%; pointer-events: none; opacity: 0;
+  box-shadow: 0 0 34px 8px rgba(var(--fx-rgb), 0.45);
+  transition: opacity var(--tx), box-shadow var(--tx);
+  animation: breathe var(--pulse) ease-in-out infinite;
 }
-@keyframes donut-pulse {
-  0%, 100% { filter: drop-shadow(0 0 7px rgba(var(--fx-rgb), 0.3)); }
-  50% { filter: drop-shadow(0 0 18px rgba(var(--fx-rgb), 0.65)); }
+@keyframes breathe {
+  0%, 100% { transform: scale(0.96); }
+  50% { transform: scale(1.04); }
 }
-.agent-card.fero-2 .chart::before, .agent-card.fero-3 .chart::before, .agent-card.fero-4 .chart::before {
-  content: ''; position: absolute; left: 50%; top: 50%; width: 176px; height: 176px; margin: -88px 0 0 -88px;
-  border-radius: 50%; border: 2px solid rgba(var(--fx-rgb), 0.55); pointer-events: none;
+
+/* Sonar layer (Driven+): rings keep emitting; the layer's opacity fades them in and out. */
+.chart-sonar {
+  position: absolute; left: 50%; top: 50%; width: 176px; height: 176px; margin: -88px 0 0 -88px;
+  pointer-events: none; opacity: 0; transition: opacity var(--tx);
+}
+.chart-sonar::before {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  border: 2px solid rgba(var(--fx-rgb), 0.55);
   animation: sonar var(--pulse) ease-out infinite;
 }
 @keyframes sonar {
   0% { transform: scale(0.9); opacity: 0.8; }
   100% { transform: scale(1.45); opacity: 0; }
 }
+.agent-card.fero-2 .chart-glow, .agent-card.fero-3 .chart-glow, .agent-card.fero-4 .chart-glow,
+.agent-card.fero-2 .chart-sonar, .agent-card.fero-3 .chart-sonar, .agent-card.fero-4 .chart-sonar { opacity: 1; }
+
 .agent-card.fero-2 .ferocity-name, .agent-card.fero-3 .ferocity-name {
   color: var(--text); text-shadow: 0 0 10px rgba(var(--fx-rgb), 0.9), 0 0 2px rgba(var(--fx-rgb), 0.6);
 }
@@ -382,26 +410,34 @@ ul { list-style: none; margin: 0; padding: 0; }
   text-shadow: 0 0 12px rgba(var(--fx-rgb), 0.9);
 }
 
-/* Relentless+: the card glows and twitches */
+/* Relentless+: the card glows and twitches - side to side only. */
 .agent-card.fero-3, .agent-card.fero-4 {
   border-color: rgba(var(--fx-rgb), 0.4);
   box-shadow: 0 0 0 1px rgba(var(--fx-rgb), 0.12), 0 0 26px rgba(var(--fx-rgb), 0.16);
-  animation: twitch var(--twitch) linear infinite;
 }
-@keyframes twitch {
+.agent-card.fero-3 { animation: twitch-soft var(--twitch) linear infinite; }
+@keyframes twitch-soft {
+  0%, 92%, 100% { transform: translateX(0); }
+  93% { transform: translateX(0.75px); }
+  94.5% { transform: translateX(-0.75px); }
+  96% { transform: translateX(0); }
+}
+
+/* Apocalyptic: red, hotter glow, a faint ember wash, red accents, a real twitch. */
+.agent-card.fero-4 {
+  border-color: rgba(var(--fx-rgb), 0.6);
+  box-shadow: 0 0 0 1px rgba(var(--fx-rgb), 0.25), 0 0 38px rgba(var(--fx-rgb), 0.3), inset 0 0 60px rgba(var(--fx-rgb), 0.07);
+  background-image: radial-gradient(ellipse at 30% 55%, rgba(var(--fx-rgb), 0.07), transparent 65%);
+  animation: twitch-hard var(--twitch) linear infinite;
+}
+@keyframes twitch-hard {
   0%, 90%, 100% { transform: translate(0, 0); }
   91% { transform: translate(1px, 0); }
   92% { transform: translate(-1px, 0.5px); }
   93% { transform: translate(1px, -0.5px); }
   94% { transform: translate(0, 0); }
 }
-
-/* Apocalyptic: red, hotter glow, a faint ember wash, red accents */
-.agent-card.fero-4 {
-  border-color: rgba(var(--fx-rgb), 0.6);
-  box-shadow: 0 0 0 1px rgba(var(--fx-rgb), 0.25), 0 0 38px rgba(var(--fx-rgb), 0.3), inset 0 0 60px rgba(var(--fx-rgb), 0.07);
-  background: radial-gradient(ellipse at 30% 55%, rgba(var(--fx-rgb), 0.07), transparent 65%), var(--bg);
-}
+.agent-card.fero-4 .chart-glow { box-shadow: 0 0 42px 12px rgba(var(--fx-rgb), 0.5); }
 .agent-card.fero-4 .head-count.has { color: var(--fx); }
 .agent-card.fero-4 .card-name h2 {
   color: var(--fx); text-transform: uppercase; letter-spacing: 0.04em;
@@ -410,9 +446,17 @@ ul { list-style: none; margin: 0; padding: 0; }
 .agent-card.fero-4 .card-name .dept-icon { color: var(--fx); }
 .agent-card.fero-4 .outcome.running { background: var(--fx); }
 
-/* Setting Relentless or Apocalyptic gives the card a one-off jolt. */
-.agent-card.kick { animation: kick 0.45s ease-out; }
-@keyframes kick {
+/* One-off jolt on the way UP into the two obvious levels. */
+.agent-card.kick-soft { animation: kick-soft 0.4s ease-out; }
+@keyframes kick-soft {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-2px); }
+  40% { transform: translateX(2px); }
+  60% { transform: translateX(-1.5px); }
+  80% { transform: translateX(1px); }
+}
+.agent-card.kick-hard { animation: kick-hard 0.45s ease-out; }
+@keyframes kick-hard {
   0%, 100% { transform: translate(0, 0); }
   15% { transform: translate(-3px, 1px); }
   30% { transform: translate(3px, -1px); }
@@ -422,18 +466,16 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 
 /* Stopped: gray, still. Draining keeps its effects - it is still finishing work. */
-.agent-card.is-stopped,
-.agent-card.is-stopped .donut,
-.agent-card.is-stopped .chart::before { animation: none !important; }
+.agent-card.is-stopped { animation: none !important; }
 .agent-card.is-stopped .donut { filter: none; }
+.agent-card.is-stopped .chart-glow, .agent-card.is-stopped .chart-sonar { opacity: 0 !important; }
 .agent-card.is-stopped .ferocity-name { text-shadow: none; }
 .agent-card.is-stopped .card-name h2 { color: var(--text); text-shadow: none; }
 .agent-card.is-stopped .card-name .dept-icon { color: var(--muted); }
-.agent-card.is-stopped .chart::before { display: none; }
 .agent-card.is-stopped.fero-3, .agent-card.is-stopped.fero-4 {
-  border-color: var(--hairline); box-shadow: none; background: var(--bg);
+  border-color: var(--hairline); box-shadow: none; background-image: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-card, .agent-card .donut, .agent-card .chart::before { animation: none !important; }
+  .agent-card, .agent-card .chart-glow, .agent-card .chart-sonar::before { animation: none !important; }
 }

@@ -24,6 +24,9 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
 
   return (
     <div className="chart" onMouseLeave={() => setHover(null)}>
+      {/* Effect layers behind the pie: always mounted so they can fade in/out. */}
+      <span className="chart-glow" aria-hidden />
+      <span className="chart-sonar" aria-hidden />
       <svg
         viewBox={`0 0 ${SIZE} ${SIZE}`}
         className="donut"
@@ -156,12 +159,28 @@ function AgentCard({
 }) {
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   // Ferocity lives on the card because each level restyles the whole card
-  // (fero-0..4 in styles.css). 'kick' plays a one-off jolt when a level is set.
+  // (fero-0..4 in styles.css). How a change looks depends on its direction:
+  //   up into Steady/Driven  - effects fade in gently
+  //   up into Relentless     - abrupt, with a small side-to-side shake
+  //   up into Apocalyptic    - abrupt, with a hard shake
+  //   any step down          - everything eases back slowly
   const [level, setLevel] = useState(agent.ferocity);
-  const [kick, setKick] = useState(false);
+  const prevLevel = useRef(level);
+  const [tx, setTx] = useState('0.9s');
+  const [kick, setKick] = useState<'soft' | 'hard' | null>(null);
   useEffect(() => {
-    setKick(true);
-    const t = setTimeout(() => setKick(false), 500);
+    const from = prevLevel.current;
+    prevLevel.current = level;
+    if (from === level) return;
+    if (level < from) {
+      setTx('1.6s');
+      setKick(null);
+      return;
+    }
+    setTx(level >= 3 ? '0s' : '0.9s');
+    if (level < 3) return;
+    setKick(level === 4 ? 'hard' : 'soft');
+    const t = setTimeout(() => setKick(null), 500);
     return () => clearTimeout(t);
   }, [level]);
   // Stopping halts an in-flight run; draining lets it finish.
@@ -171,7 +190,8 @@ function AgentCard({
 
   return (
     <article
-      className={`agent-card fero-${level} is-${state}${kick && level >= 3 ? ' kick' : ''}${dragging ? ' dragging' : ''}`}
+      className={`agent-card fero-${level} is-${state}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
+      style={{ '--tx': tx } as React.CSSProperties}
       ref={cardRef}
     >
       <div className="card-main">
