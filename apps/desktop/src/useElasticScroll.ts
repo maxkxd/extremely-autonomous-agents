@@ -1,38 +1,34 @@
 import { useEffect, type RefObject } from 'react';
 
-// Rubber-band overscroll for one scroll container. Chrome on Windows doesn't
-// bounce inner scrollers, so we do it ourselves, as a spring:
-//   - scrolling past the top/bottom pushes the content, with resistance that
-//     grows as it nears MAX_PULL
-//   - a spring pulls it back toward 0 on EVERY frame, starting immediately. So
-//     a trackpad's fading momentum events can't hold it up - they just get
-//     out-pulled - and it settles fast once the push stops
-//   - within one scroll gesture, each event pushes less than the last
-//     (FATIGUE), so the real swipe pulls and the trailing momentum barely does
-//   - the pull is the actual on-screen offset, never a hidden running total, so
-//     scrolling back the other way only has to undo what you can see
-// A held finger (touch) is the exception: the spring waits until it lifts.
+// Edge bounce for one scroll container. Chrome on Windows doesn't bounce inner
+// scrollers, so we do it ourselves - as an impact, not a stretch:
+//   - scrolling into the top or bottom edge kicks the content past it, harder
+//     the faster you were scrolling (capped)
+//   - an underdamped spring carries it out and back with one small wobble
+//   - one kick per gesture: the edge re-arms only after a short quiet gap, so a
+//     trackpad's momentum tail (which keeps sending events for ~1s) can't
+//     re-trigger or hold it, and two separate scrolls each get a clean bounce
+// Nothing accumulates, and scrolling away from the edge is never blocked.
 // Moves the scroller's first child, so it works for whatever view is shown.
 
-const MAX_PULL = 90; // px; the pull can approach but never pass this
-const INPUT_GAIN = 0.9; // share of the scroll delta that becomes pull, before resistance
-const FATIGUE = 6; // events into a gesture before input is down to ~37% strength
-const GESTURE_GAP = 160; // ms without overscroll input = next event starts a new gesture
-const STIFFNESS = 0.085; // spring strength back toward 0
-const DAMPING = 0.74; // velocity kept per frame; < ~0.8 gives a small, quick overshoot
-const REST = 0.25; // px; below this (and slow) we snap to 0 and stop animating
+const IMPULSE = 0.22; // kick velocity (px/frame) per px of scroll delta
+const MAX_KICK = 9; // px/frame cap on the kick - roughly a 21px bounce
+const STIFFNESS = 0.07; // spring pull back toward rest
+const DAMPING = 0.84; // velocity kept per frame; gives one small overshoot
+const REARM_GAP = 120; // ms of no edge scrolling before the next kick is allowed
+const REST = 0.3; // px; below this (and slow) the bounce is over
 
 export function useElasticScroll(ref: RefObject<HTMLElement>) {
   useEffect(() => {
     const scroller = ref.current;
     if (!scroller) return;
 
-    let pull = 0; // + = content pulled down (past the top), - = pulled up (past the bottom)
+    let offset = 0; // + = content pushed down (hit the top), - = pushed up (hit the bottom)
     let velocity = 0;
     let frame = 0;
+    let armed = true;
+    let lastEdgeInput = 0;
     let touchY: number | null = null;
-    let gestureEvents = 0;
-    let lastInput = 0;
 
     const content = () => scroller.firstElementChild as HTMLElement | null;
     const atTop = () => scroller.scrollTop <= 0;
@@ -42,58 +38,43 @@ export function useElasticScroll(ref: RefObject<HTMLElement>) {
       const el = content();
       if (!el) return;
       el.style.transition = 'none';
-      el.style.transform = pull ? `translateY(${pull.toFixed(2)}px)` : '';
+      el.style.transform = offset ? `translateY(${offset.toFixed(2)}px)` : '';
     };
 
     const step = () => {
-      frame = 0;
-      if (touchY === null) {
-        velocity = (velocity - pull * STIFFNESS) * DAMPING;
-        pull += velocity;
-      }
-      if (touchY === null && Math.abs(pull) < REST && Math.abs(velocity) < REST) {
-        pull = 0;
+      velocity = (velocity - offset * STIFFNESS) * DAMPING;
+      offset += velocity;
+      if (Math.abs(offset) < REST && Math.abs(velocity) < REST) {
+        offset = 0;
         velocity = 0;
+        frame = 0;
         render();
         return;
       }
       render();
       frame = requestAnimationFrame(step);
     };
-    const run = () => {
-      if (!frame) frame = requestAnimationFrame(step);
-    };
 
-    // Feed one scroll delta (deltaY > 0 = scrolling down). Returns true if it
-    // was used as overscroll / unwinding, so the caller should cancel the scroll.
-    const feed = (deltaY: number) => {
-      const pastTop = deltaY < 0 && atTop();
-      const pastBottom = deltaY > 0 && atBottom();
-      const unwinding = pull !== 0 && Math.sign(-deltaY) !== Math.sign(pull);
-      if (unwinding) {
-        // Scrolling back toward the content: give back visible pull 1:1.
-        const next = pull - deltaY;
-        pull = Math.sign(next) === Math.sign(pull) ? next : 0;
-        velocity = 0;
-      } else if (pastTop || pastBottom) {
-        const now = performance.now();
-        if (now - lastInput > GESTURE_GAP) gestureEvents = 0;
-        lastInput = now;
-        const room = 1 - Math.min(Math.abs(pull) / MAX_PULL, 1);
-        const fade = Math.exp(-gestureEvents++ / FATIGUE);
-        pull -= deltaY * INPUT_GAIN * room * room * fade;
-        pull = Math.max(-MAX_PULL, Math.min(MAX_PULL, pull));
-      } else {
-        return false;
+    // One scroll delta (deltaY > 0 = scrolling down). Returns true when it hit
+    // an edge, so the caller can cancel the (no-op) native scroll.
+    const hit = (deltaY: number) => {
+      const intoTop = deltaY < 0 && atTop();
+      const intoBottom = deltaY > 0 && atBottom();
+      if (!intoTop && !intoBottom) return false;
+      const now = performance.now();
+      if (now - lastEdgeInput > REARM_GAP) armed = true;
+      lastEdgeInput = now;
+      if (armed) {
+        armed = false;
+        velocity = Math.sign(-deltaY) * Math.min(Math.abs(deltaY) * IMPULSE, MAX_KICK);
+        if (!frame) frame = requestAnimationFrame(step);
       }
-      render();
-      run();
       return true;
     };
 
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return; // pinch-zoom
-      if (feed(e.deltaY)) e.preventDefault();
+      if (hit(e.deltaY)) e.preventDefault();
     };
 
     const onTouchStart = (e: TouchEvent) => {
@@ -104,11 +85,10 @@ export function useElasticScroll(ref: RefObject<HTMLElement>) {
       const y = e.touches[0].clientY;
       const delta = touchY - y; // finger moving up = scrolling down
       touchY = y;
-      if (feed(delta) && e.cancelable) e.preventDefault();
+      if (hit(delta) && e.cancelable) e.preventDefault();
     };
     const onTouchEnd = () => {
       touchY = null;
-      run();
     };
 
     scroller.addEventListener('wheel', onWheel, { passive: false });
