@@ -176,7 +176,12 @@ ul { list-style: none; margin: 0; padding: 0; }
   border-radius: 14px;
   overflow: hidden;
 }
-.card-main { flex: 1; min-width: 0; padding: 18px 22px; display: flex; flex-direction: column; gap: 16px; }
+/* Name + owner sit in their own left column so the pies can use the card's full
+   height beside them instead of starting below a header row. */
+.card-main { flex: 1; min-width: 0; padding: 18px 22px; display: flex; gap: 20px; --donut: 284px; }
+/* Fixed width so every card's pies line up; long names wrap. */
+.card-head { flex-shrink: 0; width: 310px; }
+.card-head .card-name { flex-wrap: wrap; row-gap: 4px; }
 .card-name { display: flex; align-items: center; gap: 10px; }
 .card-name h2 { margin: 0; font-size: 19px; font-weight: 600; }
 .card-owner { display: flex; align-items: center; gap: 5px; margin-top: 4px; margin-left: 28px; font-size: 13px; color: var(--muted); }
@@ -185,9 +190,10 @@ ul { list-style: none; margin: 0; padding: 0; }
   background: var(--badge); color: var(--text); text-transform: uppercase; letter-spacing: 0.04em;
 }
 
-.card-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); justify-items: center; gap: 12px 24px; }
-.chart { position: relative; }
-.donut { display: block; width: 220px; height: 220px; }
+.card-charts { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-items: center; align-items: center; gap: 12px 24px; }
+.chart { position: relative; width: 100%; max-width: var(--donut); }
+/* Always two pies side by side: they shrink on narrow screens rather than stack. */
+.donut { display: block; width: 100%; height: auto; aspect-ratio: 1; }
 .donut circle { fill: none; stroke-width: 44; }
 .donut-track { stroke: var(--surface-hover); }
 .donut-seg { cursor: pointer; transition: opacity 0.12s, stroke-width 0.12s; }
@@ -369,7 +375,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 /* Glow layer (Driven+): a soft halo behind the pie that breathes. */
 .chart-glow {
-  position: absolute; left: 50%; top: 50%; width: 200px; height: 200px; margin: -100px 0 0 -100px;
+  position: absolute; inset: 4.5%;
   border-radius: 50%; pointer-events: none; opacity: 0;
   box-shadow: 0 0 34px 8px rgba(var(--fx-rgb), 0.45);
   transition: opacity var(--tx), box-shadow var(--tx);
@@ -382,7 +388,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 /* Sonar layer (Driven+): rings keep emitting; the layer's opacity fades them in and out. */
 .chart-sonar {
-  position: absolute; left: 50%; top: 50%; width: 176px; height: 176px; margin: -88px 0 0 -88px;
+  position: absolute; inset: 10%;
   pointer-events: none; opacity: 0; transition: opacity var(--tx);
 }
 .chart-sonar::before {
