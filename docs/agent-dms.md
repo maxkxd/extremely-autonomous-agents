@@ -27,7 +27,7 @@ it builds or does relies on someone reading the channel, it's built wrong.
   they asked a question **in that channel** and are waiting for the reply,
   which lands there.
 - So the UI never pulls people into DMs: no unread badges, no notifications,
-  the list is visually quiet.
+  no banners, the list is visually quiet.
 
 This belongs in every agent's run instructions.
 

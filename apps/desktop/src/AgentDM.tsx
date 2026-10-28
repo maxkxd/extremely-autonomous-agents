@@ -118,11 +118,6 @@ export function AgentDM({
   let lastDay = '';
   return (
     <div className="dm">
-      {/* The rule, quietly: nothing here needs anyone (docs/agent-dms.md). */}
-      <p className="dm-notice">
-        Run logs and direct messages with {agent.name}. Nothing here needs you - anything that does goes to Approvals or
-        Requests.
-      </p>
 
       <div className="dm-log">
         {entries.map((e, i) => {
