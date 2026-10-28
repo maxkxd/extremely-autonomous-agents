@@ -15,7 +15,7 @@ import {
   type ResourceRequest,
   type TimeRange,
 } from './data';
-import { Requests, type Convo, type RequestResolution } from './Requests';
+import { Requests, startConvo, type Convo, type RequestResolution } from './Requests';
 import {
   Approvals,
   ApprovalsToolbar,
@@ -139,7 +139,7 @@ export function App() {
       : null;
   const [convos, setConvos] = useState<Record<string, Convo>>({});
   const updateConvo = (id: string, fn: (c: Convo) => Convo) =>
-    setConvos(prev => ({ ...prev, [id]: fn(prev[id] ?? { thread: [], buildApproval: null }) }));
+    setConvos(prev => ({ ...prev, [id]: fn(prev[id] ?? startConvo(REQUESTS.find(r => r.id === id)!)) }));
   const requestCounts: Record<string, number> = {};
   for (const r of pendingRequests) requestCounts[r.agentId] = (requestCounts[r.agentId] ?? 0) + 1;
   const mainBody = useRef<HTMLDivElement>(null);

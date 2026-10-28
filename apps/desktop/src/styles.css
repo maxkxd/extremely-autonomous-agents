@@ -730,14 +730,6 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 .request-detail { margin: 0; font-size: 13.5px; line-height: 1.6; color: #cfcfcf; max-width: 760px; }
 
-/* The routing trail: a small vertical timeline of what was already tried. */
-.request-trail { margin: 0; padding: 0 0 0 14px; list-style: none; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
-.request-trail li { position: relative; font-size: 12.5px; color: var(--muted); display: flex; gap: 8px; }
-.request-trail li::before {
-  content: ''; position: absolute; left: -18px; top: 6px; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--bg); border: 1px solid var(--border-strong);
-}
-.trail-by { flex-shrink: 0; width: 104px; color: #8f8f8f; font-weight: 600; }
 
 @keyframes addendum-in { from { opacity: 0; transform: translateY(-4px); } }
 

@@ -355,23 +355,19 @@ export const isMine = (agentId: string) => {
 // Your approve/reject decisions earlier today, before this session (placeholder).
 export const DECIDED_EARLIER_TODAY = { approved: 6, rejected: 2 };
 
-// One step in how a request got here (Conductor / Fleet Engineer attempts).
-export type RequestStep = { by: 'Conductor' | 'Fleet Engineer'; text: string };
-
 // A resource request that the agency couldn't settle itself (docs/requests.md).
 export type ResourceRequest = {
   id: string;
   agentId: string;
   summary: string; // one sentence: what the agent needs
   detail: string; // the agent's fuller explanation
-  trail: RequestStep[]; // what was tried before it reached a person
   minutesAgo: number;
   // PLACEHOLDER: the simulated Fleet Engineer's side of the conversation,
   // until the real engineer exists. Rule: it never just says why it can't -
   // `plan` always tells you what to do so it can finish the job.
   engineer: {
-    canDoNow?: boolean; // it can design the fix straight away once tasked
-    plan: string; // first reply: what it needs from you, as steps
+    canDoNow?: boolean; // it can design the fix as soon as you say go
+    plan: string; // its opening message on the request: what you need to do
     // The tool it designs once it can. Building it is a human approval.
     build: { toolName: string; does: string; access: string };
     done: string; // what it did once the build was approved
@@ -386,10 +382,6 @@ export const REQUESTS: ResourceRequest[] = [
     summary: 'Needs access to the company LinkedIn Sales Navigator account',
     detail:
       "I'm finding decision-makers through public search, which caps at about 30 useful profiles a day and hides seniority filters. With a Sales Navigator seat I could filter by role, company size and region and roughly triple qualified leads. I don't need to post or message from it - read-only search is enough.",
-    trail: [
-      { by: 'Conductor', text: 'No other agent has Sales Navigator access.' },
-      { by: 'Fleet Engineer', text: "Can't build this as a tool - it needs a paid seat and someone to sign in." },
-    ],
     minutesAgo: 190,
     engineer: {
       plan:
@@ -404,10 +396,6 @@ export const REQUESTS: ResourceRequest[] = [
     summary: 'Wants a Statista subscription to cite market-size figures',
     detail:
       "Three of this week's briefs need current market-size numbers. The free sources I can reach are 2-3 years old or paywalled. A Statista (or similar) subscription would let me cite current figures with a proper source.",
-    trail: [
-      { by: 'Conductor', text: 'No agent has a paid data source.' },
-      { by: 'Fleet Engineer', text: 'Not a tool problem - needs a paid subscription.' },
-    ],
     minutesAgo: 140,
     engineer: {
       plan:
@@ -422,10 +410,6 @@ export const REQUESTS: ResourceRequest[] = [
     summary: "Can't find the current brand guidelines",
     detail:
       'Two different "brand guidelines" PDFs are in the shared drive (2024 and 2025) and they disagree on the primary colour and tone of voice. I need to know which one is current before drafting the newsletter.',
-    trail: [
-      { by: 'Conductor', text: 'Rerouted to Research Assistant - it found both files but not which is current.' },
-      { by: 'Conductor', text: 'Rerouted 3 times without an answer - stopped to save runs.' },
-    ],
     minutesAgo: 95,
     engineer: {
       plan:
@@ -440,14 +424,11 @@ export const REQUESTS: ResourceRequest[] = [
     summary: 'Needs permission to read the shared accounts@ inbox',
     detail:
       'Supplier invoices are going to accounts@ rather than your inbox, so I miss them when triaging. Read-only delegated access to that mailbox would let me file and flag invoices the same way I do for yours.',
-    trail: [
-      { by: 'Conductor', text: 'No agent can read accounts@.' },
-      { by: 'Fleet Engineer', text: 'Proposed a read-only mailbox tool - the approval expired.' },
-    ],
     minutesAgo: 30,
     engineer: {
       canDoNow: true,
-      plan: '',
+      plan:
+        "I can build Inbox Triage a read-only reader for accounts@ (read and label only - it can't send or delete). Nothing needed from you except a yes: reply here and I'll raise it for your approval.",
       build: { toolName: 'accounts@ mailbox reader', does: 'Reads, files and flags emails in the shared accounts@ inbox', access: 'Read and label only - cannot send or delete' },
       done: 'Approved and built: Inbox Triage can now read, file and flag supplier invoices in accounts@.',
     },

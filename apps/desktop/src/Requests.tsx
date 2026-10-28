@@ -30,8 +30,12 @@ type Message = { from: 'you' | 'engineer'; text: string };
 
 // A request's conversation with the Fleet Engineer. Kept by the app, not the
 // row, so it survives leaving the page (e.g. to approve the build).
+// Every conversation opens with the engineer's instructions for this request.
 export type Convo = { thread: Message[]; buildApproval: string | null };
-const NO_CONVO: Convo = { thread: [], buildApproval: null };
+export const startConvo = (r: ResourceRequest): Convo => ({
+  thread: [{ from: 'engineer', text: r.engineer.plan }],
+  buildApproval: null,
+});
 type Drawer = 'diy' | 'reject';
 
 const PLACEHOLDER: Record<Drawer, string> = {
@@ -44,16 +48,15 @@ const PLACEHOLDER: Record<Drawer, string> = {
 // reply is always what you need to do. Once it can, it designs the tool and
 // asks to build it - which is a human approval, not something it just does.
 const SAYS_DONE = /\b(done|did it|finished|sorted|set (it )?up|added|bought|got (it|the)|created|uploaded|it'?s (the )?20\d\d)\b/i;
-function engineerReply(request: ResourceRequest, thread: Message[], latest: string) {
+function engineerReply(request: ResourceRequest, latest: string) {
   const { engineer } = request;
-  const ready = engineer.canDoNow || (thread.some(m => m.from === 'engineer') && SAYS_DONE.test(latest));
+  const ready = engineer.canDoNow || SAYS_DONE.test(latest);
   if (ready) {
     return {
       text: `I've designed "${engineer.build.toolName}" for ${agentOf(request).name}. Building it needs your approval - it's waiting in Approvals.`,
       readyToBuild: true,
     };
   }
-  if (!thread.some(m => m.from === 'engineer')) return { text: engineer.plan, readyToBuild: false };
   return {
     text: "Got it. Work through the steps above, then reply here (just \"done\" is fine) and I'll design the tool.",
     readyToBuild: false,
@@ -89,7 +92,8 @@ function RequestRow({
   const [note, setNote] = useState('');
   // The conversation with the Fleet Engineer about this request.
   const { thread, buildApproval } = convo;
-  const [chatOpen, setChatOpen] = useState(thread.length > 0);
+  // The reply box: opened by "Task Fleet Engineer", or already open once you've replied.
+  const [replying, setReplying] = useState(thread.some(m => m.from === 'you'));
   const setThread = (fn: (t: Message[]) => Message[]) => updateConvo(c => ({ ...c, thread: fn(c.thread) }));
   const setBuildApproval = (id: string | null) => updateConvo(c => ({ ...c, buildApproval: id }));
   const [draft, setDraft] = useState('');
@@ -118,11 +122,11 @@ function RequestRow({
     const sent: Message[] = mine ? [...thread, { from: 'you', text: mine }] : thread;
     setThread(() => sent);
     setDraft('');
-    setChatOpen(true);
+    setReplying(true);
     setDrawer(null);
     setThinking(true);
     later(ENGINEER_MS, () => {
-      const reply = engineerReply(request, thread, mine);
+      const reply = engineerReply(request, mine);
       setThread(t => [...t, { from: 'engineer', text: reply.text }]);
       setThinking(false);
       if (reply.readyToBuild) setBuildApproval(onProposeBuild());
@@ -153,8 +157,8 @@ function RequestRow({
   }, [outcome]);
 
   const taskEngineer = (e: React.MouseEvent) => {
-    if (e.shiftKey && thread.length === 0) return send(''); // shift-click: task without a note
-    setChatOpen(true);
+    if (e.shiftKey) return send(''); // shift-click: go ahead without a note
+    setReplying(true);
     setDrawer(null);
     setTimeout(() => composer.current?.focus(), 30);
   };
@@ -166,7 +170,8 @@ function RequestRow({
 
   const last = thread[thread.length - 1];
   const waitingOnApproval = !!buildApproval && !outcome;
-  const waitingOnYou = !thinking && !leaving && !finished && !waitingOnApproval && last?.from === 'engineer';
+  const started = thread.some(m => m.from === 'you');
+  const waitingOnYou = started && !thinking && !leaving && !finished && !waitingOnApproval && last?.from === 'engineer';
 
   return (
     <div className={`request-wrap${collapsing ? ' collapsing' : ''}`}>
@@ -198,97 +203,83 @@ function RequestRow({
             <div className="request-body">
               <p className="request-detail">{request.detail}</p>
 
-              {/* How it got here: what the agency already tried. */}
-              <ol className="request-trail">
-                {request.trail.map((step, i) => (
-                  <li key={i}>
-                    <span className="trail-by">{step.by}</span>
-                    <span className="trail-text">{step.text}</span>
-                  </li>
-                ))}
-              </ol>
-
               {/* Conversation with the Fleet Engineer. */}
-              {chatOpen && (
-                <div className="eng-chat">
-                  {thread.map((m, i) => (
-                    <div key={i} className={`eng-msg ${m.from}`}>
-                      {m.from === 'engineer' && (
-                        <span className="eng-by">
-                          <Hammer size={12} strokeWidth={1.9} />
-                          Fleet Engineer
-                        </span>
-                      )}
-                      <div className="eng-text">{m.text}</div>
-                    </div>
-                  ))}
-                  {thinking && (
-                    <div className="eng-msg engineer">
+              <div className="eng-chat">
+                {thread.map((m, i) => (
+                  <div key={i} className={`eng-msg ${m.from}`}>
+                    {m.from === 'engineer' && (
                       <span className="eng-by">
                         <Hammer size={12} strokeWidth={1.9} />
                         Fleet Engineer
                       </span>
-                      <div className="eng-text typing">
-                        <span />
-                        <span />
-                        <span />
-                      </div>
+                    )}
+                    <div className="eng-text">{m.text}</div>
+                  </div>
+                ))}
+                {thinking && (
+                  <div className="eng-msg engineer">
+                    <span className="eng-by">
+                      <Hammer size={12} strokeWidth={1.9} />
+                      Fleet Engineer
+                    </span>
+                    <div className="eng-text typing">
+                      <span />
+                      <span />
+                      <span />
                     </div>
-                  )}
-                  {waitingOnApproval && (
-                    <button className="rq-btn open-approvals" onClick={onOpenApprovals}>
-                      Open Approvals
-                    </button>
-                  )}
-                  {!leaving && !finished && !waitingOnApproval && (
-                    <div className="eng-composer">
-                      <textarea
-                        ref={composer}
-                        className="reject-reason"
-                        rows={2}
-                        placeholder={
-                          thread.length === 0
-                            ? 'Tell the Fleet Engineer what you can do or what to build, e.g. "I\'ll get a Sales Navigator seat - what do you need?" (optional)'
-                            : 'Reply to the Fleet Engineer'
+                  </div>
+                )}
+                {waitingOnApproval && (
+                  <button className="rq-btn open-approvals" onClick={onOpenApprovals}>
+                    Open Approvals
+                  </button>
+                )}
+                {replying && !leaving && !finished && !waitingOnApproval && (
+                  <div className="eng-composer">
+                    <textarea
+                      ref={composer}
+                      className="reject-reason"
+                      rows={2}
+                      placeholder={
+                        'Reply to the Fleet Engineer, e.g. "I\'ll get a seat - what do you need?" or "done"'
+                      }
+                      value={draft}
+                      onChange={e => setDraft(e.target.value)}
+                      onKeyDown={e => {
+                        // Enter sends, Shift+Enter is a new line.
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          if (draft.trim()) send(draft);
                         }
-                        value={draft}
-                        onChange={e => setDraft(e.target.value)}
-                        onKeyDown={e => {
-                          // Enter sends, Shift+Enter is a new line.
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            if (draft.trim() || thread.length === 0) send(draft);
-                          }
-                        }}
-                        disabled={thinking}
-                      />
-                      <div className="reject-actions">
-                        {/* Keys go in the (future) settings, never in a chat message. */}
-                        <span className="drawer-hint">Don't paste API keys or passwords here - you'll add those in settings.</span>
-                        <button
-                          className="ap-btn confirm-engineer"
-                          onClick={() => send(draft)}
-                          disabled={thinking || (thread.length > 0 && !draft.trim())}
-                        >
-                          <SendHorizontal size={14} strokeWidth={1.9} />
-                          {thread.length === 0 ? 'Send to Fleet Engineer' : 'Send'}
-                        </button>
-                      </div>
+                      }}
+                      disabled={thinking}
+                    />
+                    <div className="reject-actions">
+                      {/* Keys go in the (future) settings, never in a chat message. */}
+                      <span className="drawer-hint">Don't paste API keys or passwords here - you'll add those in settings.</span>
+                      <button
+                        className="ap-btn confirm-engineer"
+                        onClick={() => send(draft)}
+                        disabled={thinking || !draft.trim()}
+                      >
+                        <SendHorizontal size={14} strokeWidth={1.9} />
+                        Send
+                      </button>
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
 
               <div className="request-actions">
-                {!chatOpen && (
+                {!replying && !waitingOnApproval && !finished && (
                   <button
                     className="rq-btn engineer"
                     onClick={taskEngineer}
                     disabled={!!leaving}
-                    title="Shift-click to task it without a note"
+                    title="Shift-click to tell it to go ahead without a note"
                   >
                     <Hammer size={14} strokeWidth={1.9} />
-                    Task Fleet Engineer
+                    Reply to Fleet Engineer
                   </button>
                 )}
 
@@ -406,7 +397,7 @@ export function Requests({
           onProposeBuild={() => onProposeBuild(r)}
           approvalOutcomes={approvalOutcomes}
           onOpenApprovals={onOpenApprovals}
-          convo={convos[r.id] ?? NO_CONVO}
+          convo={convos[r.id] ?? startConvo(r)}
           updateConvo={fn => updateConvo(r.id, fn)}
         />
       ))}
