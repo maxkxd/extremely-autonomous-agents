@@ -84,6 +84,36 @@ high is the person's call; the builder still makes it do something useful:
 - Old idle summaries are not evidence: a past "nothing to do" run is never
   fed back as a reason to stop.
 
+## Agent memory
+
+Each agent keeps its own memory between runs. Separate from the person and
+organisation memory profiles (org.ts), which say who it works for; this is
+what the agent itself has learned doing the job.
+
+The failure to design out (it happened repeatedly at WAR): an agent tries a
+tool ten times and writes "doesn't work" ten times; someone fixes the tool;
+the agent uses it and notes "works"; next run it sees ten failures against one
+success, decides the tool is broken and complains again. Telling the model
+"prefer recent memories" isn't enough on its own - volume wins - so:
+
+1. **Tool status never comes from memory.** The runner sees every tool call
+   succeed or fail, so it gives each run the live facts up front ("send_email:
+   last worked 2 hours ago"). Agents are told never to record a tool failure
+   in memory: a tool that doesn't work gets a resource request, and the agent
+   is told when it's fixed.
+2. **One memory per subject.** Every memory has a subject (a lead, a page, a
+   preference, a way of doing something). Writing about a subject replaces
+   what was there, so repeated notes about one thing collapse into the latest.
+3. **Newest wins.** Memories are given newest first, each with its age ("3
+   days ago"), and the run instructions say a newer memory overrides an older
+   one it disagrees with.
+4. **A cap, with compaction.** Each agent's memory has a size cap. Past it,
+   the oldest memories are summarised into a dated block ("Earlier, Jan-Mar:
+   ...") that ranks below anything recent and leaves out anything a newer
+   memory contradicts. Stored on the host, never a growing pile of files.
+5. **Idle runs teach nothing.** A run that found nothing to do isn't written
+   down as a lesson.
+
 ## Money and limits
 
 - **Plans run out**: the agent moves on to its 2nd and 3rd models, even onto
@@ -99,8 +129,9 @@ high is the person's call; the builder still makes it do something useful:
 
 Build, stop, test with real agents at each ferocity, then move on:
 
-1. **The runner and the built-in agency tools** - notes and memory, agent
-   DMs, resource requests, booking its own run, handing tasks to other agents.
+1. **The runner and the built-in agency tools** - agent memory (as above),
+   agent DMs, resource requests, booking its own run, handing tasks to other
+   agents.
 2. **Web research** - search, fetching pages, browsing.
 3. **Email (Gmail)** - reading, drafting, sending (T2).
 4. **Code / GitHub** - repos, issues, pull requests.
