@@ -184,10 +184,11 @@ ul { list-style: none; margin: 0; padding: 0; }
    height beside them instead of starting below a header row. */
 .card-main { flex: 1; min-width: 0; padding: 18px 22px 18px 32px; display: flex; gap: 20px; --donut: 284px; }
 /* Fixed width so every card's pies line up; long names wrap. */
-.card-head { flex-shrink: 0; width: 310px; }
+.card-head { flex-shrink: 0; width: 380px; }
 .card-head .card-name { flex-wrap: wrap; row-gap: 4px; }
 .card-name { display: flex; align-items: center; gap: 10px; }
 .card-name h2 { margin: 0; font-size: 19px; font-weight: 600; }
+.head-tags { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
 .card-owner { display: flex; align-items: center; gap: 14px; margin-top: 4px; margin-left: 28px; font-size: 13px; color: var(--muted); }
 .owner-name { display: inline-flex; align-items: center; gap: 5px; }
 /* Approved / rejected / expired for the time frame: quiet, like the owner. */
@@ -369,8 +370,7 @@ ul { list-style: none; margin: 0; padding: 0; }
      fero-2 Driven      - glow breathes + sonar rings; level name glows
      fero-3 Relentless  - the card itself glows and twitches side to side
      fero-4 Apocalyptic - everything turns red, harder and faster
-   is-paused (stopped) overrides all of it: it fades to gray slices, no motion.
-   Draining keeps its colours (it still answers people) but stops moving.
+   is-paused (stopped or standby) overrides all of it: it fades to gray slices, no motion.
 
    Transitions: every effect fades over --tx, set per change by the card
    (Dashboard.tsx): ~0.9s gentle fade going up to Steady/Driven, 0s (abrupt)
