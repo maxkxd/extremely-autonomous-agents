@@ -20,11 +20,17 @@ const C = 2 * Math.PI * R;
 const GAP = 3;
 const CUT_FROM = R - 34; // past the ring's inner edge (ring is 44 wide, 50 when hovered)
 const CUT_TO = R + 34; // past its outer edge
+// Widest the centre total may be: the hole is 120 across (R minus half the
+// 44-wide ring, doubled), less some breathing room.
+const TOTAL_MAX_WIDTH = 100;
 
 // No legend: hovering a slice highlights it and shows its label, value and share.
 function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; format: (n: number) => string }) {
   const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
   const maskId = `cuts${useId().replace(/:/g, '')}`;
+  // The centre total keeps its full size unless it would spill out of the hole;
+  // then it shrinks just enough to fit.
+  const totalRef = useRef<SVGTextElement>(null);
   const total = slices.reduce((n, s) => n + s.value, 0);
   const shown = slices.filter(x => x.value > 0).length;
   // Slice boundaries as fractions of the circle, for the gap cuts.
@@ -37,6 +43,22 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
       acc += sl.value;
     }
   }
+  const label = format(total);
+  useLayoutEffect(() => {
+    const fit = () => {
+      const el = totalRef.current;
+      if (!el) return;
+      el.style.fontSize = '';
+      const width = el.getComputedTextLength();
+      if (width > TOTAL_MAX_WIDTH) {
+        const base = parseFloat(getComputedStyle(el).fontSize);
+        el.style.fontSize = `${(base * TOTAL_MAX_WIDTH) / width}px`;
+      }
+    };
+    fit();
+    // Re-measure once the web font is in, in case the first pass used a fallback.
+    document.fonts.ready.then(fit);
+  }, [label]);
   let offset = 0;
 
   return (
@@ -96,7 +118,7 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
             return seg;
           })}
         </g>
-        <text x={SIZE / 2} y={SIZE / 2 - 9} className="donut-total">{format(total)}</text>
+        <text ref={totalRef} x={SIZE / 2} y={SIZE / 2 - 9} className="donut-total">{format(total)}</text>
         <text x={SIZE / 2} y={SIZE / 2 + 20} className="donut-caption">{caption}</text>
       </svg>
       {hover && (
@@ -120,7 +142,9 @@ function timeAgo(minutes: number): string {
 }
 
 const count = (n: number) => n.toLocaleString();
-const dollars = (n: number) => `$${n.toFixed(2)}`;
+// Cents only matter for small amounts; from $100 up show whole dollars with commas.
+const dollars = (n: number) =>
+  n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n).toLocaleString()}`;
 
 // Ferocity picks a FEROCITY level (schedule + self-booking). The estimate is
 // this agent's output per run times that level's expected runs over the
