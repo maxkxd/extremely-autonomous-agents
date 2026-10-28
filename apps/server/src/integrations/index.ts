@@ -10,6 +10,11 @@ import { callHttp } from './http.js';
 import { callMcpTool, listMcpTools, type McpTool } from './mcp-client.js';
 import { MODULES, type CodeModule } from './modules/index.js';
 import { codeHash, installPlugin, pluginModule, readPlugin } from './plugins.js';
+import { safeFetch } from '../runner/net.js';
+import type { Kit } from './modules/types.js';
+
+// What a code tool gets besides its inputs: the safe fetcher, its only way out.
+const KIT: Kit = { fetch: async (url, init) => (await safeFetch(url, init)).res as unknown as Response };
 import { oauthAccessToken, oauthCallback, oauthSecret, oauthSignOut, oauthStart, setOAuthAccount } from './oauth.js';
 import { Integration, type HttpIntegration, type McpIntegration } from './schema.js';
 
@@ -117,7 +122,7 @@ function providers(): Map<string, { def: Omit<ToolDef, 'impl'>; by: Provider[] }
       for (const tool of moduleOf(integration.module)?.tools ?? [])
         add(tool.id, { id: tool.id, tier: tool.tier, description: tool.description, schema: tool.input }, {
           integration,
-          call: async args => tool.run(args, await keyOf(integration.id)),
+          call: async args => tool.run(args, await keyOf(integration.id), KIT),
         });
     } else {
       for (const t of states()[integration.id]?.tools ?? []) {
@@ -166,7 +171,7 @@ async function test(integration: Integration): Promise<{ ok: boolean; message: s
       const key = await keyOf(integration.id);
       if (integration.auth.type === 'oauth2' && !key) throw new Error('Not signed in yet.');
       const tool = mod.tools.find(t => t.id === integration.test.tool) ?? mod.tools[0];
-      await tool.run(integration.test.args, key);
+      await tool.run(integration.test.args, key, KIT);
       const account = mod.account ? await mod.account(key) : '';
       if (account && integration.auth.type === 'oauth2') await setOAuthAccount(integration.id, account);
       return { ok: true, message: account ? `Connected as ${account}` : 'Connected and working' };
