@@ -146,8 +146,9 @@ function RequestRow({
 }) {
   const agent = agentOf(request);
   const DeptIcon = DEPARTMENT_ICON[agent.department];
-  // Requests with a conversation in progress open already expanded.
-  const [open, setOpen] = useState(convo.thread.length > 0);
+  // Requests start closed - unless you've already replied in one, so you can
+  // pick the conversation back up (e.g. after approving its build).
+  const [open, setOpen] = useState(convo.thread.some(m => m.from === 'you'));
   const [drawer, setDrawer] = useState<Drawer | null>(null);
   const [note, setNote] = useState('');
   // The conversation with the Fleet Engineer about this request.

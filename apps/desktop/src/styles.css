@@ -801,39 +801,21 @@ ul { list-style: none; margin: 0; padding: 0; }
    (A CSS animation starts when its selector starts matching, so .active does it.) */
 .nav-square svg rect, .nav-square svg path { transform-box: fill-box; transform-origin: center; }
 
-/* Dashboard: the four blocks slide clockwise round the square, each taking
-   the next slot's position and shape (tall <-> short), one full lap back home.
-   Slots (lucide layout-dashboard): A 3,3 7x9 · B 14,3 7x5 · C 14,12 7x9 · D 3,16 7x5.
-   Uses SVG geometry as CSS properties (x / y / height). */
-.nav-square.active .lucide-layout-dashboard rect { animation: 1.15s cubic-bezier(0.45, 0, 0.25, 1) both; }
-.nav-square.active .lucide-layout-dashboard rect:nth-child(1) { animation-name: tile-a; }
-.nav-square.active .lucide-layout-dashboard rect:nth-child(2) { animation-name: tile-b; }
-.nav-square.active .lucide-layout-dashboard rect:nth-child(3) { animation-name: tile-c; }
-.nav-square.active .lucide-layout-dashboard rect:nth-child(4) { animation-name: tile-d; }
-@keyframes tile-a {
-  0%, 100% { x: 3px; y: 3px; height: 9px; }
-  25% { x: 14px; y: 3px; height: 5px; }
-  50% { x: 14px; y: 12px; height: 9px; }
-  75% { x: 3px; y: 16px; height: 5px; }
-}
-@keyframes tile-b {
-  0%, 100% { x: 14px; y: 3px; height: 5px; }
-  25% { x: 14px; y: 12px; height: 9px; }
-  50% { x: 3px; y: 16px; height: 5px; }
-  75% { x: 3px; y: 3px; height: 9px; }
-}
-@keyframes tile-c {
-  0%, 100% { x: 14px; y: 12px; height: 9px; }
-  25% { x: 3px; y: 16px; height: 5px; }
-  50% { x: 3px; y: 3px; height: 9px; }
-  75% { x: 14px; y: 3px; height: 5px; }
-}
-@keyframes tile-d {
-  0%, 100% { x: 3px; y: 16px; height: 5px; }
-  25% { x: 3px; y: 3px; height: 9px; }
-  50% { x: 14px; y: 3px; height: 5px; }
-  75% { x: 14px; y: 12px; height: 9px; }
-}
+/* Dashboard: two moves, no stretching - every block keeps its own size.
+   Move 1: in each row the two blocks slide past each other, so tall and short
+   swap sides (the layout flips). Move 2: they slide back home.
+   Blocks (lucide layout-dashboard): 1 tall 3,3 · 2 short 14,3 · 3 tall 14,12 ·
+   4 short 3,16. Flipped: 1 -> 14,3 · 2 -> 3,3 · 3 -> 3,12 · 4 -> 14,16.
+   Uses SVG geometry as CSS properties (x / y). */
+.nav-square.active .lucide-layout-dashboard rect { animation: 1.1s cubic-bezier(0.55, 0, 0.3, 1) both; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(1) { animation-name: tile-1; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(2) { animation-name: tile-2; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(3) { animation-name: tile-3; }
+.nav-square.active .lucide-layout-dashboard rect:nth-child(4) { animation-name: tile-4; }
+@keyframes tile-1 { 0%, 100% { x: 3px; y: 3px; } 42%, 58% { x: 14px; y: 3px; } }
+@keyframes tile-2 { 0%, 100% { x: 14px; y: 3px; } 42%, 58% { x: 3px; y: 3px; } }
+@keyframes tile-3 { 0%, 100% { x: 14px; y: 12px; } 42%, 58% { x: 3px; y: 12px; } }
+@keyframes tile-4 { 0%, 100% { x: 3px; y: 16px; } 42%, 58% { x: 14px; y: 16px; } }
 
 /* Approvals: the tick wipes away and redraws itself, with a little pop. */
 .nav-square.active .lucide-circle-check-big path:nth-child(2) {
