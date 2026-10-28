@@ -626,18 +626,27 @@ function OrganizationProfile({ name, members }: { name: string; members: string[
 const money = (n: number) => `$${n.toFixed(2)}`;
 
 function UsageSection() {
-  // PLACEHOLDER figures until agents run for real: each agent's month so far.
-  const rows = AGENTS.map(a => ({ a, spend: a.cost.reduce((s, c) => s + c.value, 0) })).sort((x, y) => y.spend - x.spend);
+  // This calendar month, from the runner: what each agent's runs cost.
+  const [usage, setUsage] = useState<Usage | null>(null);
+  useEffect(() => {
+    getUsage().then(setUsage, () => {});
+  }, []);
+  const rows = (usage?.agents ?? []).map(a => ({ a, spend: a.monthUsd })).sort((x, y) => y.spend - x.spend || y.a.monthRuns - x.a.monthRuns);
   const total = rows.reduce((s, r) => s + r.spend, 0);
-  const runs = AGENTS.reduce((s, a) => s + a.runs, 0);
-  const top = Math.max(...rows.map(r => r.spend), 1);
+  const runs = rows.reduce((s, r) => s + r.a.monthRuns, 0);
+  const unknown = rows.reduce((s, r) => s + r.a.monthUnknownRuns, 0);
+  const top = Math.max(...rows.map(r => r.spend), 0.01);
   return (
     <section className="ssection">
       <h2>Usage</h2>
+      <p className="slead">This month. Runs on your AI plans and on this computer cost nothing here.</p>
       <div className="stiles">
         <div className="stile">
           <span className="stile-label">Spend</span>
-          <span className="stile-value">{money(total)}</span>
+          <span className="stile-value">
+            {money(total)}
+            {unknown > 0 && <span title={`${unknown} run${unknown === 1 ? '' : 's'} on a model with no known price aren't in this`}>*</span>}
+          </span>
         </div>
         <div className="stile">
           <span className="stile-label">Runs</span>
@@ -645,16 +654,16 @@ function UsageSection() {
         </div>
         <div className="stile">
           <span className="stile-label">Agents</span>
-          <span className="stile-value">{AGENTS.length}</span>
+          <span className="stile-value">{rows.length}</span>
         </div>
       </div>
       <SpendLimits />
       <h3>By agent</h3>
       <ul className="susage">
         {rows.map(({ a, spend }) => {
-          const Icon = DEPARTMENT_ICON[a.department];
+          const Icon = DEPARTMENT_ICON[a.department as keyof typeof DEPARTMENT_ICON] ?? DEPARTMENT_ICON.agency;
           return (
-            <li key={a.id} title={`${a.name}: ${money(spend)} over ${a.runs} runs`}>
+            <li key={a.id} title={`${a.name}: ${money(spend)} over ${a.monthRuns} runs this month${a.monthUnknownRuns ? ` (${a.monthUnknownRuns} at an unknown price)` : ''}`}>
               <span className="susage-name">
                 <Icon size={14} strokeWidth={1.75} />
                 {a.name}
@@ -662,8 +671,11 @@ function UsageSection() {
               <span className="susage-bar">
                 <span style={{ width: `${(spend / top) * 100}%` }} />
               </span>
-              <span className="susage-runs">{a.runs.toLocaleString()} runs</span>
-              <span className="susage-spend">{money(spend)}</span>
+              <span className="susage-runs">{a.monthRuns.toLocaleString()} runs</span>
+              <span className="susage-spend">
+                {money(spend)}
+                {a.monthUnknownRuns > 0 && '*'}
+              </span>
             </li>
           );
         })}
