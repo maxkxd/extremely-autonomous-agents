@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash, createPublicKey, randomBytes, randomUUID, verify as verifySig } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -370,39 +370,130 @@ async function pollCopilot(clientId: string, deviceCode: string, interval: numbe
 // is `claude auth status` (signed in or not - no tokens).
 
 // loggedIn means signed in with a Claude account (a plan) - an API key in the
-// environment doesn't count, and is kept out of the check.
-export type ClaudeCodeStatus = { installed: boolean; version?: string; loggedIn: boolean; authMethod?: string };
+// environment doesn't count, and is kept out of the check. task: an install or
+// sign-in this app started in a terminal window, still waiting to finish.
+export type ClaudeCodeStatus = {
+  installed: boolean;
+  version?: string;
+  loggedIn: boolean;
+  authMethod?: string;
+  task?: 'installing' | 'signing-in';
+};
 
-export async function claudeCodeStatus(): Promise<ClaudeCodeStatus> {
+// Without the server's own Anthropic key, so Claude Code reports (and signs in
+// to) the person's Claude account, not that key.
+function claudeEnv() {
   const env = { ...process.env };
   delete env.ANTHROPIC_API_KEY;
   delete env.ANTHROPIC_AUTH_TOKEN;
-  const opts = { timeout: 15000, windowsHide: true, shell: process.platform === 'win32', env };
-  let version: string;
-  try {
-    version = (await run('claude', ['--version'], opts)).stdout.trim().split(' ')[0];
-  } catch {
-    return { installed: false, loggedIn: false };
+  return env;
+}
+
+// Where Claude Code is: on the PATH, or where the official installer puts it
+// (a fresh install isn't on this server's PATH until it restarts).
+async function claudeBin(): Promise<string | null> {
+  const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
+  const candidates = [
+    'claude',
+    process.platform === 'win32' ? join(home, '.local', 'bin', 'claude.exe') : join(home, '.local', 'bin', 'claude'),
+  ];
+  for (const bin of candidates) {
+    try {
+      await run(bin, ['--version'], claudeOpts());
+      return bin;
+    } catch {
+      // try the next one
+    }
   }
+  return null;
+}
+const claudeOpts = () => ({ timeout: 15000, windowsHide: true, shell: process.platform === 'win32', env: claudeEnv() });
+const quoted = (bin: string) => (bin.includes(' ') ? `"${bin}"` : bin);
+
+let claudeTask: ClaudeCodeStatus['task'];
+
+export async function claudeCodeStatus(): Promise<ClaudeCodeStatus> {
+  const bin = await claudeBin();
+  if (!bin) return { installed: false, loggedIn: false, task: claudeTask };
+  const version = (await run(quoted(bin), ['--version'], claudeOpts())).stdout.trim().split(' ')[0];
   // Exits non-zero when nobody is signed in, but still prints its status.
-  const out = await run('claude', ['auth', 'status', '--json'], opts).then(
+  const out = await run(quoted(bin), ['auth', 'status', '--json'], claudeOpts()).then(
     r => r.stdout,
     (e: { stdout?: string }) => e.stdout ?? '',
   );
   try {
     const s = JSON.parse(out) as { loggedIn?: boolean; authMethod?: string };
     const plan = !!s.loggedIn && !!s.authMethod && !/none|api.?key/i.test(s.authMethod);
-    return { installed: true, version, loggedIn: plan, authMethod: s.authMethod };
+    return { installed: true, version, loggedIn: plan, authMethod: s.authMethod, task: claudeTask };
   } catch {
-    return { installed: true, version, loggedIn: false };
+    return { installed: true, version, loggedIn: false, task: claudeTask };
   }
 }
 
 export async function claudeCodeConnect() {
   const s = await claudeCodeStatus();
-  if (!s.installed) throw new ConnectError('Claude Code isn\'t installed on this computer.');
-  if (!s.loggedIn) throw new ConnectError('Claude Code is installed but not signed in. Run `claude` in a terminal and sign in, then try again.');
+  if (!s.installed) throw new ConnectError("Claude Code isn't installed on this computer.");
+  if (!s.loggedIn) throw new ConnectError("Claude Code isn't signed in to a Claude account yet.");
   await connected('claude-code', `Claude Code ${s.version ?? ''}`.trim(), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
+}
+
+// Opens a visible terminal window running one command, so the person sees
+// Anthropic's own installer or sign-in doing its thing.
+function openTerminal(title: string, command: { win: string; unix: string }) {
+  const opts = { env: claudeEnv(), detached: true, stdio: 'ignore' as const };
+  let child;
+  if (process.platform === 'win32') {
+    // A new PowerShell window that stays open, so any message stays readable.
+    // Quoted, or cmd would split the command at its & and | characters.
+    child = spawn('cmd.exe', ['/c', 'start', `"${title}"`, 'powershell', '-NoExit', '-Command', `"${command.win}"`], { ...opts, windowsVerbatimArguments: true });
+  } else if (process.platform === 'darwin') {
+    const script = command.unix.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    child = spawn('osascript', ['-e', `tell application "Terminal" to do script "${script}"`, '-e', 'tell application "Terminal" to activate'], opts);
+  } else {
+    child = spawn('x-terminal-emulator', ['-e', `bash -lc '${command.unix.replace(/'/g, "'\\''")}; exec bash'`], opts);
+  }
+  child.on('error', () => {});
+  child.unref();
+}
+
+// Checks every couple of seconds until done() says so, or ten minutes pass.
+function waitFor(done: () => Promise<boolean>, then: () => Promise<void>) {
+  const until = Date.now() + 10 * 60_000;
+  const tick = async () => {
+    try {
+      if (await done()) {
+        claudeTask = undefined;
+        return then();
+      }
+    } catch {
+      // keep waiting
+    }
+    if (Date.now() > until) claudeTask = undefined;
+    else setTimeout(tick, 2000);
+  };
+  setTimeout(tick, 2000);
+}
+
+// Anthropic's official installer (code.claude.com/docs/en/setup).
+export async function claudeCodeInstall() {
+  if (await claudeBin()) throw new ConnectError('Claude Code is already installed.');
+  claudeTask = 'installing';
+  openTerminal('Install Claude Code', {
+    win: 'irm https://claude.ai/install.ps1 | iex',
+    unix: 'curl -fsSL https://claude.ai/install.sh | bash',
+  });
+  waitFor(async () => !!(await claudeBin()), async () => {});
+}
+
+// Claude Code's own sign-in, straight to the Claude-subscription login. When
+// it finishes, the plan connects by itself.
+export async function claudeCodeLogin() {
+  const bin = await claudeBin();
+  if (!bin) throw new ConnectError("Claude Code isn't installed on this computer.");
+  claudeTask = 'signing-in';
+  const run = `& ${process.platform === 'win32' ? `'${bin === 'claude' ? 'claude' : bin}'` : bin} auth login --claudeai`;
+  openTerminal('Sign in to Claude', { win: run, unix: `${quoted(bin)} auth login --claudeai` });
+  waitFor(async () => (await claudeCodeStatus()).loggedIn, claudeCodeConnect);
 }
 
 // For the builder: an Anthropic key from the connections, else the server's own.
