@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Cpu, ExternalLink, Loader2 } from 'lucide-react';
 import {
   siAnthropic,
@@ -23,6 +23,41 @@ import {
   startSignIn,
   type Connection,
 } from './builder';
+
+// A hand-drawn aside between plans and keys: crayon arrows out of either side
+// of the text, curling out and up to the plans, and out and down to the keys. The wobble and grain come from an SVG filter, and each
+// stroke is drawn twice, slightly offset, the way crayon catches the paper.
+function Crayon({ shaft, head }: { shaft: string; head: string }) {
+  const id = `crayon-${useId().replace(/:/g, '')}`;
+  return (
+    <svg className="mtip-arrow" viewBox="0 0 60 90" aria-hidden="true">
+      <filter id={id} x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" result="grain" />
+        <feDisplacementMap in="SourceGraphic" in2="grain" scale="3.4" />
+      </filter>
+      <g filter={`url(#${id})`} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+        {[shaft, head].map(d => (
+          <g key={d}>
+            <path d={d} strokeWidth="4.2" opacity="0.75" />
+            <path d={d} strokeWidth="2" opacity="0.5" transform="translate(1.2 1)" />
+          </g>
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+function CrayonTip() {
+  return (
+    <div className="mtip">
+      <Crayon shaft="M57 46 C 32 49, 17 40, 20 8" head="M11 19 C 14 15, 17 11, 20 6 C 23 11, 26 15, 30 19" />
+      <p className="mtip-text">
+        <b>TIP:</b> the AI plans (above) are 99% of the time a MUCH better deal than the API keys (below)
+      </p>
+      <Crayon shaft="M3 44 C 28 41, 43 50, 40 82" head="M30 71 C 33 75, 36 79, 40 84 C 44 79, 47 75, 50 71" />
+    </div>
+  );
+}
 
 // Settings > Connectors: the AI models your agents run on (docs/model-connections.md).
 // Plans you already pay for, connected through each provider's own sanctioned
@@ -113,6 +148,7 @@ export function ModelConnectors() {
           <PlanRow key={c.id} c={c} refresh={refresh} watch={watch} waiting={waiting === c.id} />
         ))}
       </div>
+      <CrayonTip />
       <div className="sgroup">
         <h3>API keys</h3>
         {group('key').map(c => (
@@ -341,12 +377,7 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
     return (
       <RowShell
         c={c}
-        sub={
-          <>
-            {sub}
-            <span className="mnote">This app never sees your Claude login - you sign in to Claude Code itself.</span>
-          </>
-        }
+        sub={sub}
         below={errorLine}
       >
         {c.connected ? (
