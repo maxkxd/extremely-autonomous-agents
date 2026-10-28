@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
-import { authParts, fill, shape } from './http.js';
+import { authParts, callHttp, fill, plainText, shape } from './http.js';
 import { Integration } from './schema.js';
 
 test('placeholders keep types, take defaults, and drop missing optional inputs', () => {
@@ -22,6 +22,17 @@ test('answers are trimmed to the fields the definition keeps', () => {
   assert.equal(text, '1. title: A\n   url: https://a\n   snippet: about a\n\n2. title: B\n   url: https://b\n   snippet: about b');
   assert.equal(shape({ web: { results: [] } }, { items: 'web.results' }), 'No results.');
   assert.equal(shape({ data: { n: 1 } }, { pick: 'data.n' }), '1');
+});
+
+test('snippet markup and entities become plain text', () => {
+  assert.equal(plainText('The <strong>best</strong> caf&eacute; &amp; bar&#39;s &#x2014; ok'), "The best caf&eacute; & bar's — ok");
+  assert.equal(shape({ r: [{ s: 'a <b>bold</b>\n move' }] }, { items: 'r', fields: { snippet: 's' } }), '1. snippet: a bold move');
+});
+
+test('a required input left out is refused before anything is sent', async () => {
+  const integration = Integration.parse({ kind: 'http', id: 't', name: 'T', what: 'x', auth: { type: 'none' }, base_url: 'https://example.com', test: { tool: 'web.web_search', args: { query: 'x' } }, tools: [{ id: 'web.web_search', tier: 'T0', description: 'd', input: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }, request: { method: 'GET', path: '/s' } }] });
+  if (integration.kind !== 'http') throw new Error('kind');
+  for (const args of [{}, { query: '' }, { query: '   ' }]) await assert.rejects(callHttp(integration, integration.tools[0], args, undefined), /Missing query/);
 });
 
 test('the key goes where the service wants it', () => {

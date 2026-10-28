@@ -92,14 +92,14 @@ function IntegrationRow({ i, refresh, open, setOpen }: { i: IntegrationView; ref
     ? [i.test?.message, tools].filter(Boolean).join(' · ')
     : i.test && !i.test.ok
       ? i.test.message
-      : i.what;
+      : '';
   return (
     <li className={open || error ? 'with-form' : undefined}>
       <span className="sconn-name">
         {i.name}
         {i.kind === 'mcp' && <span className="sint-kind">MCP</span>}
       </span>
-      <span className={`sconn-what${!i.connected && i.test && !i.test.ok ? ' sint-bad' : ''}`}>{sub}</span>
+      {sub && <span className={`sconn-what${!i.connected && i.test && !i.test.ok ? ' sint-bad' : ''}`}>{sub}</span>}
       <span className="sint-actions">
         {i.connected ? (
           <>

@@ -169,6 +169,16 @@ function opening(agent: AgentDef, trigger: Trigger, task: string | null): string
   }
 }
 
+// Models don't know today's date; research, dating work and "this year" need it.
+// In the opening message rather than the instructions, so those stay cacheable.
+export function nowLine(at: number): string {
+  const d = new Date(at);
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const day = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return `It's ${day}, ${time} (${zone}).`;
+}
+
 // --- The run ----------------------------------------------------------------------
 
 export async function runAgent(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, signal?: AbortSignal): Promise<RunResult> {
@@ -191,7 +201,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
 
   const { specs, ids, notReady } = toolsFor(agent);
   const ctx: RunCtx = { agent, runId: id, level, now: deps.now, fleet: () => fleetOf(agent.id), wake: (a, t, k) => deps.wake(a, t as Trigger, k) };
-  const messages: Msg[] = [{ role: 'user', text: opening(agent, trigger, task) }];
+  const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task)}` }];
   let acts = 0;
   let nudges = 0;
   let input = 0;
@@ -217,7 +227,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
       while (!turn && !harnessDone) {
         const eligible = eligibleModels(agent, deps).filter(c => !tried.has(choiceKey(c)));
         const pick = pickModel(eligible, health, () => true, deps.now());
-        if (!pick) throw new Error(tried.size ? 'Every model failed this turn.' : 'No model it can use right now (none connected, all failed their checks, or a spend cap reached).');
+        if (!pick) throw new Error(tried.size ? `Every model failed this turn. Last: ${error}` :'No model it can use right now (none connected, all failed their checks, or a spend cap reached).');
         const c = pick.choice;
         tried.add(choiceKey(c));
         const info = deps.modelInfo(c);
