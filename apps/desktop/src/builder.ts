@@ -205,3 +205,9 @@ export const getAvailableModels = () => request<AvailableModels[]>('/api/models'
 export const getAgentModels = () => request<Record<string, ModelChoice[]>>('/api/agents/models');
 export const setAgentModels = (id: string, choices: ModelChoice[]) =>
   post<{ choices: ModelChoice[] }>('/api/agents/models', { id, choices });
+// Whether a model really works on this account: one tiny test request when
+// it's picked. unsure: the check got no real answer (busy, down).
+export type ModelCheck = { ok: boolean; reason?: string; unsure?: boolean; at: number; pending?: boolean };
+export const getModelChecks = () => request<Record<string, ModelCheck>>('/api/models/checks');
+export const checkModel = (connection: string, model: string, force = false) =>
+  post<{ check: ModelCheck; available: AvailableModels[] }>('/api/models/check', { connection, model, force });

@@ -35,7 +35,7 @@ type Saved = {
   connectedAt: string;
   broken?: string;
 };
-const CAPS = 3;
+const CAPS = 4;
 type State = { connections: Record<string, Saved>; chatgptHostId?: string; chatgptClientId?: string };
 
 async function load(): Promise<State> {
@@ -587,6 +587,26 @@ export async function availableModels(): Promise<Available[]> {
 }
 // Filled by list(), which availableModels calls first.
 let cached: Record<string, Saved> = {};
+
+// A saved connection's base URL (custom and local providers), for the model check.
+export async function connectionBaseUrl(id: string): Promise<string | undefined> {
+  return (await load()).connections[id]?.baseUrl;
+}
+
+// A model's effort levels as a live check found them (models/check.ts),
+// replacing what the model list or the known table said.
+export async function setModelLevels(connection: string, info: ModelInfo) {
+  await update(s => {
+    const saved = s.connections[connection];
+    if (!saved || !saved.models.includes(info.id)) return;
+    saved.efforts = { ...saved.efforts };
+    saved.native = { ...saved.native };
+    if (info.efforts.length) saved.efforts[info.id] = info.efforts;
+    else delete saved.efforts[info.id];
+    if (info.native) saved.native[info.id] = info.native;
+    else delete saved.native[info.id];
+  });
+}
 
 // What to send a provider for one of our effort levels on a model, for the
 // runner: the provider's own name where it differs (our "max" as "xhigh").

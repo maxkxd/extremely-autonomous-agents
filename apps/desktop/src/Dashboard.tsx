@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CircleCheckBig, Ellipsis, GripVertical, Pause, Play, Square, Trash2, User, Wrench } from 'lucide-react';
 import { DeleteAgentDialog } from './DeleteAgentDialog';
-import { ModelPanel, ModelRow, useModelSlide } from './ModelPicker';
+import { ModelPanel, ModelRow, useModelChecks, useModelSlide, type Checks } from './ModelPicker';
 import { getAgentModels, getAvailableModels, setAgentModels, type AvailableModels, type ModelChoice } from './builder';
 import { useDismiss } from './useDismiss';
 import { FlashCount } from './FlashCount';
@@ -212,6 +212,8 @@ export function AgentCard({
   models,
   available = [],
   onModels,
+  checks,
+  onCheck,
 }: {
   agent: Agent;
   range: TimeRange;
@@ -228,6 +230,8 @@ export function AgentCard({
   models?: ModelChoice[]; // up to three, in order (absent: don't show the Model row)
   available?: AvailableModels[];
   onModels?: (next: ModelChoice[]) => void;
+  checks?: Checks; // whether each model really works on this account
+  onCheck?: (connection: string, model: string) => void;
 }) {
   // The model picker: the right column slides over the pies to make room.
   const cardRef = useRef<HTMLElement>(null);
@@ -379,10 +383,10 @@ export function AgentCard({
 
         <Tuning agent={agent} range={range} level={level} setLevel={setLevel} />
         {models && (
-          <ModelRow choices={models} available={available} open={modelsOpen} readOnly={preview} onOpen={() => setModelsOpen(o => !o)} />
+          <ModelRow choices={models} available={available} checks={checks} open={modelsOpen} readOnly={preview} onOpen={() => setModelsOpen(o => !o)} />
         )}
       </aside>
-      {modelsOpen && models && onModels && <ModelPanel choices={models} available={available} onChange={onModels} />}
+      {modelsOpen && models && onModels && <ModelPanel choices={models} available={available} onChange={onModels} checks={checks} onCheck={onCheck} />}
     </article>
   );
 }
@@ -459,6 +463,7 @@ export function Dashboard({
     getAgentModels().then(setModelChoices, () => {});
     getAvailableModels().then(setAvailable, () => {});
   }, [arrivingIds.join(',')]);
+  const { checks, check } = useModelChecks(Object.values(modelChoices).flat(), setAvailable);
   const changeModels = (id: string, next: ModelChoice[]) => {
     setModelChoices(prev => ({ ...prev, [id]: next }));
     setAgentModels(id, next).catch(() => {});
@@ -640,6 +645,8 @@ export function Dashboard({
               models={modelChoices[a.id] ?? []}
               available={available}
               onModels={next => changeModels(a.id, next)}
+              checks={checks}
+              onCheck={check}
             />
           </div>
         );

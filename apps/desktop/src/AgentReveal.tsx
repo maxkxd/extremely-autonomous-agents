@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { AgentCard } from './Dashboard';
 import { getAvailableModels, type AvailableModels, type ModelChoice } from './builder';
+import { useModelChecks } from './ModelPicker';
 import type { Agent } from './data';
 
 const HOLD_MS = 1200;
@@ -30,6 +31,7 @@ export function AgentReveal({
   useEffect(() => {
     getAvailableModels().then(setAvailable, () => {});
   }, []);
+  const { checks } = useModelChecks((models ?? []).flat(), setAvailable);
   const [holding, setHolding] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>();
   // Several cards shrink together until the stack and the button fit the window.
@@ -95,6 +97,7 @@ export function AgentReveal({
                 preview
                 models={models?.[i]}
                 available={available}
+                checks={checks}
               />
             </div>
           ))}

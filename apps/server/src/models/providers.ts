@@ -49,7 +49,20 @@ export const PROVIDERS: Provider[] = [
   { id: 'ollama', name: 'Ollama', kind: 'local', what: 'Models running on this computer', baseUrl: 'http://localhost:11434', editableBaseUrl: true },
 ];
 
-import { anthropicModels, geminiModels, keepChat, knownModel, ollamaModel, openRouterModels, type ModelInfo } from './caps.js';
+import {
+  anthropicModels,
+  deepseekModels,
+  geminiModels,
+  groqModels,
+  keepChat,
+  knownModel,
+  mistralModels,
+  ollamaModel,
+  openAiModels,
+  openRouterModels,
+  xaiModels,
+  type ModelInfo,
+} from './caps.js';
 
 export const provider = (id: string) => PROVIDERS.find(p => p.id === id);
 
@@ -88,7 +101,7 @@ async function listModels(id: string, key: string, baseUrl?: string): Promise<Mo
     case 'anthropic':
       return anthropicModels((await getJson('https://api.anthropic.com/v1/models?limit=1000', { 'x-api-key': key, 'anthropic-version': '2023-06-01' })).data);
     case 'openai':
-      return named(id, ids((await getJson('https://api.openai.com/v1/models', bearer)).data));
+      return openAiModels((await getJson('https://api.openai.com/v1/models', bearer)).data);
     case 'google':
       // In a header, as Google documents it - never in the URL. Works for both
       // key formats: older "AIza..." keys and the "AQ." auth keys AI Studio
@@ -100,13 +113,13 @@ async function listModels(id: string, key: string, baseUrl?: string): Promise<Mo
       return openRouterModels((await getJson('https://openrouter.ai/api/v1/models')).data);
     }
     case 'xai':
-      return named(id, ids((await getJson('https://api.x.ai/v1/models', bearer)).data));
+      return xaiModels((await getJson('https://api.x.ai/v1/models', bearer)).data);
     case 'mistral':
-      return named(id, ids((await getJson('https://api.mistral.ai/v1/models', bearer)).data));
+      return mistralModels((await getJson('https://api.mistral.ai/v1/models', bearer)).data);
     case 'deepseek':
-      return named(id, ids((await getJson('https://api.deepseek.com/models', bearer)).data));
+      return deepseekModels((await getJson('https://api.deepseek.com/models', bearer)).data);
     case 'groq':
-      return named(id, ids((await getJson('https://api.groq.com/openai/v1/models', bearer)).data));
+      return groqModels((await getJson('https://api.groq.com/openai/v1/models', bearer)).data);
     case 'custom': {
       if (!baseUrl) throw new ConnectError('Add the API base URL (ending in /v1).');
       return named(id, ids((await getJson(`${trimSlash(baseUrl)}/models`, bearer)).data));

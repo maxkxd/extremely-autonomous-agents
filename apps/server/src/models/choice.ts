@@ -52,12 +52,16 @@ export function cleanChoices(input: unknown): ModelChoice[] {
   return out;
 }
 
+// Saves an agent's choices, and checks in the background that each model
+// really works on its account (check.ts) so a dead one is flagged early.
 export async function setChoices(agentId: string, choices: unknown) {
   const clean = cleanChoices(choices);
   await writeAll(all => {
     if (clean.length) all[agentId] = clean;
     else delete all[agentId];
   });
+  const { checkModel } = await import('./check.js');
+  for (const c of clean) void checkModel(c.connection, c.model).catch(() => {});
   return clean;
 }
 
