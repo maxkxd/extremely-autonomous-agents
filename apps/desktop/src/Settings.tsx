@@ -548,7 +548,6 @@ function OrganizationProfile({ name, members }: { name: string; members: string[
   return (
     <section className="ssection">
       <h2>{name}</h2>
-      <p className="slead">Every agent's brief is written from this. The builder adds to it as it learns.</p>
       {!p ? (
         rec.error ? <p className="custom-error">{rec.error}</p> : <p className="snotes-empty">Loading...</p>
       ) : (
@@ -564,7 +563,7 @@ function OrganizationProfile({ name, members }: { name: string; members: string[
               <textarea rows={2} value={p.offering} onChange={e => rec.edit({ offering: e.target.value })} />
             </Field>
           </div>
-          <Field label="Voice" hint="How it sounds when it writes to people.">
+          <Field label="Voice">
             <input value={p.voice} onChange={e => rec.edit({ voice: e.target.value })} />
           </Field>
           <div className="sfield">
