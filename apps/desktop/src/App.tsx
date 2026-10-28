@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
+import { useElasticScroll } from './useElasticScroll';
 import type { TimeRange } from './data';
 
 const MIN_WIDTH = 240;
@@ -35,6 +36,8 @@ const clamp = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
 export function App() {
   const [view, setView] = useState<View>('dashboard');
   const [range, setRange] = useState<TimeRange>('week');
+  const mainBody = useRef<HTMLDivElement>(null);
+  useElasticScroll(mainBody);
   const [width, setWidth] = useState(() => clamp(readStored(WIDTH_KEY, DEFAULT_WIDTH)));
   const [shut, setShut] = useState(() => readStored(SHUT_KEY, false));
 
@@ -84,7 +87,7 @@ export function App() {
           <h1>{viewLabel(view)}</h1>
           {view === 'dashboard' && <RangePicker value={range} onChange={setRange} />}
         </header>
-        <div className="main-body">
+        <div className="main-body" ref={mainBody}>
           {view === 'dashboard' ? (
             <Dashboard range={range} onNavigate={setView} />
           ) : (
