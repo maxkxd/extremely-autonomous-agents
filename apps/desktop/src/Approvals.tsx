@@ -126,7 +126,15 @@ export function ApprovalsToolbar({
 
 // ---- The cards -------------------------------------------------------------
 
-function ApprovalCard({ approval, onResolve }: { approval: Approval; onResolve: (r: Resolution) => void }) {
+function ApprovalCard({
+  approval,
+  showOwner,
+  onResolve,
+}: {
+  approval: Approval;
+  showOwner: boolean; // the admin Everyone view tags every card, yours included
+  onResolve: (r: Resolution) => void;
+}) {
   const agent = agentOf(approval);
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   const [rejecting, setRejecting] = useState(false);
@@ -149,7 +157,7 @@ function ApprovalCard({ approval, onResolve }: { approval: Approval; onResolve: 
           <span className="approval-agent">{agent.name}</span>
           <span className="approval-action">{approval.action}</span>
           <span className="approval-time">{timeAgo(approval.minutesAgo)}</span>
-          {ACCOUNT.org && !isMine(approval.agentId) && (
+          {showOwner && (
             <span className="approval-owner" title="Owner">
               <User size={12} strokeWidth={1.75} />
               {agent.owner}
@@ -243,7 +251,12 @@ export function Approvals({
   return (
     <div className="approvals">
       {shown.map(a => (
-        <ApprovalCard key={a.id} approval={a} onResolve={r => onResolve(a.id, r)} />
+        <ApprovalCard
+          key={a.id}
+          approval={a}
+          showOwner={!!ACCOUNT.org && scope === 'all'}
+          onResolve={r => onResolve(a.id, r)}
+        />
       ))}
     </div>
   );
