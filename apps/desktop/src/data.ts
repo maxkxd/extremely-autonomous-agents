@@ -372,8 +372,10 @@ export const rangeDays = (r: TimeRange) => TIME_RANGES.find(t => t.value === r)!
 export type Approval = {
   id: string;
   agentId: string;
-  tool: ApprovalToolId;
+  tool: ApprovalToolId | string; // live ones can be any T2 tool
   args: ToolArgs;
+  expiresAt?: number; // live ones: the server's deadline
+  live?: boolean; // a real agent's queued call, decided on the server
   minutesAgo: number; // when the agent made the call (placeholder data)
   createdAt?: number; // ms timestamp, for approvals raised while the app is open
   // Whose owner decides it, when that isn't the calling agent - e.g. the

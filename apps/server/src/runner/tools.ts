@@ -252,6 +252,21 @@ export async function runEnded(runId: string) {
 }
 const find = (id: string) => BUILTIN.find(t => t.id === id) ?? REGISTERED.get(id);
 
+// Runs a tool a person approved, with the exact arguments the agent queued.
+export async function runApproved(ctx: RunCtx, id: string, args: Record<string, unknown>): Promise<string> {
+  const impl = find(id);
+  if (!impl) throw new Error(`${id} no longer exists.`);
+  if (impl.ready && !impl.ready()) throw new Error(`${id} isn't connected right now.`);
+  try {
+    const out = await impl.impl(args, ctx);
+    healthOk(ctx.agent.id, id, ctx.now());
+    return out;
+  } catch (e) {
+    healthFail(ctx.agent.id, id, ctx.now(), (e as Error).message || 'It failed.');
+    throw e;
+  }
+}
+
 // Names a provider accepts: [a-zA-Z0-9_-], up to 64.
 export const toolName = (id: string) => id.replace(/\./g, '__').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
 

@@ -244,9 +244,10 @@ export type IntegrationView = {
   id: string;
   name: string;
   what: string;
-  kind: 'http' | 'mcp';
+  kind: 'http' | 'mcp' | 'code';
   keyUrl?: string;
   needsKey: boolean;
+  signIn: { clientUrl: string | null; help: string | null; hasClient: boolean } | null; // OAuth
   shipped: boolean;
   connected: boolean;
   test: { ok: boolean; at: number; message: string } | null;
@@ -259,6 +260,14 @@ export const disconnectIntegration = (id: string) => post<{ ok: boolean }>('/api
 export const removeIntegration = (id: string) => post<{ ok: boolean }>('/api/integrations/remove', { id });
 export const addMcpIntegration = (b: { url: string; name?: string; auth: 'none' | 'bearer'; key?: string }) =>
   post<{ id: string; ok: boolean; message: string }>('/api/integrations/add', b);
+export const startIntegrationSignIn = (id: string, client: { clientId?: string; clientSecret?: string }) =>
+  post<{ url: string }>('/api/integrations/sign-in', { id, ...client });
+
+// Approvals: real agents' T2 calls waiting on a person.
+export type LiveApproval = { id: string; agentId: string; agentName: string; tool: string; args: Record<string, unknown>; createdAt: number; expiresAt: number };
+export const getLiveApprovals = () => request<{ approvals: LiveApproval[] }>('/api/runner/approvals').then(r => r.approvals);
+export const decideApproval = (id: string, decision: 'approved' | 'rejected', note?: string) =>
+  post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note });
 export const openAgentBrowser = () => post<{ ok: boolean }>('/api/browser/sign-in', {});
 
 // Daily spend caps (Settings -> Usage): the organisation's, and each agent's.

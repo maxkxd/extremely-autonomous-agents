@@ -17,7 +17,7 @@ const agentOf = (a: Approval) => AGENTS.find(x => x.id === a.agentId)!;
 // expiry window.
 const loadedAt = Date.now();
 const raisedAt = (a: Approval) => a.createdAt ?? loadedAt - a.minutesAgo * 60_000;
-const deadlineOf = (a: Approval) => raisedAt(a) + renderApproval(a.tool, a.args).expiresAfterHours * 3_600_000;
+const deadlineOf = (a: Approval) => a.expiresAt ?? raisedAt(a) + renderApproval(a.tool, a.args).expiresAfterHours * 3_600_000;
 
 // Live countdown to an approval's expiry, e.g. 3:59:41 (or 4:07 under an hour).
 function Countdown({ deadline, onExpire }: { deadline: number; onExpire: () => void }) {
@@ -207,7 +207,7 @@ function ApprovalCard({
 }: {
   approval: Approval;
   showOwner: boolean; // the admin Everyone view tags every card, yours included
-  onDecide: (r: Resolution) => void; // the moment it's decided - counters react now
+  onDecide: (r: Resolution, note: string) => void; // the moment it's decided - counters react now
   onGone: () => void; // after the exit animation - the card leaves the list
 }) {
   const agent = agentOf(approval);
@@ -226,7 +226,7 @@ function ApprovalCard({
     if (leaving) return; // already on its way out (e.g. expired while rejecting)
     setRejecting(false);
     setLeaving(r);
-    onDecide(r);
+    onDecide(r, r === 'rejected' ? reason.trim() : '');
     setTimeout(() => setCollapsing(true), EXIT_MS);
     setTimeout(onGone, EXIT_MS + COLLAPSE_MS);
   };
@@ -329,7 +329,7 @@ export function Approvals({
   pending: Approval[];
   scope: ApprovalScope;
   agentFilter: string | null;
-  onDecide: (id: string, r: Resolution) => void;
+  onDecide: (id: string, r: Resolution, note: string) => void;
   onGone: (id: string) => void;
 }) {
   const shown = visibleApprovals(pending, scope)
@@ -351,7 +351,7 @@ export function Approvals({
           key={a.id}
           approval={a}
           showOwner={!!ACCOUNT.org && scope === 'all'}
-          onDecide={r => onDecide(a.id, r)}
+          onDecide={(r, note) => onDecide(a.id, r, note)}
           onGone={() => onGone(a.id)}
         />
       ))}

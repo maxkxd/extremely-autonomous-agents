@@ -8,6 +8,7 @@ import {
   getIntegrations,
   openAgentBrowser,
   removeIntegration,
+  startIntegrationSignIn,
   type IntegrationsView,
   type IntegrationView,
 } from './builder';
@@ -61,7 +62,12 @@ export function Integrations() {
   );
 }
 
-function IntegrationRow({ i, refresh, open, setOpen }: { i: IntegrationView; refresh: () => void; open: boolean; setOpen: (o: boolean) => void }) {
+type RowProps = { i: IntegrationView; refresh: () => void; open: boolean; setOpen: (o: boolean) => void };
+
+// A service you sign in to, or one that takes a key.
+const IntegrationRow = (p: RowProps) => (p.i.signIn ? <SignInRow {...p} /> : <KeyRow {...p} />);
+
+function KeyRow({ i, refresh, open, setOpen }: RowProps) {
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +93,7 @@ function IntegrationRow({ i, refresh, open, setOpen }: { i: IntegrationView; ref
     }
   };
   // An MCP server's test already says how many tools it found.
-  const tools = i.kind === 'http' && i.tools.length ? `${i.tools.length} tool${i.tools.length === 1 ? '' : 's'}` : '';
+  const tools = i.kind !== 'mcp' && i.tools.length ? `${i.tools.length} tool${i.tools.length === 1 ? '' : 's'}` : '';
   const sub = i.connected
     ? [i.test?.message, tools].filter(Boolean).join(' · ')
     : i.test && !i.test.ok
@@ -160,6 +166,160 @@ function IntegrationRow({ i, refresh, open, setOpen }: { i: IntegrationView; ref
                 </button>
                 <SpinButton className="sbtn primary" spinning={busy} onClick={connect} disabled={!key.trim()}>
                   Connect
+                </SpinButton>
+              </div>
+            </>
+          )}
+          {error && <span className="custom-error">{error}</span>}
+        </div>
+      )}
+    </li>
+  );
+}
+
+// A service you sign in to (OAuth, e.g. Gmail): your own OAuth client (made
+// once in the service's console, steps shown), then its sign-in page in a
+// window. The server tests it the moment it lands; this waits for that.
+function SignInRow({ i, refresh, open, setOpen }: RowProps) {
+  const signIn = i.signIn!;
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [waiting, setWaiting] = useState<number | null>(null); // when the sign-in window opened
+  const [error, setError] = useState<string | null>(null);
+  // While its window is open, look often; it's done once a test newer than the start lands.
+  useEffect(() => {
+    if (waiting === null) return;
+    if (i.test && i.test.at >= waiting) {
+      setWaiting(null);
+      if (!i.test.ok) {
+        setError(i.test.message);
+        setOpen(true);
+      }
+      return;
+    }
+    const t = window.setTimeout(refresh, 1500);
+    const give = window.setTimeout(() => setWaiting(null), 5 * 60_000);
+    return () => {
+      window.clearTimeout(t);
+      window.clearTimeout(give);
+    };
+  }, [waiting, i.test?.at]);
+  const start = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { url } = await startIntegrationSignIn(i.id, { clientId: clientId.trim() || undefined, clientSecret: clientSecret.trim() || undefined });
+      window.open(url, '_blank', 'popup,width=520,height=720');
+      setWaiting(Date.now());
+      setClientId('');
+      setClientSecret('');
+      setOpen(false);
+    } catch (e) {
+      setError((e as Error).message);
+      setOpen(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const act = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+      refresh();
+    }
+  };
+  const tools = i.tools.length ? `${i.tools.length} tools` : '';
+  const sub = waiting
+    ? 'Waiting for you to sign in, in the window that opened'
+    : i.connected
+      ? [i.test?.message, tools].filter(Boolean).join(' · ')
+      : i.test && !i.test.ok
+        ? i.test.message
+        : '';
+  const bad = !waiting && !i.connected && !!i.test && !i.test.ok;
+  return (
+    <li className={open || error ? 'with-form' : undefined}>
+      <span className="sconn-name">{i.name}</span>
+      {sub && <span className={`sconn-what${bad ? ' sint-bad' : ''}`}>{sub}</span>}
+      <span className="sint-actions">
+        {i.connected ? (
+          <>
+            <SpinButton spinning={busy} onClick={() => act(() => connectIntegration(i.id))} title="Check it still works">
+              Test
+            </SpinButton>
+            <SpinButton spinning={false} onClick={() => act(() => disconnectIntegration(i.id))}>
+              Disconnect
+            </SpinButton>
+          </>
+        ) : open ? null : (
+          <>
+            {signIn.hasClient && (
+              <button className="sbtn" onClick={() => setOpen(true)} disabled={busy}>
+                Change client
+              </button>
+            )}
+            <SpinButton spinning={busy || waiting !== null} onClick={() => (signIn.hasClient ? start() : setOpen(true))}>
+              Sign in
+            </SpinButton>
+          </>
+        )}
+      </span>
+      {(open || error) && (
+        <div className="mform sint-form">
+          {open && (
+            <>
+              {signIn.help && (
+                <ol className="sint-steps">
+                  {signIn.help
+                    .trim()
+                    .split('\n')
+                    .map(l => (
+                      <li key={l}>{l.replace(/^\d+\.\s*/, '')}</li>
+                    ))}
+                </ol>
+              )}
+              <input
+                className="srow2-input mwide"
+                autoFocus
+                autoComplete="off"
+                spellCheck={false}
+                value={clientId}
+                placeholder={signIn.hasClient ? 'New OAuth client ID' : 'OAuth client ID'}
+                onChange={e => setClientId(e.target.value)}
+              />
+              <input
+                className="srow2-input mwide"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={clientSecret}
+                placeholder="Client secret"
+                onChange={e => setClientSecret(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && clientId.trim()) start();
+                  if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    setOpen(false);
+                  }
+                }}
+              />
+              <div className="mform-actions">
+                {signIn.clientUrl && (
+                  <a className="slink" href={signIn.clientUrl} target="_blank" rel="noreferrer">
+                    Open the console <ExternalLink size={12} />
+                  </a>
+                )}
+                <button className="sbtn" onClick={() => setOpen(false)} disabled={busy}>
+                  Cancel
+                </button>
+                <SpinButton className="sbtn primary" spinning={busy} onClick={start} disabled={!clientId.trim()}>
+                  Sign in
                 </SpinButton>
               </div>
             </>

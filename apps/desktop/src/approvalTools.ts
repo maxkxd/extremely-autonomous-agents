@@ -20,7 +20,8 @@
 
 export type ApprovalTool = {
   wantsTo: string;
-  headers: { label: string; value: string }[];
+  // optional: left off the card when the call didn't give its arguments
+  headers: { label: string; value: string; optional?: boolean }[];
   body: string | null; // null = this tool's card never has a body
   expiresAfterHours: number;
 };
@@ -30,6 +31,18 @@ export type ToolArgs = Record<string, string | number>;
 // Placeholder tools for the example approvals; real ones get added as the
 // agents' human-approved tools are built.
 export const APPROVAL_TOOLS = {
+  // Real tools (Gmail).
+  'gmail.send_email': {
+    wantsTo: 'send an email',
+    headers: [
+      { label: 'To', value: '{to}' },
+      { label: 'Cc', value: '{cc}', optional: true },
+      { label: 'Bcc', value: '{bcc}', optional: true },
+      { label: 'Subject', value: '{subject}' },
+    ],
+    body: '{body}',
+    expiresAfterHours: 24,
+  },
   'email.send': {
     wantsTo: 'send an email',
     headers: [
@@ -88,11 +101,27 @@ function fill(template: string, args: ToolArgs, tool: string): string {
 }
 
 // What an approval card shows, built from the tool's definition + the call's args.
-export function renderApproval(toolId: ApprovalToolId, args: ToolArgs) {
-  const tool: ApprovalTool = APPROVAL_TOOLS[toolId];
+// A tool without its own card (an MCP server's, one the Fleet Engineer added):
+// every argument as a line, the longest text as the body.
+function generic(toolId: string, args: ToolArgs): ApprovalTool {
+  const long = Object.entries(args).filter(([, v]) => typeof v === 'string' && v.length > 120).sort((a, b) => String(b[1]).length - String(a[1]).length)[0]?.[0];
+  return {
+    wantsTo: `use ${toolId}`,
+    headers: Object.keys(args)
+      .filter(k => k !== long)
+      .map(k => ({ label: k.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()), value: `{${k}}` })),
+    body: long ? `{${long}}` : null,
+    expiresAfterHours: 24,
+  };
+}
+
+const given = (template: string, args: ToolArgs) => [...template.matchAll(/\{(\w+)\}/g)].every(m => args[m[1]] !== undefined && args[m[1]] !== '');
+
+export function renderApproval(toolId: string, args: ToolArgs) {
+  const tool: ApprovalTool = (APPROVAL_TOOLS as Record<string, ApprovalTool>)[toolId] ?? generic(toolId, args);
   return {
     action: `wants to ${fill(tool.wantsTo, args, toolId)}`,
-    fields: tool.headers.map(h => ({ label: h.label, value: fill(h.value, args, toolId) })),
+    fields: tool.headers.filter(h => !h.optional || given(h.value, args)).map(h => ({ label: h.label, value: fill(h.value, args, toolId) })),
     body: tool.body === null ? null : fill(tool.body, args, toolId),
     expiresAfterHours: tool.expiresAfterHours,
   };
