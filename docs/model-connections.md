@@ -55,7 +55,8 @@ Copilot sign-in needs a GitHub OAuth App registered for this product:
 ## Still open
 
 - Agents don't run yet (no runtime), so a connection is saved and checked, but
-  nothing calls it on an agent's behalf yet. ChatGPT requests must set
-  `store: false` and `stream: true`; Claude Code runs via the `claude` CLI, not
+  nothing calls it on an agent's behalf yet. ChatGPT plan requests must set
+  `store: false` and `stream: true`, with `input` as a list of messages (tested:
+  `scripts/chatgpt-test.ts`); Claude Code runs via the `claude` CLI, not
   the Agent SDK with plan credentials.
 - Amazon Bedrock and Google Vertex need cloud credentials rather than a key.

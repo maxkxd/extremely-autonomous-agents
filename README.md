@@ -22,3 +22,11 @@ that runs inside the World Asset Register repo (`maxkxd/AssetRegister`,
 ## Status
 
 Repo created 2026-10-28. Product details, stack, and scope still to come.
+
+## License
+
+[AGPL-3.0](LICENSE). Free to use and self-host; anyone who runs a modified
+version as a service must publish their changes under the same license. A paid
+hosted plan is offered separately, and the hosted backend lives in its own
+repository. Outside pull requests aren't accepted until a CLA is in place - see
+[CONTRIBUTING.md](CONTRIBUTING.md).

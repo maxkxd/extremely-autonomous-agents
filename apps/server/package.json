@@ -2,6 +2,7 @@
   "name": "@eaa/server",
   "private": true,
   "version": "0.0.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "node --env-file-if-exists=.env --watch --import tsx src/index.ts",
