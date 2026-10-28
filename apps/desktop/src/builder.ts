@@ -234,10 +234,27 @@ export const getDm = (id: string) =>
   );
 export const sendDm = (id: string, text: string) => post<{ ok: boolean }>('/api/dm', { id, text });
 // Requests real agents filed (docs/requests.md), and your answer to one.
-export type LiveRequest = { id: number; agent_id: string; what: string; why: string; evidence: string | null; expected_effect: string | null; status: string; created_at: number };
+export type LiveRequest = {
+  id: number;
+  agent_id: string;
+  what: string;
+  why: string;
+  evidence: string | null;
+  expected_effect: string | null;
+  status: string;
+  stage: 'engineer' | 'waiting_you' | 'approval' | 'person' | null;
+  created_at: number;
+  thread: { from: 'you' | 'engineer'; text: string; at: number }[];
+  engineerBusy: boolean;
+};
 export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
 export const answerRequest = (id: number, status: 'done' | 'rejected', answer: string) =>
   post<{ ok: boolean }>('/api/runner/requests/answer', { id, status, answer });
+export const sendRequestMessage = (id: number, text: string) => post<{ ok: boolean }>('/api/runner/requests/message', { id, text });
+
+// Whether the Fleet Engineer may write code plugins (Settings -> Connectors).
+export const getCodePlugins = () => request<{ allowed: boolean }>('/api/settings/code-plugins');
+export const setCodePlugins = (allowed: boolean) => post<{ allowed: boolean }>('/api/settings/code-plugins', { allowed });
 
 // Integrations (docs/integrations.md): the services agents' tools run on.
 export type IntegrationView = {
@@ -251,6 +268,8 @@ export type IntegrationView = {
   signIn: { clientUrl: string | null; help: string | null; hasClient: boolean } | null; // OAuth
   shipped: boolean;
   connected: boolean;
+  draft: boolean; // the Fleet Engineer's, not live until approved
+  by: string | null;
   test: { ok: boolean; at: number; message: string } | null;
   tools: { id: string; tier: string }[];
 };

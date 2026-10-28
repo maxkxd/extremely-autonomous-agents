@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Tier } from '../catalog.js';
-import type { AgentDef } from './agent.js';
+import { FLEET_ENGINEER, type AgentDef } from './agent.js';
 import { all, one, run } from './db.js';
 import { APOCALYPTIC } from './ferocity.js';
 import { remember } from './memory.js';
@@ -33,7 +33,44 @@ export type RunCtx = {
 type Impl = (args: Record<string, unknown>, ctx: RunCtx) => Promise<string> | string;
 // ready: whether it can be used right now (an integration's tool: whether one
 // that provides it is connected). Missing means always.
-type ToolDef = { id: string; tier: Tier; description: string; schema: Record<string, unknown>; impl: Impl; ready?: () => boolean };
+// preview: for a T2 tool, facts to add to what the person approves (the code a
+// plugin will run, say) - stored with the call, and handed to impl when it runs.
+type ToolDef = {
+  id: string;
+  tier: Tier;
+  description: string;
+  schema: Record<string, unknown>;
+  impl: Impl;
+  ready?: () => boolean;
+  preview?: (args: Record<string, unknown>, ctx: RunCtx) => Promise<Record<string, unknown>>;
+};
+
+// A request goes to the Fleet Engineer first (docs/requests.md); the engineer's
+// own requests go straight to a person.
+export function fileRequest(
+  agentId: string,
+  runId: string | null,
+  r: { what: string; why: string; evidence?: string | null; expected_effect?: string | null },
+  now: number,
+  wake: (agentId: string, trigger: string, task: string) => void,
+): number {
+  const toEngineer = agentId !== FLEET_ENGINEER;
+  const id = Number(
+    run(
+      'INSERT INTO requests (agent_id, run_id, what, why, evidence, expected_effect, created_at, stage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      agentId,
+      runId,
+      r.what.slice(0, 500),
+      r.why.slice(0, 2000),
+      r.evidence ? r.evidence.slice(0, 4000) : null,
+      r.expected_effect ? r.expected_effect.slice(0, 1000) : null,
+      now,
+      toEngineer ? 'engineer' : 'person',
+    ).lastInsertRowid,
+  );
+  if (toEngineer) wake(FLEET_ENGINEER, 'request', `Request #${id} from ${agentId}: ${r.what.slice(0, 300)}`);
+  return id;
+}
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required });
 const str = (description: string) => ({ type: 'string', description });
@@ -120,17 +157,14 @@ const BUILTIN: ToolDef[] = [
       ['what', 'why'],
     ),
     impl: (a, ctx) => {
-      const r = run(
-        'INSERT INTO requests (agent_id, run_id, what, why, evidence, expected_effect, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      const id = fileRequest(
         ctx.agent.id,
         ctx.runId,
-        String(a.what ?? '').slice(0, 500),
-        String(a.why ?? '').slice(0, 2000),
-        a.evidence ? String(a.evidence).slice(0, 2000) : null,
-        a.expected_effect ? String(a.expected_effect).slice(0, 1000) : null,
+        { what: String(a.what ?? ''), why: String(a.why ?? ''), evidence: a.evidence ? String(a.evidence) : null, expected_effect: a.expected_effect ? String(a.expected_effect) : null },
         ctx.now(),
+        ctx.wake,
       );
-      return `Filed request #${r.lastInsertRowid}. You'll be told the answer at the start of a later run. Carry on without it for now.`;
+      return `Filed request #${id}. You'll be told the answer at the start of a later run. Carry on without it for now.`;
     },
   },
   {
@@ -369,13 +403,20 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
   if (tier === 'T2') {
     const approvalId = `apv_${ctx.now().toString(36)}${(approvalSeq++).toString(36)}`;
     const hours = ctx.agent.approvalHours[id] ?? 24;
+    let stored = call.args;
+    if (impl.preview)
+      try {
+        stored = { ...call.args, ...(await impl.preview(call.args, ctx)) };
+      } catch (e) {
+        return record({ content: (e as Error).message, error: true, outcome: 'refused', counted: 0 });
+      }
     run(
       'INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       approvalId,
       ctx.agent.id,
       ctx.runId,
       id,
-      JSON.stringify(call.args),
+      JSON.stringify(stored),
       ctx.now(),
       ctx.now() + hours * 3_600_000,
     );

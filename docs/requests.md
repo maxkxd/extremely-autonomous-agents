@@ -113,7 +113,17 @@ it can steer confused people to the right one (e.g. "done" while it's waiting
 on its build approval -> go to Approvals and press Approve). What it's told
 about the UI lives in [fleet-engineer-ui-guide.md](fleet-engineer-ui-guide.md).
 
-## Status
+## Status (2026-10-29)
 
-UI only. The Fleet Engineer's response is simulated, the IDE buttons are
-placeholders, and nothing reaches an agent yet.
+Real for real agents' requests: every request goes to the Fleet Engineer
+(\`runner/engineer.ts\`), a built-in agent run by the runner like any other,
+owned by no one. It talks to the person in the request (the thread is kept on
+the server), hands work to a related agent, builds integrations (docs/
+integrations.md), or hands the request to the person. A request's stage shows
+on its row: Fleet Engineer, Waiting on you, Waiting on approval, Needs you.
+Accepting an agent files a request for every tool its builder invented that
+nothing provides yet.
+
+Not yet: the Conductor (the engineer does its routing for now, at the cost of
+an engineer run per request); the Send-to-IDE button; the placeholder
+requests still use the simulated engineer.

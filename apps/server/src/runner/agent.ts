@@ -3,11 +3,14 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 import { DATA, readMeta, slug } from '../files.js';
 import type { Tier } from '../catalog.js';
-import { cleanChoices, type ModelChoice } from '../models/choice.js';
+import { allChoices, cleanChoices, type ModelChoice } from '../models/choice.js';
 
 // An agent as the runner sees it: its files (docs/agent-creation.md) plus the
 // ferocity plan and natural limits the builder wrote into TOOLS.yaml
 // (docs/runner.md). Agents built before those existed get the defaults.
+
+// The built-in agent that builds tools and integrations (runner/engineer.ts).
+export const FLEET_ENGINEER = 'fleet';
 
 export type NaturalLimit = { tool: string; max: number; per_hours: number; why?: string };
 
@@ -96,7 +99,8 @@ export async function loadAgent(id: string): Promise<AgentDef | null> {
       owner: meta.owner ?? meta.setup?.person ?? null,
       org: meta.org ?? meta.setup?.org ?? null,
       charter,
-      models: cleanChoices(tools.models),
+      // The models picked on its card win; the builder's choice is the default.
+      models: cleanChoices((await allChoices())[slug(id)] ?? tools.models),
       tiers: tools.tool_tiers ?? {},
       approvalHours,
       newTools: tools.new_tools ?? [],

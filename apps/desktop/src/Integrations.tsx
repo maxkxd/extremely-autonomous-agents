@@ -5,8 +5,10 @@ import {
   addMcpIntegration,
   connectIntegration,
   disconnectIntegration,
+  getCodePlugins,
   getIntegrations,
   openAgentBrowser,
+  setCodePlugins,
   removeIntegration,
   startIntegrationSignIn,
   type IntegrationsView,
@@ -50,6 +52,7 @@ export function Integrations() {
             <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} />
           ))}
           <AddMcp refresh={refresh} open={openId === 'add'} setOpen={o => setOpenId(o ? 'add' : null)} />
+          <CodePlugins />
         </ul>
         {view.problems.map(p => (
           <p key={p.file} className="custom-error">
@@ -93,9 +96,11 @@ function KeyRow({ i, refresh, open, setOpen }: RowProps) {
     }
   };
   // An MCP server's test already says how many tools it found.
-  const tools = i.kind !== 'mcp' && i.tools.length ? `${i.tools.length} tool${i.tools.length === 1 ? '' : 's'}` : '';
+  const tools = i.kind !== 'mcp' && i.tools.length && !i.draft ? `${i.tools.length} tool${i.tools.length === 1 ? '' : 's'}` : '';
   const sub = i.connected
-    ? [i.test?.message, tools].filter(Boolean).join(' · ')
+    ? i.draft
+      ? 'Connected · goes live when you approve it'
+      : [i.test?.message, tools].filter(Boolean).join(' · ')
     : i.test && !i.test.ok
       ? i.test.message
       : '';
@@ -104,6 +109,7 @@ function KeyRow({ i, refresh, open, setOpen }: RowProps) {
       <span className="sconn-name">
         {i.name}
         {i.kind === 'mcp' && <span className="sint-kind">MCP</span>}
+        <DraftPill i={i} />
       </span>
       {sub && <span className={`sconn-what${!i.connected && i.test && !i.test.ok ? ' sint-bad' : ''}`}>{sub}</span>}
       <span className="sint-actions">
@@ -254,7 +260,10 @@ function SignInRow({ i, refresh, open, setOpen }: RowProps) {
   const bad = !waiting && !i.connected && !!i.test && !i.test.ok;
   return (
     <li className={open || error ? 'with-form' : undefined}>
-      <span className="sconn-name">{i.name}</span>
+      <span className="sconn-name">
+        {i.name}
+        <DraftPill i={i} />
+      </span>
       {sub && <span className={`sconn-what${bad ? ' sint-bad' : ''}`}>{sub}</span>}
       <span className="sint-actions">
         {i.connected ? (
@@ -340,6 +349,36 @@ function SignInRow({ i, refresh, open, setOpen }: RowProps) {
           {error && <span className="custom-error">{error}</span>}
         </div>
       )}
+    </li>
+  );
+}
+
+// Written by the Fleet Engineer and not live yet: connect it, and it goes live
+// once you approve it on Approvals.
+const DraftPill = ({ i }: { i: IntegrationView }) =>
+  i.draft ? (
+    <span className="sint-kind draft" title="Added by the Fleet Engineer. Connect it here; it goes live when you approve it.">
+      Draft
+    </span>
+  ) : null;
+
+// Whether the Fleet Engineer may write code plugins: code that runs on this
+// computer, for what an HTTP or MCP integration can't do. Off unless turned on.
+function CodePlugins() {
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  useEffect(() => void getCodePlugins().then(r => setAllowed(r.allowed), () => {}), []);
+  if (allowed === null) return null;
+  return (
+    <li>
+      <span className="sconn-name">Code plugins</span>
+      <span className="sconn-what">
+        {allowed ? 'The Fleet Engineer can write code that runs on this computer. Each plugin waits for your approval, code shown.' : 'Off: the Fleet Engineer builds with HTTP and MCP only'}
+      </span>
+      <span className="sint-actions">
+        <button className="sbtn" onClick={() => setCodePlugins(!allowed).then(r => setAllowed(r.allowed))}>
+          {allowed ? 'Turn off' : 'Allow'}
+        </button>
+      </span>
     </li>
   );
 }

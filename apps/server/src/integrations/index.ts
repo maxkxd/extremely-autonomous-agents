@@ -8,7 +8,8 @@ import { registerTools, type ToolDef } from '../runner/tools.js';
 import { deleteSecret, getSecret, setSecret } from '../vault.js';
 import { callHttp } from './http.js';
 import { callMcpTool, listMcpTools, type McpTool } from './mcp-client.js';
-import { MODULES } from './modules/index.js';
+import { MODULES, type CodeModule } from './modules/index.js';
+import { codeHash, installPlugin, pluginModule, readPlugin } from './plugins.js';
 import { oauthAccessToken, oauthCallback, oauthSecret, oauthSignOut, oauthStart, setOAuthAccount } from './oauth.js';
 import { Integration, type HttpIntegration, type McpIntegration } from './schema.js';
 
@@ -22,7 +23,18 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SHIPPED = join(HERE, '..', '..', 'integrations');
 const ADDED = join(HERE, '..', '..', 'data', 'integrations');
 
-type State = { connectedAt?: number; test?: { ok: boolean; at: number; message: string }; tools?: McpTool[] };
+// draft: written by the Fleet Engineer and not live yet - no agent can call it
+// until a person approves it (it can be connected and tested meanwhile).
+// codeHash: for a code plugin, the code a person approved.
+type State = {
+  connectedAt?: number;
+  test?: { ok: boolean; at: number; message: string };
+  tools?: McpTool[];
+  draft?: boolean;
+  by?: string;
+  request?: number;
+  codeHash?: string;
+};
 const STATE_KEY = 'integrations';
 const states = () => getSetting<Record<string, State>>(STATE_KEY, {});
 const putState = (id: string, s: State | null) => {
@@ -60,11 +72,21 @@ export async function loadIntegrations() {
   problems = [];
   await readDir(SHIPPED, true);
   await readDir(ADDED, false);
+  // Plugins a person approved, loaded only if their code is still what they saw.
+  for (const { integration } of loaded) {
+    const hash = states()[integration.id]?.codeHash;
+    if (integration.kind !== 'code' || MODULES[integration.module] || !hash) continue;
+    await installPlugin(integration.module, hash).catch(e => problems.push({ file: `${integration.module}.ts`, error: (e as Error).message }));
+  }
   register();
 }
 
 const find = (id: string) => loaded.find(l => l.integration.id === id)?.integration;
 const isConnected = (id: string) => !!states()[id]?.connectedAt;
+// What agents can use: connected, and not a draft.
+const isLive = (id: string) => isConnected(id) && !states()[id]?.draft;
+// A code integration's tools: shipped modules, or an approved plugin.
+const moduleOf = (name: string): CodeModule | undefined => MODULES[name] ?? pluginModule(name);
 
 // MCP tools are named after their integration: deepwiki.ask_question.
 const mcpToolId = (integration: McpIntegration, name: string) => `${integration.id}.${name.toLowerCase().replace(/[^a-z0-9_]/g, '_')}`;
@@ -92,7 +114,7 @@ function providers(): Map<string, { def: Omit<ToolDef, 'impl'>; by: Provider[] }
           call: async args => callHttp(integration, tool, args, await keyOf(integration.id)),
         });
     } else if (integration.kind === 'code') {
-      for (const tool of MODULES[integration.module]?.tools ?? [])
+      for (const tool of moduleOf(integration.module)?.tools ?? [])
         add(tool.id, { id: tool.id, tier: tool.tier, description: tool.description, schema: tool.input }, {
           integration,
           call: async args => tool.run(args, await keyOf(integration.id)),
@@ -111,15 +133,15 @@ function providers(): Map<string, { def: Omit<ToolDef, 'impl'>; by: Provider[] }
 }
 
 // Registers every integration tool with the runner. A tool is ready when an
-// integration that provides it is connected; the first connected one serves it.
+// integration that provides it is live; the first live one serves it.
 function register() {
   const defs: ToolDef[] = [];
   for (const [id, { def, by }] of providers())
     defs.push({
       ...def,
-      ready: () => by.some(p => isConnected(p.integration.id)),
+      ready: () => by.some(p => isLive(p.integration.id)),
       impl: args => {
-        const p = by.find(p => isConnected(p.integration.id));
+        const p = by.find(p => isLive(p.integration.id));
         if (!p) throw new Error(`No integration that provides ${id} is connected. File a request for one.`);
         return p.call(args);
       },
@@ -137,8 +159,10 @@ async function test(integration: Integration): Promise<{ ok: boolean; message: s
       return { ok: true, message: `${tools.length} tool${tools.length === 1 ? '' : 's'} found`, tools };
     }
     if (integration.kind === 'code') {
-      const mod = MODULES[integration.module];
-      if (!mod) throw new Error(`Its code ("${integration.module}") isn't part of this app.`);
+      const mod = moduleOf(integration.module);
+      // A plugin's code doesn't run before it's approved: keep the key, test it then.
+      if (!mod && states()[integration.id]?.draft) return { ok: true, message: 'Key saved. It is tested once its code is approved.' };
+      if (!mod) throw new Error(`Its code ("${integration.module}") isn't loaded.`);
       const key = await keyOf(integration.id);
       if (integration.auth.type === 'oauth2' && !key) throw new Error('Not signed in yet.');
       const tool = mod.tools.find(t => t.id === integration.test.tool) ?? mod.tools[0];
@@ -175,8 +199,14 @@ export async function connectIntegration(id: string, key?: string) {
   });
   register();
   if (!result.ok) throw new Error(result.message);
+  // A draft the Fleet Engineer is waiting on: wake it to test the real thing.
+  const st = states()[id];
+  if (st?.draft) onDraftConnected?.(id, st.request);
   return result;
 }
+
+let onDraftConnected: ((id: string, request?: number) => void) | null = null;
+export const whenDraftConnected = (fn: (id: string, request?: number) => void) => void (onDraftConnected = fn);
 
 // Signing in (OAuth): the person's OAuth client in, the service's sign-in page out.
 export async function startIntegrationSignIn(id: string, client: { clientId?: string; clientSecret?: string }) {
@@ -195,7 +225,9 @@ export async function disconnectIntegration(id: string) {
   const auth = find(id)?.auth;
   if (auth?.type === 'oauth2') await oauthSignOut(id, auth);
   else await deleteSecret(secretKey(id));
-  putState(id, null);
+  // Signed out; whether it's a draft, and whose, stays.
+  const { draft, by, request, codeHash: hash } = states()[id] ?? {};
+  putState(id, draft || by || hash ? { draft, by, request, codeHash: hash } : null);
   register();
 }
 
@@ -240,12 +272,14 @@ export async function listIntegrations() {
     signIn: integration.auth.type === 'oauth2' ? { clientUrl: integration.auth.client_url ?? null, help: integration.auth.client_help ?? null, hasClient: clients.has(integration.id) } : null,
     shipped,
     connected: !!st[integration.id]?.connectedAt,
+    draft: !!st[integration.id]?.draft,
+    by: st[integration.id]?.by ?? null,
     test: st[integration.id]?.test ?? null,
     tools:
       integration.kind === 'http'
         ? integration.tools.map(t => ({ id: t.id, tier: t.tier }))
         : integration.kind === 'code'
-          ? (MODULES[integration.module]?.tools ?? []).map(t => ({ id: t.id, tier: t.tier }))
+          ? (moduleOf(integration.module)?.tools ?? []).map(t => ({ id: t.id, tier: t.tier }))
           : (st[integration.id]?.tools ?? []).map(t => ({ id: mcpToolId(integration, t.name), tier: mcpTier(integration, t) })),
   }));
 }
@@ -254,17 +288,97 @@ export const integrationProblems = () => problems;
 
 // The ids of tools a connected integration provides, which a build may use.
 export function integrationToolIds(): string[] {
-  return [...providers()].filter(([, { by }]) => by.some(p => isConnected(p.integration.id))).map(([id]) => id);
+  return [...providers()].filter(([, { by }]) => by.some(p => isLive(p.integration.id))).map(([id]) => id);
 }
 
 // Tools from connected integrations, for the builder's catalogue.
 export function integrationToolsForPrompt(): string {
   const lines: string[] = [];
   for (const [id, { def, by }] of providers()) {
-    const connected = by.filter(p => isConnected(p.integration.id)).map(p => p.integration.name);
+    const connected = by.filter(p => isLive(p.integration.id)).map(p => p.integration.name);
     if (connected.length) lines.push(`- ${id} [${def.tier}] ${def.description.split('\n')[0].slice(0, 160)} (via ${connected.join(', ')})`);
   }
   return lines.join('\n');
 }
 
 export type { HttpIntegration, McpIntegration };
+
+// --- The Fleet Engineer's side (runner/engineer.ts) -----------------------------------
+
+// Saves a definition the engineer wrote, as a draft: it shows in Settings to be
+// connected, but no agent can call it until a person approves it going live.
+export async function writeDraftIntegration(definition: string, by: string, request?: number): Promise<{ integration: Integration; wasLive: boolean }> {
+  let raw: unknown;
+  try {
+    raw = parse(definition);
+  } catch (e) {
+    throw new Error(`That isn't valid YAML: ${(e as Error).message.slice(0, 300)}`);
+  }
+  const checked = Integration.safeParse(raw);
+  if (!checked.success)
+    throw new Error(`The definition doesn't fit the format: ${checked.error.issues.slice(0, 6).map(i => `${i.path.join('.') || '(top)'}: ${i.message}`).join('; ')}`);
+  const integration = checked.data;
+  const existing = loaded.find(l => l.integration.id === integration.id);
+  if (existing?.shipped) throw new Error(`"${integration.id}" is a built-in integration's id; pick another.`);
+  const prev = states()[integration.id];
+  if (existing && prev?.by !== by) throw new Error(`"${integration.id}" was added by a person; pick another id.`);
+  await mkdir(ADDED, { recursive: true });
+  await writeFile(join(ADDED, `${integration.id}.yaml`), stringify(integration));
+  putState(integration.id, { ...prev, draft: true, by, request: request ?? prev?.request, codeHash: undefined });
+  await loadIntegrations();
+  return { integration, wasLive: !!existing && !prev?.draft };
+}
+
+export async function integrationSource(id: string): Promise<{ yaml: string; code: string | null } | null> {
+  const l = loaded.find(x => x.integration.id === id);
+  if (!l) return null;
+  const yaml = await readFile(join(l.shipped ? SHIPPED : ADDED, `${id}.yaml`), 'utf8').catch(() => stringify(l.integration));
+  const code = l.integration.kind === 'code' && !MODULES[l.integration.module] ? await readPlugin(l.integration.module) : null;
+  return { yaml, code };
+}
+
+const toolsOf = (id: string) => [...providers()].filter(([, e]) => e.by.some(x => x.integration.id === id));
+
+// One tool of one integration, draft or live, called directly (the engineer testing).
+export async function testIntegrationTool(id: string, toolId: string, args: Record<string, unknown>): Promise<string> {
+  const integration = find(id);
+  if (!integration) throw new Error(`No integration "${id}".`);
+  if (integration.auth.type !== 'none' && !isConnected(id))
+    throw new Error(`${integration.name} isn't connected yet: ask the person to add its key (engineer.ask_for_connection).`);
+  if (integration.kind === 'code' && !moduleOf(integration.module))
+    throw new Error("A code plugin's code runs only after a person approves it. Propose it with engineer.publish_integration; it's tested as it goes live.");
+  const p = providers().get(toolId)?.by.find(x => x.integration.id === id);
+  if (!p) throw new Error(`${integration.name} has no tool "${toolId}". Its tools: ${toolsOf(id).map(([t]) => t).join(', ') || 'none found yet'}.`);
+  return p.call(args);
+}
+
+// What a person approves when a draft goes live: the definition, and a plugin's code.
+export async function publishPreview(id: string) {
+  const integration = find(id);
+  if (!integration) throw new Error(`No integration "${id}".`);
+  const src = await integrationSource(id);
+  return { name: integration.name, kind: integration.kind, yaml: src?.yaml ?? '', code: src?.code ?? null, codeHash: src?.code ? codeHash(src.code) : null };
+}
+
+// Makes a draft live. A plugin is loaded only if its code is what was approved.
+export async function publishIntegration(id: string, approvedHash: string | null): Promise<{ tools: { id: string; tier: Tier }[]; test: string | null }> {
+  const integration = find(id);
+  if (!integration) throw new Error(`No integration "${id}".`);
+  if (integration.kind === 'code' && !MODULES[integration.module]) {
+    if (!approvedHash) throw new Error('Approve its code first.');
+    await installPlugin(integration.module, approvedHash);
+    putState(id, { ...states()[id], codeHash: approvedHash });
+  }
+  putState(id, { ...states()[id], draft: false });
+  // Tested now that it can run (a plugin's first run is after approval).
+  let test: string | null = null;
+  if (integration.auth.type === 'none' || isConnected(id)) {
+    const r = await connectIntegration(id).catch(e => ({ ok: false, message: (e as Error).message }));
+    test = r.message;
+  }
+  register();
+  return { tools: toolsOf(id).map(([t, e]) => ({ id: t, tier: e.def.tier })), test };
+}
+
+// A request's draft integrations (to link a go-live to the request it answers).
+export const draftsFor = (request: number) => Object.entries(states()).filter(([, st]) => st.draft && st.request === request).map(([id]) => id);

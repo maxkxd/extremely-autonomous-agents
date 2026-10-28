@@ -20,7 +20,14 @@ export function openDb(path = FILE): DatabaseSync {
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
   // Columns added after a store may already exist.
-  for (const sql of ['ALTER TABLE approvals ADD COLUMN note TEXT', 'ALTER TABLE approvals ADD COLUMN result TEXT'])
+  for (const sql of [
+    'ALTER TABLE approvals ADD COLUMN note TEXT',
+    'ALTER TABLE approvals ADD COLUMN result TEXT',
+    // Requests: where each stands (docs/requests.md) - engineer (the Fleet Engineer
+    // has it), waiting_you (it asked you something), approval (its go-live waits on
+    // you), person (it handed it to you); null on ones from before routing.
+    'ALTER TABLE requests ADD COLUMN stage TEXT',
+  ])
     try {
       db.exec(sql);
     } catch {
@@ -127,6 +134,16 @@ CREATE TABLE IF NOT EXISTS requests (
   created_at INTEGER NOT NULL,
   answered_at INTEGER,
   delivered_at INTEGER              -- when the agent was told the answer
+);
+
+-- A request's conversation: the agent's ask is the request itself; then the
+-- Fleet Engineer and the person (docs/requests.md).
+CREATE TABLE IF NOT EXISTS request_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id INTEGER NOT NULL,
+  from_who TEXT NOT NULL,           -- engineer | you
+  text TEXT NOT NULL,
+  at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
