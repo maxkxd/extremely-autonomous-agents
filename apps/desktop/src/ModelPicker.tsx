@@ -320,9 +320,13 @@ export function useModelSlide(
   }, [open, card]);
   useEffect(() => {
     if (!open) return;
+    // Clicks in the picker or in this card's slid-over column (the Model row,
+    // the controls above it) keep it open; anywhere else closes it.
     const onDown = (e: PointerEvent) => {
-      const t = e.target as Element;
-      if (!t.closest('.model-panel') && !t.closest('.model-row')) close();
+      const t = e.target as Node;
+      const el = card.current;
+      const inside = !!el && (!!el.querySelector('.model-panel')?.contains(t) || !!el.querySelector('.card-side')?.contains(t));
+      if (!inside) close();
     };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
     window.addEventListener('pointerdown', onDown);
