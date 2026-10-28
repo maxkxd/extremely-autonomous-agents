@@ -1,3 +1,4 @@
+import { extractText, getDocumentProxy } from 'unpdf';
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { safeFetch } from './net.js';
@@ -77,21 +78,37 @@ export function readable(html: string, baseUrl: string): Page {
 
 const MAX_BYTES = 5_000_000;
 
+// A PDF's text, page by page. A scanned PDF (images, no text layer) says so.
+async function pdfText(bytes: Buffer, url: string, cut: (s: string) => string): Promise<string> {
+  if (bytes.length > MAX_BYTES) throw new Error(`Too large to read (${Math.round(bytes.length / 1e6)} MB).`);
+  let pages: string[];
+  try {
+    const doc = await getDocumentProxy(new Uint8Array(bytes));
+    pages = (await extractText(doc, { mergePages: false })).text as string[];
+  } catch {
+    throw new Error("It's a PDF that couldn't be read (damaged, or password-protected).");
+  }
+  const n = `${pages.length} page${pages.length === 1 ? '' : 's'}`;
+  if (!pages.some(p => p.trim())) return `URL: ${url}\n\nA PDF of ${n} with no text in it - probably scanned images.`;
+  const text = pages.map((p, i) => `--- Page ${i + 1} ---\n${p.replace(/[ \t]+\n/g, '\n').trim()}`).join('\n\n');
+  return `PDF: ${url} (${n})\n\n${cut(text)}`;
+}
+
 export async function fetchPage(url: string, maxChars = 20_000): Promise<string> {
   const { res, url: finalUrl } = await safeFetch(url, {
     headers: {
       'user-agent': 'Mozilla/5.0 (compatible; ExtremelyAutonomousAgents/1.0; +https://extremely.agency)',
-      accept: 'text/html,application/xhtml+xml,application/json,text/plain;q=0.9,*/*;q=0.5',
+      accept: 'text/html,application/xhtml+xml,application/json,text/plain;q=0.9,application/pdf;q=0.8,*/*;q=0.5',
     },
   });
   if (!res.ok) throw new Error(`${new URL(finalUrl).host} answered ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`);
   const type = (res.headers.get('content-type') ?? '').toLowerCase();
   const size = Number(res.headers.get('content-length') ?? 0);
   if (size > MAX_BYTES) throw new Error(`Too large to read (${Math.round(size / 1e6)} MB).`);
-  if (/pdf/.test(type)) throw new Error("It's a PDF, which this tool can't read yet.");
+  const cut = (s: string) => (s.length > maxChars ? `${s.slice(0, maxChars)}\n[cut off at ${maxChars} characters; ask for more with max_chars]` : s);
+  if (/pdf/.test(type) || /\.pdf$/i.test(new URL(finalUrl).pathname)) return pdfText(Buffer.from(await res.arrayBuffer()), finalUrl, cut);
   if (!/html|xml|json|text|javascript/.test(type) && type) throw new Error(`It's a ${type.split(';')[0]} file, not a page.`);
   const body = (await res.text()).slice(0, MAX_BYTES);
-  const cut = (s: string) => (s.length > maxChars ? `${s.slice(0, maxChars)}\n[cut off at ${maxChars} characters; ask for more with max_chars]` : s);
   if (!/html|xml/.test(type)) return `URL: ${finalUrl}\n\n${cut(body)}`;
   const page = readable(body, finalUrl);
   const links = page.links.slice(0, 60).map(l => `- ${l.text}: ${l.url}`);
@@ -102,7 +119,7 @@ registerTools([
   {
     id: 'web.fetch_page',
     tier: 'T0',
-    description: 'Read one public web page: its main text, cleaned of menus and clutter, and the links on it. Pages only - not PDFs or files.',
+    description: "Read one public web page or PDF: a page's main text, cleaned of menus and clutter, with its links; a PDF's text, page by page.",
     schema: {
       type: 'object',
       properties: { url: { type: 'string', description: 'The full address, starting http:// or https://' }, max_chars: { type: 'number', description: 'How much text to return (default 20000)' } },
