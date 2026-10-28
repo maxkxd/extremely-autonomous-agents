@@ -259,13 +259,34 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/browser/sign-in': async () => openProfileForSignIn(),
 
   // --- Spend caps (Settings -> Usage) ---
+  // Spend and runs: today (for the caps) and this calendar month, per agent.
+  // A run on a plan (Claude, ChatGPT, Copilot) or Ollama costs $0; one whose
+  // model has no known price is counted, and its cost reported as unknown.
   'GET /api/usage': async () => {
     const now = Date.now();
+    const d = new Date(now);
+    const monthStart = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    const month = new Map(
+      all<{ agent_id: string; spend: number | null; runs: number; unknown: number }>(
+        'SELECT agent_id, SUM(cost_usd) AS spend, COUNT(*) AS runs, SUM(cost_usd IS NULL) AS unknown FROM runs WHERE started_at >= ? GROUP BY agent_id',
+        monthStart,
+      ).map(r => [r.agent_id, r]),
+    );
     const agents = [];
     for (const id of await listIds()) {
       const meta = await readMeta(id);
       if (!meta) continue;
-      agents.push({ id, name: meta.name, capUsd: stateOf(id).spend_cap_usd, spentTodayUsd: spentToday(now, id) });
+      const m = month.get(id);
+      agents.push({
+        id,
+        name: meta.name,
+        department: meta.department,
+        capUsd: stateOf(id).spend_cap_usd,
+        spentTodayUsd: spentToday(now, id),
+        monthUsd: m?.spend ?? 0,
+        monthRuns: m?.runs ?? 0,
+        monthUnknownRuns: m?.unknown ?? 0,
+      });
     }
     return { orgCapUsd: getSetting<number | null>('spend_cap_org_usd', null), spentTodayUsd: spentToday(now), agents };
   },

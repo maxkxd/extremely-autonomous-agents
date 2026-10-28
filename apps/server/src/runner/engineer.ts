@@ -94,20 +94,29 @@ export async function ensureFleetEngineer() {
   if (!models.length) {
     // The strongest model connected: it writes and debugs integrations.
     const avail = await availableModels().catch(() => []);
-    const prefer: [string, RegExp][] = [
+    // The person's plans first (no cost per run); a paid API only when no plan
+    // is connected - the engineer's runs are long, and Opus on an API key costs
+    // about a dollar each.
+    const plans: [string, RegExp][] = [
       ['claude-code', /opus/],
-      ['anthropic', /opus-5/],
       ['chatgpt', /./],
-      ['anthropic', /sonnet/],
+      ['copilot', /./],
+    ];
+    const paid: [string, RegExp][] = [
+      ['anthropic', /sonnet-5/],
       ['openai', /gpt-5/],
       ['openrouter', /./],
       ['google', /pro/],
     ];
-    for (const [conn, re] of prefer) {
-      const m = avail.find(a => a.connection === conn)?.models.find(x => re.test(x));
-      if (m && !models.some(x => x.connection === conn)) models.push({ connection: conn, model: m, effort: 'high' });
-      if (models.length === 3) break;
-    }
+    const pick = (list: [string, RegExp][]) => {
+      for (const [conn, re] of list) {
+        const m = avail.find(a => a.connection === conn)?.models.find(x => re.test(x));
+        if (m && !models.some(x => x.connection === conn)) models.push({ connection: conn, model: m, effort: 'high' });
+        if (models.length === 3) break;
+      }
+    };
+    pick(plans);
+    if (!models.length) pick(paid);
     if (models.length) await setChoices(FLEET_ENGINEER, models);
   }
   const tools = stringify({

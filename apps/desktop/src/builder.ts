@@ -293,7 +293,20 @@ export const decideApproval = (id: string, decision: 'approved' | 'rejected', no
 export const openAgentBrowser = () => post<{ ok: boolean }>('/api/browser/sign-in', {});
 
 // Daily spend caps (Settings -> Usage): the organisation's, and each agent's.
-export type Usage = { orgCapUsd: number | null; spentTodayUsd: number; agents: { id: string; name: string; capUsd: number | null; spentTodayUsd: number }[] };
+export type Usage = {
+  orgCapUsd: number | null;
+  spentTodayUsd: number;
+  agents: {
+    id: string;
+    name: string;
+    department: string;
+    capUsd: number | null;
+    spentTodayUsd: number;
+    monthUsd: number; // this calendar month
+    monthRuns: number;
+    monthUnknownRuns: number; // runs on a model with no known price
+  }[];
+};
 export const getUsage = () => request<Usage>('/api/usage');
 export const setOrgCap = (orgCapUsd: number | null) => post<{ ok: boolean }>('/api/usage', { orgCapUsd });
 
