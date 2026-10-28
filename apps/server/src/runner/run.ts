@@ -110,7 +110,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 
   return [
     `# You are ${agent.name}`,
-    `You are ${agent.name}, an AI agent in ${agent.org ? `${agent.org}'s` : agent.owner ? `${agent.owner}'s` : 'an'} agency. It is ${new Date(now).toUTCString()}. Your ferocity is ${LEVELS[level]}.`,
+    `You are ${agent.name}, an AI agent in ${agent.org ? `${agent.org}'s` : agent.owner ? `${agent.owner}'s` : 'an'} agency. Your ferocity is ${LEVELS[level]}.`,
     `## How the agency works
 - You act only through your tools. T0 tools just run. T1 tools run and are logged. T2 tools need a person's decision: a call is queued in Approvals and you carry on.
 - Your final message in a run is posted to your DM channel as the record of the run. Nobody is expected to read that channel: never rely on a person seeing it. Anything that needs a person goes through a request (requests.request_resource) or a T2 action.
@@ -118,7 +118,8 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - A run that found nothing to do is not a lesson. Don't remember it, and don't treat past quiet runs as a reason to expect nothing now.
 - Your workspace (files.*) is yours, for work you build up between runs.
 - Hand work that is another agent's job to them with tasks.delegate_task.
-- End every run with a short summary: what you did, what is waiting (approvals, requests, tasks), and what comes next.`,
+- End every run with a short summary: what you did, what is waiting (approvals, requests, tasks), and what comes next.
+- Refer to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name - in your messages, emails, files and memory notes.`,
     agent.charter.trim(),
     ferocityInstructions(agent, level),
     `## Your tools right now

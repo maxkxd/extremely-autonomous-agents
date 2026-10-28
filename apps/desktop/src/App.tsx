@@ -255,9 +255,36 @@ export function App() {
   };
   // Agents the runner actually runs (they have files on the server): their DM
   // channels are real. Checked on start and whenever agents come or go.
+  // The server's agents are the fleet: one made anywhere else (another device,
+  // a pack, later the Fleet Engineer) joins this list when it's next checked.
   const [realIds, setRealIds] = useState<Set<string>>(new Set());
   useEffect(() => {
-    agentStatuses().then(s => setRealIds(new Set(Object.keys(s))), () => {});
+    const sync = () =>
+      agentStatuses().then(s => {
+        let added = false;
+        for (const [id, a] of Object.entries(s)) {
+          if (AGENTS.some(x => x.id === id)) continue;
+          addAgent({
+            id,
+            name: a.name,
+            department: a.department,
+            owner: a.owner ?? ACCOUNT.name,
+            output: outputSlices(a.output),
+            cost: [],
+            runs: 0,
+            lastRun: null,
+            decisions: { approved: 0, rejected: 0, expired: 0 },
+            ferocity: 0,
+            settingUp: a.status === 'setting-up' || undefined,
+          });
+          added = true;
+        }
+        setRealIds(new Set(Object.keys(s)));
+        if (added) setAgentsVersion(v => v + 1);
+      }, () => {});
+    sync();
+    const t = window.setInterval(sync, 10_000);
+    return () => window.clearInterval(t);
   }, [AGENTS.length]);
   const mainBody = useRef<HTMLDivElement>(null);
   useElasticScroll(mainBody);

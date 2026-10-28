@@ -248,7 +248,7 @@ const routes: Record<string, Route> = {
     const out: Record<string, unknown> = {};
     for (const id of await listIds()) {
       const m = await readMeta(id);
-      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output };
+      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output, owner: m.owner ?? null };
     }
     return out;
   },

@@ -306,6 +306,25 @@ const sendEmail: CodeTool = {
   },
 };
 
+// To the signed-in account itself (digests, reports, reminders): it can't
+// reach anyone else, so it needn't wait for a person.
+const sendToMe: CodeTool = {
+  id: 'gmail.send_to_me',
+  tier: 'T1',
+  description: "Email the person this Gmail belongs to (digests, reports, reminders). The recipient is always the signed-in account; for anyone else use gmail.send_email.",
+  input: {
+    type: 'object',
+    properties: { subject: { type: 'string' }, body: { type: 'string', description: 'Plain text' } },
+    required: ['subject', 'body'],
+  },
+  run: async (args, token) => {
+    const me = (await api<{ emailAddress: string }>(token, '/profile')).emailAddress;
+    const d = { to: me, cc: '', bcc: '', subject: oneLine(args.subject), body: String(args.body ?? '') };
+    const r = await api<{ id: string }>(token, '/messages/send', { method: 'POST', body: { raw: rawEmail(d) } });
+    return `Sent to ${me}: "${d.subject}" (message ${r.id}).`;
+  },
+};
+
 // --- Labels and archiving ----------------------------------------------------------
 
 const SYSTEM: Record<string, string> = { inbox: 'INBOX', unread: 'UNREAD', starred: 'STARRED', important: 'IMPORTANT' };
@@ -367,6 +386,6 @@ const archiveMessages: CodeTool = {
 };
 
 export const gmail: CodeModule = {
-  tools: [listMessages, readMessage, createDraft, modifyLabels, archiveMessages, sendEmail],
+  tools: [listMessages, readMessage, createDraft, modifyLabels, archiveMessages, sendToMe, sendEmail],
   account: async token => (await api<{ emailAddress: string }>(token, '/profile')).emailAddress,
 };
