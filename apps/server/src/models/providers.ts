@@ -30,7 +30,7 @@ export const PROVIDERS: Provider[] = [
   // --- API keys ---
   { id: 'anthropic', name: 'Anthropic', kind: 'key', what: 'Claude models', keyUrl: 'https://platform.claude.com/settings/keys', keyPrefix: 'sk-ant-' },
   { id: 'openai', name: 'OpenAI', kind: 'key', what: 'GPT and o-series models', keyUrl: 'https://platform.openai.com/api-keys', keyPrefix: 'sk-' },
-  { id: 'google', name: 'Google Gemini', kind: 'key', what: 'Gemini models, from Google AI Studio', keyUrl: 'https://aistudio.google.com/apikey', keyPrefix: 'AIza' },
+  { id: 'google', name: 'Google Gemini', kind: 'key', what: 'Gemini models, from Google AI Studio', keyUrl: 'https://aistudio.google.com/apikey', keyPrefix: 'AQ.' },
   { id: 'openrouter', name: 'OpenRouter', kind: 'key', what: 'Hundreds of models from every provider, one key', keyUrl: 'https://openrouter.ai/settings/keys', keyPrefix: 'sk-or-', oneClick: true },
   { id: 'xai', name: 'xAI', kind: 'key', what: 'Grok models', keyUrl: 'https://console.x.ai', keyPrefix: 'xai-' },
   { id: 'mistral', name: 'Mistral', kind: 'key', what: 'Mistral and Codestral models', keyUrl: 'https://console.mistral.ai/api-keys' },
@@ -90,7 +90,10 @@ async function listModels(id: string, key: string, baseUrl?: string): Promise<Mo
     case 'openai':
       return named(id, ids((await getJson('https://api.openai.com/v1/models', bearer)).data));
     case 'google':
-      return geminiModels((await getJson(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(key)}`)).models);
+      // In a header, as Google documents it - never in the URL. Works for both
+      // key formats: older "AIza..." keys and the "AQ." auth keys AI Studio
+      // has issued since May 2026.
+      return geminiModels((await getJson('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { 'x-goog-api-key': key })).models);
     case 'openrouter': {
       // The key itself is checked; the model list is public.
       await getJson('https://openrouter.ai/api/v1/key', bearer);
