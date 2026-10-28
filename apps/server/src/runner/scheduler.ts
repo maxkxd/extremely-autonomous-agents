@@ -1,4 +1,6 @@
 import { listIds, readMeta } from '../files.js';
+import { loadIntegrations } from '../integrations/index.js';
+import './web.js'; // registers the web tools
 import { availableModels, nativeEffortSync } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';
@@ -137,6 +139,7 @@ export function abortRun(agentId: string) {
 
 let timer: NodeJS.Timeout | null = null;
 export function startScheduler() {
+  void loadIntegrations().catch(e => console.error('Loading integrations failed:', (e as Error).message));
   // Runs left 'running' by a server that stopped mid-run.
   exec("UPDATE runs SET status = 'failed', error = 'The server stopped during this run.', ended_at = started_at WHERE status = 'running'");
   timer ??= setInterval(() => void tick().catch(e => console.error('Runner tick failed:', (e as Error).message)), TICK_MS);

@@ -31,7 +31,9 @@ export type RunCtx = {
 };
 
 type Impl = (args: Record<string, unknown>, ctx: RunCtx) => Promise<string> | string;
-type ToolDef = { id: string; tier: Tier; description: string; schema: Record<string, unknown>; impl: Impl };
+// ready: whether it can be used right now (an integration's tool: whether one
+// that provides it is connected). Missing means always.
+type ToolDef = { id: string; tier: Tier; description: string; schema: Record<string, unknown>; impl: Impl; ready?: () => boolean };
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required });
 const str = (description: string) => ({ type: 'string', description });
@@ -241,9 +243,9 @@ export function toolsFor(agent: AgentDef): { specs: ToolSpec[]; ids: Map<string,
   BUILTIN.forEach(add);
   for (const id of Object.keys(agent.tiers)) {
     const t = REGISTERED.get(id);
-    if (t && !BUILTIN_IDS.has(id)) add(t);
+    if (t && !BUILTIN_IDS.has(id) && (t.ready?.() ?? true)) add(t);
   }
-  const notReady = Object.keys(agent.tiers).filter(id => !find(id) && !LEGACY.has(id));
+  const notReady = Object.keys(agent.tiers).filter(id => !LEGACY.has(id) && !ids.has(toolName(id)));
   return { specs, ids, notReady };
 }
 
@@ -311,6 +313,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
   const impl = find(id);
   // Only tools this run was given: built-ins, and registered tools it holds.
   if (!impl || (!BUILTIN_IDS.has(id) && !(id in ctx.agent.tiers))) return record({ content: `There is no tool "${call.name}" you can use.`, error: true, outcome: 'refused', counted: 0 });
+  if (impl.ready && !impl.ready()) return record({ content: `${id} isn't connected right now.`, error: true, outcome: 'refused', counted: 0 });
 
   const hit = limitHit(ctx.agent, id, ctx.now());
   if (hit) return record({ content: hit, error: true, outcome: 'refused', counted: 0 });

@@ -1,0 +1,27 @@
+# Exa - search by meaning; good for finding similar companies and pages.
+# Docs: https://docs.exa.ai/reference/search
+kind: http
+id: exa
+name: Exa
+what: Search by meaning, good for finding similar companies and pages
+key_url: https://dashboard.exa.ai/api-keys
+auth: { type: api_key, header: x-api-key }
+base_url: https://api.exa.ai
+test: { tool: web.web_search, args: { query: weather in Paris } }
+tools:
+  - id: web.web_search
+    tier: T0
+    description: Search the public web. Returns titles, addresses and snippets; read a result with web.fetch_page.
+    input:
+      type: object
+      properties:
+        query: { type: string, description: What to search for }
+        count: { type: number, description: How many results, 1-20 (default 10) }
+      required: [query]
+    request:
+      method: POST
+      path: /search
+      body: { query: "{{query}}", numResults: "{{count:10}}", contents: { text: { maxCharacters: 600 } } }
+    response:
+      items: results
+      fields: { title: title, url: url, snippet: text, published: publishedDate }

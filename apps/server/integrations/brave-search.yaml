@@ -1,0 +1,27 @@
+# Brave Search - web search from Brave's own independent index.
+# Docs: https://api-dashboard.search.brave.com/app/documentation/web-search
+kind: http
+id: brave-search
+name: Brave Search
+what: Web search from Brave's own independent index
+key_url: https://api-dashboard.search.brave.com/app/keys
+auth: { type: api_key, header: X-Subscription-Token }
+base_url: https://api.search.brave.com/res/v1
+test: { tool: web.web_search, args: { query: weather in Paris } }
+tools:
+  - id: web.web_search
+    tier: T0
+    description: Search the public web. Returns titles, addresses and snippets; read a result with web.fetch_page.
+    input:
+      type: object
+      properties:
+        query: { type: string, description: What to search for }
+        count: { type: number, description: How many results, 1-20 (default 10) }
+      required: [query]
+    request:
+      method: GET
+      path: /web/search
+      query: { q: "{{query}}", count: "{{count:10}}" }
+    response:
+      items: web.results
+      fields: { title: title, url: url, snippet: description, age: age }
