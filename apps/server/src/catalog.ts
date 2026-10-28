@@ -43,6 +43,7 @@ export const CATALOG: CatalogServer[] = [
       t('create_draft', 'T1', 'Save a draft reply, unsent'),
       t('modify_labels', 'T1', 'Add or remove labels'),
       t('archive_messages', 'T1', 'Archive emails (recoverable)'),
+      t('send_to_me', 'T1', 'Email the account owner only (digests, reports)'),
       t('send_email', 'T2', 'Send an email'),
     ],
   },
