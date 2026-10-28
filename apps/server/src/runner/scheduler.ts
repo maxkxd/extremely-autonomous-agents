@@ -1,6 +1,7 @@
 import { listIds, readMeta } from '../files.js';
 import { loadIntegrations } from '../integrations/index.js';
 import './web.js'; // registers the web tools
+import './browser.js'; // registers the browser tools
 import { availableModels, nativeEffortSync } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';

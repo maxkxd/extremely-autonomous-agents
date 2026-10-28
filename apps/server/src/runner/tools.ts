@@ -227,6 +227,29 @@ export function registerTools(defs: ToolDef[]) {
   for (const d of defs) REGISTERED.set(d.id, d);
 }
 export type { ToolDef };
+
+// One catalogue tool that stands for a set: holding web.browse means the whole
+// blank browser (open, click, type...), at web.browse's tier unless the agent
+// holds a member itself.
+const FAMILIES: Record<string, string[]> = {
+  'web.browse': ['browser.open', 'browser.click', 'browser.type', 'browser.scroll', 'browser.back'],
+};
+
+// Every tool an agent holds, with its tier: TOOLS.yaml plus family members.
+export function heldTools(agent: AgentDef): Record<string, Tier> {
+  const held: Record<string, Tier> = { ...agent.tiers };
+  for (const [family, members] of Object.entries(FAMILIES))
+    if (family in agent.tiers) for (const m of members) held[m] ??= agent.tiers[family];
+  return held;
+}
+
+// Run-end hooks: tools that hold something open during a run (a browser)
+// let it go here.
+const runEndHooks: ((runId: string) => Promise<void> | void)[] = [];
+export const onRunEnd = (fn: (runId: string) => Promise<void> | void) => void runEndHooks.push(fn);
+export async function runEnded(runId: string) {
+  for (const fn of runEndHooks) await Promise.resolve(fn(runId)).catch(() => {});
+}
 const find = (id: string) => BUILTIN.find(t => t.id === id) ?? REGISTERED.get(id);
 
 // Names a provider accepts: [a-zA-Z0-9_-], up to 64.
@@ -241,11 +264,12 @@ export function toolsFor(agent: AgentDef): { specs: ToolSpec[]; ids: Map<string,
     specs.push({ name: toolName(t.id), description: t.description, schema: t.schema });
   };
   BUILTIN.forEach(add);
-  for (const id of Object.keys(agent.tiers)) {
+  const held = heldTools(agent);
+  for (const id of Object.keys(held)) {
     const t = REGISTERED.get(id);
     if (t && !BUILTIN_IDS.has(id) && (t.ready?.() ?? true)) add(t);
   }
-  const notReady = Object.keys(agent.tiers).filter(id => !LEGACY.has(id) && !ids.has(toolName(id)));
+  const notReady = Object.keys(agent.tiers).filter(id => !LEGACY.has(id) && !FAMILIES[id] && !ids.has(toolName(id)));
   return { specs, ids, notReady };
 }
 
@@ -253,7 +277,7 @@ export function toolsFor(agent: AgentDef): { specs: ToolSpec[]; ids: Map<string,
 const LEGACY = new Set(['memory.propose_memory', 'ops.propose_own_followup_run', 'channel.post_to_own_channel']);
 
 export const tierOf = (agent: AgentDef, id: string): Tier =>
-  BUILTIN.find(t => t.id === id)?.tier ?? agent.tiers[id] ?? REGISTERED.get(id)?.tier ?? 'T2';
+  BUILTIN.find(t => t.id === id)?.tier ?? heldTools(agent)[id] ?? REGISTERED.get(id)?.tier ?? 'T2';
 
 // --- One call --------------------------------------------------------------------
 
@@ -312,7 +336,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
 
   const impl = find(id);
   // Only tools this run was given: built-ins, and registered tools it holds.
-  if (!impl || (!BUILTIN_IDS.has(id) && !(id in ctx.agent.tiers))) return record({ content: `There is no tool "${call.name}" you can use.`, error: true, outcome: 'refused', counted: 0 });
+  if (!impl || (!BUILTIN_IDS.has(id) && !(id in heldTools(ctx.agent)))) return record({ content: `There is no tool "${call.name}" you can use.`, error: true, outcome: 'refused', counted: 0 });
   if (impl.ready && !impl.ready()) return record({ content: `${id} isn't connected right now.`, error: true, outcome: 'refused', counted: 0 });
 
   const hit = limitHit(ctx.agent, id, ctx.now());

@@ -11,7 +11,7 @@ import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.
 import { costOf, isFree, spentToday } from './pricing.js';
 import type { Harness } from './harness.js';
 import { ModelError, type Adapter, type Msg } from './providers.js';
-import { execute, toolHealth, toolsFor, type RunCtx } from './tools.js';
+import { execute, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js';
 
 // One run of one agent (docs/runner.md, "One run"): its instructions, the
 // tool loop on its first working model, the floor and its nudges, then the
@@ -317,6 +317,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
     error = (e as Error).message;
   }
 
+  await runEnded(id); // let go of anything the run held open (a browser)
   const status = error ? 'failed' : 'succeeded';
   const endedAt = deps.now();
   exec(
