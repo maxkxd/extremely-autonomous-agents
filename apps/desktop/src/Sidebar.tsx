@@ -14,8 +14,9 @@ import {
   Calculator,
   Search,
   Settings2,
+  Hammer,
 } from 'lucide-react';
-import { ACCOUNT, AGENTS, ORGANIZATIONS, totalOpenRequests, type Department } from './data';
+import { ACCOUNT, AGENTS, ORGANIZATIONS, type Department } from './data';
 import { useDismiss } from './useDismiss';
 
 export type View = 'dashboard' | 'approvals' | 'requests' | `agent:${string}`;
@@ -28,12 +29,13 @@ export const DEPARTMENT_ICON: Record<Department, typeof Code> = {
   finance: Calculator,
   research: Search,
   operations: Settings2,
+  agency: Hammer,
 };
 
 const NAV: { view: View; label: string; Icon: typeof LayoutDashboard; badge?: number }[] = [
   { view: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { view: 'approvals', label: 'Approvals', Icon: CircleCheckBig }, // badge comes from live pending approvals
-  { view: 'requests', label: 'Requests', Icon: Inbox, badge: totalOpenRequests },
+  { view: 'requests', label: 'Requests', Icon: Inbox }, // badge comes from live pending requests
 ];
 
 function Avatar({ label, size = 28 }: { label: string; size?: number }) {
@@ -109,12 +111,14 @@ export function Sidebar({
   width,
   onResizeStart,
   approvalsBadge,
+  requestsBadge,
 }: {
   view: View;
   onSelect: (v: View) => void;
   width: number;
   onResizeStart: (e: React.PointerEvent) => void;
   approvalsBadge: number; // pending approvals waiting on this person
+  requestsBadge: number; // pending requests waiting on this person
 }) {
   const [dmsOpen, setDmsOpen] = useState(true);
 
@@ -126,7 +130,7 @@ export function Sidebar({
 
       <nav className="nav-squares">
         {NAV.map(({ view: v, label, Icon, badge: fixedBadge }) => {
-          const badge = v === 'approvals' ? approvalsBadge : fixedBadge;
+          const badge = v === 'approvals' ? approvalsBadge : v === 'requests' ? requestsBadge : fixedBadge;
           return (
             <button
               key={v}

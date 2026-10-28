@@ -46,7 +46,7 @@ function timeAgo(minutes: number): string {
 
 // Which approvals this person sees: their own agents', or everyone's when an
 // admin switches to "Everyone". Solo accounts (no org) own every agent.
-export function visibleApprovals(pending: Approval[], scope: ApprovalScope) {
+export function visibleApprovals<T extends { agentId: string }>(pending: T[], scope: ApprovalScope): T[] {
   if (!ACCOUNT.org || scope === 'all') return pending;
   return pending.filter(a => isMine(a.agentId));
 }
@@ -123,6 +123,7 @@ function AgentFilter({
   );
 }
 
+// Shared by Approvals and Requests: anything owned through an agent.
 export function ApprovalsToolbar({
   pending,
   scope,
@@ -130,7 +131,7 @@ export function ApprovalsToolbar({
   agentFilter,
   setAgentFilter,
 }: {
-  pending: Approval[];
+  pending: { agentId: string }[];
   scope: ApprovalScope;
   setScope: (s: ApprovalScope) => void;
   agentFilter: string | null;

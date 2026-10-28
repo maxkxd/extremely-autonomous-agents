@@ -5,7 +5,8 @@ import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
 import { useElasticScroll } from './useElasticScroll';
 import { subscribeToDecisions } from './live';
-import { APPROVALS, DECIDED_EARLIER_TODAY, type Decisions, type TimeRange } from './data';
+import { APPROVALS, DECIDED_EARLIER_TODAY, REQUESTS, type Decisions, type TimeRange } from './data';
+import { Requests, type RequestResolution } from './Requests';
 import {
   Approvals,
   ApprovalsToolbar,
@@ -94,6 +95,18 @@ export function App() {
     (t, d) => ({ approved: t.approved + d.approved, rejected: t.rejected + d.rejected }),
     DECIDED_EARLIER_TODAY,
   );
+  // Requests: same shape as approvals - decided on click, removed after the exit.
+  const [, setRequestResolved] = useState<Record<string, RequestResolution>>({});
+  const [requestGone, setRequestGone] = useState<Record<string, true>>({});
+  const pendingRequests = REQUESTS.filter(r => !requestGone[r.id]);
+  const [requestScope, setRequestScope] = useState<ApprovalScope>('mine');
+  const [requestFilterRaw, setRequestFilter] = useState<string | null>(null);
+  const requestFilter =
+    requestFilterRaw && visibleApprovals(pendingRequests, requestScope).some(r => r.agentId === requestFilterRaw)
+      ? requestFilterRaw
+      : null;
+  const requestCounts: Record<string, number> = {};
+  for (const r of pendingRequests) requestCounts[r.agentId] = (requestCounts[r.agentId] ?? 0) + 1;
   const mainBody = useRef<HTMLDivElement>(null);
   useElasticScroll(mainBody);
   const [width, setWidth] = useState(() => clamp(readStored(WIDTH_KEY, DEFAULT_WIDTH)));
@@ -144,6 +157,7 @@ export function App() {
           width={width}
           onResizeStart={startDrag}
           approvalsBadge={visibleApprovals(pending, 'mine').length}
+          requestsBadge={visibleApprovals(pendingRequests, 'mine').length}
         />
       )}
       <main className="main">
@@ -153,6 +167,15 @@ export function App() {
             {view === 'approvals' && <DecisionTally approved={decidedToday.approved} rejected={decidedToday.rejected} />}
           </div>
           {view === 'dashboard' && <RangePicker value={range} onChange={setRange} />}
+          {view === 'requests' && (
+            <ApprovalsToolbar
+              pending={pendingRequests}
+              scope={requestScope}
+              setScope={setRequestScope}
+              agentFilter={requestFilter}
+              setAgentFilter={setRequestFilter}
+            />
+          )}
           {view === 'approvals' && (
             <ApprovalsToolbar
               pending={pending}
@@ -169,6 +192,7 @@ export function App() {
               range={range}
               onNavigate={setView}
               approvalCounts={approvalCounts}
+              requestCounts={requestCounts}
               newDecisions={newDecisions}
             />
           ) : view === 'approvals' ? (
@@ -178,6 +202,14 @@ export function App() {
               agentFilter={agentFilter}
               onDecide={(id, r) => setResolved(prev => ({ ...prev, [id]: r }))}
               onGone={id => setGone(prev => ({ ...prev, [id]: true }))}
+            />
+          ) : view === 'requests' ? (
+            <Requests
+              pending={pendingRequests}
+              scope={requestScope}
+              agentFilter={requestFilter}
+              onDecide={(id, r) => setRequestResolved(prev => ({ ...prev, [id]: r }))}
+              onGone={id => setRequestGone(prev => ({ ...prev, [id]: true }))}
             />
           ) : (
             <div className="main-empty">Coming next.</div>

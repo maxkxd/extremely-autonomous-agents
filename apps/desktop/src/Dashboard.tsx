@@ -199,6 +199,7 @@ function AgentCard({
   setState,
   onNavigate,
   openApprovals,
+  openRequests,
   decisions,
   dragging,
   onGripDown,
@@ -209,6 +210,7 @@ function AgentCard({
   setState: (s: RunState) => void;
   onNavigate: (v: View) => void;
   openApprovals: number;
+  openRequests: number;
   decisions: Decisions; // for the dashboard's time frame
   dragging: boolean;
   onGripDown: (e: React.PointerEvent) => void;
@@ -260,12 +262,12 @@ function AgentCard({
             {state !== 'active' && <span className="state-pill">{state === 'draining' ? 'Draining' : 'Stopped'}</span>}
             <span className="head-counts">
               <a
-                className={`head-count${agent.openRequests ? ' has' : ''}`}
-                title={`${agent.openRequests} open request${agent.openRequests === 1 ? '' : 's'}`}
+                className={`head-count${openRequests ? ' has' : ''}`}
+                title={`${openRequests} open request${openRequests === 1 ? '' : 's'}`}
                 onClick={() => onNavigate('requests')}
               >
                 <Inbox size={14} strokeWidth={1.75} />
-                {agent.openRequests}
+                {openRequests}
               </a>
               <a
                 className={`head-count${openApprovals ? ' has' : ''}`}
@@ -363,11 +365,13 @@ export function Dashboard({
   range,
   onNavigate,
   approvalCounts,
+  requestCounts,
   newDecisions,
 }: {
   range: TimeRange;
   onNavigate: (v: View) => void;
   approvalCounts: Record<string, number>;
+  requestCounts: Record<string, number>;
   newDecisions: Record<string, Decisions>; // since the app opened (yours + live), so in every time frame
 }) {
   const [states, setStates] = useState<Record<string, RunState>>({});
@@ -492,6 +496,7 @@ export function Dashboard({
               setState={s => setStates(prev => ({ ...prev, [a.id]: s }))}
               onNavigate={onNavigate}
               openApprovals={approvalCounts[a.id] ?? 0}
+              openRequests={requestCounts[a.id] ?? 0}
               decisions={{
                 approved: scaleTo(range, a.decisions.approved) + (newDecisions[a.id]?.approved ?? 0),
                 rejected: scaleTo(range, a.decisions.rejected) + (newDecisions[a.id]?.rejected ?? 0),

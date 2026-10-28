@@ -2,7 +2,8 @@ import type { ApprovalToolId, ToolArgs } from './approvalTools';
 
 // Placeholder data for the UI only - not the real agency roster.
 
-export type Department = 'engineering' | 'marketing' | 'sales' | 'finance' | 'research' | 'operations';
+// 'agency' = the built-in agents every account gets (shown as the Fleet Engineer).
+export type Department = 'engineering' | 'marketing' | 'sales' | 'finance' | 'research' | 'operations' | 'agency';
 
 export type Slice = { label: string; value: number };
 
@@ -11,13 +12,13 @@ export type Agent = {
   name: string;
   department: Department;
   owner: string; // member name; only shown when the user is in an organization
+  builtIn?: boolean; // part of the agency itself, owned by no one
   // Per month (30 days); other time ranges are scaled from this for the placeholder UI.
   // Output is successful actions by type; cost is dollars by source.
   output: Slice[];
   cost: Slice[];
   runs: number;
   lastRun: { minutesAgo: number; outcome: 'succeeded' | 'failed' | 'running' };
-  openRequests: number;
   // Approval outcomes per month (scaled to the time frame like the other stats).
   decisions: Decisions;
   ferocity: number; // index into FEROCITY
@@ -61,7 +62,6 @@ export const AGENTS: Agent[] = [
     ],
     runs: 96,
     lastRun: { minutesAgo: 4, outcome: 'running' },
-    openRequests: 1,
     decisions: { approved: 4, rejected: 1, expired: 0 },
     ferocity: 1,
   },
@@ -81,7 +81,6 @@ export const AGENTS: Agent[] = [
     ],
     runs: 720,
     lastRun: { minutesAgo: 11, outcome: 'succeeded' },
-    openRequests: 0,
     decisions: { approved: 52, rejected: 9, expired: 3 },
     ferocity: 2,
   },
@@ -102,7 +101,6 @@ export const AGENTS: Agent[] = [
     ],
     runs: 58,
     lastRun: { minutesAgo: 190, outcome: 'succeeded' },
-    openRequests: 2,
     decisions: { approved: 18, rejected: 6, expired: 1 },
     ferocity: 1,
   },
@@ -124,7 +122,6 @@ export const AGENTS: Agent[] = [
     ],
     runs: 184,
     lastRun: { minutesAgo: 27, outcome: 'failed' },
-    openRequests: 0,
     decisions: { approved: 70, rejected: 14, expired: 5 },
     ferocity: 3,
   },
@@ -144,7 +141,6 @@ export const AGENTS: Agent[] = [
     ],
     runs: 30,
     lastRun: { minutesAgo: 1440, outcome: 'succeeded' },
-    openRequests: 0,
     decisions: { approved: 12, rejected: 2, expired: 0 },
     ferocity: 0,
   },
@@ -164,13 +160,33 @@ export const AGENTS: Agent[] = [
     ],
     runs: 141,
     lastRun: { minutesAgo: 2, outcome: 'running' },
-    openRequests: 1,
     decisions: { approved: 31, rejected: 4, expired: 2 },
     ferocity: 2,
   },
+  {
+    // Built-in: the Conductor (cheap rerouting) + Fleet Engineer (builds tools),
+    // shown as one agent. See docs/requests.md.
+    id: 'fleet',
+    name: 'Fleet Engineer',
+    department: 'agency',
+    owner: 'Built-in',
+    builtIn: true,
+    output: [
+      { label: 'Requests rerouted', value: 41 },
+      { label: 'Tools built', value: 9 },
+      { label: 'Requests answered', value: 23 },
+    ],
+    cost: [
+      { label: 'Model usage', value: 14.6 },
+      { label: 'Sandbox time', value: 2.1 },
+    ],
+    runs: 120,
+    lastRun: { minutesAgo: 9, outcome: 'succeeded' },
+    decisions: { approved: 7, rejected: 2, expired: 1 },
+    ferocity: 1,
+  },
 ];
 
-export const totalOpenRequests = AGENTS.reduce((n, a) => n + a.openRequests, 0);
 
 export type TimeRange = 'today' | 'week' | 'month' | 'year' | 'all';
 
@@ -278,7 +294,85 @@ export const APPROVALS: Approval[] = [
 ];
 
 // Agents each person owns (owner names live on the agents).
-export const isMine = (agentId: string) => AGENTS.find(a => a.id === agentId)?.owner === ACCOUNT.name;
+export const isMine = (agentId: string) => {
+  const a = AGENTS.find(x => x.id === agentId);
+  return !!a && !a.builtIn && a.owner === ACCOUNT.name;
+};
 
 // Your approve/reject decisions earlier today, before this session (placeholder).
 export const DECIDED_EARLIER_TODAY = { approved: 6, rejected: 2 };
+
+// One step in how a request got here (Conductor / Fleet Engineer attempts).
+export type RequestStep = { by: 'Conductor' | 'Fleet Engineer'; text: string };
+
+// A resource request that the agency couldn't settle itself (docs/requests.md).
+export type ResourceRequest = {
+  id: string;
+  agentId: string;
+  summary: string; // one sentence: what the agent needs
+  detail: string; // the agent's fuller explanation
+  trail: RequestStep[]; // what was tried before it reached a person
+  minutesAgo: number;
+  // PLACEHOLDER: what the Fleet Engineer says if you task it with this
+  // request, until the real engineer exists. ok = it managed it.
+  engineerReply: { ok: boolean; text: string };
+};
+
+// Placeholder requests for the UI only.
+export const REQUESTS: ResourceRequest[] = [
+  {
+    id: 'rq-1',
+    agentId: 'leads',
+    summary: 'Needs access to the company LinkedIn Sales Navigator account',
+    detail:
+      "I'm finding decision-makers through public search, which caps at about 30 useful profiles a day and hides seniority filters. With a Sales Navigator seat I could filter by role, company size and region and roughly triple qualified leads. I don't need to post or message from it - read-only search is enough.",
+    trail: [
+      { by: 'Conductor', text: 'No other agent has Sales Navigator access.' },
+      { by: 'Fleet Engineer', text: "Can't build this as a tool - it needs a paid seat and someone to sign in." },
+    ],
+    minutesAgo: 190,
+    engineerReply: {
+      ok: false,
+      text: "Still blocked: LinkedIn doesn't allow automated sign-in to Sales Navigator. Someone needs to buy a seat and connect it once from the browser.",
+    },
+  },
+  {
+    id: 'rq-2',
+    agentId: 'research',
+    summary: 'Wants a Statista subscription to cite market-size figures',
+    detail:
+      "Three of this week's briefs need current market-size numbers. The free sources I can reach are 2-3 years old or paywalled. A Statista (or similar) subscription would let me cite current figures with a proper source.",
+    trail: [
+      { by: 'Conductor', text: 'No agent has a paid data source.' },
+      { by: 'Fleet Engineer', text: 'Not a tool problem - needs a paid subscription.' },
+    ],
+    minutesAgo: 140,
+    engineerReply: { ok: false, text: 'Still needs someone to buy the subscription - there is no free API that covers this.' },
+  },
+  {
+    id: 'rq-3',
+    agentId: 'writer',
+    summary: "Can't find the current brand guidelines",
+    detail:
+      'Two different "brand guidelines" PDFs are in the shared drive (2024 and 2025) and they disagree on the primary colour and tone of voice. I need to know which one is current before drafting the newsletter.',
+    trail: [
+      { by: 'Conductor', text: 'Rerouted to Research Assistant - it found both files but not which is current.' },
+      { by: 'Conductor', text: 'Rerouted 3 times without an answer - stopped to save runs.' },
+    ],
+    minutesAgo: 95,
+    engineerReply: { ok: false, text: "Not something I can build - this is a judgement call about which document is current." },
+  },
+  {
+    id: 'rq-4',
+    agentId: 'inbox',
+    summary: 'Needs permission to read the shared accounts@ inbox',
+    detail:
+      'Supplier invoices are going to accounts@ rather than your inbox, so I miss them when triaging. Read-only delegated access to that mailbox would let me file and flag invoices the same way I do for yours.',
+    trail: [
+      { by: 'Conductor', text: 'No agent can read accounts@.' },
+      { by: 'Fleet Engineer', text: 'Proposed a read-only mailbox tool - the approval expired.' },
+    ],
+    minutesAgo: 30,
+    engineerReply: { ok: true, text: 'Built a read-only accounts@ mailbox tool and gave it to Inbox Triage.' },
+  },
+];
