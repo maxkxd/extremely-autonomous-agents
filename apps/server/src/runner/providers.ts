@@ -303,8 +303,13 @@ async function chatTurn(req: TurnRequest): Promise<TurnResult> {
         ...(m.calls.length
           ? { tool_calls: m.calls.map(c => ({ id: ids(c.id), type: 'function' as const, function: { name: c.name, arguments: JSON.stringify(c.args) } })) }
           : {}),
-        // DeepSeek requires its reasoning back on every later request when tools are used.
-        ...(own?.reasoning_content ? { reasoning_content: own.reasoning_content } : {}),
+        // DeepSeek requires its reasoning back on every later request when tools
+        // are used - and an empty one for turns another model made (tested).
+        ...(own?.reasoning_content
+          ? { reasoning_content: own.reasoning_content }
+          : req.connection === 'deepseek' && m.calls.length
+            ? { reasoning_content: '' }
+            : {}),
         ...(own?.reasoning_details ? { reasoning_details: own.reasoning_details } : {}),
       });
     }
@@ -362,7 +367,12 @@ async function geminiTurn(req: TurnRequest): Promise<TurnResult> {
       else
         contents.push({
           role: 'model',
-          parts: [...(m.text ? [{ text: m.text }] : []), ...m.calls.map(c => ({ functionCall: { name: c.name, args: c.args } }))],
+          parts: [
+            ...(m.text ? [{ text: m.text }] : []),
+            // Gemini requires a thought signature on every earlier call; for calls
+            // another model made, Google's documented placeholder skips the check.
+            ...m.calls.map(c => ({ functionCall: { name: c.name, args: c.args }, thoughtSignature: 'skip_thought_signature_validator' })),
+          ],
         });
     }
   }
