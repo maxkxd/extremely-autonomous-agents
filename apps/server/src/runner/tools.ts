@@ -357,6 +357,14 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
   const hit = limitHit(ctx.agent, id, ctx.now());
   if (hit) return record({ content: hit, error: true, outcome: 'refused', counted: 0 });
 
+  // A required input left out or empty is refused here, before anything runs
+  // or is queued: a person shouldn't be asked to approve a call that can't work.
+  const missing = ((impl.schema as { required?: string[] }).required ?? []).filter(k => {
+    const v = call.args[k];
+    return v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (typeof v === 'number' && !Number.isFinite(v));
+  });
+  if (missing.length) return record({ content: `Missing ${missing.join(', ')}: give ${missing.length === 1 ? 'it' : 'them'} and call again.`, error: true, outcome: 'refused', counted: 0 });
+
   const n = counts ? actsIn(call.args) : 0;
   if (tier === 'T2') {
     const approvalId = `apv_${ctx.now().toString(36)}${(approvalSeq++).toString(36)}`;

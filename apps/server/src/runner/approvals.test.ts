@@ -29,7 +29,7 @@ registerTools([
     id: 'mail.send',
     tier: 'T2',
     description: 'send',
-    schema: {},
+    schema: { type: 'object', properties: { to: { type: 'string' }, body: { type: 'string' } }, required: ['to', 'body'] },
     impl: async args => {
       if (fail) throw new Error('mailbox full');
       sent.push(args);
@@ -92,4 +92,13 @@ test('a failing approved call is reported, not lost', async () => {
   const r = await decideApproval(id, 'approved', null, wake, Date.now(), async () => agent);
   assert.equal(r.ok, false);
   assert.match(woken[0].task, /failed: mailbox full/);
+});
+
+test("a call missing a required input is refused, never queued for a person", async () => {
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES ('r2', ?, 'scheduled', 0, 'running', ?)", agent.id, Date.now());
+  const ctx = { agent, runId: 'r2', level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} };
+  const out = await execute(ctx, { id: 'c2', name: 'mail__send', args: { to: '', body: 'hi' } }, new Map([['mail__send', 'mail.send']]));
+  assert.equal(out.outcome, 'refused');
+  assert.match(out.content, /Missing to/);
+  assert.equal((await pendingApprovals()).length, 0);
 });
