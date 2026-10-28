@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, Hammer, Hand, Loader2, User, X } from 'lucide-react';
+import { Check, ChevronRight, Hammer, Hand, Loader2, SendHorizontal, User, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { visibleApprovals, type ApprovalScope } from './Approvals';
@@ -12,8 +12,9 @@ export type RequestResolution = 'diy' | 'rejected' | 'engineered';
 // finds and opens the IDE, and this system's MCP inside it (docs/requests.md).
 const IDES = ['Claude Code', 'Cursor', 'Antigravity', 'Codex'];
 
-// PLACEHOLDER: how long the simulated Fleet Engineer takes to answer.
-const ENGINEER_MS = 2600;
+// PLACEHOLDER timings for the simulated Fleet Engineer.
+const ENGINEER_MS = 2200; // thinking before each reply
+const READ_MS = 1800; // time to read its final reply before the request leaves
 const EXIT_MS = 620;
 const COLLAPSE_MS = 240;
 
@@ -25,14 +26,28 @@ function timeAgo(minutes: number): string {
   return `${Math.round(minutes / 1440)}d ago`;
 }
 
-type Engineer = 'idle' | 'working' | 'replied';
-type Drawer = 'engineer' | 'diy' | 'reject';
+type Message = { from: 'you' | 'engineer'; text: string };
+type Drawer = 'diy' | 'reject';
 
 const PLACEHOLDER: Record<Drawer, string> = {
-  engineer: "Anything that helps the Fleet Engineer, e.g. what you've set up or what to build (optional)",
   diy: 'What you did and how it fixed it, the agent will see this (optional)',
   reject: 'Reason for rejecting, the agent will see this (optional)',
 };
+
+// PLACEHOLDER: the simulated Fleet Engineer's next reply, until the real one
+// exists. It follows the real rule: never just "why it can't" - its first
+// reply is always what you need to do, and once you say it's done it finishes.
+const SAYS_DONE = /\b(done|did it|finished|sorted|set (it )?up|added|bought|got (it|the)|created|uploaded|it'?s (the )?20\d\d)\b/i;
+function engineerReply(request: ResourceRequest, thread: Message[], latest: string) {
+  const { engineer } = request;
+  if (engineer.canDoNow) return { text: engineer.done, finished: true };
+  if (!thread.some(m => m.from === 'engineer')) return { text: engineer.plan, finished: false };
+  if (SAYS_DONE.test(latest)) return { text: engineer.done, finished: true };
+  return {
+    text: "Got it. Work through the steps above, then reply here (just \"done\" is fine) and I'll finish it off.",
+    finished: false,
+  };
+}
 
 function RequestRow({
   request,
@@ -49,12 +64,16 @@ function RequestRow({
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   const [open, setOpen] = useState(false);
   const [drawer, setDrawer] = useState<Drawer | null>(null);
-  // Notes you sent the Fleet Engineer - shown in the trail as your steps.
-  const [handoffs, setHandoffs] = useState<string[]>([]);
   const [note, setNote] = useState('');
-  const [engineer, setEngineer] = useState<Engineer>('idle');
+  // The conversation with the Fleet Engineer about this request.
+  const [chatOpen, setChatOpen] = useState(false);
+  const [thread, setThread] = useState<Message[]>([]);
+  const [draft, setDraft] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const [finished, setFinished] = useState(false); // engineer has done it; request about to leave
   const [leaving, setLeaving] = useState<RequestResolution | null>(null);
   const [collapsing, setCollapsing] = useState(false);
+  const composer = useRef<HTMLTextAreaElement>(null);
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   const later = (ms: number, fn: () => void) => timers.current.push(window.setTimeout(fn, ms));
@@ -68,29 +87,41 @@ function RequestRow({
     later(EXIT_MS + COLLAPSE_MS, onGone);
   };
 
-  // Task the Fleet Engineer, optionally with a note ("I've bought the seat and
-  // have the API key - build the tool").
-  // PLACEHOLDER: simulated engineer. It succeeds if it could already, or if you
-  // gave it something to go on; otherwise it adds an addendum and stays.
-  const taskEngineer = (withNote: string) => {
+  // Send a message to the Fleet Engineer (an empty one just tasks it).
+  const send = (text: string) => {
+    if (thinking || leaving) return;
+    const mine = text.trim();
+    const sent: Message[] = mine ? [...thread, { from: 'you', text: mine }] : thread;
+    setThread(sent);
+    setDraft('');
+    setChatOpen(true);
     setDrawer(null);
-    if (withNote.trim()) setHandoffs(h => [...h, withNote.trim()]);
-    setNote('');
-    setEngineer('working');
+    setThinking(true);
     later(ENGINEER_MS, () => {
-      if (request.engineerReply.ok || withNote.trim()) resolve('engineered');
-      else setEngineer('replied');
+      const reply = engineerReply(request, thread, mine);
+      setThread(t => [...t, { from: 'engineer', text: reply.text }]);
+      setThinking(false);
+      if (reply.finished) {
+        setFinished(true);
+        later(READ_MS, () => resolve('engineered'));
+      }
     });
   };
 
-  // Each action opens its note box; shift-click skips the note and goes.
+  const taskEngineer = (e: React.MouseEvent) => {
+    if (e.shiftKey && thread.length === 0) return send(''); // shift-click: task without a note
+    setChatOpen(true);
+    setDrawer(null);
+    setTimeout(() => composer.current?.focus(), 30);
+  };
+
   const openDrawer = (kind: Drawer, e: React.MouseEvent) => {
-    if (e.shiftKey) {
-      if (kind === 'engineer') return taskEngineer('');
-      return resolve(kind === 'diy' ? 'diy' : 'rejected');
-    }
+    if (e.shiftKey) return resolve(kind === 'diy' ? 'diy' : 'rejected'); // shift-click: no note
     setDrawer(d => (d === kind ? null : kind));
   };
+
+  const last = thread[thread.length - 1];
+  const waitingOnYou = !thinking && !leaving && !finished && last?.from === 'engineer';
 
   return (
     <div className={`request-wrap${collapsing ? ' collapsing' : ''}`}>
@@ -100,13 +131,13 @@ function RequestRow({
           <DeptIcon size={15} strokeWidth={1.75} className="request-dept" />
           <span className="request-agent">{agent.name}</span>
           <span className="request-summary">{request.summary}</span>
-          {engineer === 'working' && (
+          {thinking && (
             <span className="request-status working">
               <Loader2 size={12} className="spin" />
               Fleet Engineer
             </span>
           )}
-          {engineer === 'replied' && <span className="request-status">Engineer replied</span>}
+          {waitingOnYou && <span className="request-status waiting">Waiting on you</span>}
           {showOwner && (
             <span className="request-owner" title="Owner">
               <User size={12} strokeWidth={1.75} />
@@ -129,34 +160,86 @@ function RequestRow({
                     <span className="trail-text">{step.text}</span>
                   </li>
                 ))}
-                {handoffs.map((text, i) => (
-                  <li key={`you-${i}`} className="you">
-                    <span className="trail-by">You</span>
-                    <span className="trail-text">{text}</span>
-                  </li>
-                ))}
               </ol>
 
-              {engineer === 'replied' && (
-                <div className="request-addendum">
-                  <span className="addendum-by">
-                    <Hammer size={13} strokeWidth={1.75} />
-                    Fleet Engineer · addendum
-                  </span>
-                  {request.engineerReply.text}
+              {/* Conversation with the Fleet Engineer. */}
+              {chatOpen && (
+                <div className="eng-chat">
+                  {thread.map((m, i) => (
+                    <div key={i} className={`eng-msg ${m.from}`}>
+                      {m.from === 'engineer' && (
+                        <span className="eng-by">
+                          <Hammer size={12} strokeWidth={1.9} />
+                          Fleet Engineer
+                        </span>
+                      )}
+                      <div className="eng-text">{m.text}</div>
+                    </div>
+                  ))}
+                  {thinking && (
+                    <div className="eng-msg engineer">
+                      <span className="eng-by">
+                        <Hammer size={12} strokeWidth={1.9} />
+                        Fleet Engineer
+                      </span>
+                      <div className="eng-text typing">
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                    </div>
+                  )}
+                  {!leaving && !finished && (
+                    <div className="eng-composer">
+                      <textarea
+                        ref={composer}
+                        className="reject-reason"
+                        rows={2}
+                        placeholder={
+                          thread.length === 0
+                            ? 'Tell the Fleet Engineer what you can do or what to build, e.g. "I\'ll get a Sales Navigator seat - what do you need?" (optional)'
+                            : 'Reply to the Fleet Engineer'
+                        }
+                        value={draft}
+                        onChange={e => setDraft(e.target.value)}
+                        onKeyDown={e => {
+                          // Enter sends, Shift+Enter is a new line.
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            if (draft.trim() || thread.length === 0) send(draft);
+                          }
+                        }}
+                        disabled={thinking}
+                      />
+                      <div className="reject-actions">
+                        {/* Keys go in the (future) settings, never in a chat message. */}
+                        <span className="drawer-hint">Don't paste API keys or passwords here - you'll add those in settings.</span>
+                        <button
+                          className="ap-btn confirm-engineer"
+                          onClick={() => send(draft)}
+                          disabled={thinking || (thread.length > 0 && !draft.trim())}
+                        >
+                          <SendHorizontal size={14} strokeWidth={1.9} />
+                          {thread.length === 0 ? 'Send to Fleet Engineer' : 'Send'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               <div className="request-actions">
-                <button
-                  className={`rq-btn engineer${drawer === 'engineer' ? ' on' : ''}`}
-                  onClick={e => openDrawer('engineer', e)}
-                  disabled={engineer === 'working' || !!leaving}
-                  title="Shift-click to send without a note"
-                >
-                  {engineer === 'working' ? <Loader2 size={14} className="spin" /> : <Hammer size={14} strokeWidth={1.9} />}
-                  {engineer === 'working' ? 'Fleet Engineer is on it' : engineer === 'replied' ? 'Task again' : 'Task Fleet Engineer'}
-                </button>
+                {!chatOpen && (
+                  <button
+                    className="rq-btn engineer"
+                    onClick={taskEngineer}
+                    disabled={!!leaving}
+                    title="Shift-click to task it without a note"
+                  >
+                    <Hammer size={14} strokeWidth={1.9} />
+                    Task Fleet Engineer
+                  </button>
+                )}
 
                 <div className="ide-group" title="Coming soon - needs the IDE connector">
                   <span className="ide-label">Send to your AI IDE</span>
@@ -201,33 +284,22 @@ function RequestRow({
                       rows={2}
                     />
                     <div className="reject-actions">
-                      {drawer === 'engineer' && (
-                        // Keys go in the (future) config menu, never in a free-text note.
-                        <span className="drawer-hint">Don't paste API keys or passwords here - you'll add those in settings.</span>
-                      )}
                       <button className="ap-btn ghost" onClick={() => setDrawer(null)}>
                         Cancel
                       </button>
-                      {drawer === 'engineer' ? (
-                        <button className="ap-btn confirm-engineer" onClick={() => taskEngineer(note)}>
-                          <Hammer size={14} strokeWidth={1.9} />
-                          Send to Fleet Engineer
-                        </button>
-                      ) : (
-                        <button
-                          className={`ap-btn ${drawer === 'reject' ? 'confirm-reject' : 'confirm-diy'}`}
-                          onClick={() => resolve(drawer === 'reject' ? 'rejected' : 'diy')}
-                        >
-                          {drawer === 'reject' ? (
-                            <>Reject{note.trim() ? ' with reason' : ''}</>
-                          ) : (
-                            <>
-                              <Check size={14} strokeWidth={2.25} />
-                              Mark done
-                            </>
-                          )}
-                        </button>
-                      )}
+                      <button
+                        className={`ap-btn ${drawer === 'reject' ? 'confirm-reject' : 'confirm-diy'}`}
+                        onClick={() => resolve(drawer === 'reject' ? 'rejected' : 'diy')}
+                      >
+                        {drawer === 'reject' ? (
+                          <>Reject{note.trim() ? ' with reason' : ''}</>
+                        ) : (
+                          <>
+                            <Check size={14} strokeWidth={2.25} />
+                            Mark done
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>

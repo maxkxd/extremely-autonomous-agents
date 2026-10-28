@@ -78,8 +78,16 @@ Engineer**.
   the detail and the routing trail (what the Conductor / Fleet Engineer tried
   and why it ended up with you).
 - Actions on an expanded request:
-  - **Task Fleet Engineer** - hand it back with a human's push. If it still
-    can't be done, the engineer adds an addendum to the request saying why.
+  - **Task Fleet Engineer** - opens a conversation with the engineer inside
+    the request. You can say what you're able to do ("I'll get a Sales
+    Navigator seat - what do you need?"), it answers, you go do it, then reply
+    "done" and it finishes the job with all that context.
+
+    **Rule: the Fleet Engineer always tells you what to do.** It never just
+    explains why it can't do something. If it can't finish on its own, its
+    reply is the steps that would unblock it (buy this, create that key, tell
+    me which file is current) and what it will do once they're done. Secrets
+    (API keys, passwords) never go in the conversation - they go in settings.
   - **Send to your AI IDE** (Claude Code, Cursor, Antigravity, Codex...) -
     *not built yet*. Finds the IDE you use, opens it and places a prompt in it.
     Needs a proper connector, and the IDE needs this system's MCP so it can read

@@ -358,9 +358,14 @@ export type ResourceRequest = {
   detail: string; // the agent's fuller explanation
   trail: RequestStep[]; // what was tried before it reached a person
   minutesAgo: number;
-  // PLACEHOLDER: what the Fleet Engineer says if you task it with this
-  // request, until the real engineer exists. ok = it managed it.
-  engineerReply: { ok: boolean; text: string };
+  // PLACEHOLDER: the simulated Fleet Engineer's side of the conversation,
+  // until the real engineer exists. Rule: it never just says why it can't -
+  // `plan` always tells you what to do so it can finish the job.
+  engineer: {
+    canDoNow?: boolean; // it can solve this straight away once tasked
+    plan: string; // first reply: what it needs from you, as steps
+    done: string; // what it did once you've done your part
+  };
 };
 
 // Placeholder requests for the UI only.
@@ -376,9 +381,10 @@ export const REQUESTS: ResourceRequest[] = [
       { by: 'Fleet Engineer', text: "Can't build this as a tool - it needs a paid seat and someone to sign in." },
     ],
     minutesAgo: 190,
-    engineerReply: {
-      ok: false,
-      text: "Still blocked: LinkedIn doesn't allow automated sign-in to Sales Navigator. Someone needs to buy a seat and connect it once from the browser.",
+    engineer: {
+      plan:
+        "I can build a read-only Sales Navigator search tool for Lead Finder. Here's what I need from you:\n1. Buy a Sales Navigator seat (Core is enough - read-only search).\n2. In Sales Navigator, go to Settings > Integrations and create an API key.\n3. Reply here when that's done. I'll build the tool, and you'll paste the key into Settings > Connections (not here).",
+      done: 'Built a read-only Sales Navigator search tool and gave it to Lead Finder. It goes live once the API key is added in Settings > Connections.',
     },
   },
   {
@@ -392,7 +398,11 @@ export const REQUESTS: ResourceRequest[] = [
       { by: 'Fleet Engineer', text: 'Not a tool problem - needs a paid subscription.' },
     ],
     minutesAgo: 140,
-    engineerReply: { ok: false, text: 'Still needs someone to buy the subscription - there is no free API that covers this.' },
+    engineer: {
+      plan:
+        "I can wire up a market-data source once there's access. Here's what to do:\n1. Buy a Statista subscription (the Professional tier includes API access) - or tell me which data source you'd rather use.\n2. Create an API key in its account settings.\n3. Reply here when that's done and I'll build a lookup tool for Research Assistant.",
+      done: 'Built a market-data lookup tool for Research Assistant. It will cite the source and date with every figure.',
+    },
   },
   {
     id: 'rq-3',
@@ -405,7 +415,11 @@ export const REQUESTS: ResourceRequest[] = [
       { by: 'Conductor', text: 'Rerouted 3 times without an answer - stopped to save runs.' },
     ],
     minutesAgo: 95,
-    engineerReply: { ok: false, text: "Not something I can build - this is a judgement call about which document is current." },
+    engineer: {
+      plan:
+        "Only a person can decide which brand guide is current, so here's how to settle it:\n1. Tell me which one is current - 2024 or 2025 - or upload the right one to Shared Drive > Brand.\n2. I'll archive the other one so nothing picks it up again, and point Content Writer at the right file.",
+      done: 'Archived the old guide, kept the current one in Shared Drive > Brand and told Content Writer to use it from now on.',
+    },
   },
   {
     id: 'rq-4',
@@ -418,6 +432,10 @@ export const REQUESTS: ResourceRequest[] = [
       { by: 'Fleet Engineer', text: 'Proposed a read-only mailbox tool - the approval expired.' },
     ],
     minutesAgo: 30,
-    engineerReply: { ok: true, text: 'Built a read-only accounts@ mailbox tool and gave it to Inbox Triage.' },
+    engineer: {
+      canDoNow: true,
+      plan: '',
+      done: 'Built a read-only accounts@ mailbox tool and gave it to Inbox Triage. It can now file and flag supplier invoices from that inbox.',
+    },
   },
 ];
