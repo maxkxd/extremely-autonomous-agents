@@ -9,7 +9,7 @@ import { AGENT_PACKS } from './packs';
 export type Turn = { role: 'person' | 'builder'; text: string };
 
 // Hidden files, as the server composed them.
-export type AgentFiles = { id: string; name: string; department: Department; charter: string; tools: string; kpi: string };
+export type AgentFiles = { id: string; name: string; department: Department; charter: string; tools: string; kpi: string; models?: ModelChoice[] };
 // setup: a pack agent, customized for the organisation in the background once added.
 export type Built = { agent: Agent; files: AgentFiles; setup?: { packId: string; index: number } };
 
@@ -191,3 +191,16 @@ export const startCopilot = () => post<{ userCode: string; verificationUri: stri
 export const connectClaudeCode = () => post<{ ok: true }>('/api/connections/claude-code/check', {});
 export const installClaudeCode = () => post<{ ok: true }>('/api/connections/claude-code/install', {});
 export const signInClaudeCode = () => post<{ ok: true }>('/api/connections/claude-code/login', {});
+
+// --- Which models each agent runs on (docs/model-connections.md) ---
+
+export const EFFORTS = ['low', 'medium', 'high', 'max'] as const;
+export type Effort = (typeof EFFORTS)[number];
+// Up to three, in order: the first is used, the others take over if it fails.
+export type ModelChoice = { connection: string; model: string; effort: Effort };
+export type AvailableModels = { connection: string; name: string; kind: 'plan' | 'key' | 'local'; models: string[] };
+
+export const getAvailableModels = () => request<AvailableModels[]>('/api/models');
+export const getAgentModels = () => request<Record<string, ModelChoice[]>>('/api/agents/models');
+export const setAgentModels = (id: string, choices: ModelChoice[]) =>
+  post<{ choices: ModelChoice[] }>('/api/agents/models', { id, choices });

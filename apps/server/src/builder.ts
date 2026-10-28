@@ -4,6 +4,7 @@ import * as z from 'zod/v4';
 import { BASELINE, catalogForPrompt } from './catalog.js';
 import { anthropicKey } from './models/connections.js';
 import { fleetForPrompt, type Fleet } from './fleet.js';
+import type { Available } from './models/connections.js';
 import { personForPrompt, profileForPrompt, type PersonProfile, type Profile } from './org.js';
 
 // The agent builder (docs/agent-creation.md): one conversation that turns a
@@ -21,7 +22,7 @@ export type Pack = { id: string; name: string; tagline: string; agents: { name: 
 export type Turn = { role: 'person' | 'builder'; text: string };
 // Who you're talking to, the organisation (if they have one), and what the
 // fleet already has.
-export type Context = { person: PersonProfile; profile: Profile | null; fleet: Fleet };
+export type Context = { person: PersonProfile; profile: Profile | null; fleet: Fleet; models: Available[] };
 
 export class BuilderError extends Error {}
 
@@ -59,7 +60,20 @@ function contextBlock(ctx: Context): string {
   const org = ctx.profile
     ? `The organisation these agents work for:\n${profileForPrompt(ctx.profile, ctx.person.name)}`
     : "They aren't set up as an organisation: the agents work for them personally. Keep organisation-specific details general rather than inventing them - they get filled in over time.";
-  return `${me}\n\n${org}\n\n${fleetForPrompt(ctx.fleet)}`;
+  return `${me}\n\n${org}\n\n${fleetForPrompt(ctx.fleet)}\n\n${modelsForPrompt(ctx.models)}`;
+}
+
+// The models this person has connected, for choosing each agent's three.
+const MODELS_SHOWN = 60;
+function modelsForPrompt(available: Available[]): string {
+  if (!available.length) return 'Models connected: none yet. Leave an agent\'s models empty; it will be flagged until the person connects one.';
+  return `Models connected (connection id: model ids). "plan" connections are subscriptions the person already pays for; "key" ones bill per use:\n${available
+    .map(a => {
+      const shown = a.models.slice(0, MODELS_SHOWN);
+      const more = a.models.length - shown.length;
+      return `- ${a.connection} [${a.kind}] ${a.name}: ${shown.join(', ')}${more > 0 ? ` (+${more} more)` : ''}`;
+    })
+    .join('\n')}`;
 }
 
 // The general rules, then this organisation and fleet (both change rarely, so
@@ -254,9 +268,17 @@ const BuildSchema = z.object({
     .describe(
       'The full CHARTER.md in Markdown, written for this organisation: # CHARTER - <name>, then ## Mission, ## What this agent does, ## What this agent does not do, ## Autonomy tier (which actions are T0, T1, T2 and why), ## Guardrails, ## When to ask a person (Requests for things only a person can give; Approvals for T2 actions; never rely on anyone reading its channel), ## Standard run (start from its task list), ## Definition of a good run. Specific to this agent, no filler.',
     ),
-  model: z
-    .enum(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'])
-    .describe('The model the agent runs on: opus for open-ended judgement, sonnet for routine multi-step work, haiku for simple high-volume work'),
+  models: z
+    .array(
+      z.object({
+        connection: z.string().describe('A connection id from "Models connected"'),
+        model: z.string().describe('One of that connection\'s model ids, exactly'),
+        effort: z.enum(['low', 'medium', 'high', 'max']),
+      }),
+    )
+    .describe(
+      'Up to three models in order of preference, from "Models connected" only: the first is used, the others take over if it fails. Pick the best fit for the job - strong models for open-ended judgement, fast cheap ones for simple high-volume work - preferring plan connections over pay-per-use keys, and spreading the three across different connections where possible so one outage doesn\'t stop the agent. Effort: low for routine work, medium by default, high for hard judgement. Empty when nothing is connected.',
+    ),
   tools: z
     .array(
       z.object({

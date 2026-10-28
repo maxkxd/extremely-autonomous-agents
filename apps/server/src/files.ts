@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse, stringify } from 'yaml';
 import type { Build } from './builder.js';
+import { cleanChoices, type ModelChoice } from './models/choice.js';
 import { BASELINE, CATALOG_INDEX, toolId, type Tier } from './catalog.js';
 
 // Turns a build into the agent's three files, shaped like the agency
@@ -16,7 +17,7 @@ export const slug = (name: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '') || 'agent';
 
-export type AgentFiles = { id: string; name: string; department: string; charter: string; tools: string; kpi: string };
+export type AgentFiles = { id: string; name: string; department: string; charter: string; tools: string; kpi: string; models: ModelChoice[] };
 
 // Kept beside the files: what the app shows on the card, and set-up state.
 export type Meta = {
@@ -28,7 +29,14 @@ export type Meta = {
 };
 
 // fleetIds: tools other agents in this fleet already hold, which can be reused.
-export function compose(b: Build, id: string, fleetIds: Set<string> = new Set()): AgentFiles {
+// available: the connected models the build's choices must come from.
+export function compose(
+  b: Build,
+  id: string,
+  fleetIds: Set<string> = new Set(),
+  available: { connection: string; models: string[] }[] = [],
+): AgentFiles {
+  const models = cleanChoices(b.models ?? []).filter(m => available.some(a => a.connection === m.connection && a.models.includes(m.model)));
   const newIds = new Set(b.new_tools.map(t => toolId(t.server, t.name)));
   // Only tools that exist: the fleet's, the catalogue's, or ones this build defines.
   const picked = b.tools.filter(t => fleetIds.has(t.id) || CATALOG_INDEX.has(t.id) || newIds.has(t.id));
@@ -43,7 +51,8 @@ export function compose(b: Build, id: string, fleetIds: Set<string> = new Set())
 
   const tools = {
     agent_id: id,
-    model: b.model,
+    // Up to three, in order; the runner falls back down the list (models/health.ts).
+    models,
     servers: [...new Set(Object.keys(tiers).map(t => t.split('.')[0]))],
     tools_allowed: Object.keys(tiers),
     tool_tiers: tiers,
@@ -68,6 +77,7 @@ export function compose(b: Build, id: string, fleetIds: Set<string> = new Set())
     id,
     name: b.name,
     department: b.department,
+    models,
     charter: b.charter.trim() + '\n',
     tools: `# TOOLS - ${b.name} (${id})\n# Written by the agent builder.\n#\n${why}\n${stringify(tools)}`,
     kpi: `# KPI - ${b.name}: successful calls of these actions are its output.\n${stringify(kpi)}`,
