@@ -1398,6 +1398,8 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .sorg-center > * { pointer-events: auto; }
 .sorg-center .sbtn { align-self: center; }
+.sorg-center .sbtn.primary { background: #e6e6e6; border-color: #e6e6e6; color: #141414; }
+.sorg-center .sbtn.primary:hover:not(:disabled) { background: #fff; border-color: #fff; filter: none; }
 .sorg-convert { margin: 0; font-size: 15px; color: var(--muted); }
 .smembers { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
 .smembers li { display: flex; align-items: center; gap: 10px; }
