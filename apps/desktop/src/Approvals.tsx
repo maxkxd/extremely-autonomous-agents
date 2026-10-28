@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Bot, Check, ChevronDown, Clock, Users, User, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, isMine, type Approval } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
@@ -165,6 +165,30 @@ export function ApprovalsToolbar({
 
 // ---- The cards -------------------------------------------------------------
 
+// A long body is clamped to a few lines with a fade and a Show more toggle, so
+// one big approval can't push everything else (and its buttons) off screen.
+function ApprovalBody({ text }: { text: string }) {
+  const ref = useRef<HTMLQuoteElement>(null);
+  const [long, setLong] = useState(false);
+  const [open, setOpen] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el) setLong(el.scrollHeight > el.clientHeight + 2);
+  }, [text]);
+  return (
+    <div className="approval-body-wrap">
+      <blockquote ref={ref} className={`approval-body${open ? '' : ' clamped'}${long && !open ? ' faded' : ''}`}>
+        {text}
+      </blockquote>
+      {long && (
+        <button className="body-toggle" onClick={() => setOpen(o => !o)}>
+          {open ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 const EXIT_MS = 620; // glow/tint, then fly off (matches the CSS keyframes)
 const COLLAPSE_MS = 240; // the gap closing behind it
 
@@ -207,9 +231,12 @@ function ApprovalCard({
         </div>
         <div className="approval-main">
           <header className="approval-head">
-            <span className="approval-agent">{agent.name}</span>
-            <span className="approval-action">{card.action}</span>
-            <span className="approval-time">{timeAgo(approval.minutesAgo)}</span>
+            {/* One sentence that wraps naturally, however long the tool's "wants to" is. */}
+            <p className="approval-line">
+              <span className="approval-agent">{agent.name}</span>{' '}
+              <span className="approval-action">{card.action}</span>{' '}
+              <span className="approval-time">{timeAgo(approval.minutesAgo)}</span>
+            </p>
             {showOwner && (
               <span className="approval-owner" title="Owner">
                 <User size={12} strokeWidth={1.75} />
@@ -218,15 +245,17 @@ function ApprovalCard({
             )}
           </header>
 
-          <dl className="approval-fields">
-            {card.fields.map(f => (
-              <div key={f.label} className="approval-field">
-                <dt>{f.label}</dt>
-                <dd>{f.value}</dd>
-              </div>
-            ))}
-          </dl>
-          {card.body !== null && <blockquote className="approval-body">{card.body}</blockquote>}
+          {card.fields.length > 0 && (
+            <dl className="approval-fields">
+              {card.fields.map(f => (
+                <div key={f.label} className="approval-field">
+                  <dt>{f.label}</dt>
+                  <dd>{f.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {card.body !== null && <ApprovalBody text={card.body} />}
 
           <footer className="approval-foot">
             <div className="approval-buttons">
