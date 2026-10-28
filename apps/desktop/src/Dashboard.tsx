@@ -3,9 +3,10 @@ import { CircleCheckBig, GripVertical, Inbox, Pause, Play, Square, User } from '
 import { ACCOUNT, AGENTS, FEROCITY, rangeLabel, scaleTo, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
 
-// Blue-to-gray ramp so charts stay inside the gray + one-blue palette.
-// Hover tooltips carry slice identity, so the shades don't have to.
-const SLICE_COLORS = ['#3f7bd6', '#7aa3e4', '#b4cbf0', '#6b6b6b', '#a0a0a0'];
+// Slice colours come from --slice-0..4 on the card (styles.css): blue-to-gray
+// normally, red at Apocalyptic, grays when the agent is stopped.
+const SLICES = 5;
+const sliceVar = (i: number) => `var(--slice-${i % SLICES})`;
 
 type RunState = 'active' | 'draining' | 'stopped';
 
@@ -42,7 +43,7 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
                 cx={SIZE / 2}
                 cy={SIZE / 2}
                 r={R}
-                stroke={SLICE_COLORS[i % SLICE_COLORS.length]}
+                stroke={sliceVar(i)}
                 strokeDasharray={`${visible} ${C - visible}`}
                 strokeDashoffset={-offset}
                 className={`donut-seg${hover ? (hover.i === i ? ' hot' : ' dim') : ''}`}
@@ -61,7 +62,7 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
       </svg>
       {hover && (
         <div className="chart-tip" style={{ left: hover.x, top: hover.y }}>
-          <span className="swatch" style={{ background: SLICE_COLORS[hover.i % SLICE_COLORS.length] }} />
+          <span className="swatch" style={{ background: sliceVar(hover.i) }} />
           <span className="tip-label">{slices[hover.i].label}</span>
           <span className="tip-value">
             {format(slices[hover.i].value)} · {Math.round((slices[hover.i].value / total) * 100)}%
@@ -85,9 +86,8 @@ const dollars = (n: number) => `$${n.toFixed(2)}`;
 // Target output and ferocity. Ferocity picks a FEROCITY level (schedule +
 // self-booking); the estimate is this agent's output per run times that level's
 // expected runs, so you can see whether a level would hit the target.
-function Tuning({ agent }: { agent: Agent }) {
+function Tuning({ agent, level, setLevel }: { agent: Agent; level: number; setLevel: (l: number) => void }) {
   const [target, setTarget] = useState(agent.targetOutput);
-  const [level, setLevel] = useState(agent.ferocity);
   const perRun = agent.output.reduce((n, s) => n + s.value, 0) / Math.max(agent.runs, 1);
   const estWeek = Math.round(perRun * FEROCITY[level].runsPerDay * 7);
   const onTarget = estWeek >= target;
@@ -126,7 +126,7 @@ function Tuning({ agent }: { agent: Agent }) {
           <span>Chill</span>
           <span>Apocalyptic</span>
         </div>
-        <div className="ferocity-est" title={FEROCITY[level].cadence}>
+        <div className="ferocity-est" title={`${FEROCITY[level].cadence} (placeholder schedule)`}>
           <span className={`est-value${onTarget ? ' on-target' : ''}`}>~{count(estWeek)} / week</span>
           <span className="muted">{FEROCITY[level].cadence}</span>
         </div>
@@ -155,13 +155,25 @@ function AgentCard({
   onGripDown: (e: React.PointerEvent) => void;
 }) {
   const DeptIcon = DEPARTMENT_ICON[agent.department];
+  // Ferocity lives on the card because each level restyles the whole card
+  // (fero-0..4 in styles.css). 'kick' plays a one-off jolt when a level is set.
+  const [level, setLevel] = useState(agent.ferocity);
+  const [kick, setKick] = useState(false);
+  useEffect(() => {
+    setKick(true);
+    const t = setTimeout(() => setKick(false), 500);
+    return () => clearTimeout(t);
+  }, [level]);
   // Stopping halts an in-flight run; draining lets it finish.
   const outcome = state === 'stopped' && agent.lastRun.outcome === 'running' ? 'stopped' : agent.lastRun.outcome;
   const output = agent.output.map(s => ({ ...s, value: scaleTo(range, s.value) }));
   const cost = agent.cost.map(s => ({ ...s, value: scaleTo(range, s.value, false) }));
 
   return (
-    <article className={`agent-card${dragging ? ' dragging' : ''}`} ref={cardRef}>
+    <article
+      className={`agent-card fero-${level} is-${state}${kick && level >= 3 ? ' kick' : ''}${dragging ? ' dragging' : ''}`}
+      ref={cardRef}
+    >
       <div className="card-main">
         <header className="card-head">
           <div className="card-name">
@@ -241,7 +253,7 @@ function AgentCard({
           </button>
         </div>
 
-        <Tuning agent={agent} />
+        <Tuning agent={agent} level={level} setLevel={setLevel} />
       </aside>
     </article>
   );

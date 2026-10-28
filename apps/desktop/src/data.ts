@@ -194,9 +194,13 @@ export function scaleTo(range: TimeRange, n: number, whole = true): number {
 // it) plus a self-booking rule (whether it chains its own next run when work is
 // left). max_runs_per_day stays a runaway backstop set well above the level's
 // cadence - it is never the thing that sets the pace.
+//
+// PLACEHOLDERS: the level NAMES are final; every cadence, cron, selfBook and
+// runsPerDay value below is a placeholder to make the UI and its estimate work.
+// The real mapping gets decided when this app has its own runner.
 export type FerocityLevel = {
   name: string;
-  cadence: string; // human summary of cron + self-booking
+  cadence: string; // human summary of cron + self-booking (placeholder)
   cron: string;
   selfBook: 'never' | 'when-work-left' | 'always';
   runsPerDay: number; // expected, for the estimate

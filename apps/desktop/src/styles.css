@@ -259,21 +259,19 @@ ul { list-style: none; margin: 0; padding: 0; }
 .ferocity { display: flex; flex-direction: column; gap: 6px; }
 .ferocity-head { display: flex; align-items: baseline; justify-content: space-between; }
 .ferocity-name { font-size: 15px; font-weight: 700; letter-spacing: 0.01em; }
-.ferocity-name.level-3 { color: #7aa3e4; }
-.ferocity-name.level-4 { color: var(--attention); text-transform: uppercase; letter-spacing: 0.08em; }
 
 .ferocity-slider {
   -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; cursor: pointer;
 }
 .ferocity-slider::-webkit-slider-runnable-track {
   height: 6px; border-radius: 3px;
-  background: linear-gradient(to right, var(--attention) var(--fill), var(--surface-hover) var(--fill));
+  background: linear-gradient(to right, var(--fx) var(--fill), var(--surface-hover) var(--fill));
 }
 .ferocity-slider::-webkit-slider-thumb {
   -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px; border-radius: 50%;
   background: #e6e6e6; border: 3px solid var(--bg); box-shadow: 0 0 0 1px var(--border-strong);
 }
-.ferocity-slider.level-4::-webkit-slider-thumb { background: #fff; box-shadow: 0 0 0 1px var(--attention), 0 0 12px rgba(63, 123, 214, 0.8); }
+.ferocity-slider.level-4::-webkit-slider-thumb { background: #fff; box-shadow: 0 0 0 1px var(--fx), 0 0 12px rgba(var(--fx-rgb), 0.8); }
 .ferocity-slider:focus { outline: none; }
 .ferocity-ends { display: flex; justify-content: space-between; font-size: 11px; color: #555; }
 .ferocity-est { display: flex; flex-direction: column; gap: 1px; font-size: 12px; }
@@ -329,3 +327,106 @@ ul { list-style: none; margin: 0; padding: 0; }
   position: relative; z-index: 2;
 }
 .dragging-card, .dragging-card * { cursor: grabbing !important; user-select: none; }
+
+/* ---------------------------------------------------------------------------
+   Ferocity effects. Each level keeps everything below it:
+     fero-0 Chill       - plain
+     fero-1 Steady      - pies glow
+     fero-2 Driven      - pies pulse + sonar ring; level name glows
+     fero-3 Relentless  - the card itself glows and twitches
+     fero-4 Apocalyptic - everything turns red, harder and faster
+   is-stopped overrides all of it: gray slices, no motion.
+   First pass - expect to fine-tune intensities and timings.
+   --------------------------------------------------------------------------- */
+.agent-card {
+  --slice-0: #3f7bd6; --slice-1: #7aa3e4; --slice-2: #b4cbf0; --slice-3: #6b6b6b; --slice-4: #a0a0a0;
+  --fx: var(--attention); --fx-rgb: 63, 123, 214;
+  --pulse: 2.4s; --twitch: 3.4s;
+  transition: box-shadow 0.4s, border-color 0.4s, background 0.4s;
+}
+.agent-card.fero-4 {
+  --slice-0: #e5484d; --slice-1: #f0787b; --slice-2: #f6aaac; --slice-3: #7d3436; --slice-4: #b35558;
+  --fx: #e5484d; --fx-rgb: 229, 72, 77;
+  --pulse: 1.1s; --twitch: 1.7s;
+}
+.agent-card.fero-3 { --pulse: 1.7s; }
+.agent-card.is-stopped {
+  --slice-0: #5c5c5c; --slice-1: #7c7c7c; --slice-2: #9c9c9c; --slice-3: #3f3f3f; --slice-4: #4c4c4c;
+}
+
+/* Steady+: pies glow */
+.agent-card:not(.fero-0) .donut { filter: drop-shadow(0 0 8px rgba(var(--fx-rgb), 0.35)); }
+
+/* Driven+: pies pulse, sonar ring, glowing level name */
+.agent-card.fero-2 .donut, .agent-card.fero-3 .donut, .agent-card.fero-4 .donut {
+  animation: donut-pulse var(--pulse) ease-in-out infinite;
+}
+@keyframes donut-pulse {
+  0%, 100% { filter: drop-shadow(0 0 7px rgba(var(--fx-rgb), 0.3)); }
+  50% { filter: drop-shadow(0 0 18px rgba(var(--fx-rgb), 0.65)); }
+}
+.agent-card.fero-2 .chart::before, .agent-card.fero-3 .chart::before, .agent-card.fero-4 .chart::before {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 176px; height: 176px; margin: -88px 0 0 -88px;
+  border-radius: 50%; border: 2px solid rgba(var(--fx-rgb), 0.55); pointer-events: none;
+  animation: sonar var(--pulse) ease-out infinite;
+}
+@keyframes sonar {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  100% { transform: scale(1.45); opacity: 0; }
+}
+.agent-card.fero-2 .ferocity-name, .agent-card.fero-3 .ferocity-name {
+  color: var(--text); text-shadow: 0 0 10px rgba(var(--fx-rgb), 0.9), 0 0 2px rgba(var(--fx-rgb), 0.6);
+}
+.agent-card.fero-4 .ferocity-name {
+  color: var(--fx); text-transform: uppercase; letter-spacing: 0.08em;
+  text-shadow: 0 0 12px rgba(var(--fx-rgb), 0.9);
+}
+
+/* Relentless+: the card glows and twitches */
+.agent-card.fero-3, .agent-card.fero-4 {
+  border-color: rgba(var(--fx-rgb), 0.4);
+  box-shadow: 0 0 0 1px rgba(var(--fx-rgb), 0.12), 0 0 26px rgba(var(--fx-rgb), 0.16);
+  animation: twitch var(--twitch) linear infinite;
+}
+@keyframes twitch {
+  0%, 90%, 100% { transform: translate(0, 0); }
+  91% { transform: translate(1px, 0); }
+  92% { transform: translate(-1px, 0.5px); }
+  93% { transform: translate(1px, -0.5px); }
+  94% { transform: translate(0, 0); }
+}
+
+/* Apocalyptic: red, hotter glow, a faint ember wash, red accents */
+.agent-card.fero-4 {
+  border-color: rgba(var(--fx-rgb), 0.6);
+  box-shadow: 0 0 0 1px rgba(var(--fx-rgb), 0.25), 0 0 38px rgba(var(--fx-rgb), 0.3), inset 0 0 60px rgba(var(--fx-rgb), 0.07);
+  background: radial-gradient(ellipse at 30% 55%, rgba(var(--fx-rgb), 0.07), transparent 65%), var(--bg);
+}
+.agent-card.fero-4 .head-count.has { color: var(--fx); }
+.agent-card.fero-4 .outcome.running { background: var(--fx); }
+
+/* Setting Relentless or Apocalyptic gives the card a one-off jolt. */
+.agent-card.kick { animation: kick 0.45s ease-out; }
+@keyframes kick {
+  0%, 100% { transform: translate(0, 0); }
+  15% { transform: translate(-3px, 1px); }
+  30% { transform: translate(3px, -1px); }
+  45% { transform: translate(-2px, 0); }
+  60% { transform: translate(2px, 1px); }
+  75% { transform: translate(-1px, 0); }
+}
+
+/* Stopped: gray, still. Draining keeps its effects - it is still finishing work. */
+.agent-card.is-stopped,
+.agent-card.is-stopped .donut,
+.agent-card.is-stopped .chart::before { animation: none !important; }
+.agent-card.is-stopped .donut { filter: none; }
+.agent-card.is-stopped .ferocity-name { text-shadow: none; }
+.agent-card.is-stopped .chart::before { display: none; }
+.agent-card.is-stopped.fero-3, .agent-card.is-stopped.fero-4 {
+  border-color: var(--hairline); box-shadow: none; background: var(--bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-card, .agent-card .donut, .agent-card .chart::before { animation: none !important; }
+}
