@@ -112,18 +112,18 @@ success, decides the tool is broken and complains again. Telling the model
 4. **Idle runs teach nothing.** A run that found nothing to do isn't written
    down as a lesson.
 
-## Drain and Stop (agreed 2026-10-29)
+## Standby and Stop (agreed 2026-10-29)
 
-| | Drain | Stop |
+| | Standby | Stop |
 |---|---|---|
 | The run it's in | finishes | cut short ("stopped", not a failure: no backoff) |
 | Its schedule, Apocalyptic chaining, its own bookings, handoffs | no | no |
 | A person's message, Run now | runs | waits until it's turned back on |
 | Hearing how an approval it queued was decided | runs | waits |
-| Its approvals | as normal | stay, greyed out, undecidable; their expiry keeps counting |
+| Its approvals | as normal | stay, greyed out with a Stopped label, undecidable; their expiry keeps counting |
 | Its card | keeps its colours, stops moving | fades to grey |
 
-Both last until someone resumes the agent; nothing turns one into the
+Standby is `draining` in the runner's store. Both last until someone resumes the agent; nothing turns one into the
 other. The cards and approvals follow the runner, so a change made by
 someone else (or another device) shows within seconds.
 
@@ -172,7 +172,7 @@ Step 1 is built and tested:
   Either way the agent gets a run to hear the outcome.
 - **Every run opens with today's date and time**: models don't know it, and
   research, dating work and "this year" need it.
-- **In the app**: real agents' cards (state, stats, ferocity, Drain/Stop,
+- **In the app**: real agents' cards (state, stats, ferocity, Standby/Stop,
   Run now), DM channels, requests (your DIY/Reject answer reaches the agent),
   daily spending limits in Settings -> Usage.
 - **The builder** writes each agent's ferocity plan and natural limits.

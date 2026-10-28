@@ -287,7 +287,7 @@ export function AgentCard({
     const t = setTimeout(() => setKick(null), 500);
     return () => clearTimeout(t);
   }, [kick, level]);
-  // Stopping halts an in-flight run; draining lets it finish.
+  // Stopping halts an in-flight run; standby lets it finish.
   const last = agent.lastRun;
   const outcome = !last ? 'never' : state === 'stopped' && last.outcome === 'running' ? 'stopped' : last.outcome;
   const output = agent.live ? agent.output : agent.output.map(s => ({ ...s, value: scaleTo(range, s.value) }));
@@ -316,7 +316,7 @@ export function AgentCard({
                 Setting up
               </span>
             ) : (
-              state !== 'active' && <span className="state-pill">{state === 'draining' ? 'Draining' : 'Stopped'}</span>
+              state !== 'active' && <span className="state-pill">{state === 'draining' ? 'Standby' : 'Stopped'}</span>
             )}
             <span className="head-counts">
               <a
@@ -382,7 +382,8 @@ export function AgentCard({
           </div>
         </div>
 
-        {/* Drain = start nothing new, finish what's in flight. Stop = halt now.
+        {/* Standby (the runner's 'draining') = start nothing itself, finish what's in flight,
+            still answer people. Stop = halt now.
             Neutral, not red: Stop is the solid light button, the way a stop control
             reads in a dark UI; Resume takes the attention blue. */}
         <div className="controls">
@@ -393,7 +394,7 @@ export function AgentCard({
             onClick={() => setState(state === 'draining' ? 'active' : 'draining')}
           >
             {state === 'draining' ? <Play size={15} /> : <Pause size={15} />}
-            {state === 'draining' ? 'Resume' : 'Drain'}
+            {state === 'draining' ? 'Resume' : 'Standby'}
           </button>
           <button
             key={state === 'stopped' ? 'stop-resume' : 'stop'}
@@ -491,7 +492,7 @@ export function Dashboard({
   arrivingIds: string[]; // just-created agents: their cards smash in at the top together
   onDeleteAgent: (id: string) => Promise<void>; // removes its files and the agent everywhere
 }) {
-  // Drain/Stop/Resume you just pressed, shown at once. A real agent follows the
+  // Standby/Stop/Resume you just pressed, shown at once. A real agent follows the
   // runner again a few seconds later, so a change made elsewhere (someone else,
   // another device) reaches this screen.
   const [states, setStates] = useState<Record<string, { state: RunState; at: number }>>({});
