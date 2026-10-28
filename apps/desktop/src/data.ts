@@ -200,6 +200,31 @@ function loadCreated(): Agent[] {
 }
 AGENTS.push(...loadCreated().filter(a => !AGENTS.some(x => x.id === a.id)));
 
+// Deleted agents stay deleted, including the placeholder ones.
+const DELETED_KEY = 'eaa.deletedAgents';
+const loadDeleted = (): string[] => {
+  try {
+    return JSON.parse(localStorage.getItem(DELETED_KEY) ?? '[]') as string[];
+  } catch {
+    return [];
+  }
+};
+for (const id of loadDeleted()) {
+  const i = AGENTS.findIndex(a => a.id === id);
+  if (i >= 0) AGENTS.splice(i, 1);
+}
+
+export function removeAgent(id: string) {
+  const i = AGENTS.findIndex(a => a.id === id);
+  if (i >= 0) AGENTS.splice(i, 1);
+  try {
+    localStorage.setItem(CREATED_KEY, JSON.stringify(loadCreated().filter(a => a.id !== id)));
+    localStorage.setItem(DELETED_KEY, JSON.stringify([...new Set([...loadDeleted(), id])]));
+  } catch {
+    // Storage unavailable - it comes back on reload.
+  }
+}
+
 export function addAgent(agent: Agent) {
   AGENTS.push(agent);
   try {

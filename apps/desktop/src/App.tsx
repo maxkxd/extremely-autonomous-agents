@@ -7,12 +7,13 @@ import { useElasticScroll } from './useElasticScroll';
 import { AgentDM, stamp, type StampedEntry } from './AgentDM';
 import { NewAgent } from './NewAgent';
 import { AgentReveal } from './AgentReveal';
-import { NEW_SESSION, saveAgent, type BuilderSession, type Built } from './builder';
+import { NEW_SESSION, deleteAgentFiles, saveAgent, type BuilderSession, type Built } from './builder';
 import { DM_HISTORY } from './dms';
 import { subscribeToDecisions } from './live';
 import {
   AGENTS,
   addAgent,
+  removeAgent,
   APPROVALS,
   DECIDED_EARLIER_TODAY,
   REQUESTS,
@@ -70,7 +71,10 @@ export function App() {
   // build a tool for a request), alongside the placeholder ones.
   const [raised, setRaised] = useState<Approval[]>([]);
   const allApprovals = [...APPROVALS, ...raised];
-  const pending = allApprovals.filter(a => !gone[a.id]);
+  // Bumped when an agent is deleted, so everything re-reads AGENTS.
+  const [, setAgentsVersion] = useState(0);
+  const exists = (id?: string) => !id || AGENTS.some(a => a.id === id);
+  const pending = allApprovals.filter(a => !gone[a.id] && exists(a.agentId) && exists(a.forAgentId));
   // The Fleet Engineer wants to build the tool it designed for a request: that
   // is a human approval, owned by the requesting agent's owner. Returns its id.
   const proposeBuild = (req: ResourceRequest) => {
@@ -136,7 +140,7 @@ export function App() {
   // Requests: same shape as approvals - decided on click, removed after the exit.
   const [, setRequestResolved] = useState<Record<string, RequestResolution>>({});
   const [requestGone, setRequestGone] = useState<Record<string, true>>({});
-  const pendingRequests = REQUESTS.filter(r => !requestGone[r.id]);
+  const pendingRequests = REQUESTS.filter(r => !requestGone[r.id] && exists(r.agentId));
   const [requestScope, setRequestScope] = useState<ApprovalScope>('mine');
   const [requestFilterRaw, setRequestFilter] = useState<string | null>(null);
   const requestFilter =
@@ -185,21 +189,23 @@ export function App() {
   // Creating an agent (docs/agent-creation.md). The conversation lives here so
   // it survives leaving the New agent page.
   const [builder, setBuilder] = useState<BuilderSession>(NEW_SESSION);
-  const [reveal, setReveal] = useState<(Built & { leaving: boolean; error: string | null }) | null>(null);
-  const [arrivingId, setArrivingId] = useState<string | null>(null);
+  // The new agents on the black screen: one you built, or a whole pack.
+  const [reveal, setReveal] = useState<{ built: Built[]; leaving: boolean; error: string | null } | null>(null);
+  const [arrivingIds, setArrivingIds] = useState<string[]>([]);
   const cancelReveal = useCallback(() => setReveal(null), []);
   const acceptReveal = async () => {
     if (!reveal) return;
     try {
-      await saveAgent(reveal.files);
+      await Promise.all(reveal.built.map(b => saveAgent(b.files)));
     } catch (e) {
       setReveal({ ...reveal, error: (e as Error).message });
       return;
     }
-    addAgent(reveal.agent);
-    setBuilder(NEW_SESSION);
+    for (const b of reveal.built) addAgent(b.agent);
+    // Building an agent ends its conversation; adding a pack leaves yours alone.
+    if (reveal.built.length === 1 && builder.phase === 'chat') setBuilder(NEW_SESSION);
     setReveal({ ...reveal, leaving: true, error: null });
-    setArrivingId(reveal.agent.id);
+    setArrivingIds(reveal.built.map(b => b.agent.id));
     setView('dashboard');
     mainBody.current?.scrollTo({ top: 0 });
     window.setTimeout(() => setReveal(null), 450);
@@ -207,11 +213,11 @@ export function App() {
   // The smash plays once: forget the new agent as soon as it has landed, or
   // when you leave the dashboard, so coming back doesn't replay it.
   useEffect(() => {
-    if (!arrivingId) return;
-    if (view !== 'dashboard') return setArrivingId(null);
-    const t = window.setTimeout(() => setArrivingId(null), 1000);
+    if (!arrivingIds.length) return;
+    if (view !== 'dashboard') return setArrivingIds([]);
+    const t = window.setTimeout(() => setArrivingIds([]), 1000);
     return () => window.clearTimeout(t);
-  }, [arrivingId, view]);
+  }, [arrivingIds, view]);
   const [width, setWidth] = useState(() => clamp(readStored(WIDTH_KEY, DEFAULT_WIDTH)));
   const [shut, setShut] = useState(() => readStored(SHUT_KEY, false));
 
@@ -297,7 +303,12 @@ export function App() {
               approvalCounts={approvalCounts}
               requestCounts={requestCounts}
               newDecisions={newDecisions}
-              arrivingId={arrivingId}
+              arrivingIds={arrivingIds}
+              onDeleteAgent={async id => {
+                await deleteAgentFiles(id);
+                removeAgent(id);
+                setAgentsVersion(v => v + 1);
+              }}
             />
           ) : view === 'approvals' ? (
             <Approvals
@@ -324,7 +335,7 @@ export function App() {
             <NewAgent
               session={builder}
               setSession={setBuilder}
-              onBuilt={b => setReveal({ ...b, leaving: false, error: null })}
+              onBuilt={built => setReveal({ built, leaving: false, error: null })}
             />
           ) : view.startsWith('agent:') ? (
             <AgentDM
@@ -341,7 +352,7 @@ export function App() {
       </main>
       {reveal && (
         <AgentReveal
-          agent={reveal.agent}
+          agents={reveal.built.map(b => b.agent)}
           leaving={reveal.leaving}
           error={reveal.error}
           onCancel={cancelReveal}

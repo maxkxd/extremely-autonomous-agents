@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --env-file-if-exists=.env --watch --import tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build-packs": "node --env-file-if-exists=.env --import tsx scripts/build-packs.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",

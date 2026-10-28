@@ -3,7 +3,7 @@ import { ArrowUp, Plus, Sparkles } from 'lucide-react';
 import { AGENT_PACKS, type AgentPack } from './packs';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { BuilderChat } from './BuilderChat';
-import { buildAgent, matchPack, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
+import { addPack, buildAgent, matchPack, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
 
 // "Customize your own agent" always takes the last slot of the top row (the
 // 4th card), or follows the packs straight away if there are fewer than three.
@@ -15,11 +15,26 @@ function PackCard({
   pack,
   recommended,
   cardRef,
+  onAdd,
 }: {
   pack: AgentPack;
+  onAdd: () => Promise<void>;
   recommended: string | null; // the builder's reason, when it recommends this pack
   cardRef: (el: HTMLElement | null) => void;
 }) {
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const add = async () => {
+    setAdding(true);
+    setError(null);
+    try {
+      await onAdd();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAdding(false);
+    }
+  };
   return (
     <article className={`pack${recommended !== null ? ' recommended' : ''}`} ref={cardRef}>
       <div className="pack-body">
@@ -49,11 +64,11 @@ function PackCard({
             );
           })}
         </ul>
-        {/* Not wired yet: adding a pack is the next step. */}
-        <button className="pack-add" disabled title="Coming next">
+        <button className="pack-add" disabled={adding} onClick={add}>
           <Plus size={15} strokeWidth={2} />
           Add {pack.name.toLowerCase()} pack
         </button>
+        {error && <div className="custom-error">{error}</div>}
       </div>
     </article>
   );
@@ -136,7 +151,7 @@ export function NewAgent({
 }: {
   session: BuilderSession;
   setSession: SetSession;
-  onBuilt: (b: Built) => void;
+  onBuilt: (b: Built[]) => void;
 }) {
   const packEls = useRef(new Map<string, HTMLElement>());
   const customEl = useRef<HTMLElement>(null);
@@ -202,7 +217,7 @@ export function NewAgent({
   const build = async () => {
     setSession(s => ({ ...s, phase: 'building', error: null }));
     try {
-      onBuilt(await buildAgent(session.turns));
+      onBuilt([await buildAgent(session.turns)]);
     } catch (e) {
       setSession(s => ({ ...s, error: (e as Error).message }));
     } finally {
@@ -217,6 +232,7 @@ export function NewAgent({
       pack={p}
       recommended={recId === p.id ? (session.recommended?.reason ?? '') : null}
       cardRef={el => (el ? packEls.current.set(p.id, el) : packEls.current.delete(p.id))}
+      onAdd={async () => onBuilt(await addPack(p.id))}
     />
   );
   const cards = [

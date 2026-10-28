@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { CircleCheckBig, GripVertical, Pause, Play, Square, User, Wrench } from 'lucide-react';
+import { CircleCheckBig, Ellipsis, GripVertical, Pause, Play, Square, Trash2, User, Wrench } from 'lucide-react';
+import { DeleteAgentDialog } from './DeleteAgentDialog';
+import { useDismiss } from './useDismiss';
 import { FlashCount } from './FlashCount';
 import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
@@ -204,6 +206,7 @@ export function AgentCard({
   dragging,
   onGripDown,
   preview = false,
+  onDelete,
 }: {
   agent: Agent;
   range: TimeRange;
@@ -216,6 +219,7 @@ export function AgentCard({
   dragging: boolean;
   onGripDown: (e: React.PointerEvent) => void;
   preview?: boolean; // the new-agent reveal: nothing on it is live yet
+  onDelete?: () => void; // absent for built-in agents, which can't be deleted
 }) {
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   // Ferocity lives on the card because each level restyles the whole card
@@ -259,6 +263,7 @@ export function AgentCard({
         <GripVertical size={16} />
       </button>
       )}
+      {onDelete && !preview && <CardMenu onDelete={onDelete} />}
       <div className="card-main">
         <header className="card-head">
           <div className="card-name">
@@ -358,18 +363,51 @@ export function AgentCard({
   );
 }
 
+// The card's three-dot menu, top right.
+function CardMenu({ onDelete }: { onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(ref, open, close);
+  return (
+    <div className={`card-menu${open ? ' open' : ''}`} ref={ref}>
+      <button className="card-menu-btn" onClick={() => setOpen(o => !o)} aria-label="Agent options" aria-expanded={open}>
+        <Ellipsis size={18} />
+      </button>
+      {open && (
+        <div className="card-menu-list" role="menu">
+          <button
+            role="menuitem"
+            className="danger"
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+          >
+            <Trash2 size={14} strokeWidth={2} />
+            Delete agent
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const ORDER_KEY = 'eaa.dashboardOrder';
 
-// Saved order, with any agents not in it (newly added) at the top.
-function loadOrder(): string[] {
+// Saved order, with agents not in it (newly added) at the top - the ones
+// arriving right now first, in the order they were added.
+function loadOrder(arriving: string[]): string[] {
   const ids = AGENTS.map(a => a.id);
+  let saved: string[] = [];
   try {
-    const saved = JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]') as string[];
-    const kept = saved.filter(id => ids.includes(id));
-    return [...ids.filter(id => !kept.includes(id)).reverse(), ...kept];
+    saved = JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]') as string[];
   } catch {
-    return ids;
+    // Storage unavailable - fall back to the default order.
   }
+  const kept = saved.filter(id => ids.includes(id) && !arriving.includes(id));
+  const fresh = ids.filter(id => !kept.includes(id) && !arriving.includes(id)).reverse();
+  return [...arriving.filter(id => ids.includes(id)), ...fresh, ...kept];
 }
 
 export function Dashboard({
@@ -378,18 +416,34 @@ export function Dashboard({
   approvalCounts,
   requestCounts,
   newDecisions,
-  arrivingId,
+  arrivingIds,
+  onDeleteAgent,
 }: {
   range: TimeRange;
   onNavigate: (v: View) => void;
   approvalCounts: Record<string, number>;
   requestCounts: Record<string, number>;
   newDecisions: Record<string, Decisions>; // since the app opened (yours + live), so in every time frame
-  arrivingId?: string | null; // a just-created agent: its card smashes in at the top
+  arrivingIds: string[]; // just-created agents: their cards smash in at the top together
+  onDeleteAgent: (id: string) => Promise<void>; // removes its files and the agent everywhere
 }) {
   const [states, setStates] = useState<Record<string, RunState>>({});
-  const [order, setOrder] = useState(loadOrder);
+  const [order, setOrder] = useState(() => loadOrder(arrivingIds));
   const [dragId, setDragId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Agent | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const deletedCard = useRef<Agent | null>(null);
+  // Deleted: the card fades out, then the ones below slide up into its place.
+  const confirmDelete = async (agent: Agent) => {
+    await onDeleteAgent(agent.id);
+    setDeleting(null);
+    setRemoving(agent.id);
+    window.setTimeout(() => {
+      prevTops.current = new Map([...slots.current].map(([k, s]) => [k, s.getBoundingClientRect().top]));
+      setRemoving(null);
+      setOrder(prev => prev.filter(x => x !== agent.id));
+    }, 240);
+  };
   // Each card sits in a slot; drag-follow and slide animations transform the
   // slot, never the card, so they don't fight the card's own ferocity animations.
   const slots = useRef(new Map<string, HTMLDivElement>());
@@ -405,30 +459,33 @@ export function Dashboard({
     }
   }, [order]);
 
-  // A new agent's card drops in at the top. The cards below start where they
-  // were (shifted up by its height) and get shoved down at the moment of impact.
+  // New agents' cards drop in at the top, all at once. The cards below start
+  // where they were (shifted up by the new cards' height) and get shoved down
+  // at the moment of impact.
+  const arrivingKey = arrivingIds.join(',');
   useLayoutEffect(() => {
-    const el = arrivingId && slots.current.get(arrivingId);
-    if (!el) return;
-    const shift = el.offsetHeight + parseFloat(getComputedStyle(el.parentElement!).rowGap || '0');
-    const others = [...slots.current].filter(([id]) => id !== arrivingId).map(([, s]) => s);
+    const landing = arrivingIds.map(id => slots.current.get(id)).filter((el): el is HTMLDivElement => !!el);
+    if (!landing.length) return;
+    const gap = parseFloat(getComputedStyle(landing[0].parentElement!).rowGap || '0');
+    const shift = landing.reduce((h, el) => h + el.offsetHeight + gap, 0);
+    const others = [...slots.current].filter(([id]) => !arrivingIds.includes(id)).map(([, s]) => s);
     for (const o of others) {
       o.style.transition = 'none';
       o.style.transform = `translateY(${-shift}px)`;
     }
-    el.classList.add('arriving');
+    for (const el of landing) el.classList.add('arriving');
     const impact = setTimeout(() => {
       for (const o of others) {
         o.style.transition = 'transform 560ms cubic-bezier(0.25, 1.45, 0.45, 1)';
         o.style.transform = '';
       }
     }, 330);
-    const done = setTimeout(() => el.classList.remove('arriving'), 900);
+    const done = setTimeout(() => landing.forEach(el => el.classList.remove('arriving')), 900);
     return () => {
       clearTimeout(impact);
       clearTimeout(done);
     };
-  }, [arrivingId]);
+  }, [arrivingKey]);
 
   // Keep the dragged card's top edge exactly where the pointer is holding it.
   const followPointer = () => {
@@ -520,11 +577,13 @@ export function Dashboard({
   return (
     <div className="dashboard">
       {order.map(id => {
-        const a = AGENTS.find(x => x.id === id)!;
+        // Gone from AGENTS already: its slot just plays its exit.
+        const a = AGENTS.find(x => x.id === id) ?? (removing === id ? deletedCard.current : undefined);
+        if (!a) return null;
         return (
           <div
             key={a.id}
-            className={`card-slot${dragId === a.id ? ' lifted' : ''}`}
+            className={`card-slot${dragId === a.id ? ' lifted' : ''}${removing === a.id ? ' removing' : ''}`}
             ref={el => (el ? slots.current.set(a.id, el) : slots.current.delete(a.id))}
           >
             <AgentCard
@@ -542,10 +601,21 @@ export function Dashboard({
               }}
               dragging={dragId === a.id}
               onGripDown={e => startDrag(a.id, e)}
+              onDelete={a.builtIn ? undefined : () => setDeleting(a)}
             />
           </div>
         );
       })}
+      {deleting && (
+        <DeleteAgentDialog
+          agent={deleting}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => {
+            deletedCard.current = deleting;
+            return confirmDelete(deleting);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
+import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { BuilderError, build, interview, matchPack, type Pack, type Turn } from './builder.js';
-import { compose, save, slug, type AgentFiles } from './files.js';
+import { BuilderError, build, interview, matchPack, type Build, type Pack, type Turn } from './builder.js';
+import { compose, remove, save, slug, type AgentFiles } from './files.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
 const PORT = Number(process.env.PORT ?? 5175);
@@ -16,6 +17,18 @@ function send(res: ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data));
 }
 
+// An agent as the app sees it: the card's details, plus the hidden files as an
+// opaque bundle it hands back on accept. The id is unique among takenIds.
+function forApp(b: Build, takenIds: string[]) {
+  let id = slug(b.name);
+  for (let n = 2; takenIds.includes(id); n++) id = `${slug(b.name)}-${n}`;
+  const files = compose(b, id);
+  return { agent: { id, name: b.name, department: b.department, output: b.kpi.map(k => k.label) }, files };
+}
+
+// Pre-built pack agents (scripts/build-packs.ts), reviewed and committed.
+const PACKS = new URL('../packs/', import.meta.url);
+
 const routes: Record<string, (req: IncomingMessage) => Promise<unknown>> = {
   'POST /api/builder/match': async req => {
     const { description, packs } = await body<{ description: string; packs: Pack[] }>(req);
@@ -30,14 +43,27 @@ const routes: Record<string, (req: IncomingMessage) => Promise<unknown>> = {
   // bundle it hands back on accept.
   'POST /api/builder/build': async req => {
     const { turns, takenIds } = await body<{ turns: Turn[]; takenIds: string[] }>(req);
-    const b = await build(turns);
-    let id = slug(b.name);
-    for (let n = 2; takenIds.includes(id); n++) id = `${slug(b.name)}-${n}`;
-    const files = compose(b, id);
+    return forApp(await build(turns), takenIds);
+  },
+  'POST /api/packs/add': async req => {
+    const { packId, takenIds } = await body<{ packId: string; takenIds: string[] }>(req);
+    if (!/^[a-z0-9-]+$/.test(packId)) throw new BuilderError('Unknown pack.');
+    const builds = JSON.parse(await readFile(new URL(`${packId}.json`, PACKS), 'utf8').catch(() => {
+      throw new BuilderError('That pack is not ready yet.');
+    })) as Build[];
+    const taken = [...takenIds];
     return {
-      agent: { id, name: b.name, department: b.department, output: b.kpi.map(k => k.label) },
-      files,
+      agents: builds.map(b => {
+        const a = forApp(b, taken);
+        taken.push(a.agent.id);
+        return a;
+      }),
     };
+  },
+  'POST /api/agents/delete': async req => {
+    const { id } = await body<{ id: string }>(req);
+    await remove(id);
+    return { ok: true };
   },
   'POST /api/agents': async req => {
     const files = await body<AgentFiles>(req);

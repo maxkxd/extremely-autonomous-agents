@@ -59,11 +59,19 @@ export const matchPack = (description: string) =>
 export const nextTurn = (turns: Turn[], declinedPack: string | null) =>
   post<{ reply: string; confidence: number; ready: boolean }>('/api/builder/turn', { turns, declinedPack });
 
+type ServerAgent = { agent: { id: string; name: string; department: Department; output: string[] }; files: AgentFiles };
+
 export async function buildAgent(turns: Turn[]): Promise<Built> {
-  const out = await post<{
-    agent: { id: string; name: string; department: Department; output: string[] };
-    files: AgentFiles;
-  }>('/api/builder/build', { turns, takenIds: AGENTS.map(a => a.id) });
+  return toBuilt(await post<ServerAgent>('/api/builder/build', { turns, takenIds: AGENTS.map(a => a.id) }));
+}
+
+// A pack's agents are pre-built (apps/server/packs), so this is instant.
+export async function addPack(packId: string): Promise<Built[]> {
+  const out = await post<{ agents: ServerAgent[] }>('/api/packs/add', { packId, takenIds: AGENTS.map(a => a.id) });
+  return out.agents.map(toBuilt);
+}
+
+function toBuilt(out: ServerAgent): Built {
   return {
     files: out.files,
     // A brand-new card: no runs, nothing spent, and always starting on Chill.
@@ -83,3 +91,4 @@ export async function buildAgent(turns: Turn[]): Promise<Built> {
 }
 
 export const saveAgent = (files: AgentFiles) => post<{ ok: true }>('/api/agents', files);
+export const deleteAgentFiles = (id: string) => post<{ ok: true }>('/api/agents/delete', { id });

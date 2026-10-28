@@ -1198,6 +1198,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .reveal-cancel:hover { background: #1c1c1c; color: var(--text); }
 .reveal-stage { display: flex; flex-direction: column; align-items: center; gap: 34px; width: min(1100px, 100vw - 64px); }
+.reveal-cards { width: 100%; display: flex; flex-direction: column; gap: 22px; }
 .reveal-card { width: 100%; transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); animation: reveal-float 4s ease-in-out 0.6s infinite; }
 .reveal:not(.in) .reveal-card { transform: scale(0.96); }
 .reveal-card .agent-card { box-shadow: 0 0 0 1px #2a2a2a, 0 40px 90px rgba(0, 0, 0, 0.8), 0 0 60px rgba(63, 123, 214, 0.12); }
@@ -1230,3 +1231,55 @@ ul { list-style: none; margin: 0; padding: 0; }
   .builder, .reveal, .reveal-card, .builder-progress span { transition: none; }
   .card-slot.arriving, .reveal-card, .pack.recommended { animation: none; }
 }
+
+/* --- Card menu and deleting an agent --------------------------------------- */
+.card-menu { position: absolute; top: 10px; right: 10px; z-index: 6; }
+.card-menu-btn {
+  width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #6a6a6a;
+}
+.card-menu-btn:hover, .card-menu.open .card-menu-btn { background: var(--surface-hover); color: var(--text); }
+.card-menu-list {
+  position: absolute; top: 34px; right: 0; min-width: 170px; padding: 5px; border-radius: 10px;
+  background: var(--sidebar); border: 1px solid var(--border-strong); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+}
+.card-menu-list button {
+  width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 7px;
+  font-size: 13.5px; text-align: left;
+}
+.card-menu-list button:hover { background: var(--surface-hover); }
+.card-menu-list .danger { color: #e5797c; }
+/* The agent card clips its content (rounded corners); let the menu spill out. */
+.agent-card:has(.card-menu.open) { overflow: visible; }
+
+.card-slot.removing { opacity: 0; transform: scale(0.97); transition: opacity 0.22s ease, transform 0.22s ease; pointer-events: none; }
+
+.confirm-scrim {
+  position: fixed; inset: 0; z-index: 90; display: grid; place-items: center;
+  background: rgba(0, 0, 0, 0.6); animation: fade-in 0.15s ease;
+}
+@keyframes fade-in { from { opacity: 0; } }
+.confirm {
+  width: min(440px, 100vw - 40px); display: flex; flex-direction: column; gap: 14px; padding: 24px;
+  border-radius: 14px; background: var(--bg); border: 1px solid var(--border-strong);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6); animation: confirm-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes confirm-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
+.confirm h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.confirm p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+.confirm-label { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
+.confirm-label strong { color: var(--text); font-weight: 600; }
+.confirm-label input {
+  height: 40px; padding: 0 12px; border-radius: 9px; font: inherit; font-size: 14px;
+  color: var(--text); background: var(--sidebar); border: 1px solid var(--border);
+}
+.confirm-label input:focus { outline: none; border-color: var(--border-strong); }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.confirm-cancel, .confirm-delete {
+  height: 36px; padding: 0 14px; border-radius: 9px; display: inline-flex; align-items: center; gap: 7px;
+  font-size: 13.5px; font-weight: 600;
+}
+.confirm-cancel { border: 1px solid var(--border-strong); }
+.confirm-cancel:hover:not(:disabled) { background: var(--surface-hover); }
+.confirm-delete { background: #c94a4e; color: #fff; }
+.confirm-delete:hover:not(:disabled) { background: #d85357; }
+.confirm-delete:disabled { background: #3a2a2b; color: #8a6a6b; cursor: default; }

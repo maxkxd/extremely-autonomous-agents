@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stringify } from 'yaml';
@@ -79,4 +79,10 @@ export async function save(files: AgentFiles) {
     writeFile(join(dir, 'KPI.yaml'), files.kpi),
   ]);
   return dir;
+}
+
+// Deleting an agent removes its files for good. Placeholder agents have none.
+export async function remove(id: string) {
+  if (id !== slug(id)) throw new Error('Bad agent id');
+  await rm(join(DATA, id), { recursive: true, force: true });
 }

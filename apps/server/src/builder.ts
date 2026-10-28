@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import * as z from 'zod/v4';
-import { catalogForPrompt } from './catalog.js';
+import { BASELINE, catalogForPrompt } from './catalog.js';
 
 // The agent builder (docs/agent-creation.md): one conversation that turns a
 // person's description into a Charter, TOOLS.yaml and KPI.yaml.
@@ -37,7 +37,9 @@ The tool catalogue (server.tool [default tier] what it does):
 
 ${catalogForPrompt()}
 
-Every agent also gets fleet plumbing automatically: its task list, Requests, memory proposals, booking its own follow-up run, and its own channel. Never ask about those.
+Every agent also gets this fleet plumbing automatically - never define tools that duplicate it, and never ask about it:
+${BASELINE.map(({ server, tool }) => `- ${server}.${tool.name} [${tool.tier}] ${tool.does}`).join('\n')}
+Handing work to another agent is tasks.delegate_task.
 When nothing in the catalogue does a job, you define a new tool yourself and it gets built; the person doesn't have to arrange anything. The same goes for a narrower version of a catalogue tool, which is how some uses of a tool can skip approval while others don't.`;
 
 // Stable across every call, so it's cached.
@@ -59,7 +61,8 @@ async function parse<T extends z.ZodType>(
   try {
     const res = await client.beta.messages.parse({
       model: MODEL,
-      max_tokens: 16000,
+      // Just under where the SDK insists on streaming; a build writes a whole Charter.
+      max_tokens: 21000,
       system: system(task),
       messages,
       output_config: { effort, format: zodOutputFormat(schema) },
