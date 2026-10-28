@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type RefObject } from 'react';
 import { AlertTriangle, ChevronRight, Cpu, Search, X } from 'lucide-react';
-import { EFFORTS, type AvailableModels, type Effort, type ModelChoice } from './builder';
+import { checkModel, EFFORTS, getModelChecks, type AvailableModels, type Effort, type ModelCheck, type ModelChoice } from './builder';
 
 // An agent's models on its dashboard card (docs/model-connections.md): up to
 // three in order - #1 runs, #2 and #3 take over if it fails. The card shows #1
@@ -12,10 +12,15 @@ const EFFORT_LABEL: Record<Effort, string> = { low: 'Low', medium: 'Medium', hig
 
 const isUsable = (c: ModelChoice, available: AvailableModels[]) =>
   available.some(a => a.connection === c.connection && a.models.includes(c.model));
-// Why a choice can't run: its connection is gone, or the connection no longer
-// offers it (or never could run an agent on it).
-const whyNot = (c: ModelChoice, available: AvailableModels[]) =>
-  isUsable(c, available) ? null : available.some(a => a.connection === c.connection) ? 'Unavailable' : 'Not connected';
+// Why a choice can't run: its connection is gone, the connection no longer
+// offers it, or its check found it doesn't work on this account.
+export type Checks = Record<string, ModelCheck>;
+const checkKey = (c: { connection: string; model: string }) => `${c.connection}/${c.model}`;
+const whyNot = (c: ModelChoice, available: AvailableModels[], checks: Checks = {}) => {
+  if (!isUsable(c, available)) return available.some(a => a.connection === c.connection) ? 'Unavailable' : 'Not connected';
+  const check = checks[checkKey(c)];
+  return check && !check.ok && !check.pending ? check.reason ?? 'Not working' : null;
+};
 // The levels a model takes - none for one without an effort setting.
 const effortsOf = (connection: string, model: string, available: AvailableModels[]): Effort[] =>
   available.find(a => a.connection === connection)?.efforts?.[model] ?? [];
@@ -36,15 +41,17 @@ export function ModelRow({
   onOpen,
   open,
   readOnly,
+  checks,
 }: {
   choices: ModelChoice[];
   available: AvailableModels[];
   onOpen: () => void;
   open: boolean;
   readOnly?: boolean;
+  checks?: Checks;
 }) {
   const first = choices[0];
-  const problem = !first ? 'No model' : available.length ? whyNot(first, available) : null;
+  const problem = !first ? 'No model' : available.length ? whyNot(first, available, checks) : null;
   // The level that will actually be used: a choice saved before its model's
   // levels were known shows (and runs at) the nearest one it takes.
   const firstEfforts = first && !problem ? effortsOf(first.connection, first.model, available) : [];
@@ -82,10 +89,14 @@ export function ModelPanel({
   choices,
   available,
   onChange,
+  checks = {},
+  onCheck,
 }: {
   choices: ModelChoice[];
   available: AvailableModels[];
   onChange: (next: ModelChoice[]) => void;
+  checks?: Checks;
+  onCheck?: (connection: string, model: string) => void; // a model was just picked: test it
 }) {
   const [slot, setSlot] = useState(Math.min(choices.length, SLOTS - 1));
   const [query, setQuery] = useState('');
@@ -115,6 +126,7 @@ export function ModelPanel({
     }
     const clean = next.filter(Boolean).slice(0, SLOTS);
     onChange(clean);
+    onCheck?.(connection, model);
     setSlot(Math.min(clean.length, SLOTS - 1));
   };
   const remove = (i: number) => {
@@ -124,7 +136,8 @@ export function ModelPanel({
   };
   // Only the levels the slot's model takes; none greys the row out.
   const current = choices[slot];
-  const slotEfforts = current && isUsable(current, available) ? effortsOf(current.connection, current.model, available) : [];
+  const currentWorks = !!current && !whyNot(current, available, checks);
+  const slotEfforts = currentWorks ? effortsOf(current.connection, current.model, available) : [];
   const slotEffort = current && fitEffort(current.effort, slotEfforts);
   const setEffort = (effort: Effort) => {
     if (!choices[slot]) return;
@@ -147,15 +160,19 @@ export function ModelPanel({
           return (
             <button
               key={i}
-              className={`model-slot${slot === i ? ' active' : ''}${c ? '' : ' empty'}${c && !isUsable(c, available) ? ' flagged' : ''}`}
+              className={`model-slot${slot === i ? ' active' : ''}${c ? '' : ' empty'}${c && whyNot(c, available, checks) ? ' flagged' : ''}`}
               disabled={!reachable}
               onClick={() => setSlot(i)}
-              title={c ? `${modelLabel(c)} on ${connectionName(c.connection, available)}${whyNot(c, available) ? ` - ${whyNot(c, available)}` : ''}` : reachable ? 'Pick a model below' : undefined}
+              title={c ? `${modelLabel(c)} on ${connectionName(c.connection, available)}${whyNot(c, available, checks) ? ` - ${whyNot(c, available, checks)}` : ''}` : reachable ? 'Pick a model below' : undefined}
             >
               <span className="model-slot-n">{i + 1}</span>
               <span className="model-slot-text">
                 <span className="model-slot-name">{c ? modelLabel(c) : reachable ? 'Pick a model' : '-'}</span>
-                {c && <span className="model-slot-sub">{connectionName(c.connection, available)}</span>}
+                {c && (
+                  <span className="model-slot-sub">
+                    {checks[checkKey(c)]?.pending ? 'Checking...' : whyNot(c, available, checks) ?? connectionName(c.connection, available)}
+                  </span>
+                )}
               </span>
               {c && (
                 <span
@@ -187,7 +204,7 @@ export function ModelPanel({
           </div>
         ) : (
           <span className="model-effort-none">
-            {!current ? 'Pick a model first' : isUsable(current, available) ? 'Not adjustable for this model' : 'Pick another model'}
+            {!current ? 'Pick a model first' : currentWorks ? 'Not adjustable for this model' : 'Pick another model'}
           </span>
         )}
       </div>
@@ -214,10 +231,16 @@ export function ModelPanel({
                 <ul className="model-list">
                   {g.shown.map(m => {
                     const at = choices.findIndex(c => c.connection === g.connection && c.model === m);
+                    const result = checks[checkKey({ connection: g.connection, model: m })];
+                    const failed = result && !result.ok && !result.pending;
                     return (
                       <li key={m}>
-                        <button className={at >= 0 ? 'chosen' : ''} onClick={() => pick(g.connection, m)}>
-                          <Cpu size={13} className="model-item-icon" />
+                        <button
+                          className={`${at >= 0 ? 'chosen' : ''}${failed ? ' failed' : ''}`}
+                          onClick={() => pick(g.connection, m)}
+                          title={failed ? result.reason : undefined}
+                        >
+                          {failed ? <AlertTriangle size={12} className="model-item-icon warn" /> : <Cpu size={13} className="model-item-icon" />}
                           <span className="model-item-name">{modelLabel({ connection: g.connection, model: m, effort: 'medium' })}</span>
                           {at >= 0 && <span className="model-item-n">{at + 1}</span>}
                         </button>
@@ -232,6 +255,43 @@ export function ModelPanel({
       </div>
     </div>
   );
+}
+
+// Each chosen model's check (models/check.ts on the server): the kept results,
+// a check for any chosen model that has none, and a fresh one when a model is
+// picked. A check can learn a model's exact effort levels, so it hands back
+// the updated list of what's connected.
+export function useModelChecks(chosen: ModelChoice[], setAvailable: (a: AvailableModels[]) => void) {
+  const [checks, setChecks] = useState<Checks>({});
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    getModelChecks()
+      .then(all => setChecks(prev => ({ ...all, ...prev })))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, []);
+  const run = useCallback(
+    (connection: string, model: string, force = false) => {
+      const key = checkKey({ connection, model });
+      setChecks(prev => ({ ...prev, [key]: { ...(prev[key] ?? { ok: true, at: 0 }), pending: true } }));
+      checkModel(connection, model, force).then(
+        ({ check, available }) => {
+          setChecks(prev => ({ ...prev, [key]: check }));
+          setAvailable(available);
+        },
+        () => setChecks(prev => ({ ...prev, [key]: { ...prev[key], pending: false } })),
+      );
+    },
+    [setAvailable],
+  );
+  const missing = loaded ? [...new Set(chosen.map(checkKey))].filter(k => !checks[k]) : [];
+  useEffect(() => {
+    for (const k of missing) {
+      const c = chosen.find(x => checkKey(x) === k);
+      if (c) run(c.connection, c.model);
+    }
+  }, [missing.join('|')]);
+  return { checks, check: (connection: string, model: string) => run(connection, model, true) };
 }
 
 // The slide: the right column moves left over the pies by exactly the pies'

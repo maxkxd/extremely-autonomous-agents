@@ -102,16 +102,22 @@ builder only ever see that list.
 | Connection | Agent-capable | Effort levels |
 | --- | --- | --- |
 | Anthropic | all listed | `capabilities.effort` per model (Haiku 4.5: none) |
-| OpenRouter | text in and out, and `tools` in `supported_parameters` | `reasoning.supported_efforts` (a reasoning model that lists none: no setting) |
-| Gemini | `generateContent` models | low/medium/high if `thinking` |
+| OpenRouter | text in and out, `tools` in `supported_parameters`, not past `expiration_date` | `reasoning.supported_efforts` (a reasoning model that lists none: no setting) |
+| Gemini | `generateContent` models | low/medium/high if `thinking` (Gemma: none - it takes only "high") |
 | ChatGPT plan | listed models | its `supported_reasoning_levels` |
+| OpenAI | not past `shutdown_date` | known table, then exact levels from the model check |
+| xAI | all listed, less the name filter | `capabilities.reasoning_effort` |
+| Groq | text in and out, `tools` in `supported_features`, `active` | low/medium/high if `reasoning` |
+| Mistral | `completion_chat` and `function_calling`, not deprecated | none (unconfirmed on the free plan) |
+| DeepSeek | text out | `effort.supported_levels` |
 | Ollama | `tools` in `/api/show` capabilities | low/medium/high for gpt-oss |
 | Claude plan | Opus, Sonnet, Haiku | all four (`claude --effort`) |
-| OpenAI, xAI, Groq | known model names | known families (o-series, gpt-5+, grok-3-mini, gpt-oss) |
-| Mistral, DeepSeek, custom, Copilot | known model names | none |
+| Custom, Copilot | everything listed | none |
 
-Every provider's list also goes through a filter of known non-chat names
-(embeddings, speech, images, moderation, realtime, search previews...).
+Every provider's list also goes through a name filter for models that can't
+run an agent: embeddings, speech, images, video, moderation, realtime, and chat
+models that can't take our tools (search-only, computer-use, multi-agent,
+deep-research, antigravity, gpt-3.5).
 
 Our levels map onto each provider's own: low/medium/high as named, and **max**
 is the provider's `max`, or its `xhigh` when it has no max (levels above max,
@@ -123,14 +129,36 @@ with no setting, or only one level, shows the Effort row greyed out ("Not
 adjustable for this model") and the runner sends none. The builder's pick is
 moved to the nearest level the model takes.
 
-Verified live (2026-10-28): the ChatGPT plan models call function tools and
-honour `low`, `xhigh` and `max`. Not yet verified with a real connection:
-Gemini's `thinking` flag, Ollama's `/api/show`, and the name-based rules for
-OpenAI, xAI, Groq, Mistral and DeepSeek. An agent that already holds a model its connection no
-longer offers is flagged on its card like an agent with no model.
+### Checking a model works on this account
 
-Connections saved before this check (`caps` missing in
-`data/connections.json`) are checked again when the server starts.
+`apps/server/src/models/check.ts` (tested). A model list says what a provider
+has, not what this key may use. Found live on 2026-10-28: Gemini 2.5 "no longer
+available to new users", Mistral's free plan allowing zero requests to its
+reasoning models, Groq models needing terms accepted, Mistral Labs models
+needing an admin to enable them, a DeepSeek account with no credit.
+
+So **when a model is picked** (in the picker, by the builder, or for a pack),
+it gets one tiny request carrying a test tool, and the answer is kept in
+`data/model-checks.json` for 12 hours (an unsure one - busy, timed out - for 10
+minutes). A failed check flags the slot and the card with the reason in plain
+words ("No longer available", "Not available on your plan", "Can't use
+tools"...), marks the model in the picker's list, and greys its effort. Picking
+a model always checks it fresh. Plan connections with a fixed list (Claude
+Code, Copilot) aren't checked this way.
+
+For OpenAI the check also finds the model's exact effort levels: it asks for
+effort "none", and a model that doesn't take it answers with the list it does
+(rejected requests aren't billed); then one real request confirms access and
+tools at a level it takes.
+
+Verified live on 2026-10-28, a request to every model: tool calls and each
+effort level on Anthropic, OpenAI, Gemini, xAI, Groq, ChatGPT and OpenRouter.
+Not verified: DeepSeek prompts (no credit), Mistral's reasoning models (no
+free-plan allowance), Ollama (not installed).
+
+Connections saved before the current capability rules (`caps` in
+`data/connections.json` below the current version) are checked again when the
+server starts.
 
 ## Running an agent on Claude Code (for the runtime)
 

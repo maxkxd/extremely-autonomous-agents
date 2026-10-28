@@ -1648,6 +1648,8 @@ a.sbtn { text-decoration: none; color: inherit; }
 .model-list button:hover { background: var(--surface-hover); }
 .model-list button.chosen { color: var(--text); background: rgba(63, 123, 214, 0.12); }
 .model-item-icon { flex-shrink: 0; color: #6a6a6a; }
+.model-item-icon.warn { color: #e2b45b; }
+.model-list button.failed .model-item-name { color: var(--muted); }
 .model-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-item-n {
   flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center;

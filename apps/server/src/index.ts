@@ -4,6 +4,7 @@ import { BuilderError, build, interview, matchPack, profileInterview, type Build
 import { compose, kpiLabels, listIds, readMeta, remove, save, slug, type AgentFiles } from './files.js';
 import { scanFleet } from './fleet.js';
 import { enqueue, resume } from './jobs.js';
+import { allChecks, checkModel } from './models/check.js';
 import { allChoices, removeChoices, setChoices } from './models/choice.js';
 import * as conn from './models/connections.js';
 import { ConnectError } from './models/providers.js';
@@ -209,6 +210,15 @@ const routes: Record<string, Route> = {
   // Everything connected that an agent could be given.
   'GET /api/models': async () => conn.availableModels(),
   'GET /api/agents/models': async () => allChoices(),
+  // Whether a model really works on this account (models/check.ts).
+  'GET /api/models/checks': async () => allChecks(),
+  'POST /api/models/check': async req => {
+    const { connection, model, force } = await body<{ connection: string; model: string; force?: boolean }>(req);
+    if (typeof connection !== 'string' || typeof model !== 'string' || !connection || !model) throw new ConnectError('Which model?');
+    const check = await checkModel(connection, model, !!force);
+    // A check can learn a model's exact effort levels (OpenAI).
+    return { check, available: await conn.availableModels() };
+  },
   'POST /api/agents/models': async req => {
     const { id, choices } = await body<{ id: string; choices: unknown }>(req);
     if (!/^[a-z0-9-]+$/.test(id ?? '')) throw new ConnectError('Unknown agent.');
