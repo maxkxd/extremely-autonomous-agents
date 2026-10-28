@@ -203,7 +203,7 @@ function ApprovalCard({
           <div className="reject-inner">
             <textarea
               className="reject-reason"
-              placeholder="Reason for rejecting (optional) - the agent will see this"
+              placeholder="Reason for rejecting, the agent will see this (optional)"
               value={reason}
               onChange={e => setReason(e.target.value)}
               rows={2}
