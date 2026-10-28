@@ -1574,8 +1574,9 @@ a.sbtn { text-decoration: none; color: inherit; }
 .model-row-effort { font-weight: 500; color: var(--muted); }
 .model-row-chev { flex-shrink: 0; color: var(--muted); transition: transform 0.3s; }
 .model-row.open .model-row-chev { transform: rotate(180deg); }
-.model-row.flagged { border-color: rgba(229, 121, 124, 0.45); }
-.model-row.flagged .model-row-value { color: #e5797c; }
+/* No model (or #1 not connected): quiet grey with a small yellow warning. */
+.model-row.flagged .model-row-value { color: var(--muted); font-weight: 500; }
+.model-row.flagged .model-row-value svg:first-child { color: #e2b45b; }
 
 /* The slide: the right column glides left over the pies by exactly their
    width; the pies fade; the picker fills the space the column left. */
@@ -1602,7 +1603,7 @@ a.sbtn { text-decoration: none; color: inherit; }
 .model-slot.active { border-color: var(--attention); box-shadow: 0 0 0 1px var(--attention) inset; }
 .model-slot.empty .model-slot-name { color: var(--muted); font-weight: 500; }
 .model-slot:disabled { opacity: 0.4; cursor: default; }
-.model-slot.flagged { border-color: rgba(229, 121, 124, 0.5); }
+.model-slot.flagged .model-slot-n { background: rgba(226, 180, 91, 0.18); color: #e2b45b; }
 .model-slot-n {
   flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center;
   font-size: 11.5px; font-weight: 700; background: var(--surface-hover); color: var(--muted);
