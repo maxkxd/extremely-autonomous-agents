@@ -313,12 +313,10 @@ export function AgentCard({
             <h2>{agent.name}</h2>
             {/* The pill and counts wrap as one, never apart. */}
             <span className="head-tags">
-            {agent.settingUp ? (
+            {agent.settingUp && (
               <span className="state-pill setting-up" title="Being tailored to your organisation. It won't run until it's done.">
                 Setting up
               </span>
-            ) : (
-              state !== 'active' && <span className="state-pill">{state === 'draining' ? 'Standby' : 'Stopped'}</span>
             )}
             <span className="head-counts">
               <a
