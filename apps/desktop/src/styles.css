@@ -1706,3 +1706,10 @@ a.sbtn { text-decoration: none; color: inherit; }
 .sint-kind.draft { color: var(--attention); border-color: var(--attention); }
 .text-link { color: #7aa3e4; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
 .text-link:hover { color: #a9c3ee; }
+/* Arriving for one approval (Open Approvals, a draft's Approve): a blue glow, in place. */
+.approval.spotlit { animation: approval-spotlight 2.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes approval-spotlight {
+  0%, 25% { border-color: #3f7bd6; box-shadow: 0 0 0 1px #3f7bd6, 0 0 34px rgba(63, 123, 214, 0.6); background-color: rgba(63, 123, 214, 0.1); }
+  55% { border-color: #3f7bd6; box-shadow: 0 0 0 1px #3f7bd6, 0 0 24px rgba(63, 123, 214, 0.4); }
+}
+@media (prefers-reduced-motion: reduce) { .approval.spotlit { animation: none; } }

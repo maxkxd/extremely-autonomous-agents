@@ -19,7 +19,7 @@ import {
 // agents' tools run on. Web search is one service among several (agents use
 // whichever is connected); anything else is added as an MCP server by its
 // address, or later by the Fleet Engineer. Keys go here, never in a chat.
-export function Integrations() {
+export function Integrations({ onOpenApproval }: { onOpenApproval: (id: string) => void }) {
   const [view, setView] = useState<IntegrationsView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -40,7 +40,7 @@ export function Integrations() {
         <p className="slead">Agents search the web through one of these. Connect any one; they all work the same way.</p>
         <ul className="sconnectors">
           {search.map(i => (
-            <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} />
+            <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} />
           ))}
         </ul>
       </div>
@@ -49,7 +49,7 @@ export function Integrations() {
         <p className="slead">Other services agents can use. Add any service that has an MCP server by its address.</p>
         <ul className="sconnectors">
           {others.map(i => (
-            <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} />
+            <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} />
           ))}
           <AddMcp refresh={refresh} open={openId === 'add'} setOpen={o => setOpenId(o ? 'add' : null)} />
           <CodePlugins />
@@ -65,12 +65,12 @@ export function Integrations() {
   );
 }
 
-type RowProps = { i: IntegrationView; refresh: () => void; open: boolean; setOpen: (o: boolean) => void };
+type RowProps = { i: IntegrationView; refresh: () => void; open: boolean; setOpen: (o: boolean) => void; onOpenApproval: (id: string) => void };
 
 // A service you sign in to, or one that takes a key.
 const IntegrationRow = (p: RowProps) => (p.i.signIn ? <SignInRow {...p} /> : <KeyRow {...p} />);
 
-function KeyRow({ i, refresh, open, setOpen }: RowProps) {
+function KeyRow({ i, refresh, open, setOpen, onOpenApproval }: RowProps) {
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +99,7 @@ function KeyRow({ i, refresh, open, setOpen }: RowProps) {
   const tools = i.kind !== 'mcp' && i.tools.length && !i.draft ? `${i.tools.length} tool${i.tools.length === 1 ? '' : 's'}` : '';
   const sub = i.connected
     ? i.draft
-      ? 'Goes live when you approve it'
+      ? i.approvalId ? 'Tested · waiting for your approval' : 'The Fleet Engineer is testing it'
       : [i.test?.message, tools].filter(Boolean).join(' · ')
     : i.test && !i.test.ok
       ? i.test.message
@@ -114,6 +114,7 @@ function KeyRow({ i, refresh, open, setOpen }: RowProps) {
       <span className="sint-actions">
         {i.connected ? (
           <>
+            <ApproveButton i={i} onOpenApproval={onOpenApproval} />
             <SpinButton spinning={false} onClick={() => run(() => disconnectIntegration(i.id))}>
               Disconnect
             </SpinButton>
@@ -183,7 +184,7 @@ function KeyRow({ i, refresh, open, setOpen }: RowProps) {
 // A service you sign in to (OAuth, e.g. Gmail): your own OAuth client (made
 // once in the service's console, steps shown), then its sign-in page in a
 // window. The server tests it the moment it lands; this waits for that.
-function SignInRow({ i, refresh, open, setOpen }: RowProps) {
+function SignInRow({ i, refresh, open, setOpen, onOpenApproval }: RowProps) {
   const signIn = i.signIn!;
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
@@ -250,7 +251,7 @@ function SignInRow({ i, refresh, open, setOpen }: RowProps) {
     ? 'Waiting for you to sign in, in the window that opened'
     : i.connected
       ? i.draft
-        ? 'Goes live when you approve it'
+        ? i.approvalId ? 'Tested · waiting for your approval' : 'The Fleet Engineer is testing it'
         : [i.test?.message, tools].filter(Boolean).join(' · ')
       : i.test && !i.test.ok
         ? i.test.message
@@ -265,6 +266,7 @@ function SignInRow({ i, refresh, open, setOpen }: RowProps) {
       <span className="sint-actions">
         {i.connected ? (
           <>
+            <ApproveButton i={i} onOpenApproval={onOpenApproval} />
             <SpinButton spinning={false} onClick={() => act(() => disconnectIntegration(i.id))}>
               Disconnect
             </SpinButton>
@@ -346,6 +348,15 @@ function SignInRow({ i, refresh, open, setOpen }: RowProps) {
     </li>
   );
 }
+
+// A draft the Fleet Engineer has tested: its go-live waits on you. Takes you
+// to that approval (centred, glowing) - approving it there makes it live.
+const ApproveButton = ({ i, onOpenApproval }: { i: IntegrationView; onOpenApproval: (id: string) => void }) =>
+  i.approvalId ? (
+    <button className="sbtn primary" onClick={() => onOpenApproval(i.approvalId!)}>
+      Approve
+    </button>
+  ) : null;
 
 // Whether the Fleet Engineer may write code plugins: code that runs on this
 // computer, for what an HTTP or MCP integration can't do. Off unless turned on.

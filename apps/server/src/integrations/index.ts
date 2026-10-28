@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse, stringify } from 'yaml';
 import type { Tier } from '../catalog.js';
-import { getSetting, setSetting } from '../runner/db.js';
+import { all, getSetting, setSetting } from '../runner/db.js';
 import { registerTools, type ToolDef } from '../runner/tools.js';
 import { deleteSecret, getSecret, setSecret } from '../vault.js';
 import { callHttp } from './http.js';
@@ -277,6 +277,13 @@ export async function removeIntegration(id: string) {
 
 export async function listIntegrations() {
   const st = states();
+  // A draft whose go-live is waiting on a person: its approval, to go straight to.
+  const waiting = new Map(
+    all<{ id: string; integration: string }>(
+      "SELECT id, json_extract(args, '$.integration_id') AS integration FROM approvals WHERE status = 'pending' AND tool = 'engineer.publish_integration' AND expires_at > ?",
+      Date.now(),
+    ).map(a => [a.integration, a.id]),
+  );
   // Which signed-in integrations already have the person's OAuth client saved.
   const clients = new Set<string>();
   for (const { integration } of loaded) if (integration.auth.type === 'oauth2' && (await oauthSecret(integration.id))?.clientId) clients.add(integration.id);
@@ -292,6 +299,7 @@ export async function listIntegrations() {
     shipped,
     connected: !!st[integration.id]?.connectedAt,
     draft: !!st[integration.id]?.draft,
+    approvalId: waiting.get(integration.id) ?? null,
     by: st[integration.id]?.by ?? null,
     test: st[integration.id]?.test ?? null,
     tools:
