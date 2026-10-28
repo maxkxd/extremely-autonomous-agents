@@ -52,7 +52,7 @@ export function useProfileChat() {
     if (!name) return setSession(s => ({ ...s, error: "Tell it what the organization's called first." }));
     setSession(s => ({ ...s, phase: 'building', error: null }));
     try {
-      await saveProfile(name, { ...draft.current, name });
+      await saveProfile(name, { ...draft.current, name }, true);
       setSession(NEW_SESSION);
       const next = done.current;
       done.current = null;

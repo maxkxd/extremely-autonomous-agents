@@ -8,6 +8,7 @@ import * as conn from './models/connections.js';
 import { ConnectError } from './models/providers.js';
 import { CATALOG } from './catalog.js';
 import { addNotes, addPersonNotes, loadPerson, loadProfile, savePerson, saveProfile, type PersonProfile, type Profile } from './org.js';
+import { keepLinks, linkPeople } from './links.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
 const PORT = Number(process.env.PORT ?? 5175);
@@ -45,10 +46,11 @@ async function callback(finish: () => Promise<void>) {
 }
 
 // Who you're talking to, the organisation (null when they don't have one), and
-// what the fleet already has.
-const context = async (person: string, org: string | null): Promise<Context> => ({
+// what the fleet already has. The key people are checked against the members
+// first (a no-op once they have been), so the builder knows who has an account.
+const context = async (person: string, org: string | null, members: string[] = []): Promise<Context> => ({
   person: await loadPerson(person),
-  profile: org ? await loadProfile(org) : null,
+  profile: org ? ((await linkPeople(org, members).catch(() => null)) ?? (await loadProfile(org))) : null,
   fleet: await scanFleet(),
 });
 
@@ -76,10 +78,18 @@ const routes: Record<string, Route> = {
     await addPersonNotes(person, out.person_notes ?? []);
     return { ...out, confidence: clamp(out.confidence) };
   },
+  // link: check the key people against the members straight away (the profile
+  // chat); Settings asks for that itself once a person's row is finished.
   'POST /api/org': async req => {
-    const { org, profile } = await body<{ org: string; profile: Profile }>(req);
-    await saveProfile(org, profile);
+    const { org, profile, members, link } = await body<{ org: string; profile: Profile; members?: string[]; link?: boolean }>(req);
+    await saveProfile(org, keepLinks(await loadProfile(org), profile));
+    if (link && members) linkPeople(org, members).catch(e => console.error('Linking key people failed:', e));
     return { ok: true };
+  },
+  'POST /api/org/links': async req => {
+    const { org, members } = await body<{ org: string; members: string[] }>(req);
+    const p = await linkPeople(org, members ?? []);
+    return { people: (p?.people ?? []).map(({ name, role, member }) => ({ name, role, member: member ?? null })) };
   },
 
   // --- The person ---
@@ -128,15 +138,15 @@ const routes: Record<string, Route> = {
     return matchPack(description, packs);
   },
   'POST /api/builder/turn': async req => {
-    const { person, org, turns, declinedPack } = await body<{ person: string; org: string | null; turns: Turn[]; declinedPack: string | null }>(req);
-    const out = await interview(await context(person, org), turns, declinedPack);
+    const { person, org, members, turns, declinedPack } = await body<{ person: string; org: string | null; members: string[]; turns: Turn[]; declinedPack: string | null }>(req);
+    const out = await interview(await context(person, org, members), turns, declinedPack);
     return { ...out, confidence: clamp(out.confidence) };
   },
   // The files stay hidden: the app gets the card's details and an opaque
   // bundle it hands back on accept.
   'POST /api/builder/build': async req => {
-    const { person, org, turns, takenIds } = await body<{ person: string; org: string | null; turns: Turn[]; takenIds: string[] }>(req);
-    const ctx = await context(person, org);
+    const { person, org, members, turns, takenIds } = await body<{ person: string; org: string | null; members: string[]; turns: Turn[]; takenIds: string[] }>(req);
+    const ctx = await context(person, org, members);
     const b = await build(ctx, turns);
     if (org) await addNotes(org, b.profile_notes ?? []);
     await addPersonNotes(person, b.person_notes ?? []);

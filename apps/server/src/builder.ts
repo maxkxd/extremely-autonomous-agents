@@ -57,7 +57,7 @@ When nothing does a job, you define a new tool yourself and it gets built; the p
 function contextBlock(ctx: Context): string {
   const me = `You are talking to the person who owns these agents. What you know about them:\n${personForPrompt(ctx.person)}`;
   const org = ctx.profile
-    ? `The organisation these agents work for:\n${profileForPrompt(ctx.profile)}`
+    ? `The organisation these agents work for:\n${profileForPrompt(ctx.profile, ctx.person.name)}`
     : "They aren't set up as an organisation: the agents work for them personally. Keep organisation-specific details general rather than inventing them - they get filled in over time.";
   return `${me}\n\n${org}\n\n${fleetForPrompt(ctx.fleet)}`;
 }
@@ -147,6 +147,48 @@ ${personForPrompt(person)}
     // The chat opens with a canned question from the builder; the API needs a
     // person's turn first.
     [{ role: 'user', content: 'Set up our organisation profile.' }, ...transcript(turns)],
+    'low',
+  );
+}
+
+// --- 0b. Which key people are members of the organisation in the app ---
+
+const MemberMatchSchema = z.object({
+  links: z
+    .array(
+      z.object({
+        index: z.number().describe('The key person, by their index'),
+        member: z.string().nullable().describe("The member's username exactly as listed, or null"),
+      }),
+    )
+    .describe('One entry per key person you were asked to decide'),
+});
+
+export type KeyPerson = { index: number; name: string; role: string; member?: string | null };
+
+// decide: the indexes to decide; the rest are context (and may already hold a member).
+export async function matchMembers(people: KeyPerson[], decide: number[], members: PersonProfile[]) {
+  const list = people
+    .map(p => `- [${p.index}] ${p.name}: ${p.role || '(no role given)'}` + (decide.includes(p.index) ? ' <- decide' : p.member ? ` (already linked to ${p.member})` : ''))
+    .join('\n');
+  const accounts = members.map(m => `- username: ${m.name}\n${personForPrompt(m).replace(/^/gm, '    ')}`).join('\n');
+  return parse(
+    MemberMatchSchema,
+    null,
+    `Your only job: say which of an organisation's key people (named in its profile) are the same human as one of its members (accounts in the app). A link means agents will treat that account as that person - asking them for approvals, writing as them - so a wrong link is much worse than a missing one.
+
+Link a key person to a member only when you're confident they are the same person: the names refer to the same human (a username or first name can stand for a full name) and nothing in the member's own profile contradicts the key person's role. Return null when unsure, including when:
+- more than one member could be them, or another key person could equally be that member (two people called Adrian - an owner and a salesperson - and one member Adrian whose profile doesn't say which: link neither);
+- the member's profile gives a role that doesn't fit (a member who describes themselves as a junior developer isn't the key person listed as CEO);
+- the only overlap is a common first name and nothing else lines up, while the key person has a surname the member's profile doesn't share.
+Each member is at most one key person; never pick a member already linked to someone else.
+
+Key people:
+${list}
+
+Members:
+${accounts}`,
+    [{ role: 'user', content: 'Decide the links.' }],
     'low',
   );
 }

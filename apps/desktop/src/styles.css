@@ -1380,7 +1380,11 @@ ul { list-style: none; margin: 0; padding: 0; }
 .snotes button:hover, .speople button:hover { background: var(--surface-hover); color: #e5797c; }
 .snotes-empty { margin: 0; font-size: 13px; color: #6a6a6a; }
 .speople { display: flex; flex-direction: column; gap: 6px; margin: 0 0 4px; padding: 0; list-style: none; }
-.speople li { display: grid; grid-template-columns: 1fr 1.6fr auto; gap: 6px; align-items: center; }
+.speople li { display: grid; grid-template-columns: 26px 1fr 1.6fr auto; gap: 6px; align-items: center; }
+/* The member a key person is, when the server matched one; empty keeps rows aligned. */
+.speople-member { display: grid; place-items: center; width: 26px; height: 26px; }
+.speople-member .avatar, .smembers .avatar { overflow: hidden; font-size: 12px; }
+.speople-member .avatar img, .smembers .avatar img { width: 100%; height: 100%; object-fit: cover; }
 
 .side-options { display: flex; flex-wrap: wrap; gap: 8px; }
 .side-option {

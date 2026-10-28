@@ -19,6 +19,31 @@ same pop-up fills the profile in: what you do, who for, your voice and the key
 people. Then it carries on with what you were doing. The builder adds durable
 facts it learns in later conversations to the profile's notes.
 
+### Key people and members
+
+A key person in the profile can also be a **member** (an account in the
+organisation). When they are, Settings shows their picture beside them, and the
+builder is told they have an account, so their agents can send that person
+Requests and Approvals directly. When the key person is you, it's told that too.
+
+The link is decided by a short Claude check (`apps/server/src/links.ts`), not by
+matching names, because a name alone isn't enough: an owner and a salesperson
+both called Adrian mustn't both become Adrian's account. The check sees every
+key person and every member's own profile, and only links when it's confident.
+When it isn't sure, it leaves the person unlinked, since a wrong link is worse
+than a missing one. Code then enforces that each member is at most one key
+person.
+
+The server owns the link. It checks a person when their name or role changes,
+and checks unlinked people again when the members change. Someone who leaves
+the organisation loses their link. A check runs:
+
+- when the profile chat saves,
+- when you finish a key person's row in Settings,
+- before the builder interviews or builds, so its brief is always current.
+
+Once everyone has been checked, a check does nothing and costs nothing.
+
 ## The flow
 
 1. **Write into the box.** The "Customize your own agent" card on the New agent

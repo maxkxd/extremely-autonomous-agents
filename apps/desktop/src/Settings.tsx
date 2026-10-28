@@ -11,8 +11,10 @@ import {
   getCatalog,
   getPerson,
   getProfile,
+  linkKeyPeople,
   savePerson,
   saveProfile,
+  type KeyPerson,
   type Person,
   type Profile,
 } from './builder';
@@ -160,7 +162,18 @@ function useRecord<T>(load: () => Promise<T>, store: (v: T) => Promise<unknown>)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  return { value, edit, status, error };
+  // Save now rather than after the pause.
+  const flush = () => {
+    clearTimeout(timer.current);
+    return save();
+  };
+  // Take in what the server worked out, without it counting as an edit.
+  const sync = (fn: (v: T) => T) => {
+    if (!latest.current) return;
+    latest.current = fn(latest.current);
+    setValue(latest.current);
+  };
+  return { value, edit, flush, sync, status, error };
 }
 
 // Run saves one after another, so a later save can't land before an earlier one.
@@ -493,12 +506,45 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
 
 const BLANK_PROFILE = (name: string): Profile => ({ name, what_it_does: '', customers: '', offering: '', voice: '', people: [], notes: [] });
 
+// A member's picture: your own photo, or their initial (only yours is kept for now).
+function MemberAvatar({ member, size }: { member: string; size: number }) {
+  const photo = usePhoto();
+  return (
+    <span className="avatar" style={{ width: size, height: size }}>
+      {member === ACCOUNT.name && photo ? <img src={photo} alt="" /> : member.charAt(0)}
+    </span>
+  );
+}
+
+const samePerson = (a: KeyPerson, b: KeyPerson) => a.name.trim() === b.name.trim() && a.role.trim() === b.role.trim();
+
 function OrganizationProfile({ name, members }: { name: string; members: string[] }) {
   const rec = useRecord<Profile>(
     () => getProfile(name).then(p => p ?? BLANK_PROFILE(name)),
     p => saveProfile(name, p),
   );
   const p = rec.value;
+
+  // Which key people are members: the server checks anyone new or edited (once
+  // their row is finished, and on opening, for people the builder added) and
+  // says who's linked. Failing is silent - they just show no picture.
+  const relink = async () => {
+    await rec.flush();
+    try {
+      const links = await linkKeyPeople(name);
+      rec.sync(v => ({ ...v, people: v.people.map(x => ({ ...x, member: links.find(l => samePerson(l, x))?.member ?? x.member })) }));
+    } catch {
+      // Not linked this time; the next check tries again.
+    }
+  };
+  const loaded = !!p;
+  useEffect(() => {
+    if (loaded) relink();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+  // Editing a person undoes their link until the server checks them again.
+  const editPerson = (i: number, patch: Partial<KeyPerson>) =>
+    p && rec.edit({ people: p.people.map((x, j) => (j === i ? { ...x, ...patch, member: undefined } : x)) });
   return (
     <section className="ssection">
       <h2>{name}</h2>
@@ -525,17 +571,17 @@ function OrganizationProfile({ name, members }: { name: string; members: string[
             <span className="sfield-label">Key people</span>
             <ul className="speople">
               {p.people.map((person, i) => (
-                <li key={i}>
-                  <input
-                    value={person.name}
-                    placeholder="Name"
-                    onChange={e => rec.edit({ people: p.people.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })}
-                  />
-                  <input
-                    value={person.role}
-                    placeholder="Role"
-                    onChange={e => rec.edit({ people: p.people.map((x, j) => (j === i ? { ...x, role: e.target.value } : x)) })}
-                  />
+                // Leaving the row (not moving between its own fields) finishes the person.
+                <li key={i} onBlur={e => !e.currentTarget.contains(e.relatedTarget as Node | null) && relink()}>
+                  {person.member ? (
+                    <span className="speople-member" title={`${person.member}${person.member === ACCOUNT.name ? ' (you)' : ''} - a member here`}>
+                      <MemberAvatar member={person.member} size={26} />
+                    </span>
+                  ) : (
+                    <span className="speople-member" />
+                  )}
+                  <input value={person.name} placeholder="Name" onChange={e => editPerson(i, { name: e.target.value })} />
+                  <input value={person.role} placeholder="Role" onChange={e => editPerson(i, { role: e.target.value })} />
                   <button aria-label="Remove" onClick={() => rec.edit({ people: p.people.filter((_, j) => j !== i) })}>
                     <Trash2 size={13} />
                   </button>
@@ -559,9 +605,7 @@ function OrganizationProfile({ name, members }: { name: string; members: string[
       <ul className="smembers">
         {members.map(m => (
           <li key={m}>
-            <span className="avatar" style={{ width: 26, height: 26 }}>
-              {m.charAt(0)}
-            </span>
+            <MemberAvatar member={m} size={26} />
             {m}
             {m === ACCOUNT.name && <span className="muted"> (you)</span>}
           </li>

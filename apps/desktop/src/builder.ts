@@ -39,9 +39,10 @@ export const NEW_SESSION: BuilderSession = {
   error: null,
 };
 
-// Who's asking, and the organisation they belong to (null for a personal
-// account). Read on every request: an account can become an organization.
-const who = () => ({ person: ACCOUNT.name, org: ACCOUNT.org?.name ?? null });
+// Who's asking, the organisation they belong to (null for a personal account)
+// and its members (just them while it's being created). Read on every request:
+// an account can become an organization.
+const who = () => ({ person: ACCOUNT.name, org: ACCOUNT.org?.name ?? null, members: ACCOUNT.org?.members ?? [ACCOUNT.name] });
 
 const OFFLINE = 'The app server is not running. Start apps/server (npm run dev).';
 
@@ -71,16 +72,21 @@ export type Profile = {
   customers: string;
   offering: string;
   voice: string;
-  people: { name: string; role: string }[];
+  // member: the account this person is, if the server matched one (read only here).
+  people: KeyPerson[];
   notes: string[];
 };
+export type KeyPerson = { name: string; role: string; member?: string | null };
 
 // org: the organization's name - passed explicitly while it's being created.
 export const getProfile = (org = ACCOUNT.org?.name ?? '') =>
   request<{ profile: Profile | null }>(`/api/org?name=${encodeURIComponent(org)}`).then(r => r.profile);
 export const profileTurn = (org: string, turns: Turn[]) =>
   post<{ reply: string; confidence: number; ready: boolean; profile: Profile }>('/api/org/turn', { org, turns });
-export const saveProfile = (org: string, profile: Profile) => post<{ ok: true }>('/api/org', { org, profile });
+// link: have the server match the key people to members right away.
+export const saveProfile = (org: string, profile: Profile, link = false) => post<{ ok: true }>('/api/org', { org, profile, link });
+// Matches any key people not yet checked against the members, and returns every link.
+export const linkKeyPeople = (org: string) => post<{ people: KeyPerson[] }>('/api/org/links', { org }).then(r => r.people);
 // The profile chat opens with this, so it needs no round trip.
 export const profileOpener = (org: string) =>
   org ? `Before I build anything for ${org}: what does it do, and who for?` : "Let's set up your organization. What's it called, what does it do, and who for?";

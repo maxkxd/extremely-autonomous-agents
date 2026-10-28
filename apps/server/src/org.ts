@@ -6,7 +6,11 @@ import { fileURLToPath } from 'node:url';
 // for. Filled in by a short builder chat the first time someone adds an agent,
 // and added to as the builder learns more. One per organisation.
 
-export type Person = { name: string; role: string };
+// A key person may also be a member of the organisation in the app (links.ts).
+// The server owns both link fields: member is the account's username, or null
+// once checked and none of the members is them; matched is the name and role
+// that check was made for, so an edit gets checked again.
+export type Person = { name: string; role: string; member?: string | null; matched?: string };
 export type Profile = {
   name: string;
   what_it_does: string;
@@ -15,6 +19,7 @@ export type Profile = {
   voice: string;
   people: Person[];
   notes: string[];
+  members_seen?: string[]; // the members the last check was made against
 };
 
 const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'orgs');
@@ -41,14 +46,18 @@ export async function addNotes(org: string, notes: string[]) {
   if (fresh.length) await saveProfile(org, { ...p, notes: [...p.notes, ...fresh] });
 }
 
-export function profileForPrompt(p: Profile): string {
+// me: the account you're talking to, so its own entry says so.
+export function profileForPrompt(p: Profile, me?: string): string {
+  const person = (x: Person) =>
+    `- ${x.name}: ${x.role}` +
+    (x.member === me && me ? ' (the person you are talking to)' : x.member ? ` (has an account in the app, so Requests and Approvals can go to them directly)` : '');
   return [
     `Organisation: ${p.name}`,
     `What it does: ${p.what_it_does}`,
     `Customers: ${p.customers}`,
     `What it sells or offers: ${p.offering}`,
     `Voice: ${p.voice}`,
-    p.people.length ? `People:\n${p.people.map(x => `- ${x.name}: ${x.role}`).join('\n')}` : '',
+    p.people.length ? `People:\n${p.people.map(person).join('\n')}` : '',
     p.notes.length ? `Also known:\n${p.notes.map(n => `- ${n}`).join('\n')}` : '',
   ]
     .filter(Boolean)
