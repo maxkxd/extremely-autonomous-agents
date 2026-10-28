@@ -94,6 +94,7 @@ export type ConnectionView = {
 };
 
 export async function list(): Promise<ConnectionView[]> {
+  await refreshLocal();
   const s = await load();
   cached = s.connections;
   const cc = await claudeCodeStatus();
@@ -165,13 +166,36 @@ export async function connectKey(id: string, key: string, baseUrl?: string) {
     const wrong = wrongProvider(id, k);
     if (wrong) throw new ConnectError(wrong);
     const models = await verify(id, k, url);
-    const label = p.kind === 'local' ? `${models.length} model${models.length === 1 ? '' : 's'} on this computer` : mask(k);
+    const label = p.kind === 'local' ? localLabel(models) : mask(k);
     await connected(id, label, models, url);
   } catch (e) {
     const reason = e instanceof ConnectError ? e.message : "That key couldn't be checked.";
     // A local server that isn't running isn't a broken key: just say so.
     if (p.kind === 'key') await markBroken(id, mask(k), reason, url);
     throw e instanceof ConnectError ? e : new ConnectError(reason);
+  }
+}
+
+const localLabel = (models: ModelInfo[]) => `${models.length} model${models.length === 1 ? '' : 's'} on this computer`;
+
+// Models on this computer come and go (ollama pull / rm), so a local
+// connection's list is read again whenever the app looks - at most every 15
+// seconds. Listing and reading capabilities never loads a model into memory.
+// If the server isn't running, the last list stays (and a pick's check says so).
+const LOCAL_EVERY_MS = 15_000;
+const localSeen: Record<string, number> = {};
+async function refreshLocal() {
+  const s = await load();
+  for (const p of PROVIDERS.filter(p => p.kind === 'local')) {
+    const saved = s.connections[p.id];
+    if (!saved || saved.broken || Date.now() - (localSeen[p.id] ?? 0) < LOCAL_EVERY_MS) continue;
+    localSeen[p.id] = Date.now();
+    try {
+      const models = await verify(p.id, '', saved.baseUrl);
+      if (models.map(m => m.id).join('\n') !== saved.models.join('\n')) await connected(p.id, localLabel(models), models, saved.baseUrl);
+    } catch {
+      // Not running right now: keep what was there.
+    }
   }
 }
 

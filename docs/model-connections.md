@@ -156,6 +156,10 @@ effort level on Anthropic, OpenAI, Gemini, xAI, Groq, ChatGPT and OpenRouter.
 Not verified: DeepSeek prompts (no credit), Mistral's reasoning models (no
 free-plan allowance), Ollama (not installed).
 
+Ollama's models are read again whenever the app lists models, at most every
+15 seconds, so a model pulled or removed shows up or goes on its own. Listing
+never loads a model into memory; if Ollama isn't running, the last list stays.
+
 Connections saved before the current capability rules (`caps` in
 `data/connections.json` below the current version) are checked again when the
 server starts.
