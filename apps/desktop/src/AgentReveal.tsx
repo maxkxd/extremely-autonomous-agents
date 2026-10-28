@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { AgentCard } from './Dashboard';
-import type { ModelChoice } from './builder';
+import { getAvailableModels, type AvailableModels, type ModelChoice } from './builder';
 import type { Agent } from './data';
 
 const HOLD_MS = 1200;
@@ -25,6 +25,11 @@ export function AgentReveal({
   onAccept: () => void;
 }) {
   const [shown, setShown] = useState(false);
+  // What's connected, so each card's Model row shows the effort it'll run at.
+  const [available, setAvailable] = useState<AvailableModels[]>([]);
+  useEffect(() => {
+    getAvailableModels().then(setAvailable, () => {});
+  }, []);
   const [holding, setHolding] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>();
   // Several cards shrink together until the stack and the button fit the window.
@@ -89,6 +94,7 @@ export function AgentReveal({
                 onGripDown={() => {}}
                 preview
                 models={models?.[i]}
+                available={available}
               />
             </div>
           ))}
