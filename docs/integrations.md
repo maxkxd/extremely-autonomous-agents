@@ -77,10 +77,29 @@ builder's tiers kept) and closes the request. Its `engineer.give_tools` gives
 an agent tools that already exist, also behind an approval.
 
 Code plugins (`integrations/plugins.ts`): off until allowed in Settings ->
-Connectors. A plugin's code never runs before a person approves it with the
-code shown - so its approval comes before its first run, and it's tested as it
-goes live - and it's loaded only while its file is byte-for-byte what was
-approved (a hash stored with the approval).
+Connectors. Three layers, so a person who can't read code is still safe:
+
+1. **A sandbox** (`sandbox.ts`): each call runs in a separate Node process
+   under the permission model. It gets only the folders the plugin declares
+   (`permissions: { read, write, commands }` in its definition; a whole drive
+   or the whole home folder is refused), starts programs only if it declares
+   `commands`, has no network but `kit.fetch` (the safe fetcher, served by
+   the server), and none of the server's environment (its keys). Programs it
+   starts are not contained - the card says so plainly.
+2. **An independent security review** (`review.ts`): before a plugin can be
+   proposed, a separate model reads it as an attacker would (agent inputs
+   are attacker-controlled). A high concern sends it back to the engineer.
+   About 20 seconds, once per proposal.
+3. **One approval, explained**: the card leads with what the code can do on
+   this computer in plain words, what the sandbox allows it, and the
+   review's notes - then the engineer's summary, the definition and the code.
+   The plugin runs only while its file is byte-for-byte what was approved.
+
+Writing or loading a plugin that reaches the network around `kit.fetch` is
+refused outright. Why all this: the first plugin the engineer wrote (the
+wallpaper one) downloaded with plain `fetch`, which an agent could have aimed
+at the person's router - normal code anywhere else, dangerous here, and its
+author couldn't see it.
 
 ## Email (Gmail)
 
