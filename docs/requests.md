@@ -116,7 +116,7 @@ about the UI lives in [fleet-engineer-ui-guide.md](fleet-engineer-ui-guide.md).
 ## Status (2026-10-29)
 
 Real for real agents' requests: every request goes to the Fleet Engineer
-(\`runner/engineer.ts\`), a built-in agent run by the runner like any other,
+(`runner/engineer.ts`), a built-in agent run by the runner like any other,
 owned by no one. It talks to the person in the request (the thread is kept on
 the server), hands work to a related agent, builds integrations (docs/
 integrations.md), or hands the request to the person. A request's stage shows
