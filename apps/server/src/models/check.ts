@@ -110,9 +110,11 @@ export function levelsFromError(message: string): string[] | null {
 const PROMPT = 'Reply with ok.';
 const TOOL = { name: 'check_weather', description: 'Weather for a city', schema: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] } };
 
-async function send(url: string, headers: Record<string, string>, body: unknown): Promise<Answer> {
+// timeoutMs: a local model is loaded from disk on its first request, which on
+// a 16 GB laptop took 35 s for gpt-oss:20b - so local checks wait longer.
+async function send(url: string, headers: Record<string, string>, body: unknown, timeoutMs = 60_000): Promise<Answer> {
   try {
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal: AbortSignal.timeout(60_000) });
+    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
     const text = await res.text();
     if (res.ok) {
       // A streamed reply can still fail partway (ChatGPT plan).
@@ -187,7 +189,7 @@ async function probe(connection: string, model: string): Promise<Check> {
       return unsureToOk(await probeOpenAi(model));
     case 'ollama': {
       const base = ((await connectionBaseUrl('ollama')) || 'http://localhost:11434').replace(/\/+$/, '');
-      return unsureToOk(done(await send(`${base}/api/chat`, {}, { model, stream: false, messages: [{ role: 'user', content: PROMPT }], tools: [chatTool], options: { num_predict: 16 } })));
+      return unsureToOk(done(await send(`${base}/api/chat`, {}, { model, stream: false, messages: [{ role: 'user', content: PROMPT }], tools: [chatTool], options: { num_predict: 16 } }, 300_000)));
     }
     default: {
       const base = OPENAI_COMPATIBLE[connection] ?? (connection === 'custom' ? (await connectionBaseUrl('custom'))?.replace(/\/+$/, '') : undefined);
