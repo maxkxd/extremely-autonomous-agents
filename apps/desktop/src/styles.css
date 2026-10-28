@@ -1052,7 +1052,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 @container (max-width: 470px) { .packs { grid-template-columns: minmax(0, 1fr); } }
 
 .pack {
-  display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; min-height: 560px;
+  display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; min-height: 720px;
   background: var(--bg); border: 1px solid var(--hairline); transition: border-color 0.15s;
 }
 .pack:hover { border-color: var(--border); }
