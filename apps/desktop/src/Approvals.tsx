@@ -283,7 +283,11 @@ function ApprovalCard({
                 Reject
               </button>
             </div>
-            {approval.paused && <span className="approval-paused">{agent.name} is stopped. Resume it to decide; the clock keeps running.</span>}
+            {approval.paused && (
+              <span className="state-pill approval-paused" title={`${agent.name} is stopped. Resume it to decide; the clock keeps running.`}>
+                Stopped
+              </span>
+            )}
             <span className="approval-expiry" title="Time left to respond - if it runs out, the action does not happen">
               <Clock size={12} strokeWidth={1.75} />
               {/* Running out plays the reject exit; the action does not happen. */}

@@ -589,7 +589,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .approval.paused .approval-avatar, .approval.paused .approval-head, .approval.paused .approval-fields,
 .approval.paused .approval-body, .approval.paused .approval-buttons { filter: grayscale(1); opacity: 0.45; }
 .approval.paused .ap-btn:disabled { opacity: 1; }
-.approval-paused { flex: 1; font-size: 12px; color: var(--muted); animation: paused-note-in 0.6s ease; }
+.approval-paused { margin-right: auto; animation: paused-note-in 0.6s ease; }
 @keyframes paused-note-in { from { opacity: 0; } }
 .approval-expiry { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #5f5f5f; font-variant-numeric: tabular-nums; }
 
