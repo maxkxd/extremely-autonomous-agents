@@ -157,8 +157,13 @@ Ollama too: qwen3:0.6b passes (no effort setting - its thinking is on/off),
 gemma3:1b is dropped for having no tools, and gpt-oss:20b calls tools at
 low, medium and high (more thinking at each). Its first load took 35 s on a
 16 GB laptop with an RTX 4060 (6.2 GB on the card), so a local check waits up
-to 5 minutes. Not verified: DeepSeek prompts (no credit), Mistral's reasoning
-models (no free-plan allowance).
+to 5 minutes. DeepSeek too: both models pass, call tools, and take
+`reasoning_effort` low/high/max (thinking is on by default, at high; "medium"
+is mapped to high by DeepSeek, so it isn't offered). **For the runner:** with
+tools in the request, DeepSeek requires each earlier assistant turn's
+`reasoning_content` to be sent back in every later request, or it answers 400
+(https://api-docs.deepseek.com/guides/thinking_mode/). Not verified: Mistral's
+reasoning models (no free-plan allowance).
 
 Ollama's models are read again whenever the app lists models, at most every
 15 seconds, so a model pulled or removed shows up or goes on its own. Listing
