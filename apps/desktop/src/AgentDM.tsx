@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { CircleAlert, CircleCheck, CircleStop, Loader2, SendHorizontal } from 'lucide-react';
+import { Linkify } from './Linkify';
 import { ACCOUNT, AGENTS } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import type { DmEntry, RunPost, ToolLine } from './dms';
@@ -66,7 +67,9 @@ function RunPostView({
           {post.trigger} · {post.tools.length} action{post.tools.length === 1 ? '' : 's'} · {post.costKnown === false ? 'cost unknown' : `$${post.cost.toFixed(2)}`} ·{' '}
           {duration(post.seconds)}
         </button>
-        <p className="dm-text">{post.text}</p>
+        <p className="dm-text">
+          <Linkify text={post.text} />
+        </p>
         {post.tools.length > 0 && (
           <ul className="dm-tools">
             {post.tools.map((t, i) => (
@@ -139,7 +142,9 @@ export function AgentDM({
                       <span className="dm-author">{ACCOUNT.name}</span>
                       <span className="dm-time">{clock(e.at)}</span>
                     </div>
-                    <p className="dm-text">{e.text}</p>
+                    <p className="dm-text">
+                      <Linkify text={e.text} />
+                    </p>
                   </div>
                 </div>
               )}
