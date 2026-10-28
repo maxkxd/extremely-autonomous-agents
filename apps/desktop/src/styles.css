@@ -24,6 +24,9 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; }
+/* The window itself never scrolls or rubber-bands; only inner panes (like the
+   dashboard) scroll, and any bounce stays inside them. */
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 ul { list-style: none; margin: 0; padding: 0; }
 .muted { color: var(--muted); }
@@ -87,7 +90,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .icon-btn { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; color: var(--muted); }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text); }
 
-.dm-list { overflow-y: auto; margin-top: 4px; min-height: 0; }
+.dm-list { overflow-y: auto; overscroll-behavior-y: contain; margin-top: 4px; min-height: 0; }
 .dm-item {
   display: flex; align-items: center; gap: 10px;
   width: 100%; padding: 7px 10px; border-radius: 8px; text-align: left; font-size: 14px;
@@ -126,7 +129,7 @@ ul { list-style: none; margin: 0; padding: 0; }
   padding: 14px 28px; min-height: 64px; border-bottom: 1px solid var(--border);
 }
 .main-header h1 { margin: 0; font-size: 20px; font-weight: 600; }
-.main-body { flex: 1; min-height: 0; overflow-y: auto; }
+.main-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
 .main-empty { height: 100%; display: grid; place-items: center; color: var(--muted); }
 
 /* Resize handle on the sidebar's right edge */
