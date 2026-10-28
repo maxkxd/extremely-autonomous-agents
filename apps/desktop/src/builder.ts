@@ -251,6 +251,8 @@ export type LiveRequest = {
 export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
 export const answerRequest = (id: number, status: 'done' | 'rejected', answer: string) =>
   post<{ ok: boolean }>('/api/runner/requests/answer', { id, status, answer });
+export const sendToIde = (id: number, ide: string) =>
+  post<{ opened: boolean; folder: string; prompt: string; ide: string }>('/api/runner/requests/ide', { id, ide });
 export const sendRequestMessage = (id: number, text: string) => post<{ ok: boolean }>('/api/runner/requests/message', { id, text });
 
 // Whether the Fleet Engineer may write code plugins (Settings -> Connectors).

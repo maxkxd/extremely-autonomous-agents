@@ -13,13 +13,14 @@ import {
 } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { postToRequest } from './engineer.js';
+import { sendToIde, type Ide } from './ide.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals } from './approvals.js';
 import { openProfileForSignIn, profileStatus } from './browser.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { spentToday } from './pricing.js';
-import { stateOf } from './run.js';
+import { stateOf, type Trigger } from './run.js';
 import { abortRun, book, isRunning } from './scheduler.js';
 
 // The runner's routes for the app: each agent's card (ferocity, Drain/Stop,
@@ -178,6 +179,12 @@ export const runnerRoutes: Record<string, Route> = {
     exec("UPDATE requests SET stage = 'engineer' WHERE id = ?", r.id);
     book(FLEET_ENGINEER, 'request reply', `${(await readMeta(r.agent_id))?.owner ?? 'The person'} replied on request #${r.id}: "${text.trim().slice(0, 1500)}"`);
     return { ok: true };
+  },
+
+  // Send to your IDE: the request's folder, the agency's tools, the IDE opened (ide.ts).
+  'POST /api/runner/requests/ide': async (_req, _q, body) => {
+    const { id, ide } = await body<{ id: number; ide: Ide }>();
+    return sendToIde(Number(id), ide, (a, t, task) => book(a, t as Trigger, task));
   },
 
   // Whether the Fleet Engineer may write code plugins (docs/integrations.md).

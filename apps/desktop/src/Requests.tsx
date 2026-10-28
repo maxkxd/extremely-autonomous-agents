@@ -4,7 +4,7 @@ import { siClaude, siCursor, type SimpleIcon } from 'simple-icons';
 import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { visibleApprovals, type ApprovalScope } from './Approvals';
-import { sendRequestMessage } from './builder';
+import { sendRequestMessage, sendToIde } from './builder';
 import { Linkify } from './Linkify';
 
 // How a request left the page: you did it, or you rejected it. (One the Fleet
@@ -130,6 +130,25 @@ function RequestRow({
     });
   };
 
+  // The IDE opens on the request; ones without a terminal start get the prompt
+  // on the clipboard to paste.
+  const [sending, setSending] = useState(false);
+  const sendIde = async () => {
+    if (!request.live) return;
+    setSending(true);
+    try {
+      const r = await sendToIde(request.live, yourIde());
+      const terminal = yourIde() === 'claude-code' || yourIde() === 'codex';
+      if (!r.opened || !terminal) await navigator.clipboard?.writeText(r.prompt).catch(() => {});
+      if (!r.opened) window.alert(`${r.ide} isn't installed where the app can start it. The request is ready in ${r.folder} - open that folder in ${r.ide} and paste the prompt (copied).`);
+      else if (!terminal) window.alert(`${r.ide} is opening the request's folder. Paste the prompt (copied) into its chat.`);
+    } catch (e) {
+      window.alert((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  };
+
   const openDrawer = (kind: Drawer, e: React.MouseEvent) => {
     if (e.shiftKey) return resolve(kind === 'diy' ? 'diy' : 'rejected'); // shift-click: no note
     setDrawer(d => (d === kind ? null : kind));
@@ -231,11 +250,12 @@ function RequestRow({
               </div>
 
               <div className="request-actions">
-                {/* Opens your AI IDE with this request as a prompt - not built yet. */}
+                {/* Your AI IDE, with this request and the agency's tools (runner/ide.ts). */}
                 <button
                   className="rq-btn ide"
-                  disabled
-                  title={`Coming soon - opens ${AI_IDES[yourIde()].name} with this request (needs the IDE connector)`}
+                  disabled={!!leaving || sending}
+                  title={`Opens ${AI_IDES[yourIde()].name} on this request, with the agency's tools`}
+                  onClick={sendIde}
                 >
                   <IdeLogo logo={AI_IDES[yourIde()].logo} />
                   Send to {AI_IDES[yourIde()].name}
