@@ -801,33 +801,140 @@ ul { list-style: none; margin: 0; padding: 0; }
    (A CSS animation starts when its selector starts matching, so .active does it.) */
 .nav-square svg rect, .nav-square svg path { transform-box: fill-box; transform-origin: center; }
 
-/* Dashboard: two moves, no stretching - every block keeps its own size.
-   Move 1: in each row the two blocks slide past each other, so tall and short
-   swap sides (the layout flips). Move 2: they slide back home.
-   Blocks (lucide layout-dashboard): 1 tall 3,3 · 2 short 14,3 · 3 tall 14,12 ·
-   4 short 3,16. Flipped: 1 -> 14,3 · 2 -> 3,3 · 3 -> 3,12 · 4 -> 14,16.
-   Uses SVG geometry as CSS properties (x / y). */
-.nav-square.active .lucide-layout-dashboard rect { animation: 1.1s cubic-bezier(0.55, 0, 0.3, 1) both; }
+/* Dashboard: two quarter-turns clockwise round the icon's centre. Blocks stay
+   upright and keep their size; each swings along an arc to the next slot of
+   its kind. Turn 1 lands in the mirrored layout (tall/short swap sides), turn 2
+   lands back in the original layout. Arc keyframes are generated (sampled
+   circle, ease baked in, so the CSS runs linear). The arcs swing slightly past
+   the 24x24 box, so the icon may draw outside it while animating. */
+.nav-square .lucide-layout-dashboard { overflow: visible; }
+.nav-square.active .lucide-layout-dashboard rect { animation: 1.2s linear both; }
 .nav-square.active .lucide-layout-dashboard rect:nth-child(1) { animation-name: tile-1; }
 .nav-square.active .lucide-layout-dashboard rect:nth-child(2) { animation-name: tile-2; }
 .nav-square.active .lucide-layout-dashboard rect:nth-child(3) { animation-name: tile-3; }
 .nav-square.active .lucide-layout-dashboard rect:nth-child(4) { animation-name: tile-4; }
-@keyframes tile-1 { 0%, 100% { x: 3px; y: 3px; } 42%, 58% { x: 14px; y: 3px; } }
-@keyframes tile-2 { 0%, 100% { x: 14px; y: 3px; } 42%, 58% { x: 3px; y: 3px; } }
-@keyframes tile-3 { 0%, 100% { x: 14px; y: 12px; } 42%, 58% { x: 3px; y: 12px; } }
-@keyframes tile-4 { 0%, 100% { x: 3px; y: 16px; } 42%, 58% { x: 14px; y: 16px; } }
+@keyframes tile-1 {
+  0.0% { x: 3.0px; y: 3.0px; }
+  3.5% { x: 3.14px; y: 2.84px; }
+  7.0% { x: 3.57px; y: 2.38px; }
+  10.5% { x: 4.34px; y: 1.74px; }
+  14.0% { x: 5.46px; y: 1.08px; }
+  17.5% { x: 6.89px; y: 0.58px; }
+  21.0% { x: 8.5px; y: 0.39px; }
+  24.5% { x: 10.11px; y: 0.58px; }
+  28.0% { x: 11.54px; y: 1.08px; }
+  31.5% { x: 12.66px; y: 1.74px; }
+  35.0% { x: 13.43px; y: 2.38px; }
+  38.5% { x: 13.86px; y: 2.84px; }
+  42.0% { x: 14.0px; y: 3.0px; }
+  58% { x: 14.0px; y: 3.0px; }
+  61.5% { x: 14.1px; y: 3.13px; }
+  65.0% { x: 14.39px; y: 3.52px; }
+  68.5% { x: 14.79px; y: 4.19px; }
+  72.0% { x: 15.19px; y: 5.11px; }
+  75.5% { x: 15.49px; y: 6.25px; }
+  79.0% { x: 15.61px; y: 7.5px; }
+  82.5% { x: 15.49px; y: 8.75px; }
+  86.0% { x: 15.19px; y: 9.89px; }
+  89.5% { x: 14.79px; y: 10.81px; }
+  93.0% { x: 14.39px; y: 11.48px; }
+  96.5% { x: 14.1px; y: 11.87px; }
+  100.0% { x: 14.0px; y: 12.0px; }
+}
+@keyframes tile-2 {
+  0.0% { x: 14.0px; y: 3.0px; }
+  3.5% { x: 14.19px; y: 3.17px; }
+  7.0% { x: 14.72px; y: 3.68px; }
+  10.5% { x: 15.46px; y: 4.59px; }
+  14.0% { x: 16.22px; y: 5.92px; }
+  17.5% { x: 16.8px; y: 7.6px; }
+  21.0% { x: 17.01px; y: 9.5px; }
+  24.5% { x: 16.8px; y: 11.4px; }
+  28.0% { x: 16.22px; y: 13.08px; }
+  31.5% { x: 15.46px; y: 14.41px; }
+  35.0% { x: 14.72px; y: 15.32px; }
+  38.5% { x: 14.19px; y: 15.83px; }
+  42.0% { x: 14.0px; y: 16.0px; }
+  58% { x: 14.0px; y: 16.0px; }
+  61.5% { x: 13.84px; y: 16.13px; }
+  65.0% { x: 13.37px; y: 16.49px; }
+  68.5% { x: 12.56px; y: 16.99px; }
+  72.0% { x: 11.43px; y: 17.5px; }
+  75.5% { x: 10.04px; y: 17.87px; }
+  79.0% { x: 8.5px; y: 18.01px; }
+  82.5% { x: 6.96px; y: 17.87px; }
+  86.0% { x: 5.57px; y: 17.5px; }
+  89.5% { x: 4.44px; y: 16.99px; }
+  93.0% { x: 3.63px; y: 16.49px; }
+  96.5% { x: 3.16px; y: 16.13px; }
+  100.0% { x: 3.0px; y: 16.0px; }
+}
+@keyframes tile-3 {
+  0.0% { x: 14.0px; y: 12.0px; }
+  3.5% { x: 13.86px; y: 12.16px; }
+  7.0% { x: 13.43px; y: 12.62px; }
+  10.5% { x: 12.66px; y: 13.26px; }
+  14.0% { x: 11.54px; y: 13.92px; }
+  17.5% { x: 10.11px; y: 14.42px; }
+  21.0% { x: 8.5px; y: 14.61px; }
+  24.5% { x: 6.89px; y: 14.42px; }
+  28.0% { x: 5.46px; y: 13.92px; }
+  31.5% { x: 4.34px; y: 13.26px; }
+  35.0% { x: 3.57px; y: 12.62px; }
+  38.5% { x: 3.14px; y: 12.16px; }
+  42.0% { x: 3.0px; y: 12.0px; }
+  58% { x: 3.0px; y: 12.0px; }
+  61.5% { x: 2.9px; y: 11.87px; }
+  65.0% { x: 2.61px; y: 11.48px; }
+  68.5% { x: 2.21px; y: 10.81px; }
+  72.0% { x: 1.81px; y: 9.89px; }
+  75.5% { x: 1.51px; y: 8.75px; }
+  79.0% { x: 1.39px; y: 7.5px; }
+  82.5% { x: 1.51px; y: 6.25px; }
+  86.0% { x: 1.81px; y: 5.11px; }
+  89.5% { x: 2.21px; y: 4.19px; }
+  93.0% { x: 2.61px; y: 3.52px; }
+  96.5% { x: 2.9px; y: 3.13px; }
+  100.0% { x: 3.0px; y: 3.0px; }
+}
+@keyframes tile-4 {
+  0.0% { x: 3.0px; y: 16.0px; }
+  3.5% { x: 2.81px; y: 15.83px; }
+  7.0% { x: 2.28px; y: 15.32px; }
+  10.5% { x: 1.54px; y: 14.41px; }
+  14.0% { x: 0.78px; y: 13.08px; }
+  17.5% { x: 0.2px; y: 11.4px; }
+  21.0% { x: -0.01px; y: 9.5px; }
+  24.5% { x: 0.2px; y: 7.6px; }
+  28.0% { x: 0.78px; y: 5.92px; }
+  31.5% { x: 1.54px; y: 4.59px; }
+  35.0% { x: 2.28px; y: 3.68px; }
+  38.5% { x: 2.81px; y: 3.17px; }
+  42.0% { x: 3.0px; y: 3.0px; }
+  58% { x: 3.0px; y: 3.0px; }
+  61.5% { x: 3.16px; y: 2.87px; }
+  65.0% { x: 3.63px; y: 2.51px; }
+  68.5% { x: 4.44px; y: 2.01px; }
+  72.0% { x: 5.57px; y: 1.5px; }
+  75.5% { x: 6.96px; y: 1.13px; }
+  79.0% { x: 8.5px; y: 0.99px; }
+  82.5% { x: 10.04px; y: 1.13px; }
+  86.0% { x: 11.43px; y: 1.5px; }
+  89.5% { x: 12.56px; y: 2.01px; }
+  93.0% { x: 13.37px; y: 2.51px; }
+  96.5% { x: 13.84px; y: 2.87px; }
+  100.0% { x: 14.0px; y: 3.0px; }
+}
 
-/* Approvals: the tick wipes away and redraws itself, with a little pop. */
+/* Approvals: the tick vanishes instantly and draws itself back in, with a pop. */
 .nav-square.active .lucide-circle-check-big path:nth-child(2) {
   stroke-dasharray: 26;
-  animation: retick 0.7s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: retick 0.55s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 .nav-square.active .lucide-circle-check-big path:nth-child(1) { animation: tick-ring 0.7s ease-out both; }
 @keyframes retick {
-  0% { stroke-dashoffset: 0; }
-  28% { stroke-dashoffset: -26; }
-  29% { stroke-dashoffset: 26; }
-  100% { stroke-dashoffset: 0; }
+  from { stroke-dashoffset: 26; }
+  to { stroke-dashoffset: 0; }
 }
 @keyframes tick-ring {
   0%, 40% { transform: none; }
