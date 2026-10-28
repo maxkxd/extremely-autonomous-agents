@@ -7,6 +7,7 @@ import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';
 import type { ModelChoice } from '../models/choice.js';
 import { loadAgent, type AgentDef } from './agent.js';
+import { expireApprovals } from './approvals.js';
 import { all, one, run as exec } from './db.js';
 import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, scheduledDue } from './ferocity.js';
 import { costOf, startOfDay } from './pricing.js';
@@ -63,6 +64,7 @@ export async function tick(deps: RunDeps = liveDeps) {
     models = await availableModels();
     checks = await allChecks();
     const now = deps.now();
+    expireApprovals(now, book);
     for (const id of await listIds()) {
       if (running.size >= MAX_PARALLEL) break;
       if (running.has(id)) continue;

@@ -15,8 +15,22 @@ A definition file (`apps/server/src/integrations/schema.ts`):
   Its tools are found when it connects. Tier: what the definition says, else
   T0 when the server marks a tool read-only or its name plainly reads
   (`get_`, `list_`, `search_`...), else T2.
+- **`kind: code`** - tools written in code (`src/integrations/modules/`),
+  for a service whose calls need more than a request template: Gmail builds
+  and decodes email. Each tool gets the agent's inputs and the current key or
+  access token (`modules/types.ts`). Shipped ones only, for now.
 - **Code plugins** (TypeScript the Fleet Engineer writes) - agreed as an
-  opt-in setting on top of these, for what HTTP and MCP can't do. Not built.
+  opt-in setting on top of these, for what HTTP and MCP can't do; they'll
+  use the `kind: code` contract. Not built.
+
+Signing in: an API key (header or query), a bearer token, or **OAuth**
+(`auth: oauth2` - authorization code with PKCE, `integrations/oauth.ts`).
+For OAuth the person brings their own OAuth client (its steps are in the
+definition and shown in Settings); the sign-in opens in their browser and
+lands back on this server at 127.0.0.1. Tokens are kept in the vault and
+refreshed when they run out. Disconnect revokes the sign-in at the service
+and keeps only the client, so signing back in is one click. Any definition
+can use it, so the Fleet Engineer can add OAuth services the same way.
 
 A tool either **provides a standard agency tool** - `web.web_search` - which
 several integrations can provide (agents use whichever is connected, so
@@ -25,7 +39,7 @@ own (`zoho.create_lead`, `deepwiki.ask_wiki_question`).
 
 Shipped integrations live in `apps/server/integrations/*.yaml` (the four web
 search services: Brave Search, Tavily, Serper, Exa - also the reference
-examples of the format). Added ones live in `data/integrations/`. Keys are in
+examples of the format - and Gmail). Added ones live in `data/integrations/`. Keys are in
 the vault; connection state and an MCP server's tools in the runner's store.
 
 ## The Fleet Engineer's loop (agreed 2026-10-29)
@@ -53,11 +67,33 @@ runs for every new service:
    request with a note on what it can now do, and tell the agent on its
    next run.
 
-Needs, none built yet: draft integrations; OAuth sign-in; the wake on
-connect (a new trigger, alongside scheduled, self-booked, handoff, your
-message and approval); the Fleet Engineer's own tools (write / test / fix /
-publish an integration, give a tool to an agent); approvals that actually
-run when approved; and the Fleet Engineer running at all.
+Built: OAuth sign-in and approvals that run when approved (both with
+Gmail). Still needed: draft integrations; the wake on connect (a new
+trigger, alongside scheduled, self-booked, handoff, your message and
+approval); the Fleet Engineer's own tools (write / test / fix / publish an
+integration, give a tool to an agent); and the Fleet Engineer running at all.
+
+## Email (Gmail)
+
+`gmail.yaml` + `modules/gmail.ts`, through the Gmail API with one scope
+(`gmail.modify`: everything but permanent deletion).
+
+| Tool | Tier | |
+|---|---|---|
+| `gmail.list_messages` | T0 | Gmail search syntax; id, thread, date, sender, subject, labels, snippet |
+| `gmail.read_message` | T0 | the whole conversation by default, as text; attachments listed, not opened |
+| `gmail.create_draft` | T1 | unsent, for a person to send; `reply_to` keeps the conversation |
+| `gmail.modify_labels` | T1 | its own labels (made if missing), inbox/unread/starred/important; never trash or spam |
+| `gmail.archive_messages` | T1 | out of the inbox, still in All Mail |
+| `gmail.send_email` | T2 | `to` and `subject` always spelled out, so the approval shows them |
+
+What an agent reads from email is marked as written by outsiders:
+information, never instructions. Addresses are checked and headers can't
+be injected (a line break in a field is refused, not passed on).
+
+Google's own catch: an OAuth app left in **Testing** has its sign-in ended
+every 7 days, so the steps say to publish it (it's for personal use, so it
+needs no review; Google shows an "unverified app" warning once).
 
 ## Safety
 
@@ -103,8 +139,8 @@ same code but haven't been run against their real services.
 
 Not yet:
 
-- **OAuth sign-in** for integrations (Zoho-style, and MCP servers that need
-  it) - only no-sign-in, API key and bearer token so far.
+- **OAuth for MCP servers** (their own sign-in discovery); OAuth works for
+  definitions that name their sign-in addresses.
 - **Code plugins**, and the **Fleet Engineer** adding integrations (its loop is above).
 - **MCP servers on this computer** (local addresses are refused, like
   everything else agents reach).

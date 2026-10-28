@@ -1442,6 +1442,9 @@ ul { list-style: none; margin: 0; padding: 0; }
 .sconnectors li > :last-child { grid-column: 2; grid-row: 1 / span 2; }
 .sconnectors li.with-form { grid-template-rows: auto auto auto; }
 .sint-form { grid-column: 1 / -1; grid-row: 3; padding: 10px 0 0; }
+/* Placed explicitly: with a form open they're no longer the row's last child. */
+.sconnectors li > .sint-actions { grid-column: 2; grid-row: 1 / span 2; }
+.sconnectors li > .sint-form { grid-column: 1 / -1; grid-row: 3; }
 .sint-actions { display: inline-flex; gap: 8px; justify-content: flex-end; }
 .sint-kind { margin-left: 8px; padding: 1px 6px; border-radius: 5px; font-size: 10.5px; font-weight: 700; color: var(--muted); border: 1px solid var(--border); vertical-align: 1px; }
 .sint-bad { color: #e2b45b; }
@@ -1684,3 +1687,5 @@ a.sbtn { text-decoration: none; color: inherit; }
 }
 /* The card menu would sit on the picker's corner. */
 .agent-card.models-open .card-menu { display: none; }
+.sint-steps { margin: 0 0 4px; padding-left: 20px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+.sconnectors .sint-steps li { display: list-item; padding: 0; border: 0; }

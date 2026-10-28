@@ -48,17 +48,17 @@ export function at(obj: unknown, path: string): unknown {
 
 // Services put highlighting markup in snippets (<strong>, &amp;); agents get plain text.
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', hellip: '…', mdash: '—', ndash: '–' };
+export const decodeEntities = (s: string) =>
+  s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) =>
+    e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e.toLowerCase()] ?? m),
+  );
 export const plainText = (s: string) =>
-  s
-    .replace(/<\/?[a-z][^>]*>/gi, '')
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) =>
-      e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e.toLowerCase()] ?? m),
-    )
+  decodeEntities(s.replace(/<\/?[a-z][^>]*>/gi, ''))
     .replace(/\s+/g, ' ')
     .trim();
 
 // A service's error, as its own message rather than the whole JSON body.
-function errorText(text: string): string {
+export function errorText(text: string): string {
   try {
     const j = JSON.parse(text) as Record<string, unknown>;
     for (const p of ['error.detail', 'error.message', 'detail', 'message', 'error_description', 'error'])
@@ -94,7 +94,8 @@ export function shape(answer: unknown, def: HttpToolDef['response']): string {
 export function authParts(auth: AuthDef, key: string | undefined): { headers: Record<string, string>; query: Record<string, string> } {
   if (auth.type === 'none') return { headers: {}, query: {} };
   if (!key) throw new Error('This integration has no key saved. Connect it in Settings -> Connectors.');
-  if (auth.type === 'bearer') return { headers: { authorization: `Bearer ${key}` }, query: {} };
+  // A signed-in (OAuth) service gets its current access token the same way.
+  if (auth.type === 'bearer' || auth.type === 'oauth2') return { headers: { authorization: `Bearer ${key}` }, query: {} };
   if (auth.query) return { headers: {}, query: { [auth.query]: key } };
   return { headers: { [auth.header ?? 'x-api-key']: `${auth.prefix ?? ''}${key}` }, query: {} };
 }

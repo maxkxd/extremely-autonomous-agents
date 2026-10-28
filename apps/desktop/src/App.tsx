@@ -9,7 +9,7 @@ import { LiveDM } from './LiveDM';
 import { NewAgent } from './NewAgent';
 import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
-import { NEW_SESSION, agentStatuses, answerRequest, deleteAgentFiles, getLiveRequests, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
+import { NEW_SESSION, agentStatuses, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
 import { DM_HISTORY } from './dms';
 import { subscribeToDecisions } from './live';
 import {
@@ -74,7 +74,35 @@ export function App() {
   // Approvals raised while the app is open (e.g. the Fleet Engineer asking to
   // build a tool for a request), alongside the placeholder ones.
   const [raised, setRaised] = useState<Approval[]>([]);
-  const allApprovals = [...APPROVALS, ...raised];
+  // Real agents' T2 calls waiting on you (docs/runner.md), decided on the server.
+  const [liveApprovals, setLiveApprovals] = useState<Approval[]>([]);
+  // Ones you've decided leave the server's list; keep them so the tallies still know them.
+  const decidedLive = useRef(new Map<string, Approval>());
+  useEffect(() => {
+    const load = () =>
+      getLiveApprovals().then(
+        list =>
+          setLiveApprovals([
+            ...list.map(a => ({
+              id: a.id,
+              live: true,
+              agentId: a.agentId,
+              tool: a.tool,
+              // The card shows text: lists and objects as their JSON.
+              args: Object.fromEntries(Object.entries(a.args).map(([k, v]) => [k, typeof v === 'string' || typeof v === 'number' ? v : JSON.stringify(v)])),
+              minutesAgo: 0,
+              createdAt: a.createdAt,
+              expiresAt: a.expiresAt,
+            })),
+            ...[...decidedLive.current.values()].filter(d => !list.some(a => a.id === d.id)),
+          ]),
+        () => {},
+      );
+    load();
+    const t = window.setInterval(load, 4000);
+    return () => window.clearInterval(t);
+  }, []);
+  const allApprovals = [...APPROVALS, ...raised, ...liveApprovals];
   // Bumped when an agent is deleted, so everything re-reads AGENTS.
   const [, setAgentsVersion] = useState(0);
   const exists = (id?: string) => !id || AGENTS.some(a => a.id === id);
@@ -406,7 +434,24 @@ export function App() {
               pending={pending}
               scope={scope}
               agentFilter={agentFilter}
-              onDecide={(id, r) => setResolved(prev => ({ ...prev, [id]: r }))}
+              onDecide={(id, r, note) => {
+                setResolved(prev => ({ ...prev, [id]: r }));
+                // A real one: the server runs it (approved) and tells the agent.
+                // Expiry is the server's call, so the countdown running out sends nothing.
+                const live = liveApprovals.find(a => a.id === id);
+                if (live) decidedLive.current.set(id, live);
+                if (live && r !== 'expired')
+                  decideApproval(id, r, note || undefined).then(
+                    out => !out.ok && window.alert(out.result ?? 'It was approved, but running it failed.'),
+                    e => {
+                      window.alert((e as Error).message);
+                      // Not decided after all: bring the card back.
+                      decidedLive.current.delete(id);
+                      setResolved(({ [id]: _, ...rest }) => rest);
+                      setGone(({ [id]: _, ...rest }) => rest);
+                    },
+                  );
+              }}
               onGone={id => setGone(prev => ({ ...prev, [id]: true }))}
             />
           ) : view === 'requests' ? (

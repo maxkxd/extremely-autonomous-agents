@@ -19,6 +19,13 @@ export function openDb(path = FILE): DatabaseSync {
   db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  // Columns added after a store may already exist.
+  for (const sql of ['ALTER TABLE approvals ADD COLUMN note TEXT', 'ALTER TABLE approvals ADD COLUMN result TEXT'])
+    try {
+      db.exec(sql);
+    } catch {
+      // already there
+    }
   return db;
 }
 
@@ -143,7 +150,7 @@ CREATE TABLE IF NOT EXISTS approvals (
   status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected | expired
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
-  decided_at INTEGER
+  decided_at INTEGER                -- (+ note: the person's reason; result: what running it returned)
 );
 
 CREATE TABLE IF NOT EXISTS bookings (

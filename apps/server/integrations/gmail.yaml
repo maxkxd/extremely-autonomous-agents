@@ -1,0 +1,27 @@
+# Gmail - read, search, draft, label, archive and (with a person's approval) send.
+# Its tools are code (src/integrations/modules/gmail.ts): email has to be built
+# and decoded, which request templates can't do.
+# Docs: https://developers.google.com/workspace/gmail/api/reference/rest
+kind: code
+id: gmail
+name: Gmail
+what: Read, search, draft, label and archive email; sending needs your approval
+module: gmail
+auth:
+  type: oauth2
+  authorize_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  revoke_url: https://oauth2.googleapis.com/revoke
+  # One scope covers reading, labels, drafts and sending; never permanent deletion.
+  scopes: [https://www.googleapis.com/auth/gmail.modify]
+  # offline + consent: Google only returns a refresh token that way.
+  params: { access_type: offline, prompt: consent }
+  client_url: https://console.cloud.google.com/auth/clients
+  client_help: |
+    1. In Google Cloud (console.cloud.google.com), create a project, or pick one.
+    2. APIs & Services -> Library: enable the Gmail API.
+    3. Google Auth Platform -> Branding: set up the consent screen (External is fine; your email as the contact).
+    4. Audience: press Publish app. In Testing, Google ends the sign-in every 7 days.
+    5. Clients -> Create client -> Desktop app. Copy its client ID and secret here.
+    6. Signing in will warn that Google hasn't verified the app - it's yours, so Continue.
+test: { tool: gmail.list_messages, args: { query: in:inbox, max: 1 } }

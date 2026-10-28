@@ -8,8 +8,10 @@ import {
   integrationProblems,
   listIntegrations,
   removeIntegration,
+  startIntegrationSignIn,
 } from '../integrations/index.js';
 import { loadAgent } from './agent.js';
+import { decideApproval, pendingApprovals } from './approvals.js';
 import { openProfileForSignIn, profileStatus } from './browser.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
@@ -163,11 +165,25 @@ export const runnerRoutes: Record<string, Route> = {
     return { ok: true };
   },
 
+  // --- Approvals: T2 calls waiting on a person ---
+  'GET /api/runner/approvals': async () => ({ approvals: await pendingApprovals() }),
+  'POST /api/runner/approvals/decide': async (_req, _q, body) => {
+    const { id, decision, note } = await body<{ id: string; decision: 'approved' | 'rejected'; note?: string }>();
+    if (decision !== 'approved' && decision !== 'rejected') throw new Error('Approve or reject.');
+    return decideApproval(id, decision, note ?? null, book);
+  },
+
   // --- Integrations (docs/integrations.md) ---
-  'GET /api/integrations': async () => ({ integrations: listIntegrations(), problems: integrationProblems(), profile: profileStatus() }),
+  'GET /api/integrations': async () => ({ integrations: await listIntegrations(), problems: integrationProblems(), profile: profileStatus() }),
   'POST /api/integrations/connect': async (_req, _q, body) => {
     const { id, key } = await body<{ id: string; key?: string }>();
     return connectIntegration(id, key);
+  },
+  // Signing in to a service (OAuth): returns its sign-in page, which the app
+  // opens; the browser lands on /api/integrations/oauth/callback (index.ts).
+  'POST /api/integrations/sign-in': async (_req, _q, body) => {
+    const { id, clientId, clientSecret } = await body<{ id: string; clientId?: string; clientSecret?: string }>();
+    return startIntegrationSignIn(id, { clientId, clientSecret });
   },
   'POST /api/integrations/disconnect': async (_req, _q, body) => {
     const { id } = await body<{ id: string }>();

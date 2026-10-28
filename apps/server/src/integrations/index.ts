@@ -8,6 +8,8 @@ import { registerTools, type ToolDef } from '../runner/tools.js';
 import { deleteSecret, getSecret, setSecret } from '../vault.js';
 import { callHttp } from './http.js';
 import { callMcpTool, listMcpTools, type McpTool } from './mcp-client.js';
+import { MODULES } from './modules/index.js';
+import { oauthAccessToken, oauthCallback, oauthSecret, oauthSignOut, oauthStart, setOAuthAccount } from './oauth.js';
 import { Integration, type HttpIntegration, type McpIntegration } from './schema.js';
 
 // Integrations (docs/integrations.md): the ones that ship with the app
@@ -30,7 +32,12 @@ const putState = (id: string, s: State | null) => {
   setSetting(STATE_KEY, all);
 };
 const secretKey = (id: string) => `integration:${id}`;
-const keyOf = async (id: string) => (await getSecret<{ key: string }>(secretKey(id)))?.key;
+// The key, or for a signed-in (OAuth) integration its current access token.
+const keyOf = async (id: string) => {
+  const auth = find(id)?.auth;
+  if (auth?.type === 'oauth2') return oauthAccessToken(id, auth);
+  return (await getSecret<{ key: string }>(secretKey(id)))?.key;
+};
 
 let loaded: { integration: Integration; shipped: boolean }[] = [];
 let problems: { file: string; error: string }[] = [];
@@ -84,6 +91,12 @@ function providers(): Map<string, { def: Omit<ToolDef, 'impl'>; by: Provider[] }
           integration,
           call: async args => callHttp(integration, tool, args, await keyOf(integration.id)),
         });
+    } else if (integration.kind === 'code') {
+      for (const tool of MODULES[integration.module]?.tools ?? [])
+        add(tool.id, { id: tool.id, tier: tool.tier, description: tool.description, schema: tool.input }, {
+          integration,
+          call: async args => tool.run(args, await keyOf(integration.id)),
+        });
     } else {
       for (const t of states()[integration.id]?.tools ?? []) {
         const id = mcpToolId(integration, t.name);
@@ -123,6 +136,17 @@ async function test(integration: Integration): Promise<{ ok: boolean; message: s
       const tools = await listMcpTools(integration, await keyOf(integration.id));
       return { ok: true, message: `${tools.length} tool${tools.length === 1 ? '' : 's'} found`, tools };
     }
+    if (integration.kind === 'code') {
+      const mod = MODULES[integration.module];
+      if (!mod) throw new Error(`Its code ("${integration.module}") isn't part of this app.`);
+      const key = await keyOf(integration.id);
+      if (integration.auth.type === 'oauth2' && !key) throw new Error('Not signed in yet.');
+      const tool = mod.tools.find(t => t.id === integration.test.tool) ?? mod.tools[0];
+      await tool.run(integration.test.args, key);
+      const account = mod.account ? await mod.account(key) : '';
+      if (account && integration.auth.type === 'oauth2') await setOAuthAccount(integration.id, account);
+      return { ok: true, message: account ? `Connected as ${account}` : 'Connected and working' };
+    }
     const tool = integration.tools.find(t => t.id === integration.test.tool) ?? integration.tools[0];
     const out = await callHttp(integration, tool, integration.test.args, await keyOf(integration.id));
     return { ok: true, message: out === 'No results.' ? 'Connected (the test search found nothing)' : 'Connected and working' };
@@ -134,7 +158,9 @@ async function test(integration: Integration): Promise<{ ok: boolean; message: s
 export async function connectIntegration(id: string, key?: string) {
   const integration = find(id);
   if (!integration) throw new Error('Unknown integration.');
-  if (integration.auth.type !== 'none') {
+  if (integration.auth.type === 'oauth2') {
+    if (!(await oauthSecret(id))?.accessToken) throw new Error('Sign in first.');
+  } else if (integration.auth.type !== 'none') {
     const k = key?.trim().replace(/^bearer\s+/i, '');
     if (k) await setSecret(secretKey(id), { key: k });
     else if (!(await keyOf(id))) throw new Error('Paste the key first.');
@@ -152,8 +178,23 @@ export async function connectIntegration(id: string, key?: string) {
   return result;
 }
 
+// Signing in (OAuth): the person's OAuth client in, the service's sign-in page out.
+export async function startIntegrationSignIn(id: string, client: { clientId?: string; clientSecret?: string }) {
+  const integration = find(id);
+  if (integration?.auth.type !== 'oauth2') throw new Error("That integration doesn't sign in.");
+  return { url: await oauthStart(id, integration.auth, client) };
+}
+
+// The sign-in landed: test it straight away, so it's live only if it works.
+export async function finishIntegrationSignIn(q: URLSearchParams) {
+  const id = await oauthCallback(q);
+  return connectIntegration(id);
+}
+
 export async function disconnectIntegration(id: string) {
-  await deleteSecret(secretKey(id));
+  const auth = find(id)?.auth;
+  if (auth?.type === 'oauth2') await oauthSignOut(id, auth);
+  else await deleteSecret(secretKey(id));
   putState(id, null);
   register();
 }
@@ -176,28 +217,35 @@ export async function removeIntegration(id: string) {
   if (!l) return;
   if (l.shipped) throw new Error("Built-in integrations can't be removed; disconnect it instead.");
   await disconnectIntegration(id);
+  await deleteSecret(secretKey(id));
   await rm(join(ADDED, `${id}.yaml`), { force: true });
   await loadIntegrations();
 }
 
 // --- For the app and the builder ---------------------------------------------------
 
-export function listIntegrations() {
+export async function listIntegrations() {
   const st = states();
+  // Which signed-in integrations already have the person's OAuth client saved.
+  const clients = new Set<string>();
+  for (const { integration } of loaded) if (integration.auth.type === 'oauth2' && (await oauthSecret(integration.id))?.clientId) clients.add(integration.id);
   return loaded.map(({ integration, shipped }) => ({
     id: integration.id,
     name: integration.name,
     what: integration.what,
     kind: integration.kind,
     keyUrl: integration.key_url,
-    needsKey: integration.auth.type !== 'none',
+    needsKey: integration.auth.type !== 'none' && integration.auth.type !== 'oauth2',
+    signIn: integration.auth.type === 'oauth2' ? { clientUrl: integration.auth.client_url ?? null, help: integration.auth.client_help ?? null, hasClient: clients.has(integration.id) } : null,
     shipped,
     connected: !!st[integration.id]?.connectedAt,
     test: st[integration.id]?.test ?? null,
     tools:
       integration.kind === 'http'
         ? integration.tools.map(t => ({ id: t.id, tier: t.tier }))
-        : (st[integration.id]?.tools ?? []).map(t => ({ id: mcpToolId(integration, t.name), tier: mcpTier(integration, t) })),
+        : integration.kind === 'code'
+          ? (MODULES[integration.module]?.tools ?? []).map(t => ({ id: t.id, tier: t.tier }))
+          : (st[integration.id]?.tools ?? []).map(t => ({ id: mcpToolId(integration, t.name), tier: mcpTier(integration, t) })),
   }));
 }
 

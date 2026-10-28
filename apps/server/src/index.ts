@@ -12,7 +12,7 @@ import { CATALOG } from './catalog.js';
 import { addNotes, addPersonNotes, loadPerson, loadProfile, savePerson, saveProfile, type PersonProfile, type Profile } from './org.js';
 import { keepLinks, linkPeople } from './links.js';
 import { runnerRoutes } from './runner/api.js';
-import { integrationToolIds } from './integrations/index.js';
+import { finishIntegrationSignIn, integrationToolIds } from './integrations/index.js';
 import { handleMcp } from './runner/mcp.js';
 import { startScheduler } from './runner/scheduler.js';
 
@@ -142,6 +142,15 @@ const routes: Record<string, Route> = {
   },
   'GET /api/oauth/openrouter/callback': async (_req, q) => callback(() => conn.openRouterCallback(q)),
   'GET /api/oauth/chatgpt/callback': async (_req, q) => callback(() => conn.chatGptCallback(q)),
+  // An integration's sign-in (Gmail...) lands here; it's tested before it counts as connected.
+  'GET /api/integrations/oauth/callback': async (_req, q) =>
+    callback(async () => {
+      try {
+        await finishIntegrationSignIn(q);
+      } catch (e) {
+        throw e instanceof ConnectError ? e : new ConnectError(`Signed in, but the test failed: ${(e as Error).message}`);
+      }
+    }),
   'POST /api/connections/copilot/start': async () => conn.copilotStart(),
   'POST /api/connections/claude-code/check': async () => {
     await conn.claudeCodeConnect();

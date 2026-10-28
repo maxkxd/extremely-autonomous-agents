@@ -7,6 +7,9 @@ import { z } from 'zod/v4';
 //                key is sent, and what to keep from the answer
 //   kind: mcp  - a remote MCP server: its address and how to sign in; its
 //                tools are discovered from it
+//   kind: code - tools written in code (integrations/modules/), for services
+//                whose calls need more than a request template (Gmail builds
+//                and decodes email). The same contract as code plugins.
 //
 // A tool either provides one of the agency's standard tools (web.web_search:
 // several integrations can, and agents use whichever is connected) or is the
@@ -19,6 +22,19 @@ export const Auth = z.discriminatedUnion('type', [
   // The key in a header (with an optional prefix like "Bearer ") or in the query.
   z.object({ type: z.literal('api_key'), header: z.string().optional(), query: z.string().optional(), prefix: z.string().optional() }),
   z.object({ type: z.literal('bearer') }),
+  // Sign in with the service (OAuth 2, authorization code with PKCE). The
+  // person brings their own OAuth client (id and secret, made at client_url);
+  // the tokens it returns are kept in the vault and refreshed as needed.
+  z.object({
+    type: z.literal('oauth2'),
+    authorize_url: z.string().url().startsWith('https://'),
+    token_url: z.string().url().startsWith('https://'),
+    revoke_url: z.string().url().startsWith('https://').optional(), // ends the sign-in on Disconnect
+    scopes: z.array(z.string()).min(1),
+    params: z.record(z.string(), z.string()).optional(), // extra authorize params (Google: access_type=offline)
+    client_url: z.string().url().optional(), // where to make the OAuth client
+    client_help: z.string().optional(), // how to make it, in steps
+  }),
 ]);
 
 const Request = z.object({
@@ -69,10 +85,22 @@ export const Integration = z.discriminatedUnion('kind', [
     url: z.string().url(),
     tiers: z.record(z.string(), Tier).optional(), // overrides for discovered tools
   }),
+  z.object({
+    kind: z.literal('code'),
+    id: z.string().regex(/^[a-z0-9-]+$/),
+    name: z.string(),
+    what: z.string(),
+    key_url: z.string().optional(),
+    auth: Auth,
+    module: z.string().regex(/^[a-z0-9-]+$/), // integrations/modules/<module>.ts
+    test: z.object({ tool: z.string(), args: z.record(z.string(), z.unknown()) }),
+  }),
 ]);
 
 export type Integration = z.infer<typeof Integration>;
 export type HttpIntegration = Extract<Integration, { kind: 'http' }>;
 export type McpIntegration = Extract<Integration, { kind: 'mcp' }>;
+export type CodeIntegration = Extract<Integration, { kind: 'code' }>;
+export type OAuthDef = Extract<AuthDef, { type: 'oauth2' }>;
 export type HttpToolDef = z.infer<typeof HttpTool>;
 export type AuthDef = z.infer<typeof Auth>;

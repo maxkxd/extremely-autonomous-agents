@@ -151,6 +151,10 @@ Step 1 is built and tested:
   real models past it - 64 actions against a floor of 60 on Claude Code).
 - **Built-in tools**: memory, its own workspace, requests, tasks and
   handoffs, booking its next run. Natural limits, T2 queued for approval.
+- **Approvals**: a T2 call is queued with its exact arguments and the run
+  carries on. Approved on the Approvals page, it runs then and there
+  (exactly once); rejected (with your note) or expired, it never does.
+  Either way the agent gets a run to hear the outcome.
 - **Every run opens with today's date and time**: models don't know it, and
   research, dating work and "this year" need it.
 - **In the app**: real agents' cards (state, stats, ferocity, Drain/Stop,
@@ -162,9 +166,6 @@ Step 1 is built and tested:
 
 Not yet:
 
-- **Approvals** are stored when an agent calls a T2 tool, but the Approvals
-  page still shows placeholders and an approved action doesn't run yet. No
-  real T2 tool exists until the integration steps.
 - **The Conductor and the Fleet Engineer** aren't running: requests come
   straight to a person.
 - **Memory compaction** is tested with a scripted summary, not yet live.
