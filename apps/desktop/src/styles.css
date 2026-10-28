@@ -1074,7 +1074,9 @@ ul { list-style: none; margin: 0; padding: 0; }
 .pack-add:not(:disabled):hover { background: var(--surface-hover); }
 
 .pack.custom { border-style: dashed; border-color: var(--border-strong); background: rgba(255, 255, 255, 0.015); }
-.pack.custom .pack-body { justify-content: center; align-items: flex-start; }
+/* Centred a little ABOVE the true middle: dead-centre content reads as low
+   (and the button at the bottom weighs it down further). */
+.pack.custom .pack-body { justify-content: center; align-items: flex-start; padding-top: 24px; padding-bottom: 72px; }
 .custom-mark {
   width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 4px;
   color: var(--text); background: var(--surface-hover); border: 1px solid var(--border);
