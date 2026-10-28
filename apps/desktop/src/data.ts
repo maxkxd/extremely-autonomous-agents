@@ -457,6 +457,7 @@ export type ResourceRequest = {
   liveThread?: { from: 'you' | 'engineer'; text: string }[];
   stage?: 'engineer' | 'waiting_you' | 'approval' | 'person' | null;
   busy?: boolean; // the engineer is running right now
+  approvalId?: string | null; // the approval it waits on, to go straight to
   summary: string; // one sentence: what the agent needs
   detail: string; // the agent's fuller explanation
   minutesAgo: number;

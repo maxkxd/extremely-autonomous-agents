@@ -362,6 +362,8 @@ const TOOLS: ToolDef[] = [
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
       const p = await publishPreview(String(a.integration_id));
       setStage(Number(a.request_id), 'approval');
+      // Said on the request every time, so the person knows it's their move.
+      postToRequest(Number(a.request_id), 'engineer', `${p.name} is tested and ready. It goes live for ${await nameOf(String(a.for_agent))} when you approve it on the Approvals page.`);
       return {
         name: p.name,
         for_agent_name: await nameOf(String(a.for_agent)),
@@ -408,6 +410,7 @@ const TOOLS: ToolDef[] = [
       openRequest(a.request_id);
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
       setStage(Number(a.request_id), 'approval');
+      postToRequest(Number(a.request_id), 'engineer', `${await nameOf(String(a.for_agent))} gets these tools when you approve it on the Approvals page.`);
       return { for_agent_name: await nameOf(String(a.for_agent)), tools_list: ((a.tools as { id: string; tier: string }[]) ?? []).map(t => `${t.id} (${t.tier})`).join(', ') };
     },
     impl: async a => {

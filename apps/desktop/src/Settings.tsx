@@ -40,10 +40,12 @@ export function Settings({
   onClose,
   onOrgChange,
   onLogOut,
+  onOpenApproval,
 }: {
   section: SettingsSection;
   onSection: (s: SettingsSection) => void;
   onClose: () => void;
+  onOpenApproval: (id: string) => void; // a draft's Approve: to its approval
   onOrgChange: () => void; // the account just became an organization
   onLogOut: () => void;
 }) {
@@ -80,7 +82,7 @@ export function Settings({
           {section === 'account' && <AccountSection />}
           {section === 'organization' && <OrganizationSection onOrgChange={onOrgChange} chatOpen={chatOpen} />}
           {section === 'usage' && <UsageSection />}
-          {section === 'connectors' && <ConnectorsSection />}
+          {section === 'connectors' && <ConnectorsSection onOpenApproval={onOpenApproval} />}
         </div>
       </div>
     </div>
@@ -734,13 +736,13 @@ function CapInput({ value, onSave, label }: { value: number | null; onSave: (v: 
 
 // --- Connectors --------------------------------------------------------------
 
-function ConnectorsSection() {
+function ConnectorsSection({ onOpenApproval }: { onOpenApproval: (id: string) => void }) {
   return (
     <section className="ssection">
       <h2>Connectors</h2>
       <p className="slead">Keys and sign-ins go here - never in a chat with an agent.</p>
       <ModelConnectors />
-      <Integrations />
+      <Integrations onOpenApproval={onOpenApproval} />
     </section>
   );
 }

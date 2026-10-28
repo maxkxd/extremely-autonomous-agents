@@ -246,6 +246,7 @@ export type LiveRequest = {
   created_at: number;
   thread: { from: 'you' | 'engineer'; text: string; at: number }[];
   engineerBusy: boolean;
+  approvalId: string | null;
 };
 export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
 export const answerRequest = (id: number, status: 'done' | 'rejected', answer: string) =>
@@ -269,6 +270,7 @@ export type IntegrationView = {
   shipped: boolean;
   connected: boolean;
   draft: boolean; // the Fleet Engineer's, not live until approved
+  approvalId: string | null; // its go-live, waiting on you
   by: string | null;
   test: { ok: boolean; at: number; message: string } | null;
   tools: { id: string; tier: string }[];

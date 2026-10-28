@@ -131,6 +131,9 @@ export function App() {
     return id;
   };
   const [scope, setScope] = useState<ApprovalScope>('mine');
+  // Going to one approval (from a request, or a draft in Settings): it's
+  // centred on the Approvals page and glows blue for a moment.
+  const [focusApproval, setFocusApproval] = useState<string | null>(null);
   const [agentFilterRaw, setAgentFilter] = useState<string | null>(null);
   // A filter on an agent with nothing left in scope falls back to all agents.
   const agentFilter =
@@ -198,6 +201,7 @@ export function App() {
                 liveThread: r.thread.map(m => ({ from: m.from, text: m.text })),
                 stage: r.stage,
                 busy: r.engineerBusy,
+                approvalId: r.approvalId,
                 engineer: {
                   plan: '',
                   build: { toolName: '', does: '', access: '' },
@@ -299,6 +303,16 @@ export function App() {
   // Settings (a pop-up over the app), and signing out. There's no real sign-in
   // yet, so signing out just shows the signed-out screen.
   const [settings, setSettings] = useState<SettingsSection | null>(null);
+  const openApproval = (id?: string | null) => {
+    const ap = id ? pending.find(a => a.id === id) : undefined;
+    if (ap) {
+      if (!visibleApprovals([ap], scope).length) setScope('all');
+      setAgentFilter(null);
+      setFocusApproval(ap.id);
+    }
+    setSettings(null);
+    setView('approvals');
+  };
   const [signedOut, setSignedOut] = useState(false);
   const [, setOrgTick] = useState(0);
 
@@ -468,6 +482,8 @@ export function App() {
               pending={pending}
               scope={scope}
               agentFilter={agentFilter}
+              focus={focusApproval}
+              onFocused={() => setFocusApproval(null)}
               onDecide={(id, r, note) => {
                 setResolved(prev => ({ ...prev, [id]: r }));
                 // A real one: the server runs it (approved) and tells the agent.
@@ -501,7 +517,7 @@ export function App() {
               onGone={id => setRequestGone(prev => ({ ...prev, [id]: true }))}
               onProposeBuild={proposeBuild}
               approvalOutcomes={resolved}
-              onOpenApprovals={() => setView('approvals')}
+              onOpenApprovals={openApproval}
               convos={convos}
               updateConvo={updateConvo}
             />
@@ -531,6 +547,7 @@ export function App() {
           section={settings}
           onSection={setSettings}
           onClose={() => setSettings(null)}
+          onOpenApproval={openApproval}
           onOrgChange={() => setOrgTick(t => t + 1)}
           onLogOut={() => {
             setSettings(null);

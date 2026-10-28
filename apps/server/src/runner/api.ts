@@ -154,10 +154,17 @@ export const runnerRoutes: Record<string, Route> = {
       'SELECT id, agent_id, run_id, what, why, evidence, expected_effect, status, stage, answer, created_at, answered_at FROM requests ORDER BY created_at DESC',
     );
     const messages = all<{ request_id: number; from_who: string; text: string; at: number }>('SELECT request_id, from_who, text, at FROM request_messages ORDER BY id');
+    // The approval a request waits on (the Fleet Engineer's go-live), to go straight to.
+    const waiting = all<{ id: string; request: number }>(
+      "SELECT id, json_extract(args, '$.request_id') AS request FROM approvals WHERE status = 'pending' AND expires_at > ? AND agent_id = ?",
+      Date.now(),
+      FLEET_ENGINEER,
+    );
     return rows.map(r => ({
       ...r,
       thread: messages.filter(m => m.request_id === r.id).map(m => ({ from: m.from_who === 'you' ? 'you' : 'engineer', text: m.text, at: m.at })),
       engineerBusy: r.stage === 'engineer' && isRunning(FLEET_ENGINEER),
+      approvalId: waiting.find(w => Number(w.request) === r.id)?.id ?? null,
     }));
   },
 

@@ -35,6 +35,8 @@ function Countdown({ deadline, onExpire }: { deadline: number; onExpire: () => v
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const sec = String(total % 60).padStart(2, '0');
+  // A day or more (the Fleet Engineer's week-long ones): days and hours is enough.
+  if (h >= 24) return <>{`${Math.floor(h / 24)}d ${h % 24}h`}</>;
   return <>{h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`}</>;
 }
 
@@ -202,9 +204,13 @@ const COLLAPSE_MS = 240; // the gap closing behind it
 function ApprovalCard({
   approval,
   showOwner,
+  spotlight,
+  onFocused,
   onDecide,
   onGone,
 }: {
+  spotlight: boolean; // you came here for this one - centre it and glow
+  onFocused: () => void;
   approval: Approval;
   showOwner: boolean; // the admin Everyone view tags every card, yours included
   onDecide: (r: Resolution, note: string) => void; // the moment it's decided - counters react now
@@ -218,6 +224,17 @@ function ApprovalCard({
   const [reason, setReason] = useState('');
   const [leaving, setLeaving] = useState<Resolution | null>(null);
   const [collapsing, setCollapsing] = useState(false);
+  // Arriving for this one (Open Approvals, a draft's Approve): scroll it to the
+  // middle, then glow blue for a moment.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [spotlit, setSpotlit] = useState(false);
+  useEffect(() => {
+    if (!spotlight) return;
+    wrapRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setSpotlit(true);
+    onFocused(); // clears `spotlight` straight away, so the glow's timer isn't tied to it
+    setTimeout(() => setSpotlit(false), 2600);
+  }, [spotlight]);
 
   // Exit: approve glows green and flies right, reject turns red and flies left
   // (EXIT_MS, CSS keyframes). Then the empty slot closes (COLLAPSE_MS) so the
@@ -232,8 +249,8 @@ function ApprovalCard({
   };
 
   return (
-    <div className={`approval-wrap${collapsing ? ' collapsing' : ''}`}>
-      <article className={`approval${leaving ? ` leaving ${leaving}` : ''}${approval.paused && !leaving ? ' paused' : ''}`}>
+    <div ref={wrapRef} className={`approval-wrap${collapsing ? ' collapsing' : ''}`}>
+      <article className={`approval${leaving ? ` leaving ${leaving}` : spotlit ? ' spotlit' : ''}${approval.paused && !leaving ? ' paused' : ''}`}>
         <div className="approval-avatar" aria-hidden>
           <DeptIcon size={18} strokeWidth={1.75} />
         </div>
@@ -328,12 +345,16 @@ export function Approvals({
   pending,
   scope,
   agentFilter,
+  focus = null,
+  onFocused = () => {},
   onDecide,
   onGone,
 }: {
   pending: Approval[];
   scope: ApprovalScope;
   agentFilter: string | null;
+  focus?: string | null; // the approval to centre and glow
+  onFocused?: () => void;
   onDecide: (id: string, r: Resolution, note: string) => void;
   onGone: (id: string) => void;
 }) {
@@ -355,6 +376,8 @@ export function Approvals({
         <ApprovalCard
           key={a.id}
           approval={a}
+          spotlight={a.id === focus}
+          onFocused={onFocused}
           showOwner={!!ACCOUNT.org && scope === 'all'}
           onDecide={(r, note) => onDecide(a.id, r, note)}
           onGone={() => onGone(a.id)}

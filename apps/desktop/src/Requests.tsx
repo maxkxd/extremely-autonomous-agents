@@ -161,7 +161,7 @@ function RequestRow({
   onGone: () => void;
   onProposeBuild: () => string; // raises the build approval, returns its id
   approvalOutcomes: Record<string, Resolution>;
-  onOpenApprovals: () => void;
+  onOpenApprovals: (approvalId?: string | null) => void; // takes you to that approval
   convo: Convo;
   updateConvo: (fn: (c: Convo) => Convo) => void;
 }) {
@@ -341,7 +341,7 @@ function RequestRow({
                   </div>
                 )}
                 {waitingOnApproval && (
-                  <button className="rq-btn open-approvals" onClick={onOpenApprovals}>
+                  <button className="rq-btn open-approvals" onClick={() => onOpenApprovals(request.approvalId ?? buildApproval)}>
                     Open Approvals
                   </button>
                 )}
@@ -485,7 +485,7 @@ export function Requests({
   onGone: (id: string) => void;
   onProposeBuild: (r: ResourceRequest) => string;
   approvalOutcomes: Record<string, Resolution>;
-  onOpenApprovals: () => void;
+  onOpenApprovals: (approvalId?: string | null) => void;
   convos: Record<string, Convo>;
   updateConvo: (id: string, fn: (c: Convo) => Convo) => void;
 }) {
