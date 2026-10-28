@@ -4,29 +4,25 @@ import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
 import { useElasticScroll } from './useElasticScroll';
-import { AgentDM, stamp, type StampedEntry } from './AgentDM';
 import { LiveDM } from './LiveDM';
 import { NewAgent } from './NewAgent';
 import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
 import { NEW_SESSION, agentStatuses, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
-import { DM_HISTORY } from './dms';
 import { subscribeToDecisions } from './live';
 import {
   ACCOUNT,
   AGENTS,
   addAgent,
+  forgetAgent,
   removeAgent,
   updateAgent,
-  APPROVALS,
-  DECIDED_EARLIER_TODAY,
-  REQUESTS,
   type Approval,
   type Decisions,
   type ResourceRequest,
   type TimeRange,
 } from './data';
-import { Requests, startConvo, type Convo, type RequestResolution } from './Requests';
+import { Requests, type RequestResolution } from './Requests';
 import {
   Approvals,
   ApprovalsToolbar,
@@ -71,9 +67,6 @@ export function App() {
   // straight away); `gone` drops the card once its exit animation has played.
   const [resolved, setResolved] = useState<Record<string, Resolution>>({});
   const [gone, setGone] = useState<Record<string, true>>({});
-  // Approvals raised while the app is open (e.g. the Fleet Engineer asking to
-  // build a tool for a request), alongside the placeholder ones.
-  const [raised, setRaised] = useState<Approval[]>([]);
   // Real agents' T2 calls waiting on you (docs/runner.md), decided on the server.
   const [liveApprovals, setLiveApprovals] = useState<Approval[]>([]);
   // Ones you've decided leave the server's list; keep them so the tallies still know them.
@@ -107,30 +100,11 @@ export function App() {
     const t = window.setInterval(load, 4000);
     return () => window.clearInterval(t);
   }, []);
-  const allApprovals = [...APPROVALS, ...raised, ...liveApprovals];
+  const allApprovals = liveApprovals;
   // Bumped when an agent is deleted, so everything re-reads AGENTS.
   const [, setAgentsVersion] = useState(0);
   const exists = (id?: string) => !id || AGENTS.some(a => a.id === id);
   const pending = allApprovals.filter(a => !gone[a.id] && exists(a.agentId) && exists(a.forAgentId));
-  // The Fleet Engineer wants to build the tool it designed for a request: that
-  // is a human approval, owned by the requesting agent's owner. Returns its id.
-  const proposeBuild = (req: ResourceRequest) => {
-    const id = `ap-build-${req.id}-${Date.now()}`;
-    const forAgent = AGENTS.find(a => a.id === req.agentId)!;
-    setRaised(prev => [
-      ...prev,
-      {
-        id,
-        agentId: 'fleet',
-        forAgentId: req.agentId,
-        tool: 'tool.build',
-        args: { forAgent: forAgent.name, ...req.engineer.build },
-        minutesAgo: 0,
-        createdAt: Date.now(),
-      },
-    ]);
-    return id;
-  };
   const [scope, setScope] = useState<ApprovalScope>('mine');
   // Going to one approval (from a request, or a draft in Settings): it's
   // centred on the Approvals page and glows blue for a moment.
@@ -175,13 +149,13 @@ export function App() {
   // Today's tally on Approvals is only YOUR decisions.
   const decidedToday = Object.values(sessionDecisions).reduce(
     (t, d) => ({ approved: t.approved + d.approved, rejected: t.rejected + d.rejected }),
-    DECIDED_EARLIER_TODAY,
+    { approved: 0, rejected: 0 },
   );
   // Requests: same shape as approvals - decided on click, removed after the exit.
   const [, setRequestResolved] = useState<Record<string, RequestResolution>>({});
   const [requestGone, setRequestGone] = useState<Record<string, true>>({});
-  // Requests real agents filed. The Fleet Engineer isn't running yet, so they
-  // come straight to you; your DIY note or reason is the agent's answer.
+  // Requests agents filed, with their Fleet Engineer conversations. Your DIY
+  // note or reason is the agent's answer.
   const [liveRequests, setLiveRequests] = useState<ResourceRequest[]>([]);
   useEffect(() => {
     const load = () =>
@@ -203,11 +177,6 @@ export function App() {
                 stage: r.stage,
                 busy: r.engineerBusy,
                 approvalId: r.approvalId,
-                engineer: {
-                  plan: '',
-                  build: { toolName: '', does: '', access: '' },
-                  done: '',
-                },
               })),
           ),
         () => {},
@@ -216,55 +185,15 @@ export function App() {
     const t = window.setInterval(load, 5000);
     return () => window.clearInterval(t);
   }, []);
-  const pendingRequests = [...REQUESTS, ...liveRequests].filter(r => !requestGone[r.id] && exists(r.agentId));
+  const pendingRequests = liveRequests.filter(r => !requestGone[r.id] && exists(r.agentId));
   const [requestScope, setRequestScope] = useState<ApprovalScope>('mine');
   const [requestFilterRaw, setRequestFilter] = useState<string | null>(null);
   const requestFilter =
     requestFilterRaw && visibleApprovals(pendingRequests, requestScope).some(r => r.agentId === requestFilterRaw)
       ? requestFilterRaw
       : null;
-  const [convos, setConvos] = useState<Record<string, Convo>>({});
-  const updateConvo = (id: string, fn: (c: Convo) => Convo) =>
-    setConvos(prev => ({ ...prev, [id]: fn(prev[id] ?? startConvo([...REQUESTS, ...liveRequests].find(r => r.id === id)!)) }));
   const requestCounts: Record<string, number> = {};
   for (const r of pendingRequests) requestCounts[r.agentId] = (requestCounts[r.agentId] ?? 0) + 1;
-  // Agent DMs: history plus anything sent this session, per agent. Kept here
-  // so a pending reply still lands if you switch away mid-run.
-  const [dms, setDms] = useState<Record<string, StampedEntry[]>>(() =>
-    Object.fromEntries(Object.entries(DM_HISTORY).map(([id, list]) => [id, list.map(e => stamp(e))])),
-  );
-  const [dmRunning, setDmRunning] = useState<Record<string, boolean>>({});
-  // PLACEHOLDER: your message wakes the agent; a run later posts its reply in
-  // the same channel. Simulated until real agents exist.
-  const sendDm = (agentId: string, text: string) => {
-    setDms(prev => ({ ...prev, [agentId]: [...(prev[agentId] ?? []), stamp({ kind: 'you', minutesAgo: 0, text }, Date.now())] }));
-    setDmRunning(prev => ({ ...prev, [agentId]: true }));
-    // Still being set up: it answers once it's ready (see the set-up poll below).
-    if (AGENTS.find(a => a.id === agentId)?.settingUp) heldDms.current.add(agentId);
-    else answerDm(agentId);
-  };
-  const heldDms = useRef(new Set<string>());
-  const answerDm = (agentId: string) => {
-    const name = AGENTS.find(a => a.id === agentId)?.name ?? 'This agent';
-    window.setTimeout(() => {
-      const reply = stamp(
-        {
-          kind: 'run',
-          id: Math.random().toString(16).slice(2, 6),
-          minutesAgo: 0,
-          trigger: 'your message',
-          outcome: 'succeeded',
-          cost: 0.02,
-          seconds: 3,
-          text: `(Simulated) This is where ${name} answers you. Replies to questions asked here always come back here.`,
-          tools: [],
-        },
-        Date.now(),
-      );
-      setDms(prev => ({ ...prev, [agentId]: [...(prev[agentId] ?? []), reply] }));
-      setDmRunning(prev => ({ ...prev, [agentId]: false }));
-    }, 2400);
-  };
   // Agents the runner actually runs (they have files on the server): their DM
   // channels are real. Checked on start and whenever agents come or go.
   // The server's agents are the fleet: one made anywhere else (another device,
@@ -289,6 +218,11 @@ export function App() {
             ferocity: 0,
             settingUp: a.status === 'setting-up' || undefined,
           });
+          added = true;
+        }
+        // Ones this browser kept that the server doesn't have aren't agents.
+        for (const a of [...AGENTS]) if (!(a.id in s)) {
+          forgetAgent(a.id);
           added = true;
         }
         setRealIds(new Set(Object.keys(s)));
@@ -370,7 +304,6 @@ export function App() {
         if (!a.settingUp || !s || s.status === 'setting-up') continue;
         updateAgent(a.id, { settingUp: false, output: outputSlices(s.output) });
         changed = true;
-        if (heldDms.current.delete(a.id)) answerDm(a.id);
       }
       if (changed) setAgentsTick(t => t + 1);
     };
@@ -516,11 +449,7 @@ export function App() {
                 if (live) answerRequest(live, r === 'rejected' ? 'rejected' : 'done', note).catch(() => {});
               }}
               onGone={id => setRequestGone(prev => ({ ...prev, [id]: true }))}
-              onProposeBuild={proposeBuild}
-              approvalOutcomes={resolved}
               onOpenApprovals={openApproval}
-              convos={convos}
-              updateConvo={updateConvo}
             />
           ) : view === 'new-agent' ? (
             <NewAgent
@@ -528,16 +457,8 @@ export function App() {
               setSession={setBuilder}
               onBuilt={built => setReveal({ built, leaving: false, error: null })}
             />
-          ) : view.startsWith('agent:') && realIds.has(view.slice('agent:'.length)) ? (
-            <LiveDM key={view} agentId={view.slice('agent:'.length)} approvalOutcomes={resolved} />
           ) : view.startsWith('agent:') ? (
-            <AgentDM
-              agentId={view.slice('agent:'.length)}
-              entries={dms[view.slice('agent:'.length)] ?? []}
-              thinking={!!dmRunning[view.slice('agent:'.length)]}
-              onSend={text => sendDm(view.slice('agent:'.length), text)}
-              approvalOutcomes={resolved}
-            />
+            <LiveDM key={view} agentId={view.slice('agent:'.length)} approvalOutcomes={resolved} />
           ) : (
             <div className="main-empty">Coming next.</div>
           )}
