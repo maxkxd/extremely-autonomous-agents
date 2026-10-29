@@ -9,7 +9,7 @@ import { availableModels, nativeEffortSync } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';
 import type { ModelChoice } from '../models/choice.js';
-import { loadAgent, type AgentDef } from './agent.js';
+import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals } from './approvals.js';
 import { all, one, run as exec } from './db.js';
 import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, scheduledDue } from './ferocity.js';
@@ -51,6 +51,19 @@ export const liveDeps: RunDeps = {
   compact: true,
 };
 
+// The Fleet Engineer's queued runs for requests that have since closed (turned
+// down, handed over, or their agent deleted): dropped, not run - a whole run
+// just to find the request gone.
+export function dropStaleRequestRuns() {
+  const queued = all<{ id: number; task: string | null }>("SELECT id, task FROM bookings WHERE agent_id = ? AND trigger IN ('request', 'request reply', 'connected')", FLEET_ENGINEER);
+  for (const b of queued) {
+    const request = Number(/request #(\d+)/i.exec(b.task ?? '')?.[1]);
+    if (!request) continue;
+    const open = one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE id = ? AND status = 'open'", request)?.n;
+    if (!open) exec('DELETE FROM bookings WHERE id = ?', b.id);
+  }
+}
+
 // A run to start as soon as it can (handoffs, your messages, Run now).
 export function book(agentId: string, trigger: Trigger, task: string | null, dueAt = Date.now()) {
   exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, ?, ?, ?, ?)', agentId, trigger, task, dueAt, Date.now());
@@ -69,6 +82,7 @@ export async function tick(deps: RunDeps = liveDeps) {
     await fillBuiltInModels().catch(() => {});
     const now = deps.now();
     expireApprovals(now, book);
+    dropStaleRequestRuns();
     for (const id of await listIds()) {
       if (running.size >= MAX_PARALLEL) break;
       if (running.has(id)) continue;

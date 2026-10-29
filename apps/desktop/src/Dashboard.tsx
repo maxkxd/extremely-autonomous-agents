@@ -529,6 +529,26 @@ export function Dashboard({
     getAgentModels().then(setModelChoices, () => {});
     getAvailableModels().then(setAvailable, () => {});
   }, [arrivingIds.join(',')]);
+  // Kept in step with the server too: a pack's tailoring picks an agent's models
+  // after its card is up, and the server gives built-ins theirs. One you just
+  // changed here keeps your pick while it saves.
+  const modelsSetAt = useRef<Record<string, number>>({});
+  useEffect(() => {
+    const t = window.setInterval(
+      () =>
+        getAgentModels().then(
+          all =>
+            setModelChoices(prev => {
+              const next = { ...all };
+              for (const [id, at] of Object.entries(modelsSetAt.current)) if (Date.now() - at < 6000) next[id] = prev[id] ?? [];
+              return next;
+            }),
+          () => {},
+        ),
+      8000,
+    );
+    return () => window.clearInterval(t);
+  }, []);
   const { checks, check } = useModelChecks(Object.values(modelChoices).flat(), setAvailable);
   // Real agents' state and stats from the runner, refreshed every few seconds.
   const [live, setLive] = useState<Record<string, LiveAgent>>({});
@@ -561,6 +581,7 @@ export function Dashboard({
     };
   };
   const changeModels = (id: string, next: ModelChoice[]) => {
+    modelsSetAt.current[id] = Date.now();
     setModelChoices(prev => ({ ...prev, [id]: next }));
     setAgentModels(id, next).catch(() => {});
   };
