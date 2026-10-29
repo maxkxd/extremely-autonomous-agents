@@ -6,7 +6,7 @@ import type { Tier } from '../catalog.js';
 import { all, getSetting, setSetting } from '../runner/db.js';
 import { registerTools, type ToolDef } from '../runner/tools.js';
 import { deleteSecret, getSecret, setSecret } from '../vault.js';
-import { callHttp } from './http.js';
+import { authParts, callHttp } from './http.js';
 import { callMcpTool, listMcpTools, type McpTool } from './mcp-client.js';
 import { MODULES, type CodeModule } from './modules/index.js';
 import { codeHash, dropPluginBackup, installPlugin, pluginModule, readPlugin, readPluginBackup, removePlugin, restorePlugin } from './plugins.js';
@@ -537,6 +537,49 @@ export async function testIntegrationTool(id: string, toolId: string, args: Reco
   const p = providers().get(toolId)?.by.find(x => x.integration.id === id);
   if (!p) throw new Error(`${integration.name} has no tool "${toolId}". Its tools: ${toolsOf(id).map(([t]) => t).join(', ') || 'none found yet'}.`);
   return p.call(args);
+}
+
+// Where an integration sends its key: its base_url or server, or the https
+// hosts a code plugin's source names.
+async function keyHosts(integration: Integration): Promise<Set<string>> {
+  if (integration.kind === 'http') return new Set([new URL(integration.base_url).host]);
+  if (integration.kind === 'mcp') return new Set(integration.url ? [new URL(integration.url).host] : []);
+  const code = MODULES[integration.module]
+    ? await readFile(join(HERE, 'modules', `${integration.module}.ts`), 'utf8').catch(() => '')
+    : (await readPlugin(integration.module)) ?? '';
+  return new Set([...code.matchAll(/https:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi)].map(m => m[1].toLowerCase()));
+}
+
+// One request with an integration's stored key, sent the way the integration
+// sends it (the engineer separating "the key is refused" from "the tool is
+// wrong"). Only to the integration's own hosts, no redirects; reads, or a POST
+// or PATCH with an empty body, which an API rejects as invalid rather than acting on.
+// The key is never shown.
+export async function checkKey(id: string, method: string, url: string): Promise<string> {
+  const integration = find(id);
+  if (!integration) throw new Error(`No integration "${id}".`);
+  if (integration.auth.type === 'none') throw new Error(`${integration.name} takes no key.`);
+  const key = await keyOf(id);
+  if (!key) throw new Error(`${integration.name} has no key stored: it isn't connected.`);
+  const m = method.toUpperCase();
+  if (!['GET', 'HEAD', 'POST', 'PATCH'].includes(m)) throw new Error('Method must be GET, HEAD, POST or PATCH.');
+  const target = new URL(url);
+  const hosts = await keyHosts(integration);
+  if (target.protocol !== 'https:' || !hosts.has(target.host))
+    throw new Error(`The key only goes where ${integration.name} sends it: https://${[...hosts].join(', https://') || '(nowhere found)'}.`);
+  const { headers, query } = authParts(integration.auth, key);
+  for (const [k, v] of Object.entries(query)) target.searchParams.set(k, v);
+  const write = m !== 'GET' && m !== 'HEAD';
+  const { res } = await safeFetch(target.toString(), {
+    method: m,
+    headers: { accept: 'application/json', 'user-agent': 'eaa-agency-engineer', ...(write ? { 'content-type': 'application/json' } : {}), ...headers },
+    body: write ? '{}' : undefined,
+    maxRedirects: 0,
+  });
+  const body = (await res.text()).split(key).join('[key]').replace(/\s+/g, ' ').slice(0, 1500);
+  const hints = [...res.headers].filter(([k]) => /scope|permission|www-authenticate|accepted/i.test(k)).map(([k, v]) => `${k}: ${v}`);
+  for (const k of Object.keys(query)) target.searchParams.set(k, '[key]');
+  return [`${m} ${target} -> HTTP ${res.status}`, ...hints, body].filter(Boolean).join('\n');
 }
 
 // What a person approves when a draft goes live: the definition, and a plugin's code.
