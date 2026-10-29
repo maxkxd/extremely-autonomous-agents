@@ -95,7 +95,7 @@ test("the engineer can't add an MCP server that runs on this computer", async ()
   await assert.rejects(writeDraftIntegration('kind: mcp\nid: zz-local\nname: L\nwhat: x\nauth: { type: none }\nurl: http://localhost:3000/mcp\nlocal: true\n', 'fleet'), /only be added by a person/);
 });
 
-test('a turned-down draft is discarded with its plugin code; one that has been live is not', async () => {
+test('a turned-down draft is discarded with its plugin code; a redraft of a live one keeps the live one working, then puts it back', async () => {
   const id = 'zz-test-discard';
   const mod = 'zz-test-discard-plugin';
   await writePlugin(mod, PLUGIN('bye'));
@@ -109,10 +109,21 @@ test('a turned-down draft is discarded with its plugin code; one that has been l
   // The first test made this one live: a turned-down redraft puts the live version back.
   await writePlugin(MOD, PLUGIN('rewritten'));
   await writeDraftIntegration(DEF.replace('name: ZZ Test', 'name: ZZ Test v2'), 'fleet', 7);
-  assert.equal(integrationToolIds().includes('zztest.echo'), false);
+  // Meanwhile agents keep the live version; the new code can't be tried before approval.
+  assert.equal(integrationToolIds().includes('zztest.echo'), true);
+  await assert.rejects(testIntegrationTool(ID, 'zztest.echo', { x: 1 }), /only after a person approves/);
+  await loadIntegrations(); // a restart mid-redraft still loads the live code
+  assert.equal(integrationToolIds().includes('zztest.echo'), true);
   assert.equal(await discardDraft(ID), true);
   const back = (await listIntegrations()).find(i => i.id === ID)!;
   assert.equal(back.draft, false);
   assert.equal(back.name, 'ZZ Test');
   assert.equal(await testIntegrationTool(ID, 'zztest.echo', { x: 'again' }), 'hello:again');
+
+  // Approved instead: the new code replaces the live one.
+  await writePlugin(MOD, PLUGIN('v2'));
+  await writeDraftIntegration(DEF, 'fleet', 7);
+  const preview = await publishPreview(ID);
+  await publishIntegration(ID, preview.codeHash);
+  assert.equal(await testIntegrationTool(ID, 'zztest.echo', { x: 'new' }), 'v2:new');
 });
