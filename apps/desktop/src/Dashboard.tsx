@@ -319,8 +319,9 @@ export function AgentCard({
             <h2>{agent.name}</h2>
             <span className="head-tags">
             {/* The whole agency stopped: every card says so (set-up waits too), and
-                goes back to Setting up when it's resumed. */}
-            {agencyStopped ? (
+                goes back to Setting up when it's resumed. The new-agent reveal shows
+                neither: it's the agent as it'll be. */}
+            {preview ? null : agencyStopped ? (
               <span className="state-pill stopped">Stopped</span>
             ) : (
               agent.settingUp && (
