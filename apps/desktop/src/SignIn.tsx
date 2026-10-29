@@ -16,6 +16,17 @@ const Mark = ({ icon }: { icon: SimpleIcon }) => (
   </svg>
 );
 
+// The logo over the title (as on extremely.agency, extremely-agency-site/logo.svg).
+const Head = ({ title }: { title: string }) => (
+  <div className="signin-head">
+    <svg className="signin-logo" viewBox="-42 0 164 96" aria-hidden>
+      <polygon fill="#3f7bd6" points="2,32 56,50 2,68 24,50" />
+      <polygon fill="#e5484d" points="-40,8 120,44 44,78 78,50" />
+    </svg>
+    <h2 id="signin-title">{title}</h2>
+  </div>
+);
+
 const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 // The dialog, from the button's place and size to its own, or back.
 function grow(box: HTMLElement, from: DOMRect, back = false) {
@@ -93,7 +104,7 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
     return (
       <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && onCancel()}>
         <div ref={box} className={`confirm signin${from ? ' grows' : ''}`} role="dialog" aria-labelledby="signin-title">
-          <h2 id="signin-title">Sign in</h2>
+          <Head title="Sign in" />
           <p>Can't reach sign-in right now. Your own agency works without it.</p>
           <div className="confirm-actions">
             <button className="confirm-cancel" onClick={onCancel}>
@@ -116,7 +127,7 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
           if (!busy) submit();
         }}
       >
-        <h2 id="signin-title">{finish ? 'Check your email' : mode === 'up' ? 'Sign up' : 'Sign in'}</h2>
+        <Head title={finish ? 'Check your email' : mode === 'up' ? 'Sign up' : 'Sign in'} />
         {finish ? (
           <>
             <p>A code went to {email.trim()}.</p>
