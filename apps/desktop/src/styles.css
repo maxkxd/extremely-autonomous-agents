@@ -184,8 +184,9 @@ ul { list-style: none; margin: 0; padding: 0; }
    height beside them instead of starting below a header row. */
 .card-main { flex: 1; min-width: 0; padding: 18px 22px 18px 32px; display: flex; gap: 20px; --donut: 284px; }
 /* Fixed width so every card's pies line up; long names wrap. */
-.card-head { flex-shrink: 0; width: 380px; }
-.card-head .card-name { flex-wrap: wrap; row-gap: 4px; }
+.card-head { flex-shrink: 0; width: 420px; }
+.card-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.card-head .card-title { flex-wrap: wrap; row-gap: 4px; }
 .card-name { display: flex; align-items: center; gap: 10px; }
 .card-name h2 { margin: 0; font-size: 19px; font-weight: 600; }
 .head-tags { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
@@ -354,7 +355,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 @container (max-width: 1080px) {
   .card-main { flex-direction: column; gap: 14px; }
   .card-head { width: auto; }
-  .card-head .card-name { flex-wrap: nowrap; }
+  .card-head .card-title { flex-wrap: nowrap; }
 }
 /* Narrow: the side panel drops below the pies. */
 @container (max-width: 720px) {
