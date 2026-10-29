@@ -20,7 +20,8 @@ import {
   Gauge,
   LogOut,
 } from 'lucide-react';
-import { ACCOUNT, AGENTS, ORGANIZATIONS, type Department } from './data';
+import { ACCOUNT, AGENTS, type Department } from './data';
+import { currentOrg, ownOrg, state, switchAgency, teamOrgs } from './account';
 import { useDismiss } from './useDismiss';
 import { usePhoto } from './photo';
 import type { SettingsSection } from './Settings';
@@ -59,12 +60,14 @@ function MyAvatar({ size }: { size: number }) {
   return <img className="avatar" src={photo} alt="" style={{ width: size, height: size, objectFit: 'cover' }} />;
 }
 
-// Switching orgs is UI only for now; "New organization" opens Settings.
-function OrgPicker({ initial, onNew }: { initial: string; onNew: () => void }) {
+// Your own agency and each organisation you're in; picking one starts the app
+// in it. "New organization" (or joining one) opens Settings.
+function OrgPicker({ onNew }: { onNew: () => void }) {
   const [open, setOpen] = useState(false);
-  const [current, setCurrent] = useState(initial);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, open, () => setOpen(false));
+  const choices = [{ id: 'personal', name: 'Your agency' }, ...teamOrgs().map(o => ({ id: o.id, name: o.name }))];
+  const current = choices.find(c => c.id === state.agency)?.name ?? 'Your agency';
 
   return (
     <div className={`org-picker${open ? ' open' : ''}`} ref={ref}>
@@ -78,28 +81,28 @@ function OrgPicker({ initial, onNew }: { initial: string; onNew: () => void }) {
         <Avatar label={current} size={34} />
         <span className="switcher-text">
           <span className="switcher-title">{current}</span>
-          <span className="switcher-sub">Organization</span>
+          <span className="switcher-sub">{state.agency === 'personal' ? 'Personal' : 'Organization'}</span>
         </span>
         <ChevronsUpDown size={16} className="muted" />
       </button>
       {open && (
         <ul className="dropdown-menu" role="listbox">
-          {ORGANIZATIONS.map(name => (
-            <li key={name}>
+          {choices.map(c => (
+            <li key={c.id}>
               <button
                 role="option"
-                aria-selected={name === current}
+                aria-selected={c.id === state.agency}
                 className="dropdown-option"
                 onClick={() => {
-                  setCurrent(name);
                   setOpen(false);
+                  if (c.id !== state.agency) switchAgency(c.id);
                 }}
               >
                 <span className="option-with-avatar">
-                  <Avatar label={name} size={22} />
-                  {name}
+                  <Avatar label={c.name} size={22} />
+                  {c.name}
                 </span>
-                {name === current && <Check size={15} />}
+                {c.id === state.agency && <Check size={15} />}
               </button>
             </li>
           ))}
@@ -114,7 +117,7 @@ function OrgPicker({ initial, onNew }: { initial: string; onNew: () => void }) {
             >
               <span className="option-with-avatar">
                 <Plus size={15} className="option-icon" />
-                New organization
+                {ownOrg() ? 'Join an organization' : 'New organization'}
               </span>
             </button>
           </li>
@@ -151,8 +154,8 @@ export function Sidebar({
   return (
     <aside className="sidebar" style={{ width }}>
       <div className="resize-handle" title="Drag to resize" onPointerDown={onResizeStart} />
-      {/* Organizations are optional; solo accounts get no org switcher. */}
-      {ACCOUNT.org && <OrgPicker initial={ACCOUNT.org.name} onNew={() => onOpenSettings('organization')} />}
+      {/* Organizations are optional: signed out, or in none, there's no switcher. */}
+      {teamOrgs().length > 0 && <OrgPicker onNew={() => onOpenSettings('organization')} />}
 
       <nav className="nav-squares">
         {NAV.map(({ view: v, label, Icon, badge: fixedBadge }) => {
@@ -262,7 +265,7 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
             >
               <span className="option-with-avatar">
                 <LogOut size={15} className="option-icon" />
-                Log out
+                {state.me ? 'Log out' : 'Sign in'}
               </span>
             </button>
           </li>
@@ -278,7 +281,7 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
         <MyAvatar size={34} />
         <span className="switcher-text">
           <span className="switcher-title">{ACCOUNT.name}</span>
-          <span className="switcher-sub">{ACCOUNT.org ? `Member of ${ACCOUNT.org.name}` : 'Personal account'}</span>
+          <span className="switcher-sub">{ACCOUNT.org ? `${{ owner: 'Owner', admin: 'Admin', member: 'Member' }[currentOrg()?.role ?? 'member']} of ${ACCOUNT.org.name}` : (state.me?.user.email ?? 'Not signed in')}</span>
         </span>
         <ChevronsUpDown size={16} className="muted" />
       </button>

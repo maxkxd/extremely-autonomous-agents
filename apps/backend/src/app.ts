@@ -38,6 +38,19 @@ const user = async (c: Ctx) => {
 
 const ROUTES: Route[] = [
   { method: 'GET', path: /^\/health$/, open: true, run: async () => ({ ok: true }) },
+  // How the apps sign people in: Clerk, or (development only) by email alone.
+  { method: 'GET', path: /^\/config$/, open: true, run: async c => ({ signIn: c.auth.devSignIn ? 'dev' : 'clerk', issuer: c.auth.issuer }) },
+  {
+    method: 'POST',
+    path: /^\/dev\/sign-in$/,
+    open: true,
+    run: async c => {
+      if (!c.auth.devSignIn) throw new ApiError(404, 'Not found.');
+      const email = typeof c.body.email === 'string' ? c.body.email.trim() : '';
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new ApiError(400, "That isn't an email address.");
+      return c.auth.devSignIn(email, typeof c.body.name === 'string' ? c.body.name.slice(0, 80) : '');
+    },
+  },
   // The keys hosts check org access tokens against.
   { method: 'GET', path: /^\/\.well-known\/jwks\.json$/, open: true, run: async c => c.auth.jwks() },
 

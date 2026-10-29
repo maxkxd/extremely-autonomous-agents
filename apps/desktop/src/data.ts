@@ -1,4 +1,5 @@
 import type { ApprovalToolId, ToolArgs } from './approvalTools';
+import { currentOrg, scoped, state } from './account';
 
 // Placeholder data for the UI only - not the real agency roster.
 
@@ -40,40 +41,16 @@ export type Organization = { name: string; members: string[] };
 // Admins can switch Approvals to everyone's; members only see their own agents'.
 export type Account = { name: string; role: 'admin' | 'member'; org: Organization | null };
 
-// An account starts personal. It becomes an organization from Settings, which
-// is kept in this browser for now. Preview a full organization with other
-// members with ?org, and a non-admin member with ?member.
-const params = new URLSearchParams(window.location.search);
-const ORG_KEY = 'eaa.organization';
-const DEMO_ORG: Organization = { name: 'Acme Ventures', members: ['Max', 'Priya', 'Jordan'] };
-
-function loadOrg(): Organization | null {
-  if (params.has('org')) return DEMO_ORG;
-  try {
-    return JSON.parse(localStorage.getItem(ORG_KEY) ?? 'null') as Organization | null;
-  } catch {
-    return null;
-  }
-}
-
+// Who you are in the agency the app is in (account.ts, read before this loads).
+// Your own agency: this computer's person. An organisation: you as its members
+// know you, and its members.
+const ORG = currentOrg();
+const myName = ORG && ORG.role !== 'owner' ? (state.me?.user.name ?? 'You') : (state.localName ?? state.me?.user.name ?? 'You');
 export const ACCOUNT: Account = {
-  name: 'Max',
-  role: params.has('member') ? 'member' : 'admin',
-  org: loadOrg(),
+  name: myName,
+  role: !ORG || ORG.role !== 'member' ? 'admin' : 'member',
+  org: ORG ? { name: ORG.name, members: state.members.length ? state.members.map(m => (m.userId === state.me?.user.id ? myName : m.name)) : [myName] } : null,
 };
-
-// Organizations this account belongs to (the first is the current one).
-export const ORGANIZATIONS: string[] = ACCOUNT.org ? [ACCOUNT.org.name, ...(params.has('org') ? ['Northwind Labs'] : [])] : [];
-
-export function createOrganization(name: string) {
-  ACCOUNT.org = { name, members: [ACCOUNT.name] };
-  ORGANIZATIONS.splice(0, ORGANIZATIONS.length, name);
-  try {
-    localStorage.setItem(ORG_KEY, JSON.stringify(ACCOUNT.org));
-  } catch {
-    // Storage unavailable - it lasts until the page reloads.
-  }
-}
 
 // The fleet: what the server has (App.tsx keeps this in step with it). The
 // Agency Engineer is built in, so it's here from the start; its numbers come
@@ -96,7 +73,7 @@ export const AGENTS: Agent[] = [
 
 // Agents made with the agent builder (docs/agent-creation.md). Kept in this
 // browser for now and appended to AGENTS, so every view sees them.
-const CREATED_KEY = 'eaa.createdAgents';
+const CREATED_KEY = scoped('eaa.createdAgents');
 
 function loadCreated(): Agent[] {
   try {
@@ -108,7 +85,7 @@ function loadCreated(): Agent[] {
 AGENTS.push(...loadCreated().filter(a => !AGENTS.some(x => x.id === a.id)));
 
 // Deleted agents stay deleted, including the placeholder ones.
-const DELETED_KEY = 'eaa.deletedAgents';
+const DELETED_KEY = scoped('eaa.deletedAgents');
 const loadDeleted = (): string[] => {
   try {
     return JSON.parse(localStorage.getItem(DELETED_KEY) ?? '[]') as string[];

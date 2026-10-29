@@ -1,14 +1,14 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { DATA_DIR } from '../paths.js';
 
 // The runner's store (docs/runner.md): one SQLite file on the organisation's
 // host. Everything about running agents lives here - their card state, runs,
 // the actions they took, memory, DM posts, requests, tasks, approvals,
 // bookings and spend. Agent definitions stay as files (files.ts).
 
-const FILE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'agency.db');
+const FILE = join(DATA_DIR, 'agency.db');
 
 let db: DatabaseSync | null = null;
 

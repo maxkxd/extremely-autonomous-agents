@@ -19,6 +19,8 @@ npm test
 
 The tests need nothing set up: PGlite in memory, and a key of their own in place of Clerk's.
 
+Until Clerk is set up (no `CLERK_JWKS_URL`) and outside production, the backend offers a **development sign-in**: any email and name, no code (`POST /dev/sign-in`). The app uses it when it has no Clerk publishable key, so the whole flow (several people, invites, roles) can be tried locally. It's off as soon as `CLERK_JWKS_URL` is set, and always with `NODE_ENV=production`.
+
 ## Settings
 
 All from the environment: `.env` locally (gitignored), Railway's **Variables** in production. They never go in code, chat or commits.
@@ -37,7 +39,8 @@ All from the environment: `.env` locally (gitignored), Railway's **Variables** i
 
 1. Create an application at clerk.com. Pick the sign-in methods (email, Google, GitHub…).
 2. Configure → API keys: copy the Secret key, JWKS URL and Frontend API URL into the variables above.
-3. The desktop app gets the Publishable key (phase 3), which is safe to ship in the app.
+3. The desktop app gets the Publishable key as `VITE_CLERK_PUBLISHABLE_KEY` in `apps/desktop/.env.local` (see `apps/desktop/.env.example`). It's public, safe to ship in the app.
+4. Turn on Email (verification code), Google and GitHub under User & authentication. Add `http://localhost:5174` to the allowed origins for development.
 
 ## Railway
 

@@ -12,6 +12,9 @@ import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
 import { NEW_SESSION, agentStatuses, getAgency, getIntegrations, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
+import { currentOrg, hostedHere, signOut, state } from './account';
+import { SignIn } from './SignIn';
+import { Elsewhere } from './Elsewhere';
 import {
   ACCOUNT,
   AGENTS,
@@ -61,7 +64,14 @@ function writeStored(key: string, value: unknown) {
 
 const clamp = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
 
+// An organisation hosted on someone else's computer can't be reached yet (the
+// relay, phase 4): it gets a page saying so instead of the agency.
 export function App() {
+  const org = currentOrg();
+  return org && !hostedHere(org) ? <Elsewhere org={org} /> : <Agency />;
+}
+
+function Agency() {
   const [view, setView] = useState<View>('dashboard');
   const [range, setRange] = useState<TimeRange>('week');
   // The whole agency's Standby and Stop (the dashboard's), kept in step with the server.
@@ -83,7 +93,8 @@ export function App() {
   // The agency's days run on its host's clock. Until orgs exist, whoever runs
   // the app is the host: the first time it opens, the server takes its time zone.
   useEffect(() => {
-    void setHostPerson(ACCOUNT.name, ACCOUNT.org?.name ?? null).catch(() => {});
+    // Only the host computer's own person says who the host is (an org's members don't).
+    if (!currentOrg() || currentOrg()?.role === 'owner') void setHostPerson(ACCOUNT.name, ACCOUNT.org?.name ?? null).catch(() => {});
     getHostZone().then(
       h => {
         if (!h.set) void setHostZone(Intl.DateTimeFormat().resolvedOptions().timeZone).catch(() => {});
@@ -332,7 +343,14 @@ export function App() {
     setFocusRequest(live);
     setView('requests');
   };
-  const [signedOut, setSignedOut] = useState(false);
+  // Signing in (for organisations) from anywhere: Settings, the account menu.
+  const [signingIn, setSigningIn] = useState(false);
+  useEffect(() => {
+    const open = () => setSigningIn(true);
+    window.addEventListener('eaa:sign-in', open);
+    return () => window.removeEventListener('eaa:sign-in', open);
+  }, []);
+  const logInOut = () => (state.me ? void signOut() : setSigningIn(true));
   const [, setOrgTick] = useState(0);
 
   // Creating an agent (docs/agent-creation.md). The conversation lives here so
@@ -445,7 +463,7 @@ export function App() {
           approvalsBadge={visibleApprovals(pending, 'mine').length}
           requestsBadge={visibleApprovals(openRequests, 'mine').length}
           onOpenSettings={setSettings}
-          onLogOut={() => setSignedOut(true)}
+          onLogOut={logInOut}
         />
       )}
       <main className="main">
@@ -578,23 +596,11 @@ export function App() {
           focusIntegration={settingsFocus}
           onFocused={() => setSettingsFocus(null)}
           onOrgChange={() => setOrgTick(t => t + 1)}
-          onLogOut={() => {
-            setSettings(null);
-            setSignedOut(true);
-          }}
+          onLogOut={logInOut}
         />
       )}
-      {signedOut && (
-        <div className="signed-out">
-          <div>
-            <h1>You're signed out</h1>
-            <p>Sign-in isn't built yet, so this is as far as it goes.</p>
-            <button className="sbtn primary" onClick={() => setSignedOut(false)}>
-              Sign back in as {ACCOUNT.name}
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Signed in: the app starts again, with your organisations. */}
+      {signingIn && <SignIn onCancel={() => setSigningIn(false)} onDone={() => location.reload()} />}
       {reveal && (
         <AgentReveal
           agents={reveal.built.map(b => b.agent)}

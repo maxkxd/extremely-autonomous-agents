@@ -25,3 +25,10 @@ test('production refuses to start without a signing key', async () => {
     if (key !== undefined) process.env.ORG_TOKEN_PRIVATE_KEY = key;
   }
 });
+
+test('the development sign-in is never on in production, or once Clerk is set up', async () => {
+  const { devSignInOn } = await import('./tokens.js');
+  assert.equal(devSignInOn({}), true);
+  assert.equal(devSignInOn({ NODE_ENV: 'production' }), false);
+  assert.equal(devSignInOn({ CLERK_JWKS_URL: 'https://x.clerk.accounts.dev/.well-known/jwks.json' }), false);
+});

@@ -1,14 +1,14 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { DATA_DIR } from './paths.js';
 
 // Credentials for model connections (API keys, OAuth tokens). Encrypted at rest
 // with AES-256-GCM; the key is EAA_VAULT_KEY (base64, 32 bytes) or a key file
 // made on first use beside the vault. Values never leave the server: the app
 // only ever sees whether something is connected and a masked hint.
 
-const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
+const DATA = DATA_DIR;
 const VAULT = join(DATA, 'vault.json');
 const KEY_FILE = join(DATA, 'vault.key');
 

@@ -194,3 +194,28 @@ test('bad requests answer plainly', async () => {
   assert.equal(pre.status, 204);
   assert.match(pre.headers.get('access-control-allow-headers') ?? '', /authorization/);
 });
+
+test('development sign-in: only when asked for, and a session like any other', async () => {
+  // The tests run with Clerk's stand-in, so it's off here.
+  assert.equal((await call(null, 'GET', '/config')).body.signIn, 'clerk');
+  assert.equal((await call(null, 'POST', '/dev/sign-in', { email: 'dee@example.com' })).status, 404);
+
+  const auth = await createAuth({ dev: true, issuer: 'http://backend.test' });
+  const dev = createServer(createApp(db, auth));
+  await new Promise<void>(r => dev.listen(0, r));
+  const url = `http://localhost:${(dev.address() as { port: number }).port}`;
+  try {
+    assert.equal(((await (await fetch(`${url}/config`)).json()) as any).signIn, 'dev');
+    const bad = await fetch(`${url}/dev/sign-in`, { method: 'POST', body: JSON.stringify({ email: 'nope' }) });
+    assert.equal(bad.status, 400);
+    const { token } = (await (await fetch(`${url}/dev/sign-in`, { method: 'POST', body: JSON.stringify({ email: 'Dee@Example.com', name: 'Dee' }) })).json()) as any;
+    const me = (await (await fetch(`${url}/me`, { headers: { authorization: `Bearer ${token}` } })).json()) as any;
+    assert.equal(me.user.email, 'dee@example.com');
+    assert.equal(me.orgs[0].name, "Dee's agency");
+    // Same email, same person.
+    const again = (await (await fetch(`${url}/dev/sign-in`, { method: 'POST', body: JSON.stringify({ email: 'dee@example.com' }) })).json()) as any;
+    assert.equal(((await (await fetch(`${url}/me`, { headers: { authorization: `Bearer ${again.token}` } })).json()) as any).user.id, me.user.id);
+  } finally {
+    dev.close();
+  }
+});

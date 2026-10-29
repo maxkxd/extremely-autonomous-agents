@@ -1,16 +1,16 @@
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import type { Build } from './builder.js';
 import { fitEffort } from './models/caps.js';
 import { cleanChoices, type Effort, type ModelChoice } from './models/choice.js';
 import { BASELINE, CATALOG_INDEX, toolId, type Tier } from './catalog.js';
+import { DATA_DIR } from './paths.js';
 
 // Turns a build into the agent's three files, shaped like the agency
 // runner's (docs/agent-creation.md), and writes them on accept.
 
-export const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'agents');
+export const DATA = join(DATA_DIR, 'agents');
 
 export const slug = (name: string) =>
   name

@@ -1,10 +1,10 @@
 import { lookup } from 'node:dns/promises';
 import { mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
 import { checkUrl, isPrivateIp } from './net.js';
 import { onRunEnd, registerTools, type RunCtx, type ToolDef } from './tools.js';
+import { DATA_DIR } from '../paths.js';
 
 // Browsing for agents (docs/integrations.md), on the Edge or Chrome already
 // installed - nothing to download.
@@ -19,7 +19,7 @@ import { onRunEnd, registerTools, type RunCtx, type ToolDef } from './tools.js';
 // request the page makes is checked like any agent fetch: never this
 // computer or its network.
 
-export const PROFILE_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'browser-profile');
+export const PROFILE_DIR = join(DATA_DIR, 'browser-profile');
 const CHANNELS = ['msedge', 'chrome'] as const;
 const TEXT_CHARS = 8_000;
 const MAX_ELEMENTS = 80;

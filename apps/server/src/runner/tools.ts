@@ -1,12 +1,12 @@
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, relative, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Tier } from '../catalog.js';
 import { FLEET_ENGINEER, type AgentDef } from './agent.js';
 import { all, one, run } from './db.js';
 import { APOCALYPTIC } from './ferocity.js';
 import { remember } from './memory.js';
 import type { Call, ToolSpec } from './providers.js';
+import { DATA_DIR } from '../paths.js';
 
 // The tools a run can call (docs/runner.md). Built-in agency tools work for
 // every agent; integration tools (web, email, GitHub...) are added one area
@@ -87,7 +87,7 @@ export function fileRequest(
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required });
 const str = (description: string) => ({ type: 'string', description });
 
-export const WORKSPACES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'workspaces');
+export const WORKSPACES = join(DATA_DIR, 'workspaces');
 const MAX_FILE = 200_000;
 
 // A path inside the agent's own workspace, or an error.

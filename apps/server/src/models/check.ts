@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { getSecret } from '../vault.js';
 import { fromLevels, type ModelInfo } from './caps.js';
 import { chatGptAccessToken, connectionBaseUrl, setModelLevels } from './connections.js';
+import { DATA_DIR } from '../paths.js';
 
 // Does a model actually work on this account? (docs/model-connections.md)
 // A model list says what a provider has, not what this key may use: retired
@@ -20,7 +20,7 @@ export type Check = {
   at: number;
 };
 
-const FILE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'model-checks.json');
+const FILE = join(DATA_DIR, 'model-checks.json');
 const FRESH_MS = 12 * 60 * 60_000; // a result is trusted this long
 const UNSURE_MS = 10 * 60_000; // an unsure one is retried after this
 
