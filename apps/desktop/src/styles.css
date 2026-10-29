@@ -1744,10 +1744,10 @@ a.sbtn { text-decoration: none; color: inherit; }
 .text-link { color: #7aa3e4; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
 .text-link:hover { color: #a9c3ee; }
 /* Arriving for one approval (Open Approvals, a draft's Approve): a blue glow, in place. */
-.approval.spotlit, .request.spotlit { animation: approval-spotlight 2.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
+/* Strong for a moment, then one smooth fade (a single eased stretch, so it never stalls part-way). */
+.approval.spotlit, .request.spotlit { animation: approval-spotlight 2.6s ease-out; }
 @keyframes approval-spotlight {
-  0%, 25% { border-color: #3f7bd6; box-shadow: 0 0 0 1px #3f7bd6, 0 0 34px rgba(63, 123, 214, 0.6); background-color: rgba(63, 123, 214, 0.1); }
-  55% { border-color: #3f7bd6; box-shadow: 0 0 0 1px #3f7bd6, 0 0 24px rgba(63, 123, 214, 0.4); }
+  0%, 20% { border-color: #3f7bd6; box-shadow: 0 0 0 1px #3f7bd6, 0 0 34px rgba(63, 123, 214, 0.6); background-color: rgba(63, 123, 214, 0.1); }
 }
 @media (prefers-reduced-motion: reduce) { .approval.spotlit, .request.spotlit { animation: none; } }
 /* Agents' and the Agency Engineer's text (RichText.tsx). */
@@ -1760,10 +1760,10 @@ a.sbtn { text-decoration: none; color: inherit; }
 .rt-settings { display: inline-flex; align-self: flex-start; margin-top: 10px; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--attention-text); background: var(--attention); border: 1px solid var(--attention); }
 .rt-settings:hover { filter: brightness(1.12); }
 /* Arriving in Settings for one integration: its row glows blue. */
-.sconnectors li.spotlit { animation: row-spotlight 2.6s cubic-bezier(0.2, 0.8, 0.2, 1); border-radius: 8px; }
+/* Raised over the rows next to it, so its glow isn't hidden under the one below. */
+.sconnectors li.spotlit { position: relative; z-index: 1; animation: row-spotlight 2.6s ease-out; border-radius: 8px; }
 @keyframes row-spotlight {
-  0%, 25% { box-shadow: 0 0 0 1px #3f7bd6, 0 0 34px rgba(63, 123, 214, 0.6); background-color: rgba(63, 123, 214, 0.1); }
-  55% { box-shadow: 0 0 0 1px #3f7bd6, 0 0 24px rgba(63, 123, 214, 0.4); }
+  0%, 20% { box-shadow: 0 0 0 1px #3f7bd6, 0 0 34px rgba(63, 123, 214, 0.6); background-color: rgba(63, 123, 214, 0.1); }
 }
 .rt-ref { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
 /* A request's number, tiny, bottom left. */
@@ -1776,4 +1776,3 @@ a.sbtn { text-decoration: none; color: inherit; }
 .switch.on { background: var(--attention); border-color: var(--attention); }
 .switch.on::after { transform: translateX(16px); background: #fff; }
 .switch:focus-visible { outline: 2px solid var(--attention); outline-offset: 2px; }
-.approval-code { margin: 6px 0 0; padding: 10px 12px; max-height: 360px; overflow: auto; font-size: 12px; line-height: 1.5; white-space: pre; color: #cfcfcf; background: var(--sidebar); border: 1px solid var(--hairline); border-radius: 8px; }
