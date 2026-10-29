@@ -1861,6 +1861,7 @@ a.sbtn { text-decoration: none; color: inherit; }
 /* The sign-in dialog: the logo, then its title, centred. */
 .signin-head { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
 .signin-logo { width: 64px; height: auto; }
+.confirm .signin-sub { margin: -6px 0 0; font-size: 13px; color: var(--muted); }
 /* The sign-in panel glows blue, like the brand on extremely.agency. */
 .confirm.signin {
   border-color: rgba(63, 123, 214, 0.75);
