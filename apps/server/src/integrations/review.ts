@@ -1,4 +1,5 @@
-import { ask, CAREFUL } from '../runner/quick.js';
+import { REVIEWER } from '../runner/helpers.js';
+import { ask, HelperStopped } from '../runner/quick.js';
 import type { Permissions } from './sandbox.js';
 
 // The independent security review of a code plugin (docs/integrations.md): a
@@ -42,7 +43,20 @@ export function parseReview(text: string): Review {
 export async function reviewPlugin(p: { name: string; yaml: string; code: string; permissions: Permissions }): Promise<Review> {
   const perms = `Declared permissions - read: ${p.permissions.read.join(', ') || 'none'}; write: ${p.permissions.write.join(', ') || 'none'}; start programs: ${p.permissions.commands ? 'yes' : 'no'}.`;
   const prompt = `Review this plugin, "${p.name}".\n\n${perms}\n\n--- Definition ---\n${p.yaml}\n\n--- Code ---\n${p.code}`;
-  const text = await ask(CAREFUL, SYSTEM, prompt);
+  const text = await ask(REVIEWER, {
+    trigger: 'handoff',
+    task: `Review the plugin "${p.name}".`,
+    system: SYSTEM,
+    prompt,
+    summary: t => {
+      const r = parseReview(t);
+      const found = r.concerns.map(c => `(${c.severity}) ${c.what}`).join('; ');
+      return r.verdict === 'approve' ? `Reviewed "${p.name}": fine to propose.${found ? ` Noted: ${found}` : ''}` : `Sent "${p.name}" back: ${found || r.fix}`;
+    },
+  }).catch(e => {
+    if (e instanceof HelperStopped) throw new Error("The Security Reviewer is stopped, so plugins can't be proposed. Tell the person on the request: it needs turning back on, on its card on the dashboard.");
+    throw e;
+  });
   try {
     return parseReview(text);
   } catch {

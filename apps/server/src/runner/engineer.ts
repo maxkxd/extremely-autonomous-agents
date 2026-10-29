@@ -13,7 +13,7 @@ import {
 } from '../integrations/index.js';
 import { pluginsAllowed, writePlugin } from '../integrations/plugins.js';
 import { reviewPlugin } from '../integrations/review.js';
-import { availableModels } from '../models/connections.js';
+import { defaultModels } from './defaults.js';
 import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import type { Tier } from '../catalog.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
@@ -91,32 +91,10 @@ output:
 export async function ensureFleetEngineer() {
   const dir = join(DATA, FLEET_ENGINEER);
   const models: ModelChoice[] = (await allChoices())[FLEET_ENGINEER] ?? [];
+  // None yet: the strongest connected, plans first (defaults.ts). With nothing
+  // connected, the first model connected sets them (helpers.ts).
   if (!models.length) {
-    // The strongest model connected: it writes and debugs integrations.
-    const avail = await availableModels().catch(() => []);
-    // The person's plans first (no cost per run); a paid API only when no plan
-    // is connected - the engineer's runs are long, and Opus on an API key costs
-    // about a dollar each.
-    const plans: [string, RegExp][] = [
-      ['claude-code', /opus/],
-      ['chatgpt', /./],
-      ['copilot', /./],
-    ];
-    const paid: [string, RegExp][] = [
-      ['anthropic', /sonnet-5/],
-      ['openai', /gpt-5/],
-      ['openrouter', /./],
-      ['google', /pro/],
-    ];
-    const pick = (list: [string, RegExp][]) => {
-      for (const [conn, re] of list) {
-        const m = avail.find(a => a.connection === conn)?.models.find(x => re.test(x));
-        if (m && !models.some(x => x.connection === conn)) models.push({ connection: conn, model: m, effort: 'high' });
-        if (models.length === 3) break;
-      }
-    };
-    pick(plans);
-    if (!models.length) pick(paid);
+    models.push(...(await defaultModels('strong')));
     if (models.length) await setChoices(FLEET_ENGINEER, models);
   }
   const tools = stringify({

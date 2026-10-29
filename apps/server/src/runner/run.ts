@@ -36,7 +36,7 @@ export const RUN_CEILING_MS = 60 * 60_000; // WAR's per-run ceiling
 
 export type RunResult = { id: string; status: 'succeeded' | 'failed' | 'stopped'; acts: number; nudges: number; summary: string; error?: string };
 
-const newRunId = () => `r_${randomBytes(4).toString('hex')}`;
+export const newRunId = () => `r_${randomBytes(4).toString('hex')}`;
 
 // --- Card state ---------------------------------------------------------------
 
@@ -51,20 +51,23 @@ export function stateOf(agentId: string, now = Date.now()): AgentState {
 }
 
 const HEALTH_KEY = 'model_health';
-const getHealth = () => getSetting<Health>(HEALTH_KEY, {});
-const putHealth = (h: Health) => setSetting(HEALTH_KEY, h);
+export const getHealth = () => getSetting<Health>(HEALTH_KEY, {});
+export const putHealth = (h: Health) => setSetting(HEALTH_KEY, h);
 
 // The models a run can use now: usable, with an adapter, and - when a spend
 // cap is reached - free ones only (plans and local models).
 export function eligibleModels(agent: AgentDef, deps: RunDeps): ModelChoice[] {
-  const now = deps.now();
-  const st = stateOf(agent.id, now);
-  const orgCap = getSetting<number | null>('spend_cap_org_usd', null);
-  const overOrg = orgCap != null && spentToday(now) >= orgCap;
-  const overAgent = st.spend_cap_usd != null && spentToday(now, agent.id) >= st.spend_cap_usd;
+  const over = overSpend(agent.id, deps.now());
   return agent.models.filter(
-    c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)) && (isFree(c.connection) || (!overOrg && !overAgent)),
+    c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)) && (isFree(c.connection) || !over),
   );
+}
+
+// Today's spending limit reached - the agency's, or this agent's own.
+export function overSpend(agentId: string, now: number): boolean {
+  const orgCap = getSetting<number | null>('spend_cap_org_usd', null);
+  const cap = stateOf(agentId, now).spend_cap_usd;
+  return (orgCap != null && spentToday(now) >= orgCap) || (cap != null && spentToday(now, agentId) >= cap);
 }
 
 // Why an agent has no model to run on - said plainly on its card and in its DMs.
@@ -158,7 +161,7 @@ async function fleetOf(exceptId: string) {
   for (const id of await listIds()) {
     if (id === exceptId) continue;
     const m = await readMeta(id);
-    if (m && m.status !== 'setting-up') out.push({ id, name: m.name });
+    if (m && m.status !== 'setting-up' && !m.service) out.push({ id, name: m.name });
   }
   return out;
 }
@@ -419,7 +422,7 @@ function harnessOpening(runId: string, messages: Msg[]): string {
 
 // The run's post in the agent's DM channel (docs/agent-dms.md): the shape the
 // app's RunPost draws. Tool lines carry argument NAMES only, never values.
-function postRun(agentId: string, runId: string, trigger: Trigger, outcome: string, cost: number | null, ms: number, text: string) {
+export function postRun(agentId: string, runId: string, trigger: Trigger, outcome: string, cost: number | null, ms: number, text: string) {
   const tools = all<{ tool: string; fields: string; outcome: string; approval_id: string | null }>(
     'SELECT tool, fields, outcome, approval_id FROM actions WHERE run_id = ? ORDER BY id',
     runId,

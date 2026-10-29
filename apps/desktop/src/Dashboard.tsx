@@ -388,7 +388,8 @@ export function AgentCard({
             Neutral, not red: Stop is the solid light button, the way a stop control
             reads in a dark UI; Resume takes the attention blue. */}
         <div className="controls">
-          <button
+          {/* A helper starts nothing itself anyway, so it has no Standby. */}
+          {!agent.service && <button
             key={state === 'draining' ? 'drain-resume' : 'drain'}
             className={`ctl-btn${state === 'draining' ? ' resume' : ''}`}
             disabled={state === 'stopped'}
@@ -396,7 +397,7 @@ export function AgentCard({
           >
             {state === 'draining' ? <Play size={15} /> : <Pause size={15} />}
             {state === 'draining' ? 'Resume' : 'Standby'}
-          </button>
+          </button>}
           <button
             key={state === 'stopped' ? 'stop-resume' : 'stop'}
             className={`ctl-btn ${state === 'stopped' ? 'resume' : 'stop'}`}
@@ -407,7 +408,8 @@ export function AgentCard({
           </button>
         </div>
 
-        <Tuning agent={agent} range={range} level={level} setLevel={setLevel} />
+        {/* A helper runs only when called: no schedule to set. */}
+        {!agent.service && <Tuning agent={agent} range={range} level={level} setLevel={setLevel} />}
         {models && (
           <ModelRow choices={models} available={available} checks={checks} open={modelsOpen} readOnly={preview} onOpen={() => setModelsOpen(o => !o)} />
         )}

@@ -87,9 +87,10 @@ Connectors. Three layers, so a person who can't read code is still safe:
    the server), and none of the server's environment (its keys). Programs it
    starts are not contained - the card says so plainly.
 2. **An independent security review** (`review.ts`): before a plugin can be
-   proposed, a separate model reads it as an attacker would (agent inputs
-   are attacker-controlled). A high concern sends it back to the engineer.
-   About 20 seconds, once per proposal.
+   proposed, the Security Reviewer (a built-in agent, docs/requests.md) reads
+   it as an attacker would (agent inputs are attacker-controlled). A high
+   concern sends it back to the engineer. About 20 seconds, once per
+   proposal. With the reviewer stopped, no plugin can be proposed.
 3. **One approval, explained**: the card leads with what the code can do on
    this computer in plain words, what the sandbox allows it, and the
    review's notes - then the engineer's summary, the definition and the code.

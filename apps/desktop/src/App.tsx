@@ -204,12 +204,22 @@ export function App() {
       agentStatuses().then(s => {
         let added = false;
         for (const [id, a] of Object.entries(s)) {
-          if (AGENTS.some(x => x.id === id)) continue;
+          const have = AGENTS.find(x => x.id === id);
+          if (have) {
+            // What only the server knows, kept current on one this browser already has.
+            if (!!have.service !== !!a.service || !!have.builtIn !== !!a.builtIn) {
+              Object.assign(have, { builtIn: a.builtIn || undefined, service: a.service || undefined, ...(a.builtIn ? { owner: 'Built-in' } : {}) });
+              added = true;
+            }
+            continue;
+          }
           addAgent({
             id,
             name: a.name,
             department: a.department,
-            owner: a.owner ?? ACCOUNT.name,
+            owner: a.builtIn ? 'Built-in' : (a.owner ?? ACCOUNT.name),
+            builtIn: a.builtIn || undefined,
+            service: a.service || undefined,
             output: outputSlices(a.output),
             cost: [],
             runs: 0,
