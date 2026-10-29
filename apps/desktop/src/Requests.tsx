@@ -120,11 +120,21 @@ function RequestRow({
   }, [serverThread.length]);
   const thread: Message[] = [...serverThread, ...echo];
   const [draft, setDraft] = useState('');
-  const [leaving, setLeaving] = useState<RequestResolution | null>(null);
+  const [leaving, setLeaving] = useState<RequestResolution | 'done' | null>(null);
   const [collapsing, setCollapsing] = useState(false);
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   const later = (ms: number, fn: () => void) => timers.current.push(window.setTimeout(fn, ms));
+
+  // Closed elsewhere - done (green, off to the right) or turned down (red, off to
+  // the left) - it leaves like one you closed, open or folded.
+  useEffect(() => {
+    if (!request.closedAs || leaving) return;
+    setDrawer(null);
+    setLeaving(request.closedAs);
+    later(EXIT_MS, () => setCollapsing(true));
+    later(EXIT_MS + COLLAPSE_MS, onGone);
+  }, [request.closedAs]);
 
   const resolve = (r: RequestResolution) => {
     if (leaving) return;
