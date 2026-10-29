@@ -5,6 +5,8 @@ import {
   addIntegration,
   connectIntegration,
   disconnectIntegration,
+  discardDraft,
+  draftsForRequest,
   integrationProblems,
   listIntegrations,
   recheckStale,
@@ -214,13 +216,23 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/runner/requests/answer': async (_req, _q, body) => {
     const { id, status, answer } = await body<{ id: number; status: 'done' | 'rejected'; answer?: string }>();
     if (status !== 'done' && status !== 'rejected') throw new Error('Answer with done or rejected.');
-    exec(
+    const changed = exec(
       "UPDATE requests SET status = ?, answer = ?, answered_at = ? WHERE id = ? AND status = 'open'",
       status,
       answer?.trim() ? answer.trim().slice(0, 4000) : null,
       Date.now(),
       Number(id),
-    );
+    ).changes;
+    // Turned down: what the Fleet Engineer drafted for it goes, and so does its go-live card.
+    if (status === 'rejected' && changed) {
+      for (const d of draftsForRequest(Number(id))) await discardDraft(d).catch(() => {});
+      exec(
+        "UPDATE approvals SET status = 'rejected', decided_at = ?, note = 'The request was turned down.' WHERE status = 'pending' AND agent_id = ? AND CAST(json_extract(args, '$.request_id') AS INTEGER) = ?",
+        Date.now(),
+        FLEET_ENGINEER,
+        Number(id),
+      );
+    }
     return { ok: true };
   },
 

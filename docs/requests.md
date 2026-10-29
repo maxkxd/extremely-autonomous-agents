@@ -104,14 +104,21 @@ first. Models a person picked are left alone.
     request shows *Waiting on approval*. The approval belongs to the owner of
     the agent that asked (the Fleet Engineer itself is owned by no one).
     Approved -> it builds the tool, says what it built, and the request
-    closes. Rejected or expired -> it says so in the conversation and asks
-    what to change; the request stays open.
+    closes. Rejected -> its draft integration is discarded (one that has
+    been live is kept); expired -> the draft stays. Either way it says so in
+    the conversation and the request stays open.
 
     **Rule: the Fleet Engineer always tells you what to do.** It never just
     explains why it can't do something. If it can't finish on its own, its
     reply is the steps that would unblock it (buy this, create that key, tell
     me which file is current) and what it will do once they're done. Secrets
     (API keys, passwords) never go in the conversation - they go in settings.
+
+    **It decides, builds, then tells you.** It never asks whether to set
+    something up: it writes the draft and says it's ready for your key, with
+    a sentence or two on why it's the best way and numbered steps. No account
+    of its research or list of alternatives unless you ask. If you don't want
+    it, reply or reject the request.
   - **Send to your AI IDE** - one button named and branded for the IDE you
     use ("Send to Claude Code" with Claude's logo, Cursor's for Cursor...).
     Which IDE is a setting in the config menu (for now `YOUR_IDE` in
@@ -120,7 +127,8 @@ first. Models a person picked are left alone.
     requests and create tools directly. The point is off-platform work the
     agency can't do itself (e.g. changing settings on your computer).
   - **DIY** - you did it yourself; write what you did / how it fixed it.
-  - **Reject** - write why (optional).
+  - **Reject** - write why (optional). Anything the Fleet Engineer drafted
+    for it is discarded, with its go-live approval.
 
 ## Guiding people
 

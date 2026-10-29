@@ -6,6 +6,8 @@ import { parse } from 'yaml';
 import { readFile } from 'node:fs/promises';
 import { DATA } from '../files.js';
 import {
+  discardDraft,
+  draftsForRequest,
   integrationToolIds,
   listIntegrations,
   loadIntegrations,
@@ -15,7 +17,7 @@ import {
   testIntegrationTool,
   writeDraftIntegration,
 } from '../integrations/index.js';
-import { writePlugin } from '../integrations/plugins.js';
+import { readPlugin, writePlugin } from '../integrations/plugins.js';
 import { resetDbForTests } from './db.js';
 import { giveTools } from './engineer.js';
 
@@ -91,4 +93,21 @@ test('a plugin reaches the network only through kit.fetch', async () => {
 test("the engineer can't add an MCP server that runs on this computer", async () => {
   await assert.rejects(writeDraftIntegration('kind: mcp\nid: zz-local\nname: L\nwhat: x\nauth: { type: none }\ncommand: [cmd, /c, calc]\n', 'fleet'), /only be added by a person/);
   await assert.rejects(writeDraftIntegration('kind: mcp\nid: zz-local\nname: L\nwhat: x\nauth: { type: none }\nurl: http://localhost:3000/mcp\nlocal: true\n', 'fleet'), /only be added by a person/);
+});
+
+test('a turned-down draft is discarded with its plugin code; one that has been live is not', async () => {
+  const id = 'zz-test-discard';
+  const mod = 'zz-test-discard-plugin';
+  await writePlugin(mod, PLUGIN('bye'));
+  await writeDraftIntegration(DEF.replaceAll(ID, id).replaceAll(MOD, mod), 'fleet', 42);
+  assert.deepEqual(draftsForRequest(42), [id]);
+  assert.equal(await discardDraft(id), true);
+  assert.equal((await listIntegrations()).some(i => i.id === id), false);
+  assert.equal(await readPlugin(mod), null);
+  assert.deepEqual(draftsForRequest(42), []);
+
+  // The first test made this one live; a new draft of it stays.
+  await writeDraftIntegration(DEF, 'fleet', 7);
+  assert.equal(await discardDraft(ID), false);
+  assert.equal((await listIntegrations()).some(i => i.id === ID), true);
 });
