@@ -1,4 +1,5 @@
 import { parse as parseYaml } from 'yaml';
+import { currentActor, personFor } from './access.js';
 import { BASELINE, CATALOG_INDEX, toolId } from './catalog.js';
 import { kpiLabels, readMeta, remove, save, type AgentFiles } from './files.js';
 import { scanFleet } from './fleet.js';
@@ -15,13 +16,17 @@ import { fileRequest, registeredToolIds } from './runner/tools.js';
 // MCP server (runner/agency-mcp.ts) for an AI IDE, all come through here.
 
 export async function createAgent(a: { person: string; org: string | null; files: AgentFiles; setup?: { packId: string; index: number } }) {
-  const { person, org, files, setup } = a;
+  const { org, files, setup } = a;
+  // Someone signed in from their own app: it's theirs, whatever the request says.
+  const maker = currentActor();
+  const person = personFor(a.person);
   await save(files, {
     name: files.name,
     department: files.department,
     output: kpiLabels(files.kpi),
     status: setup ? 'setting-up' : 'ready',
     owner: person,
+    ...(maker.via === 'token' ? { ownerId: maker.id } : {}),
     org,
     setup: setup && { ...setup, person, org, attempts: 0 },
   });
