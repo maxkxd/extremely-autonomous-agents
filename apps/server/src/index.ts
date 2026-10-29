@@ -18,6 +18,7 @@ import { handleMcp } from './runner/mcp.js';
 import { book, startScheduler } from './runner/scheduler.js';
 import { FLEET_ENGINEER } from './runner/agent.js';
 import { startAgencyMcp } from './runner/agency-mcp.js';
+import { agencyStopped } from './runner/run.js';
 import { fileRequest } from './runner/tools.js';
 import { parse as parseYaml } from 'yaml';
 
@@ -83,6 +84,9 @@ function forApp(b: Build, takenIds: string[], fleetIds?: Set<string>, available?
 const PACKS = new URL('../packs/', import.meta.url);
 
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+const notStopped = () => {
+  if (agencyStopped()) throw new BuilderError('The agency is stopped. Resume it, or put it on standby, to build agents.');
+};
 
 type Route = (req: IncomingMessage, query: URLSearchParams) => Promise<unknown>;
 const routes: Record<string, Route> = {
@@ -174,11 +178,14 @@ const routes: Record<string, Route> = {
   },
 
   // --- Building an agent ---
+  // Not while the whole agency is stopped (it is on standby).
   'POST /api/builder/match': async req => {
+    notStopped();
     const { description, packs } = await body<{ description: string; packs: Pack[] }>(req);
     return matchPack(description, packs);
   },
   'POST /api/builder/turn': async req => {
+    notStopped();
     const { person, org, members, turns, declinedPack } = await body<{ person: string; org: string | null; members: string[]; turns: Turn[]; declinedPack: string | null }>(req);
     const out = await interview(await context(person, org, members), turns, declinedPack);
     return { ...out, confidence: clamp(out.confidence) };
@@ -186,6 +193,7 @@ const routes: Record<string, Route> = {
   // The files stay hidden: the app gets the card's details and an opaque
   // bundle it hands back on accept.
   'POST /api/builder/build': async req => {
+    notStopped();
     const { person, org, members, turns, takenIds } = await body<{ person: string; org: string | null; members: string[]; turns: Turn[]; takenIds: string[] }>(req);
     const ctx = await context(person, org, members);
     const b = await build(ctx, turns);

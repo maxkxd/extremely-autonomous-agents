@@ -3,13 +3,13 @@ import { ChevronRight, Plus } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
-import { AgencyStop } from './AgencyStop';
+import { AgencyControls } from './AgencyStop';
 import { useElasticScroll } from './useElasticScroll';
 import { LiveDM } from './LiveDM';
 import { NewAgent } from './NewAgent';
 import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
-import { NEW_SESSION, agentStatuses, getAgency, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
+import { NEW_SESSION, agentStatuses, getAgency, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
 import {
   ACCOUNT,
@@ -63,11 +63,11 @@ const clamp = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
 export function App() {
   const [view, setView] = useState<View>('dashboard');
   const [range, setRange] = useState<TimeRange>('week');
-  // The whole agency stopped (the dashboard's Stop), kept in step with the server.
-  const [agencyStopped, setAgencyStopped] = useState(false);
+  // The whole agency's Standby and Stop (the dashboard's), kept in step with the server.
+  const [agency, setAgencyState] = useState<AgencyState>('active');
   const agencySetAt = useRef(0);
   useEffect(() => {
-    const load = () => getAgency().then(a => Date.now() - agencySetAt.current > 4000 && setAgencyStopped(a.stopped), () => {});
+    const load = () => getAgency().then(a => Date.now() - agencySetAt.current > 4000 && setAgencyState(a.state), () => {});
     load();
     const t = window.setInterval(load, 5000);
     return () => window.clearInterval(t);
@@ -83,10 +83,11 @@ export function App() {
       () => {},
     );
   }, []);
-  const changeAgency = (stopped: boolean) => {
+  const changeAgency = (next: AgencyState) => {
+    const was = agency;
     agencySetAt.current = Date.now();
-    setAgencyStopped(stopped);
-    setAgency(stopped).catch(() => setAgencyStopped(!stopped));
+    setAgencyState(next);
+    setAgency(next).catch(() => setAgencyState(was));
   };
   // Approvals: resolved ones drop out of every count (sidebar badge, dashboard).
   // `resolved` records a decision the moment it's made (so counters react
@@ -415,7 +416,7 @@ export function App() {
           </div>
           {view === 'dashboard' && (
             <div className="header-tools">
-              <AgencyStop stopped={agencyStopped} onChange={changeAgency} />
+              <AgencyControls state={agency} onChange={changeAgency} />
               <RangePicker value={range} onChange={setRange} />
             </div>
           )}
@@ -442,7 +443,7 @@ export function App() {
           {view === 'dashboard' ? (
             <Dashboard
               range={range}
-              agencyStopped={agencyStopped}
+              agency={agency}
               onNavigate={setView}
               approvalCounts={approvalCounts}
               requestCounts={requestCounts}

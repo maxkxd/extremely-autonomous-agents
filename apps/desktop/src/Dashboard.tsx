@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { CircleCheckBig, Ellipsis, GripVertical, Pause, Play, Square, Trash2, User, Wrench } from 'lucide-react';
 import { DeleteAgentDialog } from './DeleteAgentDialog';
 import { ModelPanel, ModelRow, useModelChecks, useModelSlide, type Checks } from './ModelPicker';
-import { getAgentModels, getAvailableModels, getLiveAgents, runNow, setAgentModels, setAgentRunner, type AvailableModels, type LiveAgent, type ModelChoice } from './builder';
+import { getAgentModels, getAvailableModels, getLiveAgents, runNow, setAgentModels, setAgentRunner, type AgencyState, type AvailableModels, type LiveAgent, type ModelChoice } from './builder';
 import { useDismiss } from './useDismiss';
 import { FlashCount } from './FlashCount';
 import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
@@ -228,7 +228,7 @@ export function AgentCard({
   onCheck,
   onLevel,
   onRunNow,
-  agencyStopped = false,
+  agencyHeld = false,
 }: {
   agent: Agent;
   range: TimeRange;
@@ -249,7 +249,7 @@ export function AgentCard({
   onCheck?: (connection: string, model: string) => void;
   onLevel?: (level: number) => void; // a real agent: save its ferocity
   onRunNow?: () => void; // a real agent: start a run now
-  agencyStopped?: boolean; // the whole agency is stopped: its own controls wait
+  agencyHeld?: boolean; // the whole agency is on standby or stopped: its own controls wait
 }) {
   // The model picker: the right column slides over the pies to make room.
   const cardRef = useRef<HTMLElement>(null);
@@ -397,7 +397,7 @@ export function AgentCard({
           <button
             key={state === 'draining' ? 'drain-resume' : 'drain'}
             className={`ctl-btn${state === 'draining' ? ' resume' : ''}`}
-            disabled={state === 'stopped' || agencyStopped}
+            disabled={state === 'stopped' || agencyHeld}
             onClick={() => setState(state === 'draining' ? 'active' : 'draining')}
           >
             {state === 'draining' ? <Play size={15} /> : <Pause size={15} />}
@@ -406,7 +406,7 @@ export function AgentCard({
           <button
             key={state === 'stopped' ? 'stop-resume' : 'stop'}
             className={`ctl-btn ${state === 'stopped' ? 'resume' : 'stop'}`}
-            disabled={agencyStopped}
+            disabled={agencyHeld}
             onClick={() => setState(state === 'stopped' ? 'active' : 'stopped')}
           >
             {state === 'stopped' ? <Play size={15} /> : <Square size={13} fill="currentColor" />}
@@ -486,7 +486,7 @@ function loadOrder(arriving: string[]): string[] {
 
 export function Dashboard({
   range,
-  agencyStopped,
+  agency,
   onNavigate,
   approvalCounts,
   requestCounts,
@@ -495,7 +495,7 @@ export function Dashboard({
   onDeleteAgent,
 }: {
   range: TimeRange;
-  agencyStopped: boolean;
+  agency: AgencyState;
   onNavigate: (v: View) => void;
   approvalCounts: Record<string, number>;
   requestCounts: Record<string, number>;
@@ -508,10 +508,10 @@ export function Dashboard({
   // another device) reaches this screen.
   const [states, setStates] = useState<Record<string, { state: RunState; at: number }>>({});
   const stateFor = (id: string, l: LiveAgent | undefined): RunState => {
-    if (agencyStopped) return 'stopped';
+    if (agency === 'stopped') return 'stopped';
     const mine = states[id];
-    if (mine && (!l || Date.now() - mine.at < 6000)) return mine.state;
-    return l?.state ?? 'active';
+    const own = mine && (!l || Date.now() - mine.at < 6000) ? mine.state : (l?.state ?? 'active');
+    return agency === 'standby' && own === 'active' ? 'draining' : own;
   };
   // Each agent's models, and every model that could be given (docs/model-connections.md).
   const [modelChoices, setModelChoices] = useState<Record<string, ModelChoice[]>>({});
@@ -719,7 +719,7 @@ export function Dashboard({
               agent={a}
               range={range}
               state={stateFor(a.id, l)}
-              agencyStopped={agencyStopped}
+              agencyHeld={agency !== 'active'}
               setState={s => {
                 setStates(prev => ({ ...prev, [a.id]: { state: s, at: Date.now() } }));
                 if (l) setAgentRunner(a.id, { state: s }).catch(() => {});
