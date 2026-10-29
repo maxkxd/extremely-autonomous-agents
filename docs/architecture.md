@@ -71,6 +71,18 @@ service than from the user's own machine (docs/model-connections.md).
   its owner. The host records who made each change (`person_actions`), and
   who decided each approval and answered each request.
 
+- **Signing in is only for organisations** (decided 2026-10-30): the app
+  works fully with no account, your own agency being the server on your
+  computer. The sign-in screen is ours (email code, Google, GitHub) on Clerk
+  underneath (apps/desktop/src/account.ts, SignIn.tsx).
+- **An organisation you own runs beside your own agency**: the same server in
+  a second process with its own folder (`data/hosted/<org id>`) and ports,
+  listening only on your computer, started and watched by your own agency
+  (apps/server/src/hosting.ts). The app reaches it at `/hosted/...` through
+  your own agency, as its owner. One machine hosts at most one organisation.
+- Each agency keeps its own browser storage in the app (card order and so on);
+  switching agencies starts the app afresh in the other.
+
 Build order: (1) our backend - Clerk, Postgres directory, the rules, org
 tokens, host registration; (2) the host checks tokens and roles and records
 who did what; (3) sign-in, the personal agency, the org switcher, creating,

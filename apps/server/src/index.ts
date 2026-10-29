@@ -22,6 +22,8 @@ import { startHooks } from './runner/hooks.js';
 import { agencyStopped } from './runner/run.js';
 import { fileRequest } from './runner/tools.js';
 import { parse as parseYaml } from 'yaml';
+import { forwardToHosted, HOSTED_ORG, hostingStatus, keepHostSecret, resumeHosting, startHosting, stopHosting } from './hosting.js';
+import { setSetting } from './runner/db.js';
 import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, personFor, recordAction, requireAdmin, setAccessConfig } from './access.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
@@ -145,6 +147,22 @@ const routes: Record<string, Route> = {
     const { issuer, orgId } = await body<{ issuer?: string; orgId?: string | null }>(req);
     return setAccessConfig({ ...(typeof issuer === 'string' ? { issuer } : {}), ...(orgId !== undefined ? { orgId: typeof orgId === 'string' && orgId ? orgId : null } : {}) });
   },
+
+  // --- An organisation this computer hosts, run beside this agency (hosting.ts) ---
+  'GET /api/hosting': async () => ({ hosting: hostingStatus() }),
+  'POST /api/hosting/start': async req => {
+    const { orgId, orgName, issuer } = await body<{ orgId: string; orgName: string; issuer: string }>(req);
+    if (typeof orgId !== 'string' || !/^[\w-]{1,64}$/.test(orgId) || typeof orgName !== 'string' || typeof issuer !== 'string' || !/^https?:\/\//.test(issuer))
+      throw new ConnectError('Which organisation?');
+    return startHosting({ orgId, orgName: orgName.slice(0, 80), issuer });
+  },
+  'POST /api/hosting/secret': async req => {
+    const { orgId, hostSecret } = await body<{ orgId: string; hostSecret: string }>(req);
+    if (hostingStatus()?.orgId !== orgId || typeof hostSecret !== 'string' || !hostSecret) throw new ConnectError('Not hosting that organisation.');
+    await keepHostSecret(orgId, hostSecret);
+    return { ok: true };
+  },
+  'POST /api/hosting/stop': async () => (await stopHosting(), { ok: true }),
 
   // --- Settings: connectors and the server's own state ---
   'GET /api/catalog': async () => CATALOG.map(s => ({ server: s.server, what: s.what, tools: s.tools.length })),
@@ -294,6 +312,14 @@ createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   // A run's tools, for Claude Code (runner/mcp.ts).
   if (url.pathname.startsWith('/mcp/') && (await handleMcp(req, res, url.pathname))) return;
+  // The organisation's agency this computer hosts: passed on, and it checks who's
+  // asking. Only from here, or with a token: without one it would take them for
+  // this computer's own person.
+  if (url.pathname.startsWith('/hosted/')) {
+    const fromHere = /^(127\.\d+\.\d+\.\d+|::1|::ffff:127\.\d+\.\d+\.\d+)$/.test(req.socket.remoteAddress ?? '');
+    if (!fromHere && !req.headers.authorization) return send(res, 401, { error: 'Sign in first.' });
+    return forwardToHosted(req, res, url.pathname.slice('/hosted'.length) + url.search);
+  }
   const key = `${req.method} ${url.pathname}`;
   const runnerRoute = runnerRoutes[key];
   const route = routes[key];
@@ -317,8 +343,11 @@ createServer(async (req, res) => {
     console.error(e);
     send(res, 500, { error: 'Something went wrong on the server.' });
   }
-}).listen(PORT, () => {
+  // An organisation's agency is reached through the person's own (hosting.ts), so only from this computer.
+}).listen(PORT, HOSTED_ORG ? '127.0.0.1' : undefined, () => {
   console.log(`eaa server on http://localhost:${PORT}`);
+  if (HOSTED_ORG && process.env.EAA_HOST_PERSON) setSetting('host_person', process.env.EAA_HOST_PERSON);
+  resumeHosting();
   resume();
   void conn.recheckCapabilities();
   startScheduler();

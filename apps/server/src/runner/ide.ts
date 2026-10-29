@@ -1,12 +1,12 @@
 import { execFile, spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { readMeta } from '../files.js';
 import { loadAgent } from './agent.js';
 import { agencyMcpUrl } from './agency-mcp.js';
 import { all, one } from './db.js';
+import { DATA_DIR } from '../paths.js';
 
 // Send to your IDE (docs/requests.md): a request handed to the person's own AI
 // IDE. Its folder gets REQUEST.md (the request, its conversation, what to do)
@@ -23,7 +23,7 @@ export const IDES = {
 } as const;
 export type Ide = keyof typeof IDES;
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'ide');
+const ROOT = join(DATA_DIR, 'ide');
 const PROMPT = 'Read REQUEST.md in this folder and work through it.';
 
 const onPath = (command: string) =>

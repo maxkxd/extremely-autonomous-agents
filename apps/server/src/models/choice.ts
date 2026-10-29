@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { DATA_DIR } from '../paths.js';
 
 // Which models each agent runs on (docs/model-connections.md): up to three,
 // in order of preference, each a model on one connection with an effort
@@ -13,7 +13,7 @@ export type ModelChoice = { connection: string; model: string; effort: Effort };
 
 export const MAX_CHOICES = 3;
 
-const FILE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'agent-models.json');
+const FILE = join(DATA_DIR, 'agent-models.json');
 
 async function readAll(): Promise<Record<string, ModelChoice[]>> {
   try {

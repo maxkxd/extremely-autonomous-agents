@@ -1,6 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { Building2, Check, ChevronDown, Gauge, LogOut, Plug, Plus, Trash2, User, X } from 'lucide-react';
-import { ACCOUNT, AGENTS, createOrganization } from './data';
+import { ACCOUNT, AGENTS } from './data';
+import {
+  createInvite,
+  createOrganisation,
+  deleteOrganisation,
+  invites as listInvites,
+  joinWithCode,
+  leaveOrganisation,
+  members as listMembers,
+  ownOrg,
+  previewInvite,
+  removeMember,
+  revokeInvite,
+  setRole,
+  state,
+  switchAgency,
+  teamOrgs,
+  type Invite,
+  type Member,
+} from './account';
+import { openSignIn } from './SignIn';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { AI_IDES, IdeLogo, setYourIde, yourIde, type IdeId } from './Requests';
 import { useProfileChat } from './ProfileChat';
@@ -75,7 +95,7 @@ export function Settings({
           <div className="settings-nav-foot">
             <button className="settings-nav-item" onClick={onLogOut}>
               <LogOut size={16} strokeWidth={1.8} />
-              Log out
+              {state.me ? 'Log out' : 'Sign in'}
             </button>
           </div>
         </nav>
@@ -491,28 +511,278 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
   const chat = useProfileChat();
   chatOpen.current = !!chat.element;
   const startBtn = useRef<HTMLButtonElement>(null);
+  const [step, setStep] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!org) {
-    // The chat asks for the name along with everything else.
-    const start = () =>
-      chat.start('', startBtn.current, name => {
-        createOrganization(name);
-        onOrgChange();
-      });
+  if (org) return <OrganizationProfile name={org.name} />;
+  if (!state.me)
     return (
       <section className="ssection">
         <h2>Organization</h2>
         <div className="sorg-center">
-          <p className="sorg-convert">Convert your account into an organization</p>
+          <p className="sorg-convert">Sign in to create or join an organization</p>
+          <button className="sbtn primary" onClick={openSignIn}>
+            Sign in
+          </button>
+        </div>
+      </section>
+    );
+
+  // The chat asks for the name along with everything else; then it's made, hosted here.
+  const start = () =>
+    chat.start('', startBtn.current, async name => {
+      setError(null);
+      try {
+        const made = await createOrganisation(name, setStep);
+        onOrgChange();
+        switchAgency(made.id);
+      } catch (e) {
+        setStep(null);
+        setError((e as Error).message);
+      }
+    });
+  const mine = ownOrg();
+  const others = teamOrgs().filter(o => o !== mine);
+  return (
+    <section className="ssection">
+      <h2>Organization</h2>
+      {mine ? (
+        <div className="sorg-row">
+          <span>
+            You host <strong>{mine.name}</strong>
+          </span>
+          <button className="sbtn" onClick={() => switchAgency(mine.id)}>
+            Open
+          </button>
+        </div>
+      ) : step ? (
+        <p className="snotes-empty">{step}...</p>
+      ) : (
+        <div className="sorg-row">
+          <span>Create an organization, hosted on this computer</span>
           <button className="sbtn primary" ref={startBtn} onClick={start}>
             Get started
           </button>
         </div>
-        {chat.element}
-      </section>
-    );
-  }
-  return <OrganizationProfile name={org.name} members={org.members} />;
+      )}
+      {error && <p className="custom-error">{error}</p>}
+      {others.map(o => (
+        <div className="sorg-row" key={o.id}>
+          <span>
+            <strong>{o.name}</strong> <span className="muted">{o.role === 'admin' ? 'Admin' : 'Member'}</span>
+          </span>
+          <button className="sbtn" onClick={() => switchAgency(o.id)}>
+            Open
+          </button>
+        </div>
+      ))}
+      <JoinWithCode />
+      {chat.element}
+    </section>
+  );
+}
+
+function JoinWithCode() {
+  const [code, setCode] = useState('');
+  const [preview, setPreview] = useState<{ org: string; invitedBy: string; role: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      if (!preview) setPreview(await previewInvite(code.trim()));
+      else switchAgency((await joinWithCode(code.trim())).orgId);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="sfield">
+      <span className="sfield-label">Join with a code</span>
+      <div className="sinline">
+        <input
+          value={code}
+          spellCheck={false}
+          placeholder="Invite code"
+          onChange={e => {
+            setCode(e.target.value);
+            setPreview(null);
+          }}
+          onKeyDown={e => e.key === 'Enter' && code.trim() && go()}
+        />
+        <button className={`sbtn${preview ? ' primary' : ''}`} disabled={!code.trim() || busy} onClick={go}>
+          {preview ? `Join ${preview.org}` : 'Continue'}
+        </button>
+      </div>
+      {preview && (
+        <span className="sfield-hint">
+          {preview.invitedBy} invited you as {preview.role === 'admin' ? 'an admin' : 'a member'}.
+        </span>
+      )}
+      {error && <span className="custom-error">{error}</span>}
+    </div>
+  );
+}
+
+// The people in it (our backend), its invites, and leaving or deleting it.
+function OrgPeople() {
+  const org = teamOrgs().find(o => o.id === state.agency)!;
+  const [people, setPeople] = useState<Member[]>(state.members);
+  const [pending, setPending] = useState<Invite[]>([]);
+  const [email, setEmail] = useState('');
+  const [role, setRoleChoice] = useState<'member' | 'admin'>('member');
+  const [made, setMade] = useState<Invite | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const manage = org.role !== 'member';
+  const load = () => {
+    listMembers(org.id).then(setPeople, () => {});
+    if (manage) listInvites(org.id).then(setPending, () => {});
+  };
+  useEffect(load, [org.id, manage]);
+  const act = async (fn: () => Promise<unknown>) => {
+    setError(null);
+    try {
+      await fn();
+      load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const me = state.me?.user.id;
+  const label = (r: string) => (r === 'owner' ? 'Owner' : r === 'admin' ? 'Admin' : 'Member');
+  return (
+    <>
+      <h3>Members</h3>
+      <ul className="smembers">
+        {people.map(m => (
+          <li key={m.userId}>
+            <MemberAvatar member={m.userId === me ? ACCOUNT.name : m.name} size={26} />
+            <span className="smember-name">
+              {m.userId === me ? ACCOUNT.name : m.name}
+              {m.userId === me && <span className="muted"> (you)</span>}
+            </span>
+            {org.role === 'owner' && m.role !== 'owner' ? (
+              <select className="srole" value={m.role} onChange={e => act(() => setRole(org.id, m.userId, e.target.value as 'admin' | 'member'))}>
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+            ) : (
+              <span className="muted">{label(m.role)}</span>
+            )}
+            {(org.role === 'owner' ? m.role !== 'owner' : org.role === 'admin' && m.role === 'member') && m.userId !== me && (
+              <button className="sicon" aria-label={`Remove ${m.name}`} onClick={() => act(() => removeMember(org.id, m.userId))}>
+                <X size={14} />
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {manage && (
+        <div className="sfield">
+          <span className="sfield-label">Invite someone</span>
+          <div className="sinline">
+            <input type="email" value={email} placeholder="Email (optional)" onChange={e => setEmail(e.target.value)} />
+            {org.role === 'owner' && (
+              <select className="srole" value={role} onChange={e => setRoleChoice(e.target.value as 'member' | 'admin')}>
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+            )}
+            <button
+              className="sbtn"
+              onClick={() =>
+                act(async () => {
+                  setMade(await createInvite(org.id, email.trim(), role));
+                  setEmail('');
+                })
+              }
+            >
+              <Plus size={14} /> Invite
+            </button>
+          </div>
+          {made && (
+            <span className="sfield-hint">
+              Their code: <code className="scode">{made.code}</code>
+              {made.email ? ` Only ${made.email} can use it.` : ''} It lasts 14 days.
+            </span>
+          )}
+          {pending.length > 0 && (
+            <ul className="sinvites">
+              {pending.map(i => (
+                <li key={i.code}>
+                  <code className="scode">{i.code}</code>
+                  <span className="muted">{i.email ?? 'Anyone with the code'}</span>
+                  <button className="sicon" aria-label="Revoke" onClick={() => act(() => revokeInvite(i.code))}>
+                    <X size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {error && <p className="custom-error">{error}</p>}
+      <div className="sorg-leave">
+        <button className="sbtn" onClick={() => switchAgency('personal')}>
+          Back to your agency
+        </button>
+        {org.role === 'owner' ? (
+          <button className="sbtn danger" onClick={() => setConfirming(true)}>
+            Delete organization
+          </button>
+        ) : (
+          <button className="sbtn danger" onClick={() => act(async () => (await leaveOrganisation(org.id), switchAgency('personal')))}>
+            Leave
+          </button>
+        )}
+      </div>
+      {confirming && <DeleteOrgDialog name={org.name} onCancel={() => setConfirming(false)} onConfirm={async () => (await deleteOrganisation(org.id), switchAgency('personal'))} />}
+    </>
+  );
+}
+
+function DeleteOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => Promise<void> }) {
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ok = typed.trim() === name;
+  const go = async () => {
+    if (!ok || busy) return;
+    setBusy(true);
+    try {
+      await onConfirm();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && !busy && onCancel()}>
+      <div className="confirm" role="alertdialog" aria-labelledby="delorg-title">
+        <h2 id="delorg-title">Delete {name}?</h2>
+        <p>Everyone loses access, and its agency stops on this computer. Its files stay here.</p>
+        <label className="confirm-label">
+          <span>
+            Type <strong>{name}</strong> to confirm
+          </span>
+          <input autoFocus value={typed} disabled={busy} spellCheck={false} onChange={e => setTyped(e.target.value)} onKeyDown={e => e.key === 'Enter' && go()} />
+        </label>
+        {error && <div className="custom-error">{error}</div>}
+        <div className="confirm-actions">
+          <button className="confirm-cancel" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button className="confirm-delete" onClick={go} disabled={!ok || busy}>
+            <Trash2 size={14} strokeWidth={2} />
+            {busy ? 'Deleting...' : 'Delete organization'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const BLANK_PROFILE = (name: string): Profile => ({ name, what_it_does: '', customers: '', offering: '', voice: '', people: [], notes: [] });
@@ -529,7 +799,7 @@ function MemberAvatar({ member, size }: { member: string; size: number }) {
 
 const samePerson = (a: KeyPerson, b: KeyPerson) => a.name.trim() === b.name.trim() && a.role.trim() === b.role.trim();
 
-function OrganizationProfile({ name, members }: { name: string; members: string[] }) {
+function OrganizationProfile({ name }: { name: string }) {
   const rec = useRecord<Profile>(
     () => getProfile(name).then(p => p ?? BLANK_PROFILE(name)),
     p => saveProfile(name, p),
@@ -549,8 +819,10 @@ function OrganizationProfile({ name, members }: { name: string; members: string[
     }
   };
   const loaded = !!p;
+  // Members read it; the owner and admins change it (access.ts on the host).
+  const readOnly = ACCOUNT.role === 'member';
   useEffect(() => {
-    if (loaded) relink();
+    if (loaded && !readOnly) relink();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
   // Editing a person undoes their link until the server checks them again.
@@ -562,7 +834,7 @@ function OrganizationProfile({ name, members }: { name: string; members: string[
       {!p ? (
         rec.error ? <p className="custom-error">{rec.error}</p> : <p className="snotes-empty">Loading...</p>
       ) : (
-        <>
+        <fieldset className="sreadonly" disabled={readOnly}>
           <Field label="What it does">
             <textarea rows={2} value={p.what_it_does} onChange={e => rec.edit({ what_it_does: e.target.value })} />
           </Field>
@@ -609,18 +881,9 @@ function OrganizationProfile({ name, members }: { name: string; members: string[
           <div className="ssave">
             <SaveStatus status={rec.status} error={rec.error} />
           </div>
-        </>
+        </fieldset>
       )}
-      <h3>Members</h3>
-      <ul className="smembers">
-        {members.map(m => (
-          <li key={m}>
-            <MemberAvatar member={m} size={26} />
-            {m}
-            {m === ACCOUNT.name && <span className="muted"> (you)</span>}
-          </li>
-        ))}
-      </ul>
+      <OrgPeople />
     </section>
   );
 }

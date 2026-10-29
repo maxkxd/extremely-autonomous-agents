@@ -7,6 +7,7 @@ import { useDismiss } from './useDismiss';
 import { FlashCount } from './FlashCount';
 import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
+import { scoped } from './account';
 
 // Slice colours come from --slice-0..4 on the card (styles.css): blue-to-gray
 // normally, red at Apocalyptic, grays when the agent is stopped.
@@ -523,7 +524,7 @@ function CardMenu({ onDelete, onRunNow }: { onDelete: () => void; onRunNow?: () 
   );
 }
 
-const ORDER_KEY = 'eaa.dashboardOrder';
+const ORDER_KEY = scoped('eaa.dashboardOrder');
 
 // Saved order, with agents not in it (newly added) at the top - the ones
 // arriving right now first, in the order they were added.

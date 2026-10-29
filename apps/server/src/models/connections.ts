@@ -1,21 +1,21 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash, createPublicKey, randomBytes, randomUUID, verify as verifySig } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { CopilotClient } from '@github/copilot-sdk';
 import { deleteSecret, getSecret, mask, setSecret } from '../vault.js';
 import { chatGptModels as chatGptList, keepChat, knownModel, type ModelInfo, type Native } from './caps.js';
 import type { Effort } from './choice.js';
 import { ConnectError, PROVIDERS, provider, verify } from './providers.js';
+import { DATA_DIR } from '../paths.js';
 
 // Model connections (docs/model-connections.md): what's connected, and the
 // sign-in flows for the plans and one-click keys. Secrets live in the vault;
 // this keeps only what's safe to show.
 
 const run = promisify(execFile);
-const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data');
+const DATA = DATA_DIR;
 const STATE = join(DATA, 'connections.json');
 const PORT = Number(process.env.PORT ?? 5175);
 

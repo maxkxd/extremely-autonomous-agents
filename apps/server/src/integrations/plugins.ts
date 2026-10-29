@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { getSetting } from '../runner/db.js';
 import type { Tier } from '../catalog.js';
 import type { CodeModule } from './modules/types.js';
 import { buildPlugin, runSandboxed, type Permissions } from './sandbox.js';
+import { DATA_DIR } from '../paths.js';
 
 // Code plugins (docs/integrations.md): TypeScript the Agency Engineer writes for
 // what an HTTP or MCP definition can't do (an action on this computer, say).
@@ -13,7 +13,7 @@ import { buildPlugin, runSandboxed, type Permissions } from './sandbox.js';
 // before a person has approved it - with the code shown - and it runs only
 // while its file is byte-for-byte what they approved (checked by hash).
 
-const PLUGINS = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'plugins');
+const PLUGINS = join(DATA_DIR, 'plugins');
 export const pluginsAllowed = () => getSetting<boolean>('code_plugins', false);
 
 const file = (module: string) => join(PLUGINS, `${module}.ts`);

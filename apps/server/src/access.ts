@@ -39,7 +39,8 @@ export const ORG_TOKEN_AUDIENCE = 'eaa-host';
 // phase 3); until then no token is accepted, only this computer.
 type AccessConfig = { issuer: string; orgId: string | null };
 const DEFAULT_ISSUER = process.env.EAA_TOKEN_ISSUER ?? 'http://localhost:5180';
-export const accessConfig = (): AccessConfig => ({ issuer: DEFAULT_ISSUER, orgId: null, ...getSetting<Partial<AccessConfig>>('access', {}) });
+// An organisation's agency started by hosting.ts is told both.
+export const accessConfig = (): AccessConfig => ({ issuer: DEFAULT_ISSUER, orgId: process.env.EAA_HOSTED_ORG ?? null, ...getSetting<Partial<AccessConfig>>('access', {}) });
 export function setAccessConfig(c: Partial<AccessConfig>) {
   const next = { ...accessConfig(), ...c };
   if (!/^https?:\/\/[^\s]+$/.test(next.issuer)) throw new AccessError(403, 'The issuer is an http(s) address.');
@@ -114,6 +115,11 @@ const NEEDS: Record<string, Level> = {
   'GET /api/oauth/chatgpt/callback': 'local',
   'POST /api/settings/host-person': 'local',
   'POST /api/settings/access': 'local',
+  // Running an organisation's agency on this computer (hosting.ts).
+  'GET /api/hosting': 'local',
+  'POST /api/hosting/start': 'local',
+  'POST /api/hosting/secret': 'local',
+  'POST /api/hosting/stop': 'local',
 
   'POST /api/org/turn': 'member',
   'POST /api/org': 'member', // its first save, from a member's first agent; changing it needs an admin (index.ts)

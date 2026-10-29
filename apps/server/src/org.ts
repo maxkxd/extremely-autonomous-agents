@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { DATA_DIR } from './paths.js';
 
 // The organisation profile (docs/agent-creation.md): who every agent works
 // for. Filled in by a short builder chat the first time someone adds an agent,
@@ -22,7 +22,7 @@ export type Profile = {
   members_seen?: string[]; // the members the last check was made against
 };
 
-const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'orgs');
+const DIR = join(DATA_DIR, 'orgs');
 const file = (org: string) => join(DIR, `${org.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'org'}.json`);
 
 export async function loadProfile(org: string): Promise<Profile | null> {
@@ -76,7 +76,7 @@ export type PersonProfile = {
   notes: string[]; // learned over time
 };
 
-const PEOPLE = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'people');
+const PEOPLE = join(DATA_DIR, 'people');
 const personFile = (name: string) => join(PEOPLE, `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'me'}.json`);
 
 export async function loadPerson(name: string): Promise<PersonProfile> {

@@ -1791,3 +1791,32 @@ a.sbtn { text-decoration: none; color: inherit; }
 .switch.on { background: var(--attention); border-color: var(--attention); }
 .switch.on::after { transform: translateX(16px); background: #fff; }
 .switch:focus-visible { outline: 2px solid var(--attention); outline-offset: 2px; }
+
+/* --- Sign-in and organisations (SignIn.tsx, Settings > Organization) --- */
+.signin-input {
+  width: 100%; padding: 10px 12px; border-radius: 9px; font: inherit; font-size: 14px;
+  color: var(--text); background: var(--sidebar); border: 1px solid var(--border);
+}
+.signin-input:focus { outline: none; border-color: var(--border-strong); }
+.signin-providers { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.signin-providers .sbtn { align-self: stretch; justify-content: center; }
+.confirm .signin-note { font-size: 12.5px; color: #6a6a6a; }
+.sorg-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: 10px; font-size: 14px; }
+.sorg-row .sbtn { align-self: center; }
+.sinline { display: flex; gap: 8px; align-items: center; }
+.sinline input { flex: 1; min-width: 0; }
+.sinline .sbtn { align-self: center; flex-shrink: 0; }
+.srole { height: 30px; padding: 0 8px; border-radius: 8px; font: inherit; font-size: 13px; color: var(--text); background: var(--sidebar); border: 1px solid var(--border); }
+.smember-name { flex: 1; min-width: 0; }
+.sicon { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: var(--muted); }
+.sicon:hover { background: var(--surface-hover); color: var(--text); }
+.scode { font-size: 12.5px; padding: 1px 6px; border-radius: 5px; background: var(--surface); color: var(--text); user-select: all; }
+.sinvites { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 0; padding: 0; list-style: none; font-size: 13px; }
+.sinvites li { display: flex; align-items: center; gap: 10px; }
+.sinvites .muted { flex: 1; }
+.sorg-leave { display: flex; justify-content: space-between; gap: 8px; margin-top: 22px; }
+.elsewhere-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.elsewhere-actions .sbtn { align-self: center; }
+/* The org profile, for members: readable, not editable. */
+.sreadonly { display: contents; }
+.sreadonly:disabled .sbtn, .sreadonly:disabled .speople button { display: none; }

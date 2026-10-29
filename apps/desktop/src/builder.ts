@@ -1,4 +1,5 @@
 import { ACCOUNT, AGENTS, type Agent, type Department } from './data';
+import { route } from './account';
 import { AGENT_PACKS } from './packs';
 import type { StampedEntry } from './AgentDM';
 
@@ -47,14 +48,16 @@ const who = () => ({ person: ACCOUNT.name, org: ACCOUNT.org?.name ?? null, membe
 
 const OFFLINE = 'The app server is not running. Start apps/server (npm run dev).';
 
+// Every request goes to the agency the app is in (account.ts says where, and with what token).
 async function request<T>(path: string, body?: unknown): Promise<T> {
+  const { url, headers } = await route(path);
   let res: Response;
   try {
     res = await fetch(
-      path,
+      url,
       body === undefined
-        ? undefined
-        : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...who(), ...body }) },
+        ? { headers }
+        : { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ ...who(), ...body }) },
     );
   } catch {
     throw new Error(OFFLINE);

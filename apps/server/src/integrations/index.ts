@@ -20,6 +20,7 @@ import { discoverMcpSignIn } from './mcp-auth.js';
 import { stopStdioServer } from './mcp-stdio.js';
 import { oauthAccessToken, oauthCallback, oauthSecret, oauthSignOut, oauthStart, setOAuthAccount } from './oauth.js';
 import { Integration, type EventDefT, type HttpIntegration, type McpIntegration } from './schema.js';
+import { DATA_DIR } from '../paths.js';
 
 // Integrations (docs/integrations.md): the ones that ship with the app
 // (apps/server/integrations/*.yaml) and the ones added later - by a person,
@@ -29,7 +30,7 @@ import { Integration, type EventDefT, type HttpIntegration, type McpIntegration 
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SHIPPED = join(HERE, '..', '..', 'integrations');
-const ADDED = join(HERE, '..', '..', 'data', 'integrations');
+const ADDED = join(DATA_DIR, 'integrations');
 // The live definition of one being redrafted, until the draft goes live or is turned down.
 const LIVE = join(ADDED, '.live');
 

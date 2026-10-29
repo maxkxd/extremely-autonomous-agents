@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, parse, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transform } from 'esbuild';
 import { safeFetch } from '../runner/net.js';
+import { DATA_DIR } from '../paths.js';
 
 // Where code plugins run (docs/integrations.md): a separate Node process under
 // Node's permission model, allowed only what the plugin declared - the folders
@@ -16,7 +17,7 @@ export type Permissions = { read: string[]; write: string[]; commands: boolean }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHILD_SOURCE = join(HERE, 'sandbox-child.mjs');
-const BUILT = join(HERE, '..', '..', 'data', 'plugins', '.built');
+const BUILT = join(DATA_DIR, 'plugins', '.built');
 // The sandbox's own script runs from the build folder, beside the plugins: the
 // one folder the sandbox can read (with a package.json, so Node's search for
 // one stops there instead of reading folders above).
