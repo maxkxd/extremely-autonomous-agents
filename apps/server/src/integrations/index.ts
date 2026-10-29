@@ -9,7 +9,7 @@ import { deleteSecret, getSecret, setSecret } from '../vault.js';
 import { callHttp } from './http.js';
 import { callMcpTool, listMcpTools, type McpTool } from './mcp-client.js';
 import { MODULES, type CodeModule } from './modules/index.js';
-import { codeHash, installPlugin, pluginModule, readPlugin, removePlugin } from './plugins.js';
+import { codeHash, dropPluginBackup, installPlugin, pluginModule, readPlugin, removePlugin, restorePlugin } from './plugins.js';
 import { resolvePermissions } from './sandbox.js';
 import { safeFetch } from '../runner/net.js';
 import type { Kit } from './modules/types.js';
@@ -30,6 +30,8 @@ import { Integration, type HttpIntegration, type McpIntegration } from './schema
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SHIPPED = join(HERE, '..', '..', 'integrations');
 const ADDED = join(HERE, '..', '..', 'data', 'integrations');
+// The live definition of one being redrafted, until the draft goes live or is turned down.
+const LIVE = join(ADDED, '.live');
 
 // draft: written by the Fleet Engineer and not live yet - no agent can call it
 // until a person approves it (it can be connected and tested meanwhile).
@@ -42,7 +44,8 @@ type State = {
   by?: string;
   request?: number;
   codeHash?: string;
-  published?: boolean; // it has been live: a later draft of it is never discarded
+  published?: boolean; // it has been live: a turned-down draft of it puts the live version back
+  liveHash?: string; // while it's redrafted: the live plugin code's approved hash
 };
 const STATE_KEY = 'integrations';
 const states = () => getSetting<Record<string, State>>(STATE_KEY, {});
@@ -381,18 +384,41 @@ export async function writeDraftIntegration(definition: string, by: string, requ
   if (existing?.shipped) throw new Error(`"${integration.id}" is a built-in integration's id; pick another.`);
   const prev = states()[integration.id];
   if (existing && prev?.by !== by) throw new Error(`"${integration.id}" was added by a person; pick another id.`);
-  await mkdir(ADDED, { recursive: true });
+  await mkdir(LIVE, { recursive: true });
+  // Redrafting a live one: its live definition is kept, in case the draft is turned down.
+  const wasLiveNow = !!existing && !prev?.draft;
+  if (wasLiveNow) await writeFile(join(LIVE, `${integration.id}.yaml`), stringify(existing.integration));
   await writeFile(join(ADDED, `${integration.id}.yaml`), stringify(integration));
-  putState(integration.id, { ...prev, draft: true, by, request: request ?? prev?.request, codeHash: undefined, published: prev?.published || (!!existing && !prev?.draft) });
+  putState(integration.id, {
+    ...prev,
+    draft: true,
+    by,
+    request: request ?? prev?.request,
+    codeHash: undefined,
+    published: prev?.published || wasLiveNow,
+    liveHash: wasLiveNow ? prev?.codeHash : prev?.liveHash,
+  });
   await loadIntegrations();
   return { integration, wasLive: !!existing && !prev?.draft };
 }
 
 // A draft nobody wants - its request or its go-live was turned down: gone from
-// Settings with its key and plugin code. One that has been live is left alone.
+// Settings with its key and plugin code. One that has been live goes back to
+// its live version instead, as it was before the redraft.
 export async function discardDraft(id: string): Promise<boolean> {
   const st = states()[id];
-  if (!st?.draft || st.published) return false;
+  if (!st?.draft) return false;
+  if (st.published) {
+    const yaml = await readFile(join(LIVE, `${id}.yaml`), 'utf8').catch(() => null);
+    if (yaml == null) return false;
+    await writeFile(join(ADDED, `${id}.yaml`), yaml);
+    await rm(join(LIVE, `${id}.yaml`), { force: true });
+    const live = Integration.parse(parse(yaml));
+    if (live.kind === 'code' && !MODULES[live.module]) await restorePlugin(live.module);
+    putState(id, { ...st, draft: false, codeHash: st.liveHash, liveHash: undefined });
+    await loadIntegrations();
+    return true;
+  }
   const integration = find(id);
   await removeIntegration(id);
   if (integration?.kind === 'code' && !MODULES[integration.module]) await removePlugin(integration.module);
@@ -453,7 +479,10 @@ export async function publishIntegration(id: string, approvedHash: string | null
     await installPlugin(integration.module, approvedHash, resolvePermissions(integration.permissions));
     putState(id, { ...states()[id], codeHash: approvedHash });
   }
-  putState(id, { ...states()[id], draft: false, published: true });
+  putState(id, { ...states()[id], draft: false, published: true, liveHash: undefined });
+  // The new version is the live one now.
+  await rm(join(LIVE, `${id}.yaml`), { force: true });
+  if (integration.kind === 'code') await dropPluginBackup(integration.module);
   // Tested now that it can run (a plugin's first run is after approval).
   let test: string | null = null;
   if (integration.auth.type === 'none' || isConnected(id)) {

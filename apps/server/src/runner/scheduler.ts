@@ -4,7 +4,7 @@ import './web.js'; // registers the web tools
 import './browser.js'; // registers the browser tools
 import { ensureFleetEngineer, startEngineer } from './engineer.js';
 import './conductor.js'; // routes new requests
-import { ensureHelpers, fillBuiltInModels, HELPER_IDS } from './helpers.js';
+import { BUILT_IN_IDS, ensureHelpers, fillBuiltInModels, HELPER_IDS } from './helpers.js';
 import { availableModels, nativeEffortSync } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';
@@ -127,8 +127,9 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
     return b ? { trigger: b.trigger, task: b.task, bookingId: b.id } : null;
   }
   if (st.backoff_until && st.backoff_until > now) return null;
-  // The runaway backstop - never the pace.
-  if (runsToday(agent.id, now) >= backstop(agent, st.ferocity)) return null;
+  // The runaway backstop - never the pace. Built-ins have none: their work comes
+  // from requests, and failure backoff still stops one that keeps failing.
+  if (!BUILT_IN_IDS.includes(agent.id) && runsToday(agent.id, now) >= backstop(agent, st.ferocity)) return null;
   if (due.length) return { trigger: due[0].trigger, task: due[0].task, bookingId: due[0].id };
   if (st.ferocity === APOCALYPTIC) {
     const last = one<{ ended_at: number | null }>('SELECT ended_at FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1', agent.id);

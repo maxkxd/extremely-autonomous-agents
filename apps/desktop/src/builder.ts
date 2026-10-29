@@ -226,6 +226,9 @@ export type LiveAgent = {
 export const getLiveAgents = (days: number) => request<Record<string, LiveAgent>>(`/api/runner/agents?days=${days}`);
 export const setAgentRunner = (id: string, patch: { ferocity?: number; state?: RunState; spendCapUsd?: number | null }) =>
   post<{ ok: boolean }>('/api/runner/agent', { id, ...patch });
+// The host's time zone: whose midnight the agency's days start at.
+export const getHostZone = () => request<{ zone: string; set: boolean }>('/api/settings/host-timezone');
+export const setHostZone = (zone: string) => post<{ zone: string }>('/api/settings/host-timezone', { zone });
 // The whole agency's Stop.
 export const getAgency = () => request<{ stopped: boolean }>('/api/runner/agency');
 export const setAgency = (stopped: boolean) => post<{ stopped: boolean }>('/api/runner/agency', { stopped });

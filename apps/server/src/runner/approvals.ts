@@ -57,7 +57,7 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
   if (decision === 'rejected') {
     // A go-live turned down: its draft goes too.
     const gone = a.tool === 'engineer.publish_integration' && (await discardDraft(String(args.integration_id)).catch(() => false));
-    wake(a.agent_id, 'approval', `A person REJECTED your queued ${what}. It did not happen.${gone ? ' Its draft integration was discarded.' : ''}${why} Take that into account - don't queue the same thing again unchanged.`);
+    wake(a.agent_id, 'approval', `A person REJECTED your queued ${what}. It did not happen.${gone ? ' Its draft was discarded (if a version of it was live before, that one is back).' : ''}${why} Take that into account - don't queue the same thing again unchanged.`);
     return { ok: true, ran: false, result: null };
   }
   const agent = await load(a.agent_id);

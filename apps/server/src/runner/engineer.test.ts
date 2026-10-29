@@ -106,8 +106,13 @@ test('a turned-down draft is discarded with its plugin code; one that has been l
   assert.equal(await readPlugin(mod), null);
   assert.deepEqual(draftsForRequest(42), []);
 
-  // The first test made this one live; a new draft of it stays.
-  await writeDraftIntegration(DEF, 'fleet', 7);
-  assert.equal(await discardDraft(ID), false);
-  assert.equal((await listIntegrations()).some(i => i.id === ID), true);
+  // The first test made this one live: a turned-down redraft puts the live version back.
+  await writePlugin(MOD, PLUGIN('rewritten'));
+  await writeDraftIntegration(DEF.replace('name: ZZ Test', 'name: ZZ Test v2'), 'fleet', 7);
+  assert.equal(integrationToolIds().includes('zztest.echo'), false);
+  assert.equal(await discardDraft(ID), true);
+  const back = (await listIntegrations()).find(i => i.id === ID)!;
+  assert.equal(back.draft, false);
+  assert.equal(back.name, 'ZZ Test');
+  assert.equal(await testIntegrationTool(ID, 'zztest.echo', { x: 'again' }), 'hello:again');
 });
