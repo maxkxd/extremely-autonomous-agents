@@ -13,7 +13,7 @@ import { Settings, type SettingsSection } from './Settings';
 import { NEW_SESSION, agentStatuses, getAgency, getIntegrations, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
 import { currentOrg, isAdmin, offline, onOffline, signOut, state } from './account';
-import { SignIn } from './SignIn';
+import { SignIn, type SignInAsk } from './SignIn';
 import { Elsewhere } from './Elsewhere';
 import { Onboarding, onboarded } from './Onboarding';
 import {
@@ -352,13 +352,13 @@ function Agency() {
     setView('requests');
   };
   // Signing in (for organisations) from anywhere: Settings, the account menu.
-  const [signingIn, setSigningIn] = useState<'in' | 'up' | null>(null);
+  const [signingIn, setSigningIn] = useState<SignInAsk | null>(null);
   useEffect(() => {
-    const open = (e: Event) => setSigningIn((e as CustomEvent<'in' | 'up'>).detail ?? 'in');
+    const open = (e: Event) => setSigningIn((e as CustomEvent<SignInAsk>).detail ?? { mode: 'in', from: null });
     window.addEventListener('eaa:sign-in', open);
     return () => window.removeEventListener('eaa:sign-in', open);
   }, []);
-  const logInOut = () => (state.me ? void signOut() : setSigningIn('in'));
+  const logInOut = () => (state.me ? void signOut() : setSigningIn({ mode: 'in', from: null }));
   // Settings at a section, from anywhere (NoModels.tsx: "Connect a model").
   useEffect(() => {
     const open = (e: Event) => setSettings((e as CustomEvent<SettingsSection>).detail);
@@ -619,7 +619,7 @@ function Agency() {
         />
       )}
       {/* Signed in: the app starts again, with your organisations. */}
-      {signingIn && <SignIn mode={signingIn} onCancel={() => setSigningIn(null)} onDone={() => location.reload()} />}
+      {signingIn && <SignIn mode={signingIn.mode} from={signingIn.from} onCancel={() => setSigningIn(null)} onDone={() => location.reload()} />}
       {reveal && (
         <AgentReveal
           agents={reveal.built.map(b => b.agent)}

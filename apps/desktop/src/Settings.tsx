@@ -545,7 +545,7 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
       {!state.me ? (
         <div className="sorg-row">
           <span>Sign up to create or join one with us</span>
-          <button className="sbtn primary" onClick={() => openSignIn('up')}>
+          <button className="sbtn primary" onClick={e => openSignIn('up', e.currentTarget)}>
             Sign up
           </button>
         </div>
