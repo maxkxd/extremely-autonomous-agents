@@ -9,6 +9,7 @@ import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from '.
 import { ModelError, type Adapter, type Call } from './providers.js';
 import { runAgent, stateOf, type RunDeps } from './run.js';
 import { nextRun } from './scheduler.js';
+import { forgetAgentRuns } from './forget.js';
 import { registerTools, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
@@ -329,9 +330,25 @@ test('a run a restart cut short carries on, told what it already did', async () 
   exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, at) VALUES ('r_cut', ?, 'files.write_file', '[]', 'T0', 'ok', ?)", ID, Date.now());
   let opening = '';
   const adapter: Adapter = async req => {
-    opening ||= req.messages[0].text ?? '';
+    const first = req.messages[0];
+    opening ||= first.role === 'user' ? first.text : '';
     return { text: 'Done.', calls: [], usage: { input: 1, output: 1 } };
   };
   await runAgent(agent(), 'run now', null, deps(adapter), undefined, 'r_cut');
   assert.match(opening, /restarted part-way.*files\.write_file \(ok\)/);
+});
+
+test('deleting an agent settles everything it left: approvals, requests, bookings, work handed to it', async () => {
+  const now = Date.now();
+  stateOf(ID);
+  exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES ('a1', ?, 'r1', 'gmail.send', '{}', ?, ?)", ID, now, now + 86_400_000);
+  exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES ('a2', 'fleet', 'r2', 'engineer.give_tools', ?, ?, ?)", JSON.stringify({ for_agent: ID }), now, now + 86_400_000);
+  exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'run now', null, ?, ?)", ID, now, now);
+  exec("INSERT INTO requests (agent_id, what, why, created_at) VALUES (?, 'a tool', 'needs it', ?)", ID, now);
+  exec("INSERT INTO tasks (agent_id, from_agent, task, created_at) VALUES (?, 'other', 'do a thing', ?)", ID, now);
+  await forgetAgentRuns(ID, now);
+  assert.deepEqual(all<{ status: string }>("SELECT status FROM approvals ORDER BY id").map(a => a.status), ['rejected', 'rejected']);
+  assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM bookings')!.n, 0);
+  assert.equal(one<{ status: string }>('SELECT status FROM requests')!.status, 'rejected');
+  assert.match(one<{ status: string; result: string }>('SELECT status, result FROM tasks')!.result, /deleted/);
 });

@@ -108,7 +108,6 @@ export async function ensureFleetEngineer() {
     tool_tiers: ENGINEER_TOOLS,
     approval_windows: { 'engineer.publish_integration': { window_seconds: 7 * 86400 }, 'engineer.give_tools': { window_seconds: 7 * 86400 } },
     new_tools: [],
-    limits: { max_runs_per_day: 60 },
     // It runs when there's work (requests, connections, replies); a daily look otherwise.
     ferocity: { every_hours: [24, 24, 24, 24], soft_floor: 0, floor: 0, apocalyptic_floor: 0, counts: [], hint: '', extra_effort: '' },
   });

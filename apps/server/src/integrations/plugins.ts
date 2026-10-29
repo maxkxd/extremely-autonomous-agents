@@ -36,13 +36,28 @@ export function networkProblems(code: string): string[] {
   return OWN_NETWORK.filter(([re]) => re.test(code)).map(([, why]) => why);
 }
 
-// Saves a plugin's code. It isn't loaded: that waits for a person's approval.
 export const removePlugin = (module: string) => rm(file(module), { force: true });
 
+// The live code of a plugin being rewritten, kept until the new code goes live
+// or is turned down (then it's put back).
+const backup = (module: string) => join(PLUGINS, '.live', `${module}.ts`);
+export async function restorePlugin(module: string) {
+  const code = await readFile(backup(module), 'utf8').catch(() => null);
+  if (code == null) return false;
+  await writeFile(file(module), code);
+  await rm(backup(module), { force: true });
+  return true;
+}
+export const dropPluginBackup = (module: string) => rm(backup(module), { force: true });
+
+// Saves a plugin's code. It isn't loaded: that waits for a person's approval.
 export async function writePlugin(module: string, code: string) {
   const bad = networkProblems(code);
   if (bad.length) throw new Error(`Plugins reach the network only through kit.fetch. Found: ${bad.join('; ')}.`);
-  await mkdir(PLUGINS, { recursive: true });
+  await mkdir(join(PLUGINS, '.live'), { recursive: true });
+  // Rewriting a live one: its live code is kept, once, in case the new code is turned down.
+  const live = await readPlugin(module);
+  if (installed.has(module) && live != null && (await readFile(backup(module)).catch(() => null)) == null) await writeFile(backup(module), live);
   await writeFile(file(module), code);
   installed.delete(module);
 }

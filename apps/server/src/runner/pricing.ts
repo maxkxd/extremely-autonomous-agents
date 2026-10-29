@@ -1,3 +1,4 @@
+import { startOfDay } from './clock.js';
 import { one } from './db.js';
 
 // What a run cost (docs/runner.md, "Money and limits"). OpenRouter's public
@@ -79,11 +80,8 @@ export async function costOf(connection: string, model: string, input: number, o
 
 // --- Spend caps (Settings -> Usage) ------------------------------------------
 
-export const startOfDay = (now: number) => {
-  const d = new Date(now);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-};
+// Days start at the host's midnight (clock.ts).
+export { startOfDay };
 
 export function spentToday(now: number, agentId?: string): number {
   const since = startOfDay(now);

@@ -9,7 +9,7 @@ import { LiveDM } from './LiveDM';
 import { NewAgent } from './NewAgent';
 import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
-import { NEW_SESSION, agentStatuses, getAgency, setAgency, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
+import { NEW_SESSION, agentStatuses, getAgency, getHostZone, setAgency, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
 import {
   ACCOUNT,
@@ -71,6 +71,16 @@ export function App() {
     load();
     const t = window.setInterval(load, 5000);
     return () => window.clearInterval(t);
+  }, []);
+  // The agency's days run on its host's clock. Until orgs exist, whoever runs
+  // the app is the host: the first time it opens, the server takes its time zone.
+  useEffect(() => {
+    getHostZone().then(
+      h => {
+        if (!h.set) void setHostZone(Intl.DateTimeFormat().resolvedOptions().timeZone).catch(() => {});
+      },
+      () => {},
+    );
   }, []);
   const changeAgency = (stopped: boolean) => {
     agencySetAt.current = Date.now();

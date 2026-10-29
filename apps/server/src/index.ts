@@ -16,6 +16,7 @@ import { finishIntegrationSignIn, integrationToolIds } from './integrations/inde
 import { handleMcp } from './runner/mcp.js';
 import { book, startScheduler } from './runner/scheduler.js';
 import { FLEET_ENGINEER } from './runner/agent.js';
+import { forgetAgentRuns } from './runner/forget.js';
 import { fileRequest } from './runner/tools.js';
 import { parse as parseYaml } from 'yaml';
 
@@ -277,6 +278,7 @@ const routes: Record<string, Route> = {
     if (id === FLEET_ENGINEER || m?.builtIn) throw new ConnectError(`The ${m?.name ?? 'Fleet Engineer'} is part of the agency; it can't be deleted.`);
     await remove(id);
     await removeChoices(id);
+    await forgetAgentRuns(id);
     return { ok: true };
   },
 };

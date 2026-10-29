@@ -150,7 +150,27 @@ opening says what it already did, so nothing is done twice.
   its own model, so its runs are unknown; local models are free.
 - **Failure backoff**: an agent whose runs keep failing within seconds (broken
   model, broken tool) backs off instead of spinning, at every level.
-- `max_runs_per_day` is only a runaway backstop, never the pace.
+- `max_runs_per_day` is only a runaway backstop, never the pace. Built-ins
+  have none: their work comes from requests, and failure backoff still
+  stops one that keeps failing.
+- **Days are the host's** (`runner/clock.ts`): "today" for spend caps and run
+  limits, the month in Usage, and the date agents are told start at the
+  host's midnight, not the server's. The host's app sends its time zone the
+  first time it opens (`host_timezone`); until orgs exist, whoever runs the
+  app is the host.
+
+## Edge cases settled
+
+- **Handing work over**: never to an agent that's stopped or on standby - it
+  wouldn't start on it. The Conductor leaves them out (the request goes to
+  the Fleet Engineer), and `tasks.delegate_task` refuses with why.
+- **Built-ins' models**: when none of a built-in's models is connected any
+  more (Claude Code disconnected, say), it gets three from what is.
+- **Deleting an agent** (`runner/forget.ts`): its pending approvals and the
+  Fleet Engineer's for it are rejected, its open requests turned down (their
+  drafts discarded), its bookings dropped, work handed to it closed as not
+  done (so whoever handed it over hears), and its DMs, memory and state
+  removed. Its runs stay, so Usage still adds up.
 
 ## Building it: one piece at a time
 

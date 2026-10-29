@@ -104,8 +104,9 @@ first. Models a person picked are left alone.
     request shows *Waiting on approval*. The approval belongs to the owner of
     the agent that asked (the Fleet Engineer itself is owned by no one).
     Approved -> it builds the tool, says what it built, and the request
-    closes. Rejected -> its draft integration is discarded (one that has
-    been live is kept); expired -> the draft stays. Either way it says so in
+    closes. Rejected -> its draft integration is discarded, or, if it was a
+    new version of a live one, the live version comes back as it was;
+    expired -> the draft stays. Either way it says so in
     the conversation and the request stays open.
 
     **Rule: the Fleet Engineer always tells you what to do.** It never just

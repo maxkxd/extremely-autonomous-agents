@@ -3,7 +3,8 @@ import { readMeta, save } from '../files.js';
 import { allChoices, setChoices } from '../models/choice.js';
 import { FLEET_ENGINEER } from './agent.js';
 import { run as exec } from './db.js';
-import { defaultModels, type Want } from './defaults.js';
+import { availableModels } from '../models/connections.js';
+import { pickDefaults, type Want } from './defaults.js';
 
 // The agency's built-in agents, kept together here because they're different:
 // owned by no one, never deleted, no Ferocity, and one day hideable. The
@@ -57,14 +58,18 @@ export async function ensureHelpers() {
   await fillBuiltInModels();
 }
 
-// A built-in with no models gets them from what's connected - at start and on
-// every tick, so connecting the first AI model sets them all straight away.
-// Ones a person picked are left alone.
+// A built-in with no model it can use gets three from what's connected - at
+// start and on every tick, so connecting the first AI model sets them all
+// straight away, and disconnecting the ones it had moves it to what's left.
+// While any of its models is still connected, its models are left alone.
 export async function fillBuiltInModels() {
+  const avail = await availableModels().catch(() => []);
+  if (!avail.length) return;
+  const connected = new Set(avail.map(a => a.connection));
   const chosen = await allChoices();
   for (const [id, want] of Object.entries(WANTS)) {
-    if (chosen[id]?.length || !(await readMeta(id))) continue;
-    const models = await defaultModels(want);
+    if ((chosen[id] ?? []).some(c => connected.has(c.connection)) || !(await readMeta(id))) continue;
+    const models = pickDefaults(avail, want);
     if (models.length) await setChoices(id, models);
   }
 }

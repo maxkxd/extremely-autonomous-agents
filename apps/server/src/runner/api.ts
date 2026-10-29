@@ -22,6 +22,7 @@ import { openProfileForSignIn, profileStatus } from './browser.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { spentToday } from './pricing.js';
+import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
 import { isPrivateIp } from './net.js';
 import { agencyStopped, stateOf, type Trigger } from './run.js';
 import { abortAll, abortRun, book, isRunning } from './scheduler.js';
@@ -211,6 +212,14 @@ export const runnerRoutes: Record<string, Route> = {
   },
 
   // Whether the Fleet Engineer may write code plugins (docs/integrations.md).
+  // The host's time zone: whose midnight the agency's days start at (clock.ts).
+  'GET /api/settings/host-timezone': async () => ({ zone: hostZone(), set: hostZoneSet() }),
+  'POST /api/settings/host-timezone': async (_req, _q, body) => {
+    const { zone } = await body<{ zone: string }>();
+    setHostZone(String(zone ?? ''));
+    return { zone: hostZone(), set: true };
+  },
+
   'GET /api/settings/code-plugins': async () => ({ allowed: pluginsAllowed() }),
   'POST /api/settings/code-plugins': async (_req, _q, body) => {
     const { allowed } = await body<{ allowed: boolean }>();
@@ -315,12 +324,12 @@ export const runnerRoutes: Record<string, Route> = {
 
   // --- Spend caps (Settings -> Usage) ---
   // Spend and runs: today (for the caps) and this calendar month, per agent.
-  // A run on a plan (Claude, ChatGPT, Copilot) or Ollama costs $0; one whose
-  // model has no known price is counted, and its cost reported as unknown.
+  // A run on a plan is priced as the same model on an API; Ollama costs $0; one
+  // whose model has no known price is counted, and its cost reported as unknown.
+  // The month is the host's (clock.ts).
   'GET /api/usage': async () => {
     const now = Date.now();
-    const d = new Date(now);
-    const monthStart = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    const monthStart = startOfMonth(now);
     const month = new Map(
       all<{ agent_id: string; spend: number | null; runs: number; unknown: number }>(
         'SELECT agent_id, SUM(cost_usd) AS spend, COUNT(*) AS runs, SUM(cost_usd IS NULL) AS unknown FROM runs WHERE started_at >= ? GROUP BY agent_id',

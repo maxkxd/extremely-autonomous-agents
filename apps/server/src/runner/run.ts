@@ -9,6 +9,7 @@ import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { backoffMs, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
 import { costOf, isFree, spentToday } from './pricing.js';
+import { hostZone } from './clock.js';
 import type { Harness } from './harness.js';
 import { ModelError, type Adapter, type Msg } from './providers.js';
 import { execute, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js';
@@ -214,9 +215,9 @@ Test it properly now (engineer.test_integration), then carry its request forward
 // In the opening message rather than the instructions, so those stay cacheable.
 export function nowLine(at: number): string {
   const d = new Date(at);
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const day = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const zone = hostZone();
+  const day = d.toLocaleDateString('en-GB', { timeZone: zone, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const time = d.toLocaleTimeString('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit' });
   return `It's ${day}, ${time} (${zone}).`;
 }
 
