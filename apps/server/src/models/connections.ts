@@ -509,9 +509,11 @@ const quoted = (bin: string) => (bin.includes(' ') ? `"${bin}"` : bin);
 
 let claudeTask: ClaudeCodeStatus['task'];
 
-export async function claudeCodeStatus(): Promise<ClaudeCodeStatus> {
+type ClaudeCodeFacts = Omit<ClaudeCodeStatus, 'task'>;
+
+async function checkClaudeCode(): Promise<ClaudeCodeFacts> {
   const bin = await claudeBin();
-  if (!bin) return { installed: false, loggedIn: false, task: claudeTask };
+  if (!bin) return { installed: false, loggedIn: false };
   const version = (await run(quoted(bin), ['--version'], claudeOpts())).stdout.trim().split(' ')[0];
   // Exits non-zero when nobody is signed in, but still prints its status.
   const out = await run(quoted(bin), ['auth', 'status', '--json'], claudeOpts()).then(
@@ -521,16 +523,35 @@ export async function claudeCodeStatus(): Promise<ClaudeCodeStatus> {
   try {
     const s = JSON.parse(out) as { loggedIn?: boolean; authMethod?: string };
     const plan = !!s.loggedIn && !!s.authMethod && !/none|api.?key/i.test(s.authMethod);
-    return { installed: true, version, loggedIn: plan, authMethod: s.authMethod, task: claudeTask };
+    return { installed: true, version, loggedIn: plan, authMethod: s.authMethod };
   } catch {
-    return { installed: true, version, loggedIn: false, task: claudeTask };
+    return { installed: true, version, loggedIn: false };
   }
+}
+
+// Asking Claude Code about itself starts it three times - about a second - and
+// the connections list is read by the app's Settings and by every runner tick.
+// So the list gets the last answer straight away and it's checked again in the
+// background (every 30 seconds, or each time while installing or signing in).
+// Connecting and waiting for a sign-in ask fresh.
+const CLAUDE_RECHECK_MS = 30_000;
+let claudeLast: { at: number; facts: ClaudeCodeFacts } | null = null;
+let claudeChecking: Promise<ClaudeCodeFacts> | null = null;
+const recheckClaudeCode = () =>
+  (claudeChecking ??= checkClaudeCode()
+    .then(facts => ((claudeLast = { at: Date.now(), facts }), facts))
+    .finally(() => (claudeChecking = null)));
+
+export async function claudeCodeStatus(fresh = false): Promise<ClaudeCodeStatus> {
+  if (fresh || !claudeLast) return { ...(await recheckClaudeCode()), task: claudeTask };
+  if (claudeTask || Date.now() - claudeLast.at > CLAUDE_RECHECK_MS) void recheckClaudeCode().catch(() => {});
+  return { ...claudeLast.facts, task: claudeTask };
 }
 
 const CLAUDE_CODE_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 
 export async function claudeCodeConnect() {
-  const s = await claudeCodeStatus();
+  const s = await claudeCodeStatus(true);
   if (!s.installed) throw new ConnectError("Claude Code isn't installed on this computer.");
   if (!s.loggedIn) throw new ConnectError("Claude Code isn't signed in to a Claude account yet.");
   await connected('claude-code', `Claude Code ${s.version ?? ''}`.trim(), CLAUDE_CODE_MODELS.map(id => knownModel('claude-code', id)));
@@ -592,7 +613,7 @@ export async function claudeCodeLogin() {
   claudeTask = 'signing-in';
   const run = `& ${process.platform === 'win32' ? `'${bin === 'claude' ? 'claude' : bin}'` : bin} auth login --claudeai`;
   openTerminal('Sign in to Claude', { win: run, unix: `${quoted(bin)} auth login --claudeai` });
-  waitFor(async () => (await claudeCodeStatus()).loggedIn, claudeCodeConnect);
+  waitFor(async () => (await claudeCodeStatus(true)).loggedIn, claudeCodeConnect);
 }
 
 // The models agents can be given: every working connection and its models
