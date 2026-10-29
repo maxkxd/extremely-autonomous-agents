@@ -1857,6 +1857,11 @@ a.sbtn { text-decoration: none; color: inherit; }
 .onboarding-skip { color: var(--muted); border-color: var(--border); }
 /* Signed out: Sign up beside your name, where the account menu's arrows would be. */
 .account-signup { position: absolute; right: 10px; bottom: 15px; height: 30px; padding: 0 12px; font-size: 13px; }
+.account-signup { background: #e6e6e6; border-color: #e6e6e6; color: #141414; }
+.account-signup:hover { background: #fff; border-color: #fff; }
+/* Grown out of the button pressed (SignIn.tsx), not the usual rise. */
+.confirm.signin.grows { animation: none; }
+.signin-providers .sbtn svg { flex-shrink: 0; }
 .model-panel:has(> .no-models) { flex: 1; justify-content: center; }
 
 /* The host is offline (account.ts): the last snapshot, readable, greyed, nothing to press. */

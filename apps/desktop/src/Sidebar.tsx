@@ -288,7 +288,7 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
       </button>
       {/* No account needed for your own agency; one is for organisations. */}
       {!state.me && (
-        <button className="sbtn primary account-signup" onClick={() => openSignIn('up')}>
+        <button className="sbtn account-signup" onClick={e => openSignIn('up', e.currentTarget)}>
           Sign up
         </button>
       )}
