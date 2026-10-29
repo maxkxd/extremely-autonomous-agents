@@ -67,7 +67,7 @@ async function run(id: string) {
     await save(files, { name: files.name, department: files.department, output: kpiLabels(files.kpi), status: 'ready', owner: meta.owner ?? person, org: meta.org ?? org });
     // What its tailoring added that nothing provides yet goes to the Agency Engineer.
     const { requestWhatsMissing } = await import('./agents.js');
-    requestWhatsMissing(files);
+    await requestWhatsMissing(files);
     console.log(`set up ${id}`);
   } catch (e) {
     const attempts = meta.setup.attempts + 1;

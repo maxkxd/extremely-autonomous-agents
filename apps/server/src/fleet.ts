@@ -33,7 +33,9 @@ export async function scanFleet(exceptId?: string): Promise<Fleet> {
       const charter = await readFile(join(DATA, id, 'CHARTER.md'), 'utf8').catch(() => '');
       const name = /^# CHARTER\s*-\s*(.+)$/m.exec(charter)?.[1]?.trim() ?? id;
       const mission = /## Mission\s+([^\n]+)/.exec(charter)?.[1]?.trim() ?? '';
-      const meta = JSON.parse(await readFile(join(DATA, id, 'meta.json'), 'utf8').catch(() => '{}')) as { department?: string };
+      const meta = JSON.parse(await readFile(join(DATA, id, 'meta.json'), 'utf8').catch(() => '{}')) as { department?: string; builtIn?: boolean };
+      // The agency's own agents aren't the fleet's: no work goes to them, their tools are internal.
+      if (meta.builtIn) continue;
       agents.push({ id, name, department: meta.department ?? '', does: mission.slice(0, 220) });
       const described = new Map((yaml.new_tools ?? []).map(t => [t.id, t.description]));
       for (const [tid, tier] of Object.entries(yaml.tool_tiers ?? {})) {
@@ -50,18 +52,20 @@ export async function scanFleet(exceptId?: string): Promise<Fleet> {
   return { agents, tools: [...tools.values()] };
 }
 
-export function fleetForPrompt(f: Fleet): string {
+// built: the tool ids something provides now (connected services, the catalogue);
+// the rest are other agents' inventions not built yet - reusable, but marked.
+export function fleetForPrompt(f: Fleet, built?: Set<string>): string {
   const agents = f.agents.length
     ? f.agents.map(a => `- ${a.name} (id ${a.id}${a.department ? `, ${a.department}` : ''}): ${a.does}`).join('\n')
     : '(none yet)';
   const tools = f.tools.length
     ? f.tools
-        .map(t => `- ${t.id} [${t.tier}]${t.description ? ` ${t.description}` : ''} - used by ${t.usedBy.join(', ')}`)
+        .map(t => `- ${t.id} [${t.tier}]${t.description ? ` ${t.description}` : ''} - used by ${t.usedBy.join(', ')}${built && !built.has(t.id) ? ' (NOT BUILT YET: the Agency Engineer is asked for it; reuse the id rather than inventing another)' : ''}`)
         .join('\n')
     : '(none yet)';
   return `Agents already in this fleet (hand work to them with tasks.delegate_task rather than doing their job):
 ${agents}
 
-Tools already built and in use in this fleet. Reuse these exact ids when they do the job; they behave the same for every agent that holds them:
+Tools this fleet's agents use. Reuse these exact ids when they do the job; they behave the same for every agent that holds them:
 ${tools}`;
 }

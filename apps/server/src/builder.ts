@@ -1,8 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import * as z from 'zod/v4';
-import { BASELINE, catalogForPrompt } from './catalog.js';
+import { BASELINE, CATALOG_INDEX, catalogForPrompt } from './catalog.js';
 import { integrationEventsForPrompt, integrationToolsForPrompt } from './integrations/index.js';
+import { registeredToolIds } from './runner/tools.js';
 import { anthropicKey } from './models/connections.js';
 import { fleetForPrompt, type Fleet } from './fleet.js';
 import type { Available } from './models/connections.js';
@@ -65,7 +66,7 @@ function contextBlock(ctx: Context): string {
   const org = ctx.profile
     ? `The organisation these agents work for:\n${profileForPrompt(ctx.profile, ctx.person.name)}`
     : "They aren't set up as an organisation: the agents work for them personally. Keep organisation-specific details general rather than inventing them - they get filled in over time.";
-  return `${me}\n\n${org}\n\n${fleetForPrompt(ctx.fleet)}\n\n${integrationsForPrompt()}\n\n${eventsForPrompt()}\n\n${modelsForPrompt(ctx.models)}`;
+  return `${me}\n\n${org}\n\n${fleetForPrompt(ctx.fleet, new Set([...registeredToolIds(), ...CATALOG_INDEX.keys()]))}\n\n${integrationsForPrompt()}\n\n${eventsForPrompt()}\n\n${modelsForPrompt(ctx.models)}`;
 }
 
 // Events (docs/events.md): things happening at connected services that can wake an agent.
@@ -261,6 +262,10 @@ const TurnSchema = z.object({
   ready: z.boolean().describe('True when you have what you need and are not asking anything in this reply'),
 });
 
+const INTERVIEW = `- Ask only what you genuinely can't work out or sensibly default yourself: which systems it works in (when it matters which, and the fleet doesn't already tell you), where its work goes, what it must never do, what needs their OK before it happens, what "done well" looks like. Use what you know about the organisation and fleet instead of asking. Make sensible assumptions about the rest and say what you assumed in a few words.
+- One or two short questions at a time, in plain words, no jargon (never say T0/T1/T2, Charter or YAML).
+- Keep it short: a sentence or two plus the question.`;
+
 export async function interview(ctx: Context, turns: Turn[], declinedPack: string | null) {
   const declined = declinedPack
     ? `\n\nEarlier you recommended the ready-made "${declinedPack}" pack and the person carried on instead, so what they want is different. If it isn't obvious how, you may ask once. Never recommend a pack again.`
@@ -269,14 +274,26 @@ export async function interview(ctx: Context, turns: Turn[], declinedPack: strin
     TurnSchema,
     ctx,
     `You are now interviewing the person so you can write their agent. Each reply:
-- Ask only what you genuinely can't work out or sensibly default yourself: which systems it works in (when it matters which, and the fleet doesn't already tell you), where its work goes, what it must never do, what needs their OK before it happens, what "done well" looks like. Use what you know about the organisation and fleet instead of asking. Make sensible assumptions about the rest and say what you assumed in a few words.
-- One or two short questions at a time, in plain words, no jargon (never say T0/T1/T2, Charter or YAML).
-- Keep it short: a sentence or two plus the question.
+${INTERVIEW}
 - Ask as many rounds as you need. When you have enough, set ready to true and say in a sentence what you'll build, without asking anything.
 Confidence: start low on a vague description, and rise as the unknowns close. Never report 90 or more while an important question is open.${declined}`,
     transcript(turns),
     'medium',
   );
+}
+
+// The builder's whole brief as text, for an AI IDE building an agent through the
+// agency's MCP server (runner/agency-mcp.ts): the same instructions, catalogue,
+// organisation, fleet, connected services, events and models the builder sees,
+// how it interviews, and how it tiers. The build itself is create_agent's input,
+// whose fields carry the rest of the builder's guidance.
+export function builderGuide(ctx: Context): string {
+  return [
+    ABOUT,
+    contextBlock(ctx),
+    `Before you build, talk to the person (in your own chat with them) the way the builder interviews:\n${INTERVIEW}\n- Ask as many rounds as you need; when you have enough, say in a sentence what you'll build.`,
+    `Building it (create_agent): write every field for this organisation. ${TIERING}\n\nIds must exist: tools from the fleet, the catalogue above, connected services, or your own new_tools (server.tool); events from those listed above, or your own new_events; models from the connected ones above. A KPI and a ferocity count must name one of the agent's tools.`,
+  ].join('\n\n---\n\n');
 }
 
 // --- 3. Build: the hidden files ---
