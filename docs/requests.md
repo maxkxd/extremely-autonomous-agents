@@ -88,6 +88,11 @@ first. Models a person picked are left alone.
 
 ## The Requests page
 
+A request shows here only once it needs you: the Fleet Engineer asked you
+something, handed it to you, or its go-live waits on your approval. While the
+Conductor or the engineer is still working it out, it isn't listed. Once
+you've replied on one, it stays while the engineer works on your reply.
+
 - Each request is owned by the owner of the agent that filed it. You see your
   own; org admins can switch to everyone's (same as Approvals).
 - Long thin rows: one sentence of what the agent needs. Click to expand for

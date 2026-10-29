@@ -189,7 +189,8 @@ export function App() {
         list =>
           setLiveRequests(
             list
-              .filter(r => r.status === 'open')
+              // Only once the Fleet Engineer has worked out it needs you.
+              .filter(r => r.status === 'open' && r.needsYou)
               .map(r => ({
                 id: `live-${r.id}`,
                 live: r.id,

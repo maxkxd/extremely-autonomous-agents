@@ -215,6 +215,11 @@ export const runnerRoutes: Record<string, Route> = {
       ...r,
       thread: messages.filter(m => m.request_id === r.id).map(m => ({ from: m.from_who === 'you' ? 'you' : 'engineer', text: m.text, at: m.at })),
       engineerBusy: r.stage === 'engineer' && isRunning(FLEET_ENGINEER),
+      // The Requests page shows a request only once it needs the person: the
+      // engineer asked them something, handed it to them, or its go-live waits
+      // on them. While the engineer is still working it out, it isn't there.
+      // Once they've joined in, it stays while the engineer works on their reply.
+      needsYou: ['waiting_you', 'approval', 'person'].includes(String(r.stage)) || messages.some(m => m.request_id === r.id && m.from_who === 'you'),
       approvalId: waiting.find(w => Number(w.request) === r.id)?.id ?? null,
     }));
   },
