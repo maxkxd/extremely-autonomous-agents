@@ -5,6 +5,7 @@ import {
   addMcpIntegration,
   connectIntegration,
   disconnectIntegration,
+  getAgencyMcp,
   getCodePlugins,
   getIntegrations,
   openAgentBrowser,
@@ -49,6 +50,7 @@ export function Integrations({ onOpenApproval }: { onOpenApproval: (id: string) 
         <p className="slead">Other services agents can use. Add any service that has an MCP server by its address.</p>
         <ul className="sconnectors">
           <CodePlugins />
+          <AgencyMcp />
           {others.map(i => (
             <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} />
           ))}
@@ -374,6 +376,34 @@ function CodePlugins() {
       <span className="sconn-what">Lets the Fleet Engineer write code that runs on this computer, after your approval</span>
       <span className="sint-actions">
         <button className={`switch${allowed ? ' on' : ''}`} role="switch" aria-checked={allowed} aria-label="Code plugins" onClick={flip} />
+      </span>
+    </li>
+  );
+}
+
+// The agency in the person's AI IDE (Claude Code, Cursor...): its MCP server,
+// as Claude Code's add command or the bare address for any other.
+function AgencyMcp() {
+  const [url, setUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  useEffect(() => void getAgencyMcp().then(r => setUrl(r.url), () => {}), []);
+  if (!url) return null;
+  const copy = (what: string, text: string) =>
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(what);
+      window.setTimeout(() => setCopied(null), 1600);
+    }, () => {});
+  return (
+    <li>
+      <span className="sconn-name">Your IDE</span>
+      <span className="sconn-what">Run the whole agency from Claude Code, Cursor or any MCP client</span>
+      <span className="sint-actions">
+        <button className="sbtn" onClick={() => copy('claude', `claude mcp add --transport http agency ${url}`)}>
+          {copied === 'claude' ? 'Copied' : 'Copy for Claude Code'}
+        </button>
+        <button className="sbtn" onClick={() => copy('url', url)}>
+          {copied === 'url' ? 'Copied' : 'Copy address'}
+        </button>
       </span>
     </li>
   );

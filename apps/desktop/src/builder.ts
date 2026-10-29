@@ -262,6 +262,9 @@ export const sendToIde = (id: number, ide: string) =>
 export const sendRequestMessage = (id: number, text: string) => post<{ ok: boolean }>('/api/runner/requests/message', { id, text });
 
 // Whether the Fleet Engineer may write code plugins (Settings -> Connectors).
+// The agency's own MCP server, for the person's AI IDE; and who the host is.
+export const getAgencyMcp = () => request<{ url: string }>('/api/settings/agency-mcp');
+export const setHostPerson = (name: string) => post<{ ok: boolean }>('/api/settings/host-person', { name });
 export const getCodePlugins = () => request<{ allowed: boolean }>('/api/settings/code-plugins');
 export const setCodePlugins = (allowed: boolean) => post<{ allowed: boolean }>('/api/settings/code-plugins', { allowed });
 

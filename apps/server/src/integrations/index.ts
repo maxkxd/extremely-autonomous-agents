@@ -380,7 +380,9 @@ export type { HttpIntegration, McpIntegration };
 
 // Saves a definition the engineer wrote, as a draft: it shows in Settings to be
 // connected, but no agent can call it until a person approves it going live.
-export async function writeDraftIntegration(definition: string, by: string, request?: number): Promise<{ integration: Integration; wasLive: boolean }> {
+// asPerson: written for the person (from their IDE): any added integration may
+// be redrafted, and it stays whoever's it was.
+export async function writeDraftIntegration(definition: string, by: string, request?: number, asPerson = false): Promise<{ integration: Integration; wasLive: boolean }> {
   let raw: unknown;
   try {
     raw = parse(definition);
@@ -398,7 +400,8 @@ export async function writeDraftIntegration(definition: string, by: string, requ
   const existing = loaded.find(l => l.integration.id === integration.id);
   if (existing?.shipped) throw new Error(`"${integration.id}" is a built-in integration's id; pick another.`);
   const prev = states()[integration.id];
-  if (existing && prev?.by !== by) throw new Error(`"${integration.id}" was added by a person; pick another id.`);
+  if (existing && prev?.by !== by && !asPerson) throw new Error(`"${integration.id}" was added by a person; pick another id.`);
+  if (asPerson) by = prev?.by ?? by;
   await mkdir(LIVE, { recursive: true });
   // Redrafting a live one: its live definition is kept, in case the draft is turned down.
   const wasLiveNow = !!existing && !prev?.draft;

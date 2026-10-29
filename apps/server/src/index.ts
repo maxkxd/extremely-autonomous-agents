@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { BuilderError, build, interview, matchPack, profileInterview, type Build, type Context, type Pack, type Turn } from './builder.js';
 import { compose, kpiLabels, listIds, readMeta, remove, save, slug, type AgentFiles } from './files.js';
 import { scanFleet } from './fleet.js';
+import { createAgent, deleteAgent } from './agents.js';
 import { enqueue, resume } from './jobs.js';
 import { allChecks, checkModel } from './models/check.js';
 import { allChoices, removeChoices, setChoices } from './models/choice.js';
@@ -16,7 +17,7 @@ import { finishIntegrationSignIn, integrationToolIds } from './integrations/inde
 import { handleMcp } from './runner/mcp.js';
 import { book, startScheduler } from './runner/scheduler.js';
 import { FLEET_ENGINEER } from './runner/agent.js';
-import { forgetAgentRuns } from './runner/forget.js';
+import { startAgencyMcp } from './runner/agency-mcp.js';
 import { fileRequest } from './runner/tools.js';
 import { parse as parseYaml } from 'yaml';
 
@@ -214,34 +215,7 @@ const routes: Record<string, Route> = {
 
   // --- Agents ---
   'POST /api/agents': async req => {
-    const { person, org, files, setup } = await body<{ person: string; org: string | null; files: AgentFiles; setup?: { packId: string; index: number } }>(req);
-    await save(files, {
-      name: files.name,
-      department: files.department,
-      output: kpiLabels(files.kpi),
-      status: setup ? 'setting-up' : 'ready',
-      owner: person,
-      org,
-      setup: setup && { ...setup, person, org, attempts: 0 },
-    });
-    await setChoices(files.id, files.models ?? []);
-    if (setup) enqueue(files.id);
-    // Tools its builder invented that nothing provides yet go to the Fleet Engineer.
-    const invented = ((parseYaml(files.tools) as { new_tools?: { id: string; description: string; input_schema: unknown }[] }).new_tools ?? []);
-    const live = new Set(integrationToolIds());
-    for (const t of invented.filter(t => !live.has(t.id)))
-      fileRequest(
-        files.id,
-        null,
-        {
-          what: `Build the tool ${t.id}`,
-          why: `${files.name}'s builder defined it and nothing provides it yet: ${t.description}`,
-          evidence: `Input it expects: ${JSON.stringify(t.input_schema)}`,
-        },
-        Date.now(),
-        (a, trigger, task) => book(a, trigger as 'request', task),
-        true,
-      );
+    await createAgent(await body<{ person: string; org: string | null; files: AgentFiles; setup?: { packId: string; index: number } }>(req));
     return { ok: true };
   },
   // --- Which models each agent runs on (models/choice.ts) ---
@@ -274,11 +248,9 @@ const routes: Record<string, Route> = {
   },
   'POST /api/agents/delete': async req => {
     const { id } = await body<{ id: string }>(req);
-    const m = await readMeta(id);
-    if (id === FLEET_ENGINEER || m?.builtIn) throw new ConnectError(`The ${m?.name ?? 'Fleet Engineer'} is part of the agency; it can't be deleted.`);
-    await remove(id);
-    await removeChoices(id);
-    await forgetAgentRuns(id);
+    await deleteAgent(id).catch(e => {
+      throw new ConnectError((e as Error).message);
+    });
     return { ok: true };
   },
 };
@@ -309,4 +281,5 @@ createServer(async (req, res) => {
   resume();
   void conn.recheckCapabilities();
   startScheduler();
+  startAgencyMcp(); // the agency's own MCP server, for the person's AI IDE
 });

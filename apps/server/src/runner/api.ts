@@ -23,6 +23,7 @@ import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
+import { agencyMcpUrl, startAgencyMcp } from './agency-mcp.js';
 import { isPrivateIp } from './net.js';
 import { agencyStopped, stateOf, type Trigger } from './run.js';
 import { abortAll, abortRun, book, isRunning } from './scheduler.js';
@@ -50,6 +51,31 @@ const isLocalAddress = (u: string) => {
   const h = new URL(u).hostname.replace(/^\[|\]$/g, '');
   return h === 'localhost' || h.endsWith('.local') || isPrivateIp(h);
 };
+
+// A person's answer to a request: done (with what they did or decided) or
+// turned down. The agent is told at the start of its next run. Turned down:
+// what the Fleet Engineer drafted for it goes, and so does its go-live card.
+export async function answerRequest(id: number, status: 'done' | 'rejected', answer?: string | null): Promise<boolean> {
+  if (status !== 'done' && status !== 'rejected') throw new Error('Answer with done or rejected.');
+  const changed = exec(
+    "UPDATE requests SET status = ?, answer = ?, answered_at = ? WHERE id = ? AND status = 'open'",
+    status,
+    answer?.trim() ? answer.trim().slice(0, 4000) : null,
+    Date.now(),
+    id,
+  ).changes;
+  if (!changed) return false;
+  if (status === 'rejected') {
+    for (const d of draftsForRequest(id)) await discardDraft(d).catch(() => {});
+    exec(
+      "UPDATE approvals SET status = 'rejected', decided_at = ?, note = 'The request was turned down.' WHERE status = 'pending' AND agent_id = ? AND CAST(json_extract(args, '$.request_id') AS INTEGER) = ?",
+      Date.now(),
+      FLEET_ENGINEER,
+      id,
+    );
+  }
+  return true;
+}
 
 export const runnerRoutes: Record<string, Route> = {
   // Every real agent's card: state and stats over the last `days`.
@@ -208,10 +234,21 @@ export const runnerRoutes: Record<string, Route> = {
   // Send to your IDE: the request's folder, the agency's tools, the IDE opened (ide.ts).
   'POST /api/runner/requests/ide': async (_req, _q, body) => {
     const { id, ide } = await body<{ id: number; ide: Ide }>();
-    return sendToIde(Number(id), ide, (a, t, task) => book(a, t as Trigger, task));
+    return sendToIde(Number(id), ide);
   },
 
   // Whether the Fleet Engineer may write code plugins (docs/integrations.md).
+  // The agency's own MCP server, for the person's AI IDE (agency-mcp.ts): its
+  // address, and a new one (the old stops working) if it was shared by mistake.
+  'GET /api/settings/agency-mcp': async () => ({ url: agencyMcpUrl() }),
+  'POST /api/settings/agency-mcp': async () => ({ url: startAgencyMcp(true) }),
+  // Who the host is (until orgs exist, whoever runs the app): agents made from the IDE are theirs.
+  'POST /api/settings/host-person': async (_req, _q, body) => {
+    const { name } = await body<{ name: string }>();
+    if (typeof name === 'string' && name.trim()) setSetting('host_person', name.trim().slice(0, 100));
+    return { ok: true };
+  },
+
   // The host's time zone: whose midnight the agency's days start at (clock.ts).
   'GET /api/settings/host-timezone': async () => ({ zone: hostZone(), set: hostZoneSet() }),
   'POST /api/settings/host-timezone': async (_req, _q, body) => {
@@ -234,24 +271,7 @@ export const runnerRoutes: Record<string, Route> = {
   // The agent is told at the start of its next run.
   'POST /api/runner/requests/answer': async (_req, _q, body) => {
     const { id, status, answer } = await body<{ id: number; status: 'done' | 'rejected'; answer?: string }>();
-    if (status !== 'done' && status !== 'rejected') throw new Error('Answer with done or rejected.');
-    const changed = exec(
-      "UPDATE requests SET status = ?, answer = ?, answered_at = ? WHERE id = ? AND status = 'open'",
-      status,
-      answer?.trim() ? answer.trim().slice(0, 4000) : null,
-      Date.now(),
-      Number(id),
-    ).changes;
-    // Turned down: what the Fleet Engineer drafted for it goes, and so does its go-live card.
-    if (status === 'rejected' && changed) {
-      for (const d of draftsForRequest(Number(id))) await discardDraft(d).catch(() => {});
-      exec(
-        "UPDATE approvals SET status = 'rejected', decided_at = ?, note = 'The request was turned down.' WHERE status = 'pending' AND agent_id = ? AND CAST(json_extract(args, '$.request_id') AS INTEGER) = ?",
-        Date.now(),
-        FLEET_ENGINEER,
-        Number(id),
-      );
-    }
+    await answerRequest(Number(id), status, answer);
     return { ok: true };
   },
 

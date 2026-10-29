@@ -273,7 +273,7 @@ Confidence: start low on a vague description, and rise as the unknowns close. Ne
 
 const DEPARTMENTS = ['engineering', 'marketing', 'sales', 'finance', 'research', 'operations'] as const;
 
-const BuildSchema = z.object({
+export const BuildSchema = z.object({
   name: z.string().describe('Short agent name, 1-3 words, title case, e.g. "Invoice Chaser"'),
   department: z.enum(DEPARTMENTS),
   charter: z
