@@ -48,6 +48,17 @@ export async function ensureUser(db: Db, p: Profile, now = Date.now()) {
   }
 }
 
+// The name someone goes by: the one they chose, or the sign-in provider's.
+export async function displayName(db: Db, userId: string) {
+  const r = await db.query<{ name: string }>('SELECT COALESCE(display_name, name) AS name FROM users WHERE id = $1', [userId]);
+  return r.rows[0]?.name ?? '';
+}
+export async function setDisplayName(db: Db, userId: string, name: unknown) {
+  const n = typeof name === 'string' ? name.trim().replace(/\s+/g, ' ') : '';
+  if (n.length > 80) fail(400, 'A name, up to 80 characters.');
+  await db.query('UPDATE users SET display_name = $1 WHERE id = $2', [n || null, userId]);
+}
+
 export async function myOrgs(db: Db, userId: string): Promise<OrgView[]> {
   const rows = await db.query<{ id: string; kind: 'personal' | 'team'; name: string; role: Role; owner_id: string; public_key: string | null }>(
     `SELECT o.id, o.kind, o.name, m.role, o.owner_id, h.public_key
@@ -103,7 +114,7 @@ export async function deleteOrg(db: Db, orgId: string, userId: string) {
 export async function members(db: Db, orgId: string, userId: string) {
   await roleIn(db, orgId, userId);
   const r = await db.query<{ user_id: string; name: string; email: string; role: Role; joined_at: number }>(
-    `SELECT m.user_id, u.name, u.email, m.role, m.joined_at FROM members m JOIN users u ON u.id = m.user_id
+    `SELECT m.user_id, COALESCE(u.display_name, u.name) AS name, u.email, m.role, m.joined_at FROM members m JOIN users u ON u.id = m.user_id
      WHERE m.org_id = $1 ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, m.joined_at`,
     [orgId],
   );
@@ -180,7 +191,7 @@ async function openInvite(db: Db, code: string, now: number) {
   const inv =
     (
       await db.query<{ org_id: string; email: string | null; role: Role; expires_at: number; used_by: string | null; org_name: string; inviter: string }>(
-        `SELECT i.org_id, i.email, i.role, i.expires_at, i.used_by, o.name AS org_name, u.name AS inviter
+        `SELECT i.org_id, i.email, i.role, i.expires_at, i.used_by, o.name AS org_name, COALESCE(u.display_name, u.name) AS inviter
          FROM invites i JOIN orgs o ON o.id = i.org_id JOIN users u ON u.id = i.created_by WHERE i.code = $1`,
         [code],
       )

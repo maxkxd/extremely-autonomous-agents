@@ -9,7 +9,11 @@ import {
   selfHost,
   selfMe,
   setSelfAddress,
+  setMyName,
+  selfAccounts,
   signInSelf,
+  signOut,
+  signOutOfSelf,
   createOrganisation,
   deleteOrganisation,
   invites as listInvites,
@@ -329,6 +333,45 @@ function SavedInput({ value, placeholder, onSave }: { value: string; placeholder
   );
 }
 
+// How you're signed in (account.ts): with us (Clerk: an email code, Google or
+// GitHub - no password), and in any self-hosted organisations you've joined
+// (their own accounts). Your own agency needs neither.
+function AccountSignIn() {
+  const [, redraw] = useState(0);
+  const selves = selfAccounts();
+  return (
+    <div className="sgroup">
+      <h3>Sign-in</h3>
+      {state.me ? (
+        <Row label={state.me.user.email} sub="Signed in with an email code, Google or GitHub. There's no password to change.">
+          <button className="sbtn" onClick={() => void signOut()}>
+            Log out
+          </button>
+        </Row>
+      ) : (
+        <Row label="Not signed in" sub="Your own agency needs no account. One is for organisations.">
+          <button className="sbtn primary" onClick={e => openSignIn('up', e.currentTarget)}>
+            SIGN UP
+          </button>
+        </Row>
+      )}
+      {selves.map(a => (
+        <Row key={a.id} label={a.org} sub={`Self-hosted: ${a.email} at ${a.address}`}>
+          <button
+            className="sbtn"
+            onClick={() => {
+              signOutOfSelf(a.id);
+              redraw(n => n + 1);
+            }}
+          >
+            Sign out
+          </button>
+        </Row>
+      ))}
+    </div>
+  );
+}
+
 function AccountSection() {
   const [p, setP] = useState<Person | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -402,34 +445,24 @@ function AccountSection() {
                 }}
               />
             </Row>
-            {/* One name for people and agents alike; clearing call_me retires the old separate field. */}
-            <Row label="Display name">
+            {/* The name you go by everywhere: your agents (your profile here), the
+                sidebar, and, signed in, your organisations (account.ts). */}
+            <Row label="Display name" sub={state.me ? 'Your agents and your organisations see this.' : 'Your agents see this.'}>
               <SavedInput
-                value={p.full_name || p.call_me || ''}
+                value={state.me?.user.name || p.full_name || p.call_me || ''}
                 placeholder={p.name}
-                onSave={full_name => update({ full_name, call_me: '' })}
+                onSave={full_name => {
+                  update({ full_name, call_me: '' });
+                  setMyName(full_name).catch(e => setError((e as Error).message));
+                }}
               />
+            </Row>
+            <Row label="Email" sub="Where your agents reach you.">
+              <SavedInput value={p.email} placeholder={state.me?.user.email ?? 'you@company.com'} onSave={email => update({ email })} />
             </Row>
           </div>
 
-          <div className="sgroup">
-            <h3>Sign-in</h3>
-            <Row label="Username">
-              <input className="srow2-input" value={p.name} disabled />
-            </Row>
-            <Row label="Email">
-              <SavedInput value={p.email} placeholder="you@company.com" onSave={email => update({ email })} />
-            </Row>
-            {/* Sign-in isn't built yet: these come with it. */}
-            <Row label="Password" sub="Change it, or get a reset link by email.">
-              <button className="sbtn" disabled title="Comes with sign-in">
-                Change
-              </button>
-              <button className="sbtn" disabled title="Comes with sign-in">
-                Send reset link
-              </button>
-            </Row>
-          </div>
+          <AccountSignIn />
 
           <div className="sgroup">
             <Memories notes={p.notes} onChange={notes => update({ notes })} />

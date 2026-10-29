@@ -16,9 +16,11 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,               -- the sign-in provider's user id (Clerk)
   email TEXT NOT NULL DEFAULT '',
-  name TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',     -- from the sign-in provider, kept current
   created_at BIGINT NOT NULL
 );
+-- The name they chose in the app (Settings > Account); shown instead of the provider's.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;
 
 -- personal: everyone's own agency, one each, for good, never shared.
 -- team: an organisation, hosted on its owner's machine.

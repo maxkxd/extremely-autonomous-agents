@@ -5,6 +5,7 @@ import {
   ApiError,
   createInvite,
   createOrg,
+  displayName,
   deleteOrg,
   ensureUser,
   hostBySecret,
@@ -19,6 +20,7 @@ import {
   renameOrg,
   revokeInvite,
   roleIn,
+  setDisplayName,
   setRole,
 } from './directory.js';
 import type { Auth } from './tokens.js';
@@ -31,10 +33,11 @@ import type { Auth } from './tokens.js';
 type Ctx = { db: Db; auth: Auth; userId: string; params: string[]; body: Record<string, unknown>; authorization?: string };
 type Route = { method: string; path: RegExp; open?: boolean; run: (c: Ctx) => Promise<unknown> };
 
+// Signed in: their record kept current, and the name they go by (their own choice, if they made one).
 const user = async (c: Ctx) => {
   const p = await c.auth.profile(c.userId);
   await ensureUser(c.db, p);
-  return p;
+  return { ...p, name: (await displayName(c.db, p.id)) || p.name };
 };
 
 const ROUTES: Route[] = [
@@ -62,6 +65,16 @@ const ROUTES: Route[] = [
     run: async c => {
       const p = await user(c);
       return { user: p, orgs: await myOrgs(c.db, p.id) };
+    },
+  },
+  // The name they go by (Settings > Account); blank goes back to the sign-in provider's.
+  {
+    method: 'PATCH',
+    path: /^\/me$/,
+    run: async c => {
+      await user(c);
+      await setDisplayName(c.db, c.userId, c.body.name);
+      return { user: await user(c) };
     },
   },
 
@@ -105,7 +118,7 @@ const ROUTES: Route[] = [
       const userId = decodeURIComponent(c.params[0]);
       const m = await roleIn(c.db, orgId, userId).catch(() => null);
       if (!m) throw new ApiError(404, 'Not a member.');
-      const u = (await c.db.query<{ name: string }>('SELECT name FROM users WHERE id = $1', [userId])).rows[0];
+      const u = { name: await displayName(c.db, userId) };
       await c.db.query('UPDATE hosts SET last_seen = $1 WHERE org_id = $2', [Date.now(), orgId]);
       return { role: m.role, name: u?.name ?? '' };
     },
