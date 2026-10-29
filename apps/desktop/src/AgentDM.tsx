@@ -167,7 +167,8 @@ export function AgentDM({
         <div ref={end} />
       </div>
 
-      <div className="dm-composer">
+      {/* A helper's channel is its log: it runs only when the agency calls it. */}
+      {!agent.service && <div className="dm-composer">
         <textarea
           rows={1}
           placeholder={`Message ${agent.name}`}
@@ -184,7 +185,7 @@ export function AgentDM({
         <button className="dm-send" onClick={send} disabled={!draft.trim() || thinking} aria-label="Send">
           <SendHorizontal size={16} strokeWidth={1.9} />
         </button>
-      </div>
+      </div>}
     </div>
   );
 }

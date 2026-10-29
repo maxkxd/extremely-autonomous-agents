@@ -158,7 +158,7 @@ function toBuilt(out: ServerAgent): Built {
 export const saveAgent = (b: Built) => post<{ ok: true }>('/api/agents', { files: b.files, setup: b.setup });
 export const deleteAgentFiles = (id: string) => post<{ ok: true }>('/api/agents/delete', { id });
 
-export type AgentStatus = { status: 'ready' | 'setting-up' | 'generic'; name: string; department: Department; output: string[]; owner: string | null };
+export type AgentStatus = { status: 'ready' | 'setting-up' | 'generic'; name: string; department: Department; output: string[]; owner: string | null; builtIn?: boolean; service?: boolean };
 export const agentStatuses = () => request<Record<string, AgentStatus>>('/api/agents/status');
 
 // --- AI model connections (docs/model-connections.md) ---

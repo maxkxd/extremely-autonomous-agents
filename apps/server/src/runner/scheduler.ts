@@ -4,6 +4,7 @@ import './web.js'; // registers the web tools
 import './browser.js'; // registers the browser tools
 import { ensureFleetEngineer, startEngineer } from './engineer.js';
 import './conductor.js'; // routes new requests
+import { ensureHelpers, fillBuiltInModels } from './helpers.js';
 import { availableModels, nativeEffortSync } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';
@@ -65,13 +66,15 @@ export async function tick(deps: RunDeps = liveDeps) {
   try {
     models = await availableModels();
     checks = await allChecks();
+    await fillBuiltInModels().catch(() => {});
     const now = deps.now();
     expireApprovals(now, book);
     for (const id of await listIds()) {
       if (running.size >= MAX_PARALLEL) break;
       if (running.has(id)) continue;
       const meta = await readMeta(id);
-      if (!meta || meta.status === 'setting-up') continue;
+      // Helpers run only when called (quick.ts).
+      if (!meta || meta.status === 'setting-up' || meta.service) continue;
       const st = stateOf(id, now);
       // Stopped: nothing runs at all (what's booked waits for it to be turned back on).
       if (st.state === 'stopped') continue;
@@ -159,12 +162,14 @@ export function startScheduler() {
   void ensureFleetEngineer()
     .then(() => startEngineer(book))
     .catch(e => console.error('Starting the Fleet Engineer failed:', (e as Error).message));
+  void ensureHelpers().catch(e => console.error('Setting up the Conductor and Security Reviewer failed:', (e as Error).message));
   // Runs left 'running' by a server that stopped mid-run. One a person or an
   // event set off (a message, a connection, an approval...) is booked again,
   // or it would be lost; scheduled ones simply come round again.
   const cut = all<{ agent_id: string; trigger: Trigger; task: string | null }>("SELECT agent_id, trigger, task FROM runs WHERE status = 'running'");
   exec("UPDATE runs SET status = 'failed', error = 'The server stopped during this run.', ended_at = started_at WHERE status = 'running'");
-  for (const r of cut) if (!['scheduled', 'apocalyptic'].includes(r.trigger)) book(r.agent_id, r.trigger, r.task);
+  // A helper's call isn't a run to start again: whoever called it already moved on.
+  for (const r of cut) if (!['scheduled', 'apocalyptic'].includes(r.trigger) && !['conductor', 'reviewer'].includes(r.agent_id)) book(r.agent_id, r.trigger, r.task);
   timer ??= setInterval(() => void tick().catch(e => console.error('Runner tick failed:', (e as Error).message)), TICK_MS);
 }
 export const stopScheduler = () => {

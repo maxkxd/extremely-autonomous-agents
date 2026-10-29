@@ -267,13 +267,14 @@ const routes: Record<string, Route> = {
     const out: Record<string, unknown> = {};
     for (const id of await listIds()) {
       const m = await readMeta(id);
-      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output, owner: m.owner ?? null };
+      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output, owner: m.owner ?? null, builtIn: !!m.builtIn, service: !!m.service };
     }
     return out;
   },
   'POST /api/agents/delete': async req => {
     const { id } = await body<{ id: string }>(req);
-    if (id === FLEET_ENGINEER) throw new ConnectError("The Fleet Engineer is part of the agency; it can't be deleted.");
+    const m = await readMeta(id);
+    if (id === FLEET_ENGINEER || m?.builtIn) throw new ConnectError(`The ${m?.name ?? 'Fleet Engineer'} is part of the agency; it can't be deleted.`);
     await remove(id);
     await removeChoices(id);
     return { ok: true };

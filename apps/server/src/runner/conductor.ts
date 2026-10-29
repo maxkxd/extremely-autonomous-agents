@@ -3,7 +3,8 @@ import { integrationToolIds } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { one, run as exec } from './db.js';
 import { postToRequest } from './engineer.js';
-import { ask, CHEAP, jsonIn } from './quick.js';
+import { CONDUCTOR } from './helpers.js';
+import { ask, HelperStopped, jsonIn } from './quick.js';
 import { setRequestRouter, type Wake } from './tools.js';
 
 // The Conductor (docs/requests.md): the first stop for a request, so the
@@ -27,7 +28,7 @@ async function fleetFor(requester: string): Promise<string> {
   for (const id of await listIds()) {
     if (id === requester || id === FLEET_ENGINEER) continue;
     const meta = await readMeta(id);
-    const agent = meta?.status === 'ready' ? await loadAgent(id) : null;
+    const agent = meta?.status === 'ready' && !meta.service ? await loadAgent(id) : null;
     if (!agent) continue;
     const tools = Object.keys(agent.tiers).filter(t => !/^(tasks|requests|memory|files|ops)\./.test(t) && (live.has(t) || /^web\./.test(t)));
     const mission = agent.charter.replace(/^#.*$/m, '').trim().slice(0, 500).replace(/\s+/g, ' ');
@@ -47,7 +48,19 @@ export async function decideRoute(r: RequestFacts): Promise<Decision> {
   // The fleet works for the same people: "the inbox" is the one the fleet's email tools use.
   const forWhom = meta?.owner ? `Every agent here works for ${meta.owner}; their accounts (email, GitHub...) are the ones the agents' tools use.\n\n` : '';
   const prompt = `${forWhom}Request #${r.id} from ${asker}:\nNeeds: ${r.what}\nWhy: ${r.why}${r.evidence ? `\nTried / shows: ${r.evidence}` : ''}\n\nThe other agents:\n${fleet}`;
-  return jsonIn<Decision>(await ask(CHEAP, SYSTEM, prompt, 800));
+  const text = await ask(CONDUCTOR, {
+    trigger: 'request',
+    task: `Request #${r.id} from ${asker}: ${r.what.slice(0, 300)}`,
+    system: SYSTEM,
+    prompt,
+    maxTokens: 800,
+    summary: async t => {
+      const d = jsonIn<Decision>(t);
+      const to = d.route === 'agent' && d.agent_id ? (await readMeta(d.agent_id))?.name : null;
+      return `Request #${r.id} from ${asker}: ${to ? `handed to ${to}` : 'sent to the Fleet Engineer'}.${d.why ? ` ${d.why}` : ''}`;
+    },
+  });
+  return jsonIn<Decision>(text);
 }
 
 export async function conduct(requestId: number, wake: Wake): Promise<void> {
@@ -66,7 +79,8 @@ export async function conduct(requestId: number, wake: Wake): Promise<void> {
     exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
     postToRequest(r.id, 'engineer', `Handed to ${target.name}: it already does this. ${d.why ?? ''}`.trim());
   } catch (e) {
-    console.error(`Conductor couldn't route request #${requestId}:`, (e as Error).message);
+    // Stopped: everything goes to the engineer, as if there were no Conductor.
+    if (!(e instanceof HelperStopped)) console.error(`Conductor couldn't route request #${requestId}:`, (e as Error).message);
     toEngineer();
   }
 }

@@ -65,10 +65,26 @@ instructions. Like the schedules there, the wording is a first draft.
 
 ## Built-in agents
 
-Every organization (and solo account) gets the **Conductor** and the **Fleet
-Engineer** by default. They're separate only so cheap rerouting decisions don't
-spend a full engineering run; **on the dashboard they appear as one agent: Fleet
-Engineer**.
+Every organization (and solo account) gets three built-in agents, owned by no
+one and never deleted: the **Fleet Engineer**, the **Conductor** and the
+**Security Reviewer** (`runner/helpers.ts`). The Conductor is separate so cheap
+rerouting decisions don't spend a full engineering run.
+
+Each has a card on the dashboard with its three models (changeable), runs and
+cost. The two helpers make one quick model call when the agency calls them
+(`runner/quick.ts`), on their own models in order, and never run on a
+schedule, so their cards have no Ferocity or Standby. Each call is a run: on
+the card, in Usage, and as a post in the helper's DMs saying what it decided.
+Those DMs are logs and take no messages. Stopped, the Conductor sends every
+request straight to the Fleet Engineer, and the Security Reviewer's plugins
+can't be proposed.
+
+Models (`runner/defaults.ts`): a built-in with none gets three from what's
+connected, on every tick, so connecting the first AI model sets them all.
+The person's plans come first, then what suits the job (strong for the
+engineer, cheap for the Conductor, careful for the reviewer), then anything
+else connected - DeepSeek, Mistral, Ollama, a custom provider - free ones
+first. Models a person picked are left alone.
 
 ## The Requests page
 
@@ -125,7 +141,8 @@ Accepting an agent files a request for every tool its builder invented that
 nothing provides yet.
 
 The Conductor (`runner/conductor.ts`) takes every request first: one quick
-model call (Haiku on the person's Claude plan when there is one) hands it to
+model call on its own models (Haiku on the person's Claude plan when there is
+one) hands it to
 an agent that already does this as part of its job - as a task, closing the
 request - and sends anything else, or anything it's unsure of, to the Fleet
 Engineer. Requests for tools the builder invented go straight to the engineer.

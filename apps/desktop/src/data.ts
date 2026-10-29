@@ -13,6 +13,7 @@ export type Agent = {
   department: Department;
   owner: string; // member name; only shown when the user is in an organization
   builtIn?: boolean; // part of the agency itself, owned by no one
+  service?: boolean; // a built-in helper (Conductor, Security Reviewer): runs only when called, so no schedule
   // Per month (30 days); other time ranges are scaled from this for the placeholder UI.
   // Output is successful actions by type; cost is dollars by source.
   output: Slice[];

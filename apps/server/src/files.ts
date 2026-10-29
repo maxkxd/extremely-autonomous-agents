@@ -28,6 +28,7 @@ export type Meta = {
   status: 'ready' | 'setting-up' | 'generic';
   owner?: string; // the person it works for
   builtIn?: boolean; // part of the agency itself (the Fleet Engineer), owned by no one
+  service?: boolean; // a built-in helper (Conductor, Security Reviewer): runs only when called, never scheduled
   org?: string | null; // their organisation, if any
   setup?: { packId: string; index: number; person: string; org: string | null; attempts: number };
 };

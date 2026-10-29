@@ -153,6 +153,7 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/dm': async (_req, _q, body) => {
     const { id, text } = await body<{ id: string; text: string }>();
     if (!isId(id) || !text?.trim()) throw new Error('Nothing to send.');
+    if ((await readMeta(id))?.service) throw new Error('This helper only records what it decides; it takes no messages.');
     exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", id, JSON.stringify({ kind: 'you', text: text.trim() }), Date.now());
     book(id, 'your message', text.trim());
     return { ok: true };
