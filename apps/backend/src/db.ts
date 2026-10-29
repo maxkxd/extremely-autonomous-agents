@@ -74,7 +74,10 @@ export async function migrate(db: Db) {
 export async function connect(url = process.env.DATABASE_URL): Promise<Db> {
   if (url) {
     const { default: pg } = await import('pg');
-    const pool = new pg.Pool({ connectionString: url, ssl: /localhost|127\.0\.0\.1/.test(url) ? false : { rejectUnauthorized: false } });
+    // SSL over the internet; not on this computer or Railway's private network (*.railway.internal),
+    // or when the address says sslmode=disable.
+    const plain = /localhost|127\.0\.0\.1|\.railway\.internal|sslmode=disable/.test(url);
+    const pool = new pg.Pool({ connectionString: url, ssl: plain ? false : { rejectUnauthorized: false } });
     return { query: (sql, params) => pool.query(sql, params) as never, close: () => pool.end() };
   }
   // No database server: Postgres inside Node, in memory (tests) or in a folder (PGLITE_DIR).

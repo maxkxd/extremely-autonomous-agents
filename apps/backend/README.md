@@ -40,7 +40,8 @@ All from the environment: `.env` locally (gitignored), Railway's **Variables** i
 1. Create an application at clerk.com. Pick the sign-in methods (email, Google, GitHub…).
 2. Configure → API keys: copy the Secret key, JWKS URL and Frontend API URL into the variables above.
 3. The desktop app gets the Publishable key as `VITE_CLERK_PUBLISHABLE_KEY` in `apps/desktop/.env.local` (see `apps/desktop/.env.example`). It's public, safe to ship in the app.
-4. Turn on Email (verification code), Google and GitHub under User & authentication. Add `http://localhost:5174` to the allowed origins for development.
+4. User & authentication: Email address on, signing in and verifying with an **email verification code**; **Password off** and names/username off (the app's own screen asks for an email and a code, nothing else - a required password or name would stop sign-up part-way). Google and GitHub on (a Development instance uses Clerk's shared credentials for them).
+5. Development instances accept `http://localhost` origins and redirects as they are. A Production instance needs your domain.
 
 ## Railway
 
