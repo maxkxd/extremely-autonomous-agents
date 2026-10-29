@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getSetting } from '../runner/db.js';
@@ -37,6 +37,8 @@ export function networkProblems(code: string): string[] {
 }
 
 // Saves a plugin's code. It isn't loaded: that waits for a person's approval.
+export const removePlugin = (module: string) => rm(file(module), { force: true });
+
 export async function writePlugin(module: string, code: string) {
   const bad = networkProblems(code);
   if (bad.length) throw new Error(`Plugins reach the network only through kit.fetch. Found: ${bad.join('; ')}.`);

@@ -9,7 +9,7 @@ import { deleteSecret, getSecret, setSecret } from '../vault.js';
 import { callHttp } from './http.js';
 import { callMcpTool, listMcpTools, type McpTool } from './mcp-client.js';
 import { MODULES, type CodeModule } from './modules/index.js';
-import { codeHash, installPlugin, pluginModule, readPlugin } from './plugins.js';
+import { codeHash, installPlugin, pluginModule, readPlugin, removePlugin } from './plugins.js';
 import { resolvePermissions } from './sandbox.js';
 import { safeFetch } from '../runner/net.js';
 import type { Kit } from './modules/types.js';
@@ -42,6 +42,7 @@ type State = {
   by?: string;
   request?: number;
   codeHash?: string;
+  published?: boolean; // it has been live: a later draft of it is never discarded
 };
 const STATE_KEY = 'integrations';
 const states = () => getSetting<Record<string, State>>(STATE_KEY, {});
@@ -382,10 +383,27 @@ export async function writeDraftIntegration(definition: string, by: string, requ
   if (existing && prev?.by !== by) throw new Error(`"${integration.id}" was added by a person; pick another id.`);
   await mkdir(ADDED, { recursive: true });
   await writeFile(join(ADDED, `${integration.id}.yaml`), stringify(integration));
-  putState(integration.id, { ...prev, draft: true, by, request: request ?? prev?.request, codeHash: undefined });
+  putState(integration.id, { ...prev, draft: true, by, request: request ?? prev?.request, codeHash: undefined, published: prev?.published || (!!existing && !prev?.draft) });
   await loadIntegrations();
   return { integration, wasLive: !!existing && !prev?.draft };
 }
+
+// A draft nobody wants - its request or its go-live was turned down: gone from
+// Settings with its key and plugin code. One that has been live is left alone.
+export async function discardDraft(id: string): Promise<boolean> {
+  const st = states()[id];
+  if (!st?.draft || st.published) return false;
+  const integration = find(id);
+  await removeIntegration(id);
+  if (integration?.kind === 'code' && !MODULES[integration.module]) await removePlugin(integration.module);
+  putState(id, null);
+  return true;
+}
+
+export const draftsForRequest = (request: number) =>
+  Object.entries(states())
+    .filter(([, s]) => s.draft && s.request === request)
+    .map(([id]) => id);
 
 export async function integrationSource(id: string): Promise<{ yaml: string; code: string | null } | null> {
   const l = loaded.find(x => x.integration.id === id);
@@ -435,7 +453,7 @@ export async function publishIntegration(id: string, approvedHash: string | null
     await installPlugin(integration.module, approvedHash, resolvePermissions(integration.permissions));
     putState(id, { ...states()[id], codeHash: approvedHash });
   }
-  putState(id, { ...states()[id], draft: false });
+  putState(id, { ...states()[id], draft: false, published: true });
   // Tested now that it can run (a plugin's first run is after approval).
   let test: string | null = null;
   if (integration.auth.type === 'none' || isConnected(id)) {

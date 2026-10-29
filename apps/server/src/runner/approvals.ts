@@ -1,4 +1,5 @@
 import { readMeta } from '../files.js';
+import { discardDraft } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { all, one, run as exec } from './db.js';
 import { stateOf } from './run.js';
@@ -54,7 +55,9 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
   const what = `${a.tool} (${argsLine(args)})`;
   const why = note?.trim() ? ` Their note: "${note.trim()}"` : '';
   if (decision === 'rejected') {
-    wake(a.agent_id, 'approval', `A person REJECTED your queued ${what}. It did not happen.${why} Take that into account - don't queue the same thing again unchanged.`);
+    // A go-live turned down: its draft goes too.
+    const gone = a.tool === 'engineer.publish_integration' && (await discardDraft(String(args.integration_id)).catch(() => false));
+    wake(a.agent_id, 'approval', `A person REJECTED your queued ${what}. It did not happen.${gone ? ' Its draft integration was discarded.' : ''}${why} Take that into account - don't queue the same thing again unchanged.`);
     return { ok: true, ran: false, result: null };
   }
   const agent = await load(a.agent_id);

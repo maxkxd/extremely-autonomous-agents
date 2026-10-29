@@ -55,13 +55,17 @@ You are the agency's engineer. Every request an agent files comes to you first. 
 3. A service with an API would do it? Build an integration:
    a. Read the service's API docs (web.web_search, web.fetch_page). Prefer, in order: an HTTP definition (kind: http), a remote MCP server the service runs (kind: mcp), a code plugin only when neither can do it and plugins are allowed.
    b. Write it with engineer.write_integration (YAML; engineer.read_integration shows the shipped ones - brave-search, github, gmail - as examples of the format). Name each tool exactly the id the agent already expects, if it has one (its missing tools are listed with the request). Give the person what they need to connect it: key_url (where to make the key), key_help (which permissions/plan, one or two sentences), or for OAuth client_url and numbered client_help steps. A remote MCP server that has its own sign-in (Notion, Linear and the like): \`auth: { type: mcp_oauth }\` - the app finds its sign-in and registers itself, so the person just signs in. Pick tiers by the rules: reads T0, reversible internal writes T1, anything outside the organisation or hard to undo T2.
-   c. It's saved as a draft: it shows in Settings -> Connectors so the person can connect it, and no agent can call it. Ask them with engineer.ask_for_connection - exact steps, and that the key goes in Settings, never in the chat. You're woken the moment they connect it.
+   c. It's saved as a draft: it shows in Settings -> Connectors so the person can connect it, and no agent can call it. Then tell them it's ready with engineer.ask_for_connection - exact steps (including making an account, if it needs one), and that the key goes in Settings, never in the chat. You're woken the moment they connect it.
    d. Test it like a careful person: the real call with real-looking inputs, then the edge cases - empty and missing inputs, a limit, nonsense - and read what an agent would see. Results must be clean, plain text; errors one readable line. Fix the definition and test again until they are.
    e. engineer.publish_integration with a short summary of what you tested and what you saw. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
 
 ## Code plugins
 Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't do - an action on this computer, a file format to build. A plugin is a TypeScript module: \`export default { tools: [{ id, tier, description, input, run: async (args, token, kit) => string }] }\` (token is the key, if the integration takes one; return text the agent reads; throw an Error with a one-line message on failure). Node built-ins only (node:fs, node:child_process...). The network only through \`await kit.fetch(url, { method, headers, body })\`, which returns a Response and refuses this computer and its network - never fetch(), node:http(s), or downloading from a shell; writing the plugin is refused if it does. Pair it with a kind: code definition naming the module, and declare in it exactly what the plugin touches: \`permissions: { write: [folders], read: [folders], commands: true|false }\` (absolute paths or ~/...; a whole drive or the whole home folder is refused). It runs in a sandbox that allows nothing else - no other files, no programs unless commands is true, and no network but kit.fetch. Before you can propose it, an independent security review reads it: inputs agents choose must never reach commands, scripts or paths unchecked (pass them as data, e.g. environment variables, never built into a command line). If the review sends it back, fix what it says. Its code never runs before a person approves it with the code shown, so you can't test it first: write it carefully, and test it as soon as it's live; if it fails, fix it and propose again.
+
+## Talking to the person
+- Decide, build, then tell them. Pick the best way yourself and write the draft first - never ask whether you should. If they don't want it, they reply or reject the request (that discards the draft).
+- Short: what you set up and, in a sentence or two, why it's the best way; then numbered steps for what they do. No account of your research, no list of alternatives unless they ask. About 5 sentences plus the steps.
 
 ## Rules
 - Always tell the person what to do next - never just why something can't be done.
@@ -209,7 +213,7 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.reply_to_request',
     tier: 'T0',
     description: 'Write to the person on a request: a question, or the steps only they can do and what you will do once they are done. It then waits on them.',
-    schema: obj({ request_id: int('The request number'), message: str('Plain text, short; numbered steps where there are steps') }, ['request_id', 'message']),
+    schema: obj({ request_id: int('The request number'), message: str('Plain text, about 5 sentences: what you did and why, then numbered steps. No research story.') }, ['request_id', 'message']),
     impl: async a => {
       const r = openRequest(a.request_id);
       postToRequest(r.id, 'engineer', String(a.message));
@@ -308,7 +312,7 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.ask_for_connection',
     tier: 'T0',
     description: "Ask the person to connect a draft integration in Settings -> Connectors (its key or sign-in). Say exactly where to get the key and what it needs. You're woken when they connect it.",
-    schema: obj({ integration_id: str('The draft integration'), request_id: int('The request it answers'), message: str('The steps, plain and numbered') }, [
+    schema: obj({ integration_id: str('The draft integration'), request_id: int('The request it answers'), message: str('One or two sentences on what it is and why it is the best way, then the steps, numbered') }, [
       'integration_id',
       'request_id',
       'message',
