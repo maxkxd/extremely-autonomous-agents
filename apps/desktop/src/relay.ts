@@ -6,6 +6,8 @@ import { appHandshake, fromB64, toB64, type Session } from './relay-crypto';
 // ciphertext. Each request is sealed, sent, and answered on the same session.
 
 export class HostOffline extends Error {}
+// Whoever answered isn't the organisation's host: never just "offline".
+export class NotTheHost extends Error {}
 
 type Answer = { id: number; status: number; body: string; type: string };
 
@@ -13,7 +15,7 @@ export class RelayLink {
   private ws: WebSocket | null = null;
   private session: Session | null = null;
   private next = 1;
-  private pending = new Map<number, (a: Answer) => void>();
+  private pending = new Map<number, { resolve: (a: Answer) => void; reject: (e: Error) => void }>();
   private inbox: Promise<unknown> = Promise.resolve();
   private outbox: Promise<unknown> = Promise.resolve();
   private opening: Promise<void> | null = null;
@@ -59,14 +61,14 @@ export class RelayLink {
         const d = fromB64(m.d);
         if (!this.session) {
           // The host's reply: only the real host can make one that opens.
-          hs.finish(d).then(s => ((this.session = s), resolve()), err => (ws.close(), reject(err)));
+          hs.finish(d).then(s => ((this.session = s), resolve()), err => (ws.close(), reject(new NotTheHost((err as Error).message))));
           return;
         }
         // Answers, opened in the order they came.
         this.inbox = this.inbox
           .then(async () => JSON.parse(new TextDecoder().decode(await this.session!.open(d))) as Answer)
           .then(a => {
-            this.pending.get(a.id)?.(a);
+            this.pending.get(a.id)?.resolve(a);
             this.pending.delete(a.id);
           })
           .catch(() => ws.close());
@@ -79,14 +81,18 @@ export class RelayLink {
     this.ws = null;
     this.session = null;
     this.opening = null;
-    for (const done of this.pending.values()) done({ id: 0, status: why instanceof HostOffline ? 503 : 502, body: JSON.stringify({ error: why.message }), type: 'application/json' });
+    // What was waiting won't be answered: the host dropped (offline, for the app).
+    for (const p of this.pending.values()) p.reject(why instanceof HostOffline ? why : new HostOffline(why.message));
     this.pending.clear();
   }
 
+  // Throws HostOffline when the host can't be reached, or drops before answering.
   async request(path: string, init: { method?: string; headers?: Record<string, string>; body?: string }): Promise<Response> {
-    await this.open();
+    await this.open().catch(e => {
+      throw e instanceof HostOffline || e instanceof NotTheHost ? e : new HostOffline((e as Error).message);
+    });
     const id = this.next++;
-    const answer = new Promise<Answer>(resolve => this.pending.set(id, resolve));
+    const answer = new Promise<Answer>((resolve, reject) => this.pending.set(id, { resolve, reject }));
     const msg = new TextEncoder().encode(JSON.stringify({ id, method: init.method ?? 'GET', path, headers: init.headers ?? {}, body: init.body }));
     // Sealed and sent in order: each takes the next counter.
     this.outbox = this.outbox.then(async () => this.ws?.send(JSON.stringify({ t: 'data', d: toB64(await this.session!.seal(msg)) })));

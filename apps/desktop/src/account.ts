@@ -135,9 +135,20 @@ export async function signInWith(provider: 'google' | 'github') {
   await c.client.signIn.authenticateWithRedirect({ strategy: `oauth_${provider}`, redirectUrl: `${location.origin}/sso-callback`, redirectUrlComplete: `${location.origin}/` });
 }
 
+// Organisations' snapshots (offline copies) in this browser: one, or all.
+function forgetSnapshots(orgId?: string) {
+  try {
+    for (const k of Object.keys(localStorage)) if (orgId ? k === `eaa.snapshot@${orgId}` : k.startsWith('eaa.snapshot@')) localStorage.removeItem(k);
+  } catch {
+    // Storage unavailable: nothing kept.
+  }
+}
+
 export async function signOut() {
   write(SESSION_KEY, null);
   write(ME_KEY, null);
+  // What organisations showed stays with the person, not the browser.
+  forgetSnapshots();
   if (state.signIn === 'clerk') await (await loadClerk().catch(() => null))?.signOut();
   switchAgency('personal');
 }
@@ -242,8 +253,62 @@ export async function agencyFetch(path: string, init: { method?: string; headers
     const auth: Record<string, string> = org.role === 'owner' ? {} : { authorization: `Bearer ${await orgToken(org.id)}` };
     return fetch(`/hosted${path}`, { ...init, headers: { ...init.headers, ...auth } });
   }
-  return linkTo(org).request(path, { ...init, headers: { ...init.headers, authorization: `Bearer ${await orgToken(org.id)}` } });
+  // Offline: what was last seen, trying the host again every so often.
+  if (offline.since && Date.now() - offline.tried < RETRY_OFFLINE) return fromSnapshot(path, init.method);
+  offline.tried = Date.now();
+  try {
+    const res = await linkTo(org).request(path, { ...init, headers: { ...init.headers, authorization: `Bearer ${await orgToken(org.id)}` } });
+    setOffline(null);
+    if ((init.method ?? 'GET') === 'GET' && res.ok) remember(path, await res.clone().text(), res.headers.get('content-type') ?? 'application/json');
+    return res;
+  } catch (e) {
+    if (!(e instanceof HostOffline)) throw e;
+    setOffline(offline.since ?? snapshotAt() ?? Date.now());
+    return fromSnapshot(path, init.method);
+  }
 }
+
+// --- When the host is offline (docs/architecture.md) ---
+//
+// An organisation hosted elsewhere: the app keeps the last answer to each of its
+// reads, in this browser. While the host can't be reached the app shows those,
+// greyed out ("Host offline since ..."), changes are refused, and it tries the
+// host again every few seconds; when it's back, everything's live again.
+
+const RETRY_OFFLINE = 10_000;
+type Snap = { at: number; reads: Record<string, { body: string; type: string }> };
+let snap: Snap | null = null;
+const snapKey = () => `eaa.snapshot@${state.agency}`;
+const loadSnap = () => (snap ??= read<Snap | null>(snapKey(), null) ?? { at: 0, reads: {} });
+const snapshotAt = () => loadSnap().at || null;
+export const hasSnapshot = () => Object.keys(loadSnap().reads).length > 0;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+function remember(path: string, body: string, type: string) {
+  const s = loadSnap();
+  s.at = Date.now();
+  if (s.reads[path]?.body === body) return;
+  s.reads[path] = { body, type };
+  // Written a moment later, once, however many reads land together.
+  saveTimer ??= setTimeout(() => {
+    saveTimer = null;
+    write(snapKey(), s);
+  }, 1000);
+}
+function fromSnapshot(path: string, method = 'GET'): Response {
+  const had = method === 'GET' ? loadSnap().reads[path] : undefined;
+  if (had) return new Response(had.body, { status: 200, headers: { 'content-type': had.type, 'x-eaa-snapshot': '1' } });
+  const error = method === 'GET' ? "The host is offline, and this wasn't seen before it went." : "The host is offline. This can be done once it's back.";
+  return new Response(JSON.stringify({ error }), { status: 503, headers: { 'content-type': 'application/json' } });
+}
+
+export const offline = { since: null as number | null, tried: 0 };
+const offlineListeners = new Set<() => void>();
+function setOffline(since: number | null) {
+  if (offline.since === since) return;
+  offline.since = since;
+  offlineListeners.forEach(l => l());
+}
+export const onOffline = (l: () => void) => (offlineListeners.add(l), () => void offlineListeners.delete(l));
 
 // Whether the organisation the app is in can be reached now (startup): here, or
 // its host through the relay. null: it can; otherwise why not.
@@ -254,7 +319,11 @@ export async function reachable(): Promise<string | null> {
     await linkTo(org).open();
     return null;
   } catch (e) {
-    return e instanceof HostOffline ? 'offline' : (e as Error).message;
+    if (!(e instanceof HostOffline)) return (e as Error).message;
+    // Seen before: open it as it was then, greyed out, until the host is back.
+    if (!hasSnapshot()) return 'offline';
+    setOffline(snapshotAt() ?? Date.now());
+    return null;
   }
 }
 
@@ -302,11 +371,13 @@ export const createInvite = (orgId: string, email: string, role: 'admin' | 'memb
 export const revokeInvite = (code: string) => backend(`/invites/${encodeURIComponent(code)}`, { method: 'DELETE' });
 export async function leaveOrganisation(orgId: string) {
   await backend(`/orgs/${orgId}/leave`, { method: 'POST' });
+  forgetSnapshots(orgId);
   await refreshMe();
 }
 // Its agency here stops; its folder is kept.
 export async function deleteOrganisation(orgId: string) {
   await backend(`/orgs/${orgId}`, { method: 'DELETE' });
   if (state.hosting?.orgId === orgId) await local('/api/hosting/stop', {});
+  forgetSnapshots(orgId);
   await refreshMe();
 }

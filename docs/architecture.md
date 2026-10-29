@@ -100,6 +100,15 @@ service than from the user's own machine (docs/model-connections.md).
   connected: the app says it's offline. `localStorage eaa.viaRelay = "1"`
   makes the app go through the relay even to an organisation this computer
   hosts, for testing on one machine.
+- **Host offline** (built 2026-10-30): for an organisation hosted
+  elsewhere, the app keeps the last answer to each of its reads
+  (`eaa.snapshot@<org>`). When the host can't be reached, the agency shows
+  that, greyed and not pressable, under "Host offline since ..."; changes are
+  refused; the app tries again every 10 seconds and goes live when it's back.
+  Approval deadlines are the host's, so their countdowns carry on. Opening
+  the app while the host is offline opens the snapshot; with none, a page
+  saying it's offline. Snapshots are forgotten on sign-out, leaving or
+  deleting the organisation.
 - Each agency keeps its own browser storage in the app (card order and so on);
   switching agencies starts the app afresh in the other.
 

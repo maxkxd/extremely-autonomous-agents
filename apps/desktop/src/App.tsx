@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ChevronRight, Plus } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
@@ -12,7 +12,7 @@ import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
 import { NEW_SESSION, agentStatuses, getAgency, getIntegrations, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
-import { currentOrg, isAdmin, signOut, state } from './account';
+import { currentOrg, isAdmin, offline, onOffline, signOut, state } from './account';
 import { SignIn } from './SignIn';
 import { Elsewhere } from './Elsewhere';
 import { Onboarding, onboarded } from './Onboarding';
@@ -75,7 +75,11 @@ export function App() {
   return org && state.unreachable ? <Elsewhere org={org} /> : <Agency />;
 }
 
+// Offline (account.ts): since when, kept in step.
+const useOfflineSince = () => useSyncExternalStore(onOffline, () => offline.since);
+
 function Agency() {
+  const offlineSince = useOfflineSince();
   const [view, setView] = useState<View>('dashboard');
   const [range, setRange] = useState<TimeRange>('week');
   // The whole agency's Standby and Stop (the dashboard's), kept in step with the server.
@@ -455,7 +459,7 @@ function Agency() {
   }, []);
 
   return (
-    <div className="app">
+    <div className={`app${offlineSince ? ' offline' : ''}`}>
       {shut ? (
         <div
           className="sidebar-rail"
@@ -477,6 +481,11 @@ function Agency() {
         />
       )}
       <main className="main">
+        {offlineSince && (
+          <div className="offline-banner" role="status">
+            Host offline since {new Date(offlineSince).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. Showing what you last saw; changes wait until it's back.
+          </div>
+        )}
         <header className="main-header">
           <div className="header-title">
             <h1>{viewLabel(view)}</h1>
