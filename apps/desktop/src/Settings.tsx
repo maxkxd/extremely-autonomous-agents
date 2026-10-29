@@ -41,11 +41,15 @@ export function Settings({
   onOrgChange,
   onLogOut,
   onOpenApproval,
+  focusIntegration,
+  onFocused,
 }: {
   section: SettingsSection;
   onSection: (s: SettingsSection) => void;
   onClose: () => void;
   onOpenApproval: (id: string) => void; // a draft's Approve: to its approval
+  focusIntegration?: string | null; // Connectors: the integration to bring into view and glow
+  onFocused?: () => void;
   onOrgChange: () => void; // the account just became an organization
   onLogOut: () => void;
 }) {
@@ -82,7 +86,7 @@ export function Settings({
           {section === 'account' && <AccountSection />}
           {section === 'organization' && <OrganizationSection onOrgChange={onOrgChange} chatOpen={chatOpen} />}
           {section === 'usage' && <UsageSection />}
-          {section === 'connectors' && <ConnectorsSection onOpenApproval={onOpenApproval} />}
+          {section === 'connectors' && <ConnectorsSection onOpenApproval={onOpenApproval} focus={focusIntegration} onFocused={onFocused} />}
         </div>
       </div>
     </div>
@@ -748,13 +752,13 @@ function CapInput({ value, onSave, label }: { value: number | null; onSave: (v: 
 
 // --- Connectors --------------------------------------------------------------
 
-function ConnectorsSection({ onOpenApproval }: { onOpenApproval: (id: string) => void }) {
+function ConnectorsSection({ onOpenApproval, focus, onFocused }: { onOpenApproval: (id: string) => void; focus?: string | null; onFocused?: () => void }) {
   return (
     <section className="ssection">
       <h2>Connectors</h2>
       <p className="slead">Keys and sign-ins go here - never in a chat with an agent.</p>
       <ModelConnectors />
-      <Integrations onOpenApproval={onOpenApproval} />
+      <Integrations onOpenApproval={onOpenApproval} focus={focus} onFocused={onFocused} />
     </section>
   );
 }

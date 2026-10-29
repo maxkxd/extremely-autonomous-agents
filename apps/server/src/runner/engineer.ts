@@ -350,7 +350,7 @@ const TOOLS: ToolDef[] = [
   {
     id: 'engineer.ask_for_connection',
     tier: 'T0',
-    description: "Ask the person to connect a draft integration in Settings -> Connectors (its key or sign-in). Say exactly where to get the key and what it needs. You're woken when they connect it.",
+    description: "Ask the person to connect a draft integration in Settings -> Connectors (its key or sign-in). Say what the key needs (permissions, scopes). The link to the key page (its key_url) and a button to it in Settings are added after your message - don't write them, or 'linked below'. You're woken when they connect it.",
     schema: obj({ integration_id: str('The draft integration'), request_id: int('The request it answers'), message: str('One or two sentences on what it is and why it is the best way, then the steps, numbered') }, [
       'integration_id',
       'request_id',
@@ -360,7 +360,9 @@ const TOOLS: ToolDef[] = [
       const r = openRequest(a.request_id);
       const i = (await listIntegrations()).find(x => x.id === String(a.integration_id));
       if (!i) throw new Error(`No integration "${a.integration_id}".`);
-      postToRequest(r.id, 'engineer', `${String(a.message)}\n\nWhere: Settings -> Connectors -> Integrations -> ${i.name}. Keys go there, never in this chat.`);
+      // Added here, not left to the message: the real key page, and the place in
+      // Settings (the app shows it as a button that opens it, glowing).
+      postToRequest(r.id, 'engineer', `${String(a.message).trim()}\n\n${i.keyUrl ? `Get the key here: ${i.keyUrl}\n` : ''}Settings -> Connectors -> Integrations -> ${i.name}`);
       setStage(r.id, 'waiting_you');
       return `Asked. Request #${r.id} waits on the person; you'll be woken when ${i.name} is connected.`;
     },

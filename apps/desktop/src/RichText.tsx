@@ -5,7 +5,32 @@ import { Fragment } from 'react';
 // "- " lines as bullets, `code` set apart, web addresses as links, and other
 // requests ("request #41", "#41") as links that take you to them.
 
-type Ref = { onRequest?: (id: number) => void; canOpen?: (id: number) => boolean };
+type Ref = { onRequest?: (id: number) => void; canOpen?: (id: number) => boolean; onSettings?: (integration: string | null) => void };
+
+// "Settings -> Connectors -> Integrations -> Sentry Errors": where to connect
+// something. A link to it in Settings (the integration glowing), when the app
+// can open Settings from here.
+const SETTINGS_RE = /Settings\s*(?:->|→)\s*Connectors(?:\s*(?:->|→)\s*Integrations)?(?:\s*(?:->|→)\s*([^.,;:\n]+))?/g;
+const SETTINGS_LINE = /^\s*(?:Where:\s*)?Settings\s*(?:->|→)\s*Connectors(?:\s*(?:->|→)\s*Integrations)?\s*(?:->|→)\s*([^.,;:\n]+?)\.?(?:\s*Keys go there, never in this chat\.)?\s*$/;
+
+function Inline({ text, refs }: { text: string; refs: Ref }) {
+  if (!refs.onSettings) return <InlineCore text={text} refs={refs} />;
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(SETTINGS_RE)) {
+    const at = m.index ?? 0;
+    const name = m[1]?.trim() || null;
+    parts.push(<InlineCore key={`t${at}`} text={text.slice(last, at)} refs={refs} />);
+    parts.push(
+      <a key={`s${at}`} className="text-link" href="#" onClick={e => (e.preventDefault(), refs.onSettings!(name))}>
+        {m[0].trim()}
+      </a>,
+    );
+    last = at + m[0].trimEnd().length;
+  }
+  parts.push(<InlineCore key="end" text={text.slice(last)} refs={refs} />);
+  return <>{parts}</>;
+}
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 const TRAILING = /[.,;:!?)\]]+$/;
@@ -34,7 +59,7 @@ function unfoldSteps(text: string): string {
 }
 
 // Inline: `code`, links, request references.
-function Inline({ text, refs }: { text: string; refs: Ref }) {
+function InlineCore({ text, refs }: { text: string; refs: Ref }) {
   const parts: React.ReactNode[] = [];
   const re = new RegExp(`\`([^\`]+)\`|${URL_RE.source}|(?:\\b[Rr]equest\\s+)?#(\\d+)\\b|\\*\\*([^*]+)\\*\\*`, 'g');
   let last = 0;
@@ -77,8 +102,8 @@ function Inline({ text, refs }: { text: string; refs: Ref }) {
   return <>{parts}</>;
 }
 
-export function RichText({ text, onRequest, canOpen }: { text: string } & Ref) {
-  const refs = { onRequest, canOpen };
+export function RichText({ text, onRequest, canOpen, onSettings }: { text: string } & Ref) {
+  const refs = { onRequest, canOpen, onSettings };
   const lines = unfoldSteps(text).split('\n');
   const blocks: React.ReactNode[] = [];
   let para: string[] = [];
@@ -119,6 +144,19 @@ export function RichText({ text, onRequest, canOpen }: { text: string } & Ref) {
     list = null;
   };
   for (const line of lines) {
+    // A line that's only where to connect something: a big button to it.
+    const place = onSettings ? SETTINGS_LINE.exec(line) : null;
+    if (place) {
+      flushPara();
+      flushList();
+      const name = place[1].trim();
+      blocks.push(
+        <button key={blocks.length} className="rt-settings" onClick={() => onSettings!(name)}>
+          Open {name} in Settings
+        </button>,
+      );
+      continue;
+    }
     const num = NUMBERED.exec(line);
     const bul = BULLET.exec(line);
     if (num || bul) {
