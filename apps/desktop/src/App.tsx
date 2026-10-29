@@ -76,7 +76,7 @@ export function App() {
   // The agency's days run on its host's clock. Until orgs exist, whoever runs
   // the app is the host: the first time it opens, the server takes its time zone.
   useEffect(() => {
-    void setHostPerson(ACCOUNT.name).catch(() => {});
+    void setHostPerson(ACCOUNT.name, ACCOUNT.org?.name ?? null).catch(() => {});
     getHostZone().then(
       h => {
         if (!h.set) void setHostZone(Intl.DateTimeFormat().resolvedOptions().timeZone).catch(() => {});

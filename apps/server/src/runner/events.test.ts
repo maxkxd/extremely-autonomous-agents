@@ -183,9 +183,23 @@ test("the builder's events: existing ones kept, its new ones added, and the engi
   assert.deepEqual(yaml.events, ['zz.new_issue', 'sentry.new_issue']); // made.up exists nowhere: dropped
   assert.deepEqual(yaml.new_events.map(e => e.id), ['sentry.new_issue']);
 
-  requestWhatsMissing(files);
-  requestWhatsMissing(files); // again (a pack agent after its tailoring): not asked twice
+  await requestWhatsMissing(files);
+  await requestWhatsMissing(files); // again (a pack agent after its tailoring): not asked twice
   const asked = all<{ what: string; evidence: string }>("SELECT what, evidence FROM requests WHERE agent_id = 'zz-bug-triage'");
   assert.deepEqual(asked.map(r => r.what), ['Set up the event sentry.new_issue']);
   assert.match(asked[0].evidence, /Sentry issue alert webhook/);
+});
+
+test("an agent remade under an old id asks again; a fleet tool it reuses that nobody built is asked for too", async () => {
+  const { requestWhatsMissing } = await import('../agents.js');
+  // A request from the deleted agent that had this id, closed.
+  all("INSERT INTO requests (agent_id, what, why, status, created_at) VALUES ('zz-remade', 'Build the tool zz.ping', 'old', 'rejected', 0) RETURNING id");
+  const files = {
+    id: 'zz-remade',
+    name: 'Remade',
+    tools: 'tool_tiers: { zz.ping: T0, zz.someone_elses: T0, web.fetch_page: T0, files.write_file: T0 }\nnew_tools:\n  - { id: zz.ping, description: Pings, input_schema: {} }\n',
+  };
+  const filed = await requestWhatsMissing(files);
+  assert.deepEqual(filed.sort(), ['Build the tool zz.ping', 'Build the tool zz.someone_elses']); // catalogue and plumbing tools aren't asked for
+  assert.deepEqual(await requestWhatsMissing(files), []); // open now: not asked twice
 });

@@ -277,6 +277,9 @@ export function registerTools(defs: ToolDef[]) {
   for (const d of defs) REGISTERED.set(d.id, d);
 }
 export type { ToolDef };
+// Every tool that exists: the plumbing every agent gets, and every registered one
+// (an integration's, connected or not; the web tools; the Agency Engineer's).
+export const registeredToolIds = () => new Set([...BUILTIN_IDS, ...REGISTERED.keys()]);
 
 // One catalogue tool that stands for a set: holding web.browse means the whole
 // blank browser (open, click, type...), at web.browse's tier unless the agent

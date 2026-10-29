@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { createAgent, deleteAgent } from '../agents.js';
-import { BuildSchema } from '../builder.js';
+import { BuildSchema, builderGuide, type Build } from '../builder.js';
+import { BASELINE, CATALOG_INDEX } from '../catalog.js';
+import { loadPerson, loadProfile } from '../org.js';
 import { compose, DATA, kpiLabels, listIds, readMeta, slug, writeMeta } from '../files.js';
 import { scanFleet } from '../fleet.js';
 import {
@@ -32,6 +34,7 @@ import { checkEvent } from './events.js';
 import { hooksBase } from './hooks.js';
 import { LEVELS } from './ferocity.js';
 import { openBridge } from './mcp.js';
+import { registeredToolIds } from './tools.js';
 import { stateOf } from './run.js';
 import { abortRun, book } from './scheduler.js';
 
@@ -52,6 +55,37 @@ const json = (v: unknown) => JSON.stringify(v, null, 2);
 
 // Whose agency it is: the host (until orgs exist, whoever runs the app).
 const hostPerson = () => getSetting<string | null>('host_person', null);
+const hostOrg = () => getSetting<string | null>('host_org', null);
+
+// What the builder knows when it builds: the person, the organisation, the fleet, the models.
+async function hostContext() {
+  const person = hostPerson() ?? 'The host';
+  const org = hostOrg();
+  return { person: await loadPerson(person), profile: org ? await loadProfile(org) : null, fleet: await scanFleet(), models: await availableModels() };
+}
+
+// What's wrong with a build an IDE wrote, that the app's builder would never
+// write: ids that exist nowhere, models that aren't connected, KPIs and counts
+// that aren't its tools.
+function buildProblems(b: Build, fleetIds: Set<string>, eventIds: Set<string>, models: Awaited<ReturnType<typeof availableModels>>): string[] {
+  const out: string[] = [];
+  const newTools = new Set(b.new_tools.map(t => `${t.server}.${t.name}`));
+  const known = (id: string) => fleetIds.has(id) || CATALOG_INDEX.has(id) || newTools.has(id) || BASELINE.some(x => `${x.server}.${x.tool.name}` === id);
+  const unknownTools = b.tools.map(t => t.id).filter(id => !known(id));
+  if (unknownTools.length) out.push(`These tools exist nowhere: ${unknownTools.join(', ')}. Use an id from builder_guide, or define it in new_tools (then its id is server.name).`);
+  const newEvents = new Set((b.new_events ?? []).map(e => `${e.server}.${e.name}`));
+  const unknownEvents = (b.events ?? []).map(e => e.id).filter(id => !eventIds.has(id) && !newEvents.has(id));
+  if (unknownEvents.length) out.push(`These events exist nowhere: ${unknownEvents.join(', ')}. Use one builder_guide lists, or define it in new_events.`);
+  const badModels = (b.models ?? []).filter(m => !models.some(x => x.connection === m.connection && x.models.includes(m.model)));
+  if (badModels.length) out.push(`These models aren't connected: ${badModels.map(m => `${m.connection}/${m.model}`).join(', ')}. Pick from builder_guide's models.`);
+  if (!(b.models ?? []).length) out.push('It has no models: give it one to three from builder_guide.');
+  const tools = new Set([...b.tools.map(t => t.id), ...BASELINE.map(x => `${x.server}.${x.tool.name}`)]);
+  const badKpi = b.kpi.map(k => k.id).filter(id => !tools.has(id));
+  if (badKpi.length) out.push(`KPIs that aren't its tools: ${badKpi.join(', ')}.`);
+  const badCounts = (b.ferocity?.counts ?? []).filter(id => !tools.has(id));
+  if (badCounts.length) out.push(`Ferocity counts that aren't its tools: ${badCounts.join(', ')}.`);
+  return out;
+}
 
 async function agentOrThrow(id: unknown) {
   const agentId = String(id ?? '');
@@ -220,23 +254,73 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'builder_guide',
+    description:
+      "Read this first when making an agent: the agent builder's whole brief - how agents work here, the tool catalogue and default tiers, the tools every agent gets, this organisation and the person, the fleet, connected services and their tools and events, the connected models, how to interview the person, and how to tier. create_agent's fields carry the rest.",
+    schema: obj({}),
+    run: async () => builderGuide(await hostContext()),
+  },
+  {
+    name: 'check_build',
+    description: "Check a build before creating it, without creating anything: the same input as create_agent. Answers with what's wrong, or what it would make.",
+    schema: z.toJSONSchema(BuildSchema) as Record<string, unknown>,
+    run: async a => {
+      const parsed = BuildSchema.safeParse(a);
+      if (!parsed.success) return `The build doesn't fit: ${parsed.error.issues.slice(0, 8).map(i => `${i.path.join('.') || '(top)'}: ${i.message}`).join('; ')}`;
+      const b = parsed.data;
+      const fleet = await scanFleet();
+      const fleetIds = new Set([...fleet.tools.map(t => t.id), ...integrationToolIds()]);
+      const models = await availableModels();
+      const eventIds = new Set(liveEventIds());
+      const problems = buildProblems(b, fleetIds, eventIds, models);
+      if (problems.length) return `Fix these first:\n${problems.map(p => `- ${p}`).join('\n')}`;
+      const files = compose(b, slug(b.name), fleetIds, models, eventIds);
+      const t = parse(files.tools) as { tool_tiers: Record<string, string>; events?: string[] };
+      const built = new Set([...registeredToolIds(), ...CATALOG_INDEX.keys()]);
+      const unbuilt = Object.keys(t.tool_tiers).filter(x => !built.has(x));
+      return [
+        `Looks right: ${b.name}, ${Object.keys(t.tool_tiers).length} tools, KPIs ${b.kpi.map(k => k.label).join(', ') || 'none'}.`,
+        t.events?.length ? `Wakes on: ${t.events.join(', ')}` : 'Wakes on: its schedule only',
+        unbuilt.length ? `Not built yet (the Agency Engineer would be asked): ${unbuilt.join(', ')}` : 'Every tool it uses exists.',
+        `Models: ${files.models.map(m => `${m.connection}/${m.model}`).join(', ')}`,
+      ].join('\n');
+    },
+  },
+  {
     name: 'create_agent',
     description:
-      "Add a new agent, as the app's agent builder would: the full build (name, department, Charter, tools with tiers, KPIs, models, ferocity plan). Use tools from list_integrations or the built-in ones (read_agent on an existing agent shows them); define new_tools for ones nothing provides yet - a request goes to the Agency Engineer for each.",
+      "Add a new agent, as the app's agent builder would (read builder_guide first, and talk to the person the way it says): the full build - name, department, Charter, tools with tiers, events, KPIs, models, ferocity plan. Every id must exist (the guide lists them) or be one of its own new_tools / new_events, which go to the Agency Engineer as requests. Answers with what it made.",
     schema: z.toJSONSchema(BuildSchema) as Record<string, unknown>,
     run: async a => {
       const parsed = BuildSchema.safeParse(a);
       if (!parsed.success) throw new Error(`The build doesn't fit: ${parsed.error.issues.slice(0, 8).map(i => `${i.path.join('.') || '(top)'}: ${i.message}`).join('; ')}`);
       const b = parsed.data;
+      const fleet = await scanFleet();
+      const fleetIds = new Set([...fleet.tools.map(t => t.id), ...integrationToolIds()]);
+      const models = await availableModels();
+      const eventIds = new Set(liveEventIds());
+      // Refused, not silently dropped: what the builder would never have written.
+      const problems = buildProblems(b, fleetIds, eventIds, models);
+      if (problems.length) throw new Error(`Not created - fix these and call again:\n${problems.map(p => `- ${p}`).join('\n')}`);
       const taken = new Set(await listIds());
       let id = slug(b.name);
       for (let n = 2; taken.has(id); n++) id = `${slug(b.name)}-${n}`;
-      const fleet = await scanFleet();
-      const files = compose(b, id, new Set([...fleet.tools.map(t => t.id), ...integrationToolIds()]), await availableModels(), new Set(liveEventIds()));
+      const files = compose(b, id, fleetIds, models, eventIds);
       const owners = (await Promise.all([...taken].map(async x => (await readMeta(x))?.owner))).filter((o): o is string => !!o);
       const person = hostPerson() ?? owners[0] ?? 'The host';
-      await createAgent({ person, org: null, files });
-      return `Created ${b.name} (${id}), owned by ${person}. It's on the dashboard${files.models.length ? '' : ' - give it models with set_agent_models'}.`;
+      const asked = await createAgent({ person, org: hostOrg(), files });
+      const tools = parse(files.tools) as { tool_tiers: Record<string, string>; events?: string[]; new_tools?: { id: string }[]; new_events?: { id: string }[]; ferocity?: { every_hours: number[] } };
+      return [
+        `Created ${b.name} (${id}) for ${person}${hostOrg() ? ` at ${hostOrg()}` : ''}. It's on the dashboard.`,
+        `Tools: ${Object.entries(tools.tool_tiers).map(([t, tier]) => `${t} [${tier}]`).join(', ')}`,
+        tools.events?.length ? `Wakes on: ${tools.events.join(', ')}` : 'Wakes on: its schedule only',
+        asked.length ? `Asked the Agency Engineer for (requests, shown to the person once it needs them):
+${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
+        `Models: ${files.models.map(m => `${m.connection}/${m.model}`).join(', ') || 'none - give it some with set_agent_models'}`,
+        tools.ferocity ? `Chill: every ${tools.ferocity.every_hours[0]} hours` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
     },
   },
   {
