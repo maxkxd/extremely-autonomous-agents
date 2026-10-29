@@ -18,7 +18,9 @@ export type OrgRole = 'owner' | 'admin' | 'member';
 export type OrgView = { id: string; kind: 'personal' | 'team'; name: string; role: OrgRole; ownerId: string; host: { registered: boolean; publicKey: string | null }; self?: { address: string } };
 export type User = { id: string; email: string; name: string };
 export type Member = { userId: string; name: string; email: string; role: OrgRole; joinedAt: number };
-export type Invite = { code: string; email: string | null; role: OrgRole; expiresAt: number };
+// sent: emailed to them; url: the link, when it wasn't (no mail service set up yet).
+export type Invite = { code: string; email: string | null; role: OrgRole; expiresAt: number; sent?: boolean; url?: string };
+export type WaitingInvite = { code: string; orgId: string; org: string; invitedBy: string; role: OrgRole; expiresAt: number };
 type Hosting = { orgId: string; orgName: string; issuer: string; running: boolean; self?: boolean };
 
 // 'personal', or an organisation's id.
@@ -504,6 +506,9 @@ export const removeMember = (orgId: string, userId: string) =>
 export const invites = (orgId: string) => (isSelf(orgId) ? viaHost<Invite[]>('/api/self/invites') : backend<Invite[]>(`/orgs/${orgId}/invites`));
 export const createInvite = (orgId: string, email: string, role: 'admin' | 'member') =>
   isSelf(orgId) ? viaHost<Invite>('/api/self/invites', { email, role }) : backend<Invite>(`/orgs/${orgId}/invites`, { body: { email, role } });
+// Invites waiting for you (by your email), and turning one down.
+export const myInvites = () => (state.me ? backend<WaitingInvite[]>('/me/invites') : Promise.resolve([]));
+export const declineInvite = (code: string) => backend(`/invites/${encodeURIComponent(code)}/decline`, { method: 'POST' });
 export const revokeInvite = (code: string) =>
   isSelf(state.agency) ? viaHost('/api/self/invites/revoke', { code }) : backend(`/invites/${encodeURIComponent(code)}`, { method: 'DELETE' });
 // The address a self-hosted organisation's members reach it at (its owner sets it).

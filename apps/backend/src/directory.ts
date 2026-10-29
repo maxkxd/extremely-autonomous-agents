@@ -156,6 +156,8 @@ export async function createInvite(db: Db, orgId: string, userId: string, opts: 
   if (role === 'admin' && me.role !== 'owner') fail(403, 'Only the owner can invite admins.');
   const email = typeof opts.email === 'string' && opts.email.trim() ? opts.email.trim().toLowerCase() : null;
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(400, "That isn't an email address.");
+  // Inviting the same person again: a fresh invite replaces the one still waiting.
+  if (email) await db.query('DELETE FROM invites WHERE org_id = $1 AND email = $2 AND used_by IS NULL', [orgId, email]);
   const code = randomBytes(12).toString('base64url');
   const expiresAt = now + INVITE_DAYS * 86_400_000;
   await db.query('INSERT INTO invites (code, org_id, email, role, created_by, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)', [
@@ -204,6 +206,25 @@ async function openInvite(db: Db, code: string, now: number) {
 export async function previewInvite(db: Db, code: string, now = Date.now()) {
   const inv = await openInvite(db, code, now);
   return { org: inv.org_name, invitedBy: inv.inviter, role: inv.role, forEmail: inv.email };
+}
+
+// Invites waiting for someone, by their email: shown in their app, no link needed.
+export async function invitesFor(db: Db, user: Profile, now = Date.now()) {
+  const r = await db.query<{ code: string; org_id: string; org_name: string; inviter: string; role: Role; expires_at: number }>(
+    `SELECT i.code, i.org_id, o.name AS org_name, COALESCE(u.display_name, u.name) AS inviter, i.role, i.expires_at
+     FROM invites i JOIN orgs o ON o.id = i.org_id JOIN users u ON u.id = i.created_by
+     WHERE i.email = $1 AND i.used_by IS NULL AND i.expires_at > $2
+       AND NOT EXISTS (SELECT 1 FROM members m WHERE m.org_id = i.org_id AND m.user_id = $3)
+     ORDER BY i.created_at DESC`,
+    [user.email.toLowerCase(), now, user.id],
+  );
+  return r.rows.map(i => ({ code: i.code, orgId: i.org_id, org: i.org_name, invitedBy: i.inviter, role: i.role, expiresAt: Number(i.expires_at) }));
+}
+
+// Turning one down: it's gone (only for the person it's for).
+export async function declineInvite(db: Db, code: string, user: Profile) {
+  const r = await db.query('DELETE FROM invites WHERE code = $1 AND email = $2 AND used_by IS NULL', [code, user.email.toLowerCase()]);
+  if (!(r as { rowCount?: number; affectedRows?: number }).rowCount && !(r as { affectedRows?: number }).affectedRows) fail(404, 'No such invite for you.');
 }
 
 export async function acceptInvite(db: Db, code: string, user: Profile, now = Date.now()) {
