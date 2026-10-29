@@ -533,22 +533,28 @@ export function Dashboard({
   // after its card is up, and the server gives built-ins theirs. One you just
   // changed here keeps your pick while it saves.
   const modelsSetAt = useRef<Record<string, number>>({});
-  useEffect(() => {
-    const t = window.setInterval(
-      () =>
-        getAgentModels().then(
-          all =>
-            setModelChoices(prev => {
-              const next = { ...all };
-              for (const [id, at] of Object.entries(modelsSetAt.current)) if (Date.now() - at < 6000) next[id] = prev[id] ?? [];
-              return next;
-            }),
-          () => {},
-        ),
-      8000,
+  const refreshModels = () =>
+    getAgentModels().then(
+      all =>
+        setModelChoices(prev => {
+          const next = { ...all };
+          for (const [id, at] of Object.entries(modelsSetAt.current)) if (Date.now() - at < 6000) next[id] = prev[id] ?? [];
+          return next;
+        }),
+      () => {},
     );
+  useEffect(() => {
+    const t = window.setInterval(refreshModels, 8000);
     return () => window.clearInterval(t);
   }, []);
+  // The moment a card's Setting up pill goes, its tailored models are there to show.
+  const settingUp = AGENTS.filter(a => a.settingUp).map(a => a.id).join(',');
+  const wasSettingUp = useRef(settingUp);
+  useEffect(() => {
+    const now = new Set(settingUp.split(','));
+    if (wasSettingUp.current.split(',').some(id => id && !now.has(id))) void refreshModels();
+    wasSettingUp.current = settingUp;
+  }, [settingUp]);
   const { checks, check } = useModelChecks(Object.values(modelChoices).flat(), setAvailable);
   // Real agents' state and stats from the runner, refreshed every few seconds.
   const [live, setLive] = useState<Record<string, LiveAgent>>({});
