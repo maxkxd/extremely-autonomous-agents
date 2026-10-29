@@ -4,15 +4,19 @@ import { allChoices, setChoices } from '../models/choice.js';
 import { FLEET_ENGINEER } from './agent.js';
 import { defaultModels, type Want } from './defaults.js';
 
-// The agency's two helpers (docs/requests.md, docs/integrations.md): built-in
-// agents, owned by no one, that make one quick judgement when asked and never
-// run on a schedule. Each has a card like any agent - its models (changeable),
+// The agency's built-in agents, kept together here because they're different:
+// owned by no one, never deleted, no Ferocity, and one day hideable. The
+// Fleet Engineer (engineer.ts) does real runs; the two helpers below
+// (docs/requests.md, docs/integrations.md) make one quick judgement when asked
+// and never run on a schedule. Each has a card like any agent - its models (changeable),
 // runs, cost - and a DM channel recording what it decided. Stopped, the
 // Conductor's requests go straight to the Fleet Engineer and the Security
 // Reviewer's plugins can't be proposed.
 
 export const CONDUCTOR = 'conductor';
 export const REVIEWER = 'reviewer';
+export const HELPER_IDS = [CONDUCTOR, REVIEWER];
+export const BUILT_IN_IDS = [FLEET_ENGINEER, ...HELPER_IDS];
 
 // Every built-in and the kind of model its job wants.
 const WANTS: Record<string, Want> = { [FLEET_ENGINEER]: 'strong', [CONDUCTOR]: 'cheap', [REVIEWER]: 'careful' };

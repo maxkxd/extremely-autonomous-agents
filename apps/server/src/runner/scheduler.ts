@@ -4,7 +4,7 @@ import './web.js'; // registers the web tools
 import './browser.js'; // registers the browser tools
 import { ensureFleetEngineer, startEngineer } from './engineer.js';
 import './conductor.js'; // routes new requests
-import { ensureHelpers, fillBuiltInModels } from './helpers.js';
+import { ensureHelpers, fillBuiltInModels, HELPER_IDS } from './helpers.js';
 import { availableModels, nativeEffortSync } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';
@@ -169,7 +169,7 @@ export function startScheduler() {
   const cut = all<{ agent_id: string; trigger: Trigger; task: string | null }>("SELECT agent_id, trigger, task FROM runs WHERE status = 'running'");
   exec("UPDATE runs SET status = 'failed', error = 'The server stopped during this run.', ended_at = started_at WHERE status = 'running'");
   // A helper's call isn't a run to start again: whoever called it already moved on.
-  for (const r of cut) if (!['scheduled', 'apocalyptic'].includes(r.trigger) && !['conductor', 'reviewer'].includes(r.agent_id)) book(r.agent_id, r.trigger, r.task);
+  for (const r of cut) if (!['scheduled', 'apocalyptic'].includes(r.trigger) && !HELPER_IDS.includes(r.agent_id)) book(r.agent_id, r.trigger, r.task);
   timer ??= setInterval(() => void tick().catch(e => console.error('Runner tick failed:', (e as Error).message)), TICK_MS);
 }
 export const stopScheduler = () => {

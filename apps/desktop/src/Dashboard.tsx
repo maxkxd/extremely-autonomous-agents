@@ -408,8 +408,8 @@ export function AgentCard({
           </button>
         </div>
 
-        {/* A helper runs only when called: no schedule to set. */}
-        {!agent.service && <Tuning agent={agent} range={range} level={level} setLevel={setLevel} />}
+        {/* Built-ins work when there's work: no schedule to set. */}
+        {!agent.builtIn && <Tuning agent={agent} range={range} level={level} setLevel={setLevel} />}
         {models && (
           <ModelRow choices={models} available={available} checks={checks} open={modelsOpen} readOnly={preview} onOpen={() => setModelsOpen(o => !o)} />
         )}
