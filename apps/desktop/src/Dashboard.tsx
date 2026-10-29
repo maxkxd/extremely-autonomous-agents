@@ -15,6 +15,9 @@ const sliceVar = (i: number) => `var(--slice-${i % SLICES})`;
 
 type RunState = 'active' | 'draining' | 'stopped';
 
+// The runner's last answer per time frame, kept across visits to the dashboard.
+const lastLive: Partial<Record<TimeRange, Record<string, LiveAgent>>> = {};
+
 const SIZE = 220;
 const R = 82;
 const C = 2 * Math.PI * R;
@@ -557,10 +560,16 @@ export function Dashboard({
   }, [settingUp]);
   const { checks, check } = useModelChecks(Object.values(modelChoices).flat(), setAvailable);
   // Real agents' state and stats from the runner, refreshed every few seconds.
-  const [live, setLive] = useState<Record<string, LiveAgent>>({});
+  // Coming back to the dashboard starts from the last ones seen, so cards don't
+  // fade in from placeholders (grey, Chill) as if they'd just changed.
+  const [live, setLive] = useState<Record<string, LiveAgent>>(() => lastLive[range] ?? {});
   useEffect(() => {
     let stop = false;
-    const load = () => getLiveAgents(Math.max(1, Math.round(rangeDays(range)))).then(l => !stop && setLive(l), () => {});
+    const load = () =>
+      getLiveAgents(Math.max(1, Math.round(rangeDays(range)))).then(l => {
+        lastLive[range] = l;
+        if (!stop) setLive(l);
+      }, () => {});
     load();
     const t = setInterval(load, 4000);
     return () => {
