@@ -230,8 +230,9 @@ export const setAgentRunner = (id: string, patch: { ferocity?: number; state?: R
 export const getHostZone = () => request<{ zone: string; set: boolean }>('/api/settings/host-timezone');
 export const setHostZone = (zone: string) => post<{ zone: string }>('/api/settings/host-timezone', { zone });
 // The whole agency's Stop.
-export const getAgency = () => request<{ stopped: boolean }>('/api/runner/agency');
-export const setAgency = (stopped: boolean) => post<{ stopped: boolean }>('/api/runner/agency', { stopped });
+export type AgencyState = 'active' | 'standby' | 'stopped';
+export const getAgency = () => request<{ state: AgencyState }>('/api/runner/agency');
+export const setAgency = (state: AgencyState) => post<{ state: AgencyState }>('/api/runner/agency', { state });
 export const runNow = (id: string) => post<{ ok: boolean }>('/api/runner/run-now', { id });
 // A real agent's DM channel: run posts and your messages, oldest first.
 export const getDm = (id: string) =>

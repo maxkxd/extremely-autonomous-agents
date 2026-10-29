@@ -293,9 +293,10 @@ ul { list-style: none; margin: 0; padding: 0; }
    menu join into one panel of the same width, flush on the background. */
 .range-picker { position: relative; width: 156px; }
 .header-tools { display: flex; align-items: center; gap: 10px; }
-.ctl-btn.agency-stop { height: 34px; padding: 0 14px; flex: none; }
+.agency-controls { display: flex; gap: 8px; }
+.ctl-btn.agency-btn { height: 34px; padding: 0 14px; flex: none; }
 /* Outside a card there's no level colour: Resume takes the plain attention blue. */
-.ctl-btn.agency-stop { --fx: var(--attention); }
+.ctl-btn.agency-btn { --fx: var(--attention); }
 @media (max-width: 720px) { .main-header { flex-wrap: wrap; } }
 .range-btn {
   width: 100%; display: flex; align-items: center; gap: 8px;

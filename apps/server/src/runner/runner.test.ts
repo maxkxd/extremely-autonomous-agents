@@ -319,10 +319,10 @@ test('the agency stopped: nothing runs, not even a message, until it is resumed'
   const a = agent();
   stateOf(ID);
   exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'your message', 'hi', ?, ?)", ID, now, now);
-  setSetting('agency_stopped', true);
+  setSetting('agency_state', 'stopped');
   assert.equal(stateOf(ID).state, 'stopped');
   assert.equal(nextRun(a, stateOf(ID), now), null);
-  setSetting('agency_stopped', false);
+  setSetting('agency_state', 'active');
   assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'your message');
 });
 
@@ -351,4 +351,18 @@ test('deleting an agent settles everything it left: approvals, requests, booking
   assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM bookings')!.n, 0);
   assert.equal(one<{ status: string }>('SELECT status FROM requests')!.status, 'rejected');
   assert.match(one<{ status: string; result: string }>('SELECT status, result FROM tasks')!.result, /deleted/);
+});
+
+test('the agency on standby: nothing starts by itself, a person is still answered, and an agent stopped on its own stays stopped', () => {
+  const now = Date.now();
+  const a = agent();
+  setLevel(CHILL);
+  setSetting('agency_state', 'standby');
+  assert.equal(stateOf(ID).state, 'draining');
+  assert.equal(nextRun(a, stateOf(ID), now), null); // its schedule waits
+  exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'your message', 'hi', ?, ?)", ID, now, now);
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'your message');
+  exec("UPDATE agent_state SET state = 'stopped' WHERE agent_id = ?", ID);
+  assert.equal(stateOf(ID).state, 'stopped');
+  setSetting('agency_state', 'active');
 });

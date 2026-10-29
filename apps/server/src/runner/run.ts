@@ -43,16 +43,30 @@ export const newRunId = () => `r_${randomBytes(4).toString('hex')}`;
 
 export type AgentState = { ferocity: number; state: 'active' | 'draining' | 'stopped'; last_scheduled_at: number | null; fail_streak: number; backoff_until: number | null; spend_cap_usd: number | null };
 
-// The whole agency stopped (the dashboard's Stop): every agent reads as stopped,
-// built-ins included, without touching each one's own state.
-export const agencyStopped = () => getSetting<boolean>('agency_stopped', false);
+// The whole agency's state (the dashboard's Standby and Stop), over each agent's
+// own without touching it:
+//   standby - every agent as if on standby: nothing starts by itself, people
+//             are still answered; building agents and tailoring packs go on
+//   stopped - every agent stopped, built-ins included; no building or tailoring
+export type AgencyState = 'active' | 'standby' | 'stopped';
+export function agencyState(): AgencyState {
+  const s = getSetting<string | null>('agency_state', null);
+  if (s === 'active' || s === 'standby' || s === 'stopped') return s;
+  return getSetting<boolean>('agency_stopped', false) ? 'stopped' : 'active'; // before standby existed
+}
+export const agencyStopped = () => agencyState() === 'stopped';
 
 export function stateOf(agentId: string, now = Date.now()): AgentState {
-  const row = one<AgentState>('SELECT * FROM agent_state WHERE agent_id = ?', agentId);
-  if (row) return agencyStopped() ? { ...row, state: 'stopped' } : row;
-  // A new agent starts on Chill, active (docs/agent-creation.md).
-  exec('INSERT INTO agent_state (agent_id, updated_at) VALUES (?, ?)', agentId, now);
-  return { ferocity: 0, state: 'active', last_scheduled_at: null, fail_streak: 0, backoff_until: null, spend_cap_usd: null };
+  let row = one<AgentState>('SELECT * FROM agent_state WHERE agent_id = ?', agentId);
+  if (!row) {
+    // A new agent starts on Chill, active (docs/agent-creation.md).
+    exec('INSERT INTO agent_state (agent_id, updated_at) VALUES (?, ?)', agentId, now);
+    row = { ferocity: 0, state: 'active', last_scheduled_at: null, fail_streak: 0, backoff_until: null, spend_cap_usd: null };
+  }
+  const agency = agencyState();
+  if (agency === 'stopped') return { ...row, state: 'stopped' };
+  if (agency === 'standby' && row.state === 'active') return { ...row, state: 'draining' };
+  return row;
 }
 
 const HEALTH_KEY = 'model_health';

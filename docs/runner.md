@@ -127,13 +127,17 @@ Standby is `draining` in the runner's store. Both last until someone resumes the
 other. The cards and approvals follow the runner, so a change made by
 someone else (or another device) shows within seconds.
 
-**Stop agency** (next to the time range on the dashboard) is Stop for every
-agent at once, built-ins included - they have no Stop or Standby of their
-own. Each agent keeps its own state underneath, so Resume agency puts every
-one back as it was. While it's stopped, the cards' own controls wait.
-Building agents and adding packs still work while it's stopped (they're the
-person's own doing), but a pack's tailoring waits: the agents exist,
-untailored and not running, and are tailored once it's resumed.
+**The whole agency** (next to the time range on the dashboard) has the same
+pair, over every agent at once, built-ins included - they have none of their
+own. Each agent keeps its own state underneath, so resuming puts every one
+back as it was, and while the agency is held the cards' own controls wait.
+
+- **Standby**: every agent as if on standby - nothing starts by itself, a
+  person is still answered, approvals are still heard. Building agents and
+  tailoring packs go on.
+- **Stop**: every run cut short and nothing at all: no runs, no agent
+  builder chat, and a pack's tailoring waits (its agents exist, untailored,
+  until the agency is resumed or put on standby).
 
 **A restart mid-run**: a run the app's restart cut short is booked again
 (except scheduled ones, which simply come round again) and carries on: its

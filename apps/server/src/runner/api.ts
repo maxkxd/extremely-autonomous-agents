@@ -26,7 +26,7 @@ import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
 import { agencyMcpUrl, startAgencyMcp } from './agency-mcp.js';
 import { resume as resumeJobs } from '../jobs.js';
 import { isPrivateIp } from './net.js';
-import { agencyStopped, stateOf, type Trigger } from './run.js';
+import { agencyState, stateOf, type AgencyState, type Trigger } from './run.js';
 import { abortAll, abortRun, book, isRunning } from './scheduler.js';
 
 // The runner's routes for the app: each agent's card (ferocity, Drain/Stop,
@@ -142,15 +142,17 @@ export const runnerRoutes: Record<string, Route> = {
     return out;
   },
 
-  // Stop the whole agency: every run cut short, nothing starts, approvals wait.
-  'GET /api/runner/agency': async () => ({ stopped: agencyStopped() }),
+  // The whole agency on standby (nothing starts by itself) or stopped (every
+  // run cut short, nothing at all: no building or tailoring either), or active.
+  'GET /api/runner/agency': async () => ({ state: agencyState() }),
   'POST /api/runner/agency': async (_req, _q, body) => {
-    const { stopped } = await body<{ stopped: boolean }>();
-    setSetting('agency_stopped', !!stopped);
-    if (stopped) abortAll();
+    const { state } = await body<{ state: AgencyState }>();
+    if (!['active', 'standby', 'stopped'].includes(state)) throw new Error('active, standby or stopped.');
+    setSetting('agency_state', state);
+    if (state === 'stopped') abortAll();
     // Pack set-up waits while stopped (jobs.ts); it carries on now.
     else void resumeJobs().catch(() => {});
-    return { stopped: agencyStopped() };
+    return { state: agencyState() };
   },
 
   // Ferocity, Drain/Stop, a per-agent spend cap.
