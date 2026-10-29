@@ -131,6 +131,9 @@ someone else (or another device) shows within seconds.
 agent at once, built-ins included - they have no Stop or Standby of their
 own. Each agent keeps its own state underneath, so Resume agency puts every
 one back as it was. While it's stopped, the cards' own controls wait.
+Building agents and adding packs still work while it's stopped (they're the
+person's own doing), but a pack's tailoring waits: the agents exist,
+untailored and not running, and are tailored once it's resumed.
 
 **A restart mid-run**: a run the app's restart cut short is booked again
 (except scheduled ones, which simply come round again) and carries on: its

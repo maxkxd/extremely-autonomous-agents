@@ -24,6 +24,7 @@ import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
 import { agencyMcpUrl, startAgencyMcp } from './agency-mcp.js';
+import { resume as resumeJobs } from '../jobs.js';
 import { isPrivateIp } from './net.js';
 import { agencyStopped, stateOf, type Trigger } from './run.js';
 import { abortAll, abortRun, book, isRunning } from './scheduler.js';
@@ -147,6 +148,8 @@ export const runnerRoutes: Record<string, Route> = {
     const { stopped } = await body<{ stopped: boolean }>();
     setSetting('agency_stopped', !!stopped);
     if (stopped) abortAll();
+    // Pack set-up waits while stopped (jobs.ts); it carries on now.
+    else void resumeJobs().catch(() => {});
     return { stopped: agencyStopped() };
   },
 
