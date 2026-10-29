@@ -181,11 +181,14 @@ Step 1 is built and tested:
 
 Not yet:
 
-- **The Conductor and the Fleet Engineer** aren't running: requests come
-  straight to a person.
-- **Memory compaction** is tested with a scripted summary, not yet live.
-- **Spend caps** are tested in code, not yet against a real bill.
-- DeepSeek's prices aren't in the price book, so its runs show "cost unknown".
+- An agent that falls from a free plan to a paid model (its plan failing)
+  does it silently; it should say so in its DMs.
+
+Tested live since (2026-10-29): memory compaction on a plan (it had been
+skipping Claude Code and Copilot), spend caps (a paid-only agent over the
+limit doesn't run, and says which limit; one with a plan runs on the plan),
+and prices for DeepSeek, Groq and OpenRouter's aliases. The Conductor and
+the Fleet Engineer run (docs/requests.md).
 
 ## From WAR (what its runner taught us)
 
