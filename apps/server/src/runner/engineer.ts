@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { parseDocument, stringify } from 'yaml';
 import { DATA, readMeta, save, slug } from '../files.js';
 import {
+  checkKey,
   integrationSource,
   listIntegrations,
   liveEventIds,
@@ -42,6 +43,8 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'engineer.ask_for_connection': 'T0',
   'engineer.test_integration': 'T0',
   'engineer.test_event': 'T0',
+  'engineer.tool_history': 'T0',
+  'engineer.check_key': 'T0',
   'engineer.publish_integration': 'T2',
   'engineer.give_tools': 'T2',
   'engineer.give_events': 'T2',
@@ -54,6 +57,10 @@ const CHARTER = `# CHARTER - Agency Engineer
 ## Mission
 You are the agency's engineer. Every request an agent files comes to you first. You make sure each one ends well: handed to an agent that can already do it, answered by a tool you build, or put to a person with exactly what only they can do. You are owned by no one; what you build is for the agent that asked, and its owner approves it.
 
+## Two kinds of request
+- Something is missing: the agent needs a tool, an event or an answer it doesn't have. Handle it as below.
+- Something is broken: a tool the agent already holds is failing. That is a fault to diagnose, not something to build - see "When a tool is failing" first.
+
 ## How you handle a request (engineer.list_requests shows them, with the asking agent's missing tools)
 1. Another agent in the fleet can already do it (it holds the tool, it's its job)? Hand the work over with tasks.delegate_task, then engineer.close_request saying who does it now. Only genuinely related agents - not, say, customer support for an outreach email.
 2. A tool that already exists and is live (engineer.list_integrations) would do it? Propose giving it to the agent: engineer.give_tools (a person approves).
@@ -64,6 +71,17 @@ You are the agency's engineer. Every request an agent files comes to you first. 
    d. Test it like a careful person: the real call with real-looking inputs, then the edge cases - empty and missing inputs, a limit, nonsense - and read what an agent would see. Results must be clean, plain text; errors one readable line. Fix the definition and test again until they are.
    e. engineer.publish_integration with a short summary for the person approving: what it lets the agent do, and its limits (which account, which repository, read-only...). Not how you tested it, and no risks unless one is obvious and significant to someone who isn't technical (it costs money, emails people outside, deletes their files) - never technical or hypothetical ones. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
+
+## When a tool is failing
+Find the cause before you tell anyone what to do. The agent's report is where you start, not the diagnosis: it saw one error, at one moment.
+1. History first (engineer.list_requests shows it for the tools a request names; engineer.tool_history for any). A tool that has worked many times since it failed isn't broken: tell the agent so and close the request.
+2. Tell the key apart from the tool with engineer.check_key: the stored key, sent straight to the service.
+   - A call that should work with that key (a read, or the service's "who am I"): refused means the key is wrong or expired.
+   - The failing call itself (its exact URL, from the tool's code; a write with an empty body): 400/422 means the key is allowed there, so the fault is in the tool - its URL, method, headers or body. 401/403 at that exact URL, while the key works elsewhere, is the key missing that permission; read the error body and the service's docs for which one.
+   - Before blaming a URL or a permission, read the tool's code (engineer.read_integration) against the service's API docs (web.fetch_page).
+3. The fault is in a tool you built: fix it yourself - the definition, or the plugin - and propose it again (engineer.publish_integration). The person only approves; they have nothing to change. Tell the agent with engineer.close_request once it's live.
+4. The fault is the key or the account: engineer.reply_to_request with what you checked and what it showed (the key works for reading issues, and is refused at the comment endpoint with 403), then exactly what to change. They can't see your checks, so say what they were.
+5. They did what you asked and it still fails the same way: your diagnosis was most likely wrong. Check again from step 1 before asking for anything else, and say what you found.
 
 ## Events
 Some agents are woken by something happening at a service - a new Sentry issue, a support ticket, an alarm - as well as by their schedule. A request to "Set up the event sentry.new_issue" means: add it to an integration (a new one, or the service's existing one) under events:, each with an id (server.event), a description, and how it's detected:
@@ -210,6 +228,50 @@ export async function giveTools(agentId: string, tools: { id: string; tier: Tier
 
 const nameOf = async (agentId: string) => (await readMeta(agentId))?.name ?? agentId;
 
+// --- Tool history --------------------------------------------------------------------
+// How tools have actually done for the agents holding them, from the action log
+// and each tool's last failure: whether something is broken now, or failed once
+// and has worked since.
+
+const ago = (at: number, now = Date.now()) => {
+  const m = Math.round((now - at) / 60_000);
+  return m < 60 ? `${m}m ago` : m < 48 * 60 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
+};
+
+export function toolHistory(tools: string[], agentId?: string, days = 14, now = Date.now()): string {
+  const since = now - days * 86_400_000;
+  const match = (t: string) => tools.some(x => t === x || t.startsWith(`${x}.`));
+  const rows = all<{ agent_id: string; tool: string; outcome: string; at: number }>(
+    "SELECT agent_id, tool, outcome, at FROM actions WHERE at >= ? AND outcome IN ('ok', 'failed') ORDER BY at",
+    since,
+  ).filter(r => match(r.tool) && (!agentId || r.agent_id === agentId));
+  const health = all<{ agent_id: string; tool: string; last_ok: number | null; last_fail: number | null; last_error: string | null }>('SELECT * FROM tool_health').filter(
+    h => match(h.tool) && (!agentId || h.agent_id === agentId),
+  );
+  const keys = [...new Set([...rows, ...health].map(r => `${r.agent_id}\u0000${r.tool}`))];
+  if (!keys.length) return `No calls of ${tools.join(', ')} in the last ${days} days.`;
+  return keys
+    .map(k => {
+      const [agent, tool] = k.split('\u0000');
+      const calls = rows.filter(r => r.agent_id === agent && r.tool === tool);
+      const h = health.find(x => x.agent_id === agent && x.tool === tool);
+      const ok = calls.filter(c => c.outcome === 'ok').length;
+      const lastFail = h?.last_fail ? `last failure ${ago(h.last_fail, now)}: ${h.last_error ?? '(no message)'}` : 'no failures recorded';
+      const lastOk = h?.last_ok ? `last success ${ago(h.last_ok, now)}` : 'never succeeded';
+      const recent = calls.slice(-20).map(c => (c.outcome === 'ok' ? 'ok' : 'FAIL')).join(' ');
+      return `${tool} (${agent}): ${ok} ok, ${calls.length - ok} failed in ${days} days; ${lastOk}; ${lastFail}${recent ? `\n  last ${Math.min(20, calls.length)}, oldest first: ${recent}` : ''}`;
+    })
+    .join('\n');
+}
+
+// The history of the tools a request names, so a stale failure shows as one.
+function namedToolHistory(r: RequestRow): string {
+  const text = [r.what, r.why, r.evidence ?? ''].join(' ');
+  const known = new Set(all<{ tool: string }>('SELECT DISTINCT tool FROM tool_health WHERE agent_id = ?', r.agent_id).map(t => t.tool));
+  const named = [...new Set([...text.matchAll(/\b[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*\b/g)].map(m => m[0]))].filter(t => known.has(t));
+  return named.length ? `\n  How the tools it names have done since:\n${toolHistory(named, r.agent_id).replace(/^/gm, '    ')}` : '';
+}
+
 // The events an agent should get from an integration: the ones asked for, else
 // the ones it expects (its builder's) that the integration provides.
 async function eventsFor(agentId: string, integrationId: string, asked: unknown): Promise<string[]> {
@@ -242,7 +304,7 @@ const TOOLS: ToolDef[] = [
             thread.length && `  Conversation:\n${thread.map(m => `    ${m.from_who === 'you' ? 'Person' : 'You'}: ${m.text}`).join('\n')}`,
           ]
             .filter(Boolean)
-            .join('\n') + (await missingTools(r.agent_id)),
+            .join('\n') + (await missingTools(r.agent_id)) + namedToolHistory(r),
         );
       }
       return out.join('\n\n');
@@ -373,6 +435,29 @@ const TOOLS: ToolDef[] = [
     description: "Call one tool of an integration directly - draft or live - with the arguments you give, and see exactly what an agent would get back.",
     schema: obj({ integration_id: str('The integration'), tool: str('The tool id (server.tool)'), args: { type: 'object', description: 'Its arguments' } }, ['integration_id', 'tool']),
     impl: async a => testIntegrationTool(String(a.integration_id), String(a.tool), (a.args as Record<string, unknown>) ?? {}),
+  },
+  {
+    id: 'engineer.tool_history',
+    tier: 'T0',
+    description:
+      "How tools have really done for the agents holding them: successes and failures over the last days, the last error, and the recent run of outcomes. Whether a tool is broken now, or failed once and has worked since.",
+    schema: obj(
+      {
+        tools: { type: 'array', items: { type: 'string' }, description: "Tool ids (errors.resolve_issue), or a prefix (errors) for all of one server's tools" },
+        agent_id: str('Optional: just this agent'),
+        days: int('Optional: how far back (default 14)'),
+      },
+      ['tools'],
+    ),
+    impl: async a => toolHistory(((a.tools as unknown[]) ?? []).map(String), a.agent_id ? String(a.agent_id) : undefined, Number(a.days) || 14),
+  },
+  {
+    id: 'engineer.check_key',
+    tier: 'T0',
+    description:
+      "Send one request with an integration's stored key, the way the integration sends it, to see whether the service accepts the key there - without going through the tool's code. Only to the hosts the integration already uses, no redirects. GET/HEAD to read; POST/PATCH go with an empty body ({}) - aim them at an endpoint that needs fields, so an allowed key gets a validation error (400/422) and a refused one 401/403, and nothing is made or changed. You see the status, any scope/permission headers, and the start of the body; never the key.",
+    schema: obj({ integration_id: str('The integration whose key to use'), method: str('GET, HEAD, POST or PATCH'), url: str('The full https URL') }, ['integration_id', 'method', 'url']),
+    impl: async a => checkKey(String(a.integration_id), String(a.method), String(a.url)),
   },
   {
     id: 'engineer.publish_integration',

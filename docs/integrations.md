@@ -76,6 +76,38 @@ which when approved makes it live, gives the agent its tools (TOOLS.yaml, the
 builder's tiers kept) and closes the request. Its `engineer.give_tools` gives
 an agent tools that already exist, also behind an approval.
 
+### When a live tool is failing (2026-10-29)
+
+A request about a tool an agent already holds is a fault to diagnose, not
+something to build, and its Charter now treats it apart. The engineer once
+blamed the person's credentials twice for what was its own Sentry plugin
+posting comments to a URL without the organization in it (401 "Invalid
+token" there; the same key is accepted at the org-scoped URL). It had no way
+to tell: it saw only the asking agent's one error, and could only run the
+tool as written. Now it has the evidence:
+
+- `engineer.tool_history`: successes and failures per agent and tool from
+  the action log and `tool_health` - "29 ok, 1 failed; last failure 23m
+  ago" shows a stale report as one. `engineer.list_requests` adds it for
+  every tool a request names.
+- `engineer.check_key` (`checkKey` in `integrations/index.ts`): one request
+  with the integration's stored key, sent the way the integration sends it,
+  straight to the service - so "the key is refused" and "the tool is wrong"
+  look different. Only to the hosts the integration already uses (its
+  base_url or server, or the https hosts a plugin's code names), no
+  redirects, the key redacted from what comes back. GET/HEAD, or POST/PATCH
+  with an empty body: an allowed key gets a validation error (400/422), a
+  refused one 401/403, and nothing is made or changed. No PUT: an empty PUT
+  can replace a record.
+
+The order it follows: history first; then the key at a call that should
+work and at the failing call's exact URL; read the tool's code against the
+docs. Its own tool at fault: it fixes and re-proposes it, and the person
+only approves. The key or account at fault: it tells the person what it
+checked and what showed it, then what to change. And if they did what it
+asked and it still fails the same way, it assumes its diagnosis was wrong
+and checks again before asking for anything else.
+
 Code plugins (`integrations/plugins.ts`): off until allowed in Settings ->
 Connectors. Three layers, so a person who can't read code is still safe:
 
