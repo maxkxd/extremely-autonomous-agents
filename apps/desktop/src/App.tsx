@@ -197,7 +197,8 @@ export function App() {
                 live: r.id,
                 agentId: r.agent_id,
                 summary: r.what,
-                detail: [r.why, r.evidence && `What I tried: ${r.evidence}`, r.expected_effect && `What changes once I have it: ${r.expected_effect}`]
+                // A tool's input schema is for the Fleet Engineer, not the person reading.
+                detail: [r.why, r.evidence && !/^Input it expects:/.test(r.evidence) && `What I tried: ${r.evidence}`, r.expected_effect && `What changes once I have it: ${r.expected_effect}`]
                   .filter(Boolean)
                   .join('\n\n'),
                 minutesAgo: Math.max(0, Math.round((Date.now() - r.created_at) / 60_000)),
@@ -285,6 +286,16 @@ export function App() {
     }
     setSettings(null);
     setView('approvals');
+  };
+  // Another request named in a request's text: there, open, glowing.
+  const [focusRequest, setFocusRequest] = useState<number | null>(null);
+  const openRequest = (live: number) => {
+    const r = pendingRequests.find(x => x.live === live);
+    if (!r) return;
+    if (!visibleApprovals([r], requestScope).length) setRequestScope('all');
+    setRequestFilter(null);
+    setFocusRequest(live);
+    setView('requests');
   };
   const [signedOut, setSignedOut] = useState(false);
   const [, setOrgTick] = useState(0);
@@ -494,6 +505,9 @@ export function App() {
               }}
               onGone={id => setRequestGone(prev => ({ ...prev, [id]: true }))}
               onOpenApprovals={openApproval}
+              refs={{ onRequest: openRequest, canOpen: id => pendingRequests.some(r => r.live === id) }}
+              focus={focusRequest}
+              onFocused={() => setFocusRequest(null)}
             />
           ) : view === 'new-agent' ? (
             <NewAgent

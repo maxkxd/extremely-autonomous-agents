@@ -757,7 +757,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .request.open .request-expand { grid-template-rows: 1fr; }
 .request-clip { min-height: 0; overflow: hidden; }
 .request-body {
-  display: flex; flex-direction: column; gap: 14px; padding: 4px 18px 16px 64px;
+  position: relative; display: flex; flex-direction: column; gap: 14px; padding: 4px 18px 16px 64px;
   opacity: 0; transition: opacity 0.2s ease;
 }
 .request.open .request-body { opacity: 1; transition-delay: 0.06s; }
@@ -1726,12 +1726,23 @@ a.sbtn { text-decoration: none; color: inherit; }
 .text-link { color: #7aa3e4; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
 .text-link:hover { color: #a9c3ee; }
 /* Arriving for one approval (Open Approvals, a draft's Approve): a blue glow, in place. */
-.approval.spotlit { animation: approval-spotlight 2.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.approval.spotlit, .request.spotlit { animation: approval-spotlight 2.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
 @keyframes approval-spotlight {
   0%, 25% { border-color: #3f7bd6; box-shadow: 0 0 0 1px #3f7bd6, 0 0 34px rgba(63, 123, 214, 0.6); background-color: rgba(63, 123, 214, 0.1); }
   55% { border-color: #3f7bd6; box-shadow: 0 0 0 1px #3f7bd6, 0 0 24px rgba(63, 123, 214, 0.4); }
 }
-@media (prefers-reduced-motion: reduce) { .approval.spotlit { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .approval.spotlit, .request.spotlit { animation: none; } }
+/* Agents' and the Fleet Engineer's text (RichText.tsx). */
+.rt-p { margin: 0; }
+.rt-p + .rt-p, .rt-p + .rt-list, .rt-list + .rt-p, .rt-list + .rt-list { margin-top: 8px; }
+.rt-list { margin: 0; padding-left: 22px; }
+.rt-list li + li { margin-top: 4px; }
+.rt-code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 0.92em; padding: 1px 5px; border-radius: 5px; background: var(--surface-hover); }
+.rt-ref { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
+/* A request's number, tiny, bottom left. */
+.request-wrap { scroll-margin-top: 16px; }
+/* In the empty left gutter, all the way in the corner. */
+.request-id { position: absolute; left: 12px; bottom: 8px; font-size: 11px; color: #5f5f5f; }
 /* An on/off switch. */
 .switch { position: relative; width: 38px; height: 22px; padding: 0; flex-shrink: 0; border-radius: 11px; border: 1px solid var(--border-strong); background: var(--surface-hover); cursor: pointer; transition: background-color 0.2s, border-color 0.2s; }
 .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #9a9a9a; transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.2s; }
