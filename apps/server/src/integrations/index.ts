@@ -539,22 +539,52 @@ export async function testIntegrationTool(id: string, toolId: string, args: Reco
   return p.call(args);
 }
 
-// Where an integration sends its key: its base_url or server, or the https
-// hosts a code plugin's source names.
-async function keyHosts(integration: Integration): Promise<Set<string>> {
-  if (integration.kind === 'http') return new Set([new URL(integration.base_url).host]);
-  if (integration.kind === 'mcp') return new Set(integration.url ? [new URL(integration.url).host] : []);
+// Where an integration's key may go (engineer.check_key): the hosts it sends it
+// to, and the endpoints its own tools write to. An http integration's come from
+// its definition; a code one's from the addresses its code calls - quoted
+// strings and template literals, not links in comments - with ${...} parts as
+// wildcards. An empty-body write goes only to one of those endpoints: one the
+// tool would write to anyway, never an endpoint that acts on a bare POST.
+type WriteTarget = { method: string | null; pattern: RegExp; shown: string };
+export type KeyTargets = { hosts: Set<string>; writes: WriteTarget[] };
+
+const PLACEHOLDER = /\{\{[^}]+\}\}|\$\{[^}]+\}/g;
+function endpoint(url: string, method: string | null): WriteTarget {
+  const bare = url.split(/[?#]/)[0].replace(/\/+$/, '');
+  const source = bare
+    .split(PLACEHOLDER)
+    .map(part => part.replace(/[.*+?^()|[\]\\{}$]/g, '\\$&'))
+    .join('[^/]+');
+  return { method, pattern: new RegExp(`^${source}/?$`), shown: `${method ?? 'POST/PATCH'} ${bare}` };
+}
+
+export function keyTargets(integration: Integration, code = ''): KeyTargets {
+  if (integration.kind === 'http') {
+    const base = integration.base_url.replace(/\/+$/, '');
+    const writes = integration.tools
+      .filter(t => t.request.method === 'POST' || t.request.method === 'PATCH')
+      .map(t => endpoint(base + (t.request.path.startsWith('/') ? t.request.path : `/${t.request.path}`), t.request.method));
+    return { hosts: new Set([new URL(integration.base_url).host]), writes };
+  }
+  if (integration.kind === 'mcp') return { hosts: new Set(integration.url ? [new URL(integration.url).host] : []), writes: [] };
+  const urls = [...code.matchAll(/[`'"](https:\/\/[^`'"\s]+)[`'"]/g)].map(m => m[1]);
+  const hosts = new Set(urls.map(u => /^https:\/\/([a-z0-9.-]+)/i.exec(u)?.[1]?.toLowerCase()).filter((h): h is string => !!h && h.includes('.') && !h.includes('$')));
+  return { hosts, writes: urls.map(u => endpoint(u, null)) };
+}
+
+async function targetsOf(integration: Integration): Promise<KeyTargets> {
+  if (integration.kind !== 'code') return keyTargets(integration);
   const code = MODULES[integration.module]
     ? await readFile(join(HERE, 'modules', `${integration.module}.ts`), 'utf8').catch(() => '')
-    : (await readPlugin(integration.module)) ?? '';
-  return new Set([...code.matchAll(/https:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi)].map(m => m[1].toLowerCase()));
+    : ((await readPlugin(integration.module)) ?? '');
+  return keyTargets(integration, code);
 }
 
 // One request with an integration's stored key, sent the way the integration
 // sends it (the engineer separating "the key is refused" from "the tool is
-// wrong"). Only to the integration's own hosts, no redirects; reads, or a POST
-// or PATCH with an empty body, which an API rejects as invalid rather than acting on.
-// The key is never shown.
+// wrong"). Only to the integration's own hosts, no redirects; reads anywhere
+// there, and a POST or PATCH with an empty body only to an endpoint its own
+// tools write to (keyTargets). The key is never shown.
 export async function checkKey(id: string, method: string, url: string): Promise<string> {
   const integration = find(id);
   if (!integration) throw new Error(`No integration "${id}".`);
@@ -564,12 +594,18 @@ export async function checkKey(id: string, method: string, url: string): Promise
   const m = method.toUpperCase();
   if (!['GET', 'HEAD', 'POST', 'PATCH'].includes(m)) throw new Error('Method must be GET, HEAD, POST or PATCH.');
   const target = new URL(url);
-  const hosts = await keyHosts(integration);
+  const { hosts, writes } = await targetsOf(integration);
   if (target.protocol !== 'https:' || !hosts.has(target.host))
     throw new Error(`The key only goes where ${integration.name} sends it: https://${[...hosts].join(', https://') || '(nowhere found)'}.`);
+  const write = m !== 'GET' && m !== 'HEAD';
+  // A bare POST can act (resolve, restart, send a test): only where its tools write anyway.
+  const at = `${target.origin}${target.pathname}`;
+  if (write && !writes.some(w => (w.method === null || w.method === m) && w.pattern.test(at)))
+    throw new Error(
+      `A ${m} only goes to an endpoint ${integration.name}'s own tools write to${writes.length ? `: ${writes.map(w => w.shown).join('; ')}` : ' - it has none, so check with a read'}.`,
+    );
   const { headers, query } = authParts(integration.auth, key);
   for (const [k, v] of Object.entries(query)) target.searchParams.set(k, v);
-  const write = m !== 'GET' && m !== 'HEAD';
   const { res } = await safeFetch(target.toString(), {
     method: m,
     headers: { accept: 'application/json', 'user-agent': 'eaa-agency-engineer', ...(write ? { 'content-type': 'application/json' } : {}), ...headers },

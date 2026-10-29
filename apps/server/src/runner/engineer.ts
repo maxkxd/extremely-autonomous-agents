@@ -455,7 +455,7 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.check_key',
     tier: 'T0',
     description:
-      "Send one request with an integration's stored key, the way the integration sends it, to see whether the service accepts the key there - without going through the tool's code. Only to the hosts the integration already uses, no redirects. GET/HEAD to read; POST/PATCH go with an empty body ({}) - aim them at an endpoint that needs fields, so an allowed key gets a validation error (400/422) and a refused one 401/403, and nothing is made or changed. You see the status, any scope/permission headers, and the start of the body; never the key.",
+      "Send one request with an integration's stored key, the way the integration sends it, to see whether the service accepts the key there - without going through the tool's code. Only to the hosts the integration already uses, no redirects. GET/HEAD to read, anywhere on those hosts. POST/PATCH go with an empty body ({}), and only to an endpoint one of the integration's own tools writes to (the failing call's URL): there an allowed key gets a validation error (400/422) and a refused one 401/403, and nothing is made or changed. You see the status, any scope/permission headers, and the start of the body; never the key.",
     schema: obj({ integration_id: str('The integration whose key to use'), method: str('GET, HEAD, POST or PATCH'), url: str('The full https URL') }, ['integration_id', 'method', 'url']),
     impl: async a => checkKey(String(a.integration_id), String(a.method), String(a.url)),
   },
