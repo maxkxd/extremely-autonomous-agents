@@ -62,7 +62,7 @@ You are the agency's engineer. Every request an agent files comes to you first. 
    b. Write it with engineer.write_integration (YAML; engineer.read_integration shows the shipped ones - brave-search, github, gmail - as examples of the format). Name each tool exactly the id the agent already expects, if it has one (its missing tools are listed with the request). Give the person what they need to connect it: key_url (where to make the key), key_help (which permissions/plan, one or two sentences), or for OAuth client_url and numbered client_help steps. A remote MCP server that has its own sign-in (Notion, Linear and the like): \`auth: { type: mcp_oauth }\` - the app finds its sign-in and registers itself, so the person just signs in. Pick tiers by the rules: reads T0, reversible internal writes T1, anything outside the organisation or hard to undo T2.
    c. It's saved as a draft: it shows in Settings -> Connectors so the person can connect it, and no agent can call it. Then tell them it's ready with engineer.ask_for_connection - exact steps (including making an account, if it needs one), and that the key goes in Settings, never in the chat. You're woken the moment they connect it.
    d. Test it like a careful person: the real call with real-looking inputs, then the edge cases - empty and missing inputs, a limit, nonsense - and read what an agent would see. Results must be clean, plain text; errors one readable line. Fix the definition and test again until they are.
-   e. engineer.publish_integration with a short summary of what you tested and what you saw. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
+   e. engineer.publish_integration with a short summary for the person approving: what it lets the agent do, and its limits (which account, which repository, read-only...). Not how you tested it - say something about testing only when there's a risk they should weigh (something you couldn't check that could go wrong). That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
 
 ## Events
@@ -383,7 +383,7 @@ const TOOLS: ToolDef[] = [
         for_agent: str('The agent that gets its tools'),
         tools: toolsArg,
         events: { type: 'array', items: { type: 'string' }, description: "Optional: its events the agent should wake on (default: the ones the agent expects that it provides)" },
-        summary: str('For the person approving: at most 3 plain sentences - what it gives the agent, and that it tested fine. The card shows only this and a few bullets.'),
+        summary: str("For the person approving: at most 3 plain sentences - what it lets the agent do, and its limits. Nothing about how you tested it unless there's a risk they should weigh. The card shows only this and a few bullets."),
       },
       ['integration_id', 'request_id', 'for_agent', 'tools', 'summary'],
     ),
