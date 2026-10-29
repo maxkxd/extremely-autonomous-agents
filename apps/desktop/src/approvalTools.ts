@@ -23,7 +23,6 @@ export type ApprovalTool = {
   // optional: left off the card when the call didn't give its arguments
   headers: { label: string; value: string; optional?: boolean }[];
   body: string | null; // null = this tool's card never has a body
-  details?: string; // long technical text (code) kept behind a Show code toggle
   expiresAfterHours: number;
 };
 
@@ -49,7 +48,6 @@ export const APPROVAL_TOOLS = {
     wantsTo: 'make {name} live for {for_agent_name}',
     headers: [{ label: 'Wakes it on', value: '{events_list}', optional: true }],
     body: '{review}',
-    details: '{code_view}', // its definition and code, behind Show code
     expiresAfterHours: 168,
   },
   'engineer.give_events': {
@@ -153,7 +151,6 @@ export function renderApproval(toolId: string, args: ToolArgs) {
     action: `wants to ${fill(tool.wantsTo, args, toolId)}`,
     fields: tool.headers.filter(h => !h.optional || given(h.value, args)).map(h => ({ label: h.label, value: fill(h.value, args, toolId) })),
     body: tool.body === null ? null : fill(tool.body, args, toolId),
-    details: tool.details && given(tool.details, args) ? fill(tool.details, args, toolId) : null,
     expiresAfterHours: tool.expiresAfterHours,
   };
 }

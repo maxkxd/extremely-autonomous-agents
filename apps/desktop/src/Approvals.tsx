@@ -176,19 +176,6 @@ export function ApprovalsToolbar({
 
 // ---- The cards -------------------------------------------------------------
 
-// The technical side (a plugin's code), out of the way until asked for.
-function ApprovalDetails({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="approval-details">
-      <button className="body-toggle" onClick={() => setOpen(o => !o)}>
-        {open ? 'Hide code' : 'Show code'}
-      </button>
-      {open && <pre className="approval-code">{text}</pre>}
-    </div>
-  );
-}
-
 // A long body is clamped to a few lines with a fade and a Show more toggle, so
 // one big approval can't push everything else (and its buttons) off screen.
 function ApprovalBody({ text }: { text: string }) {
@@ -296,7 +283,6 @@ function ApprovalCard({
             </dl>
           )}
           {card.body !== null && <ApprovalBody text={card.body} />}
-          {card.details && <ApprovalDetails text={card.details} />}
 
           <footer className="approval-foot">
             <div className="approval-buttons">
