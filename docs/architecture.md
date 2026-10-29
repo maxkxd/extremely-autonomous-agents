@@ -29,6 +29,42 @@ Personal AI plans (Claude Code, Sign in with ChatGPT) belong on the host the
 person controls: both providers are stricter about plans used from a hosted
 service than from the user's own machine (docs/model-connections.md).
 
+## Accounts and organisations (decided 2026-10-30)
+
+- Everyone who signs up has one **personal agency**, for good, hosted on their
+  own machine. They can **own (host) at most one organisation**, created in
+  Settings, and **join any number**.
+- The owner's machine is the org's host: every member's agents run there,
+  members make agents, decide approvals and so on through it. When it's down,
+  members see the org greyed out but readable, from their app's last snapshot
+  ("Host offline since ..."); approvals keep counting on the host's clock.
+- **The host is the only authority** over its agency: agents, keys, runs,
+  approvals, roles (owner, admin, member). Every request to it carries an
+  **org access token** (this person, this org, this role), short-lived and
+  signed. The host checks only that one token format.
+- **Who issues it is configuration, not a fork.** The official build (the
+  extremely.agency download) trusts our backend: sign-in through **Clerk**,
+  the directory (orgs, members, roles, invites, hosts) in our Postgres on
+  Railway. A self-hosted host can issue tokens itself from local accounts, or
+  trust its organisation's own sign-in, and never talk to us.
+- **Members reach a host through our relay**: the host keeps one outbound
+  connection to it; each host has a key pair whose public key our directory
+  publishes; the app and the host set up an **end-to-end encrypted** session
+  through the relay and the org token is presented inside it. The relay
+  forwards bytes it can't read. Self-hosted: a direct https address instead.
+- Our backend never stores agents, runs, keys or anything an agent touches.
+- **Hosted service** (later): we run the same host in a container, registered
+  as that org's host. Nothing changes for members.
+- In an organisation the host's AI connections run every member's agents.
+  Personal plans (Claude Code on a subscription, Sign in with ChatGPT) are for
+  individual use: steer organisations to API keys or team plans, and warn.
+
+Build order: (1) our backend - Clerk, Postgres directory, the rules, org
+tokens, host registration; (2) the host checks tokens and roles and records
+who did what; (3) sign-in, the personal agency, the org switcher, creating,
+inviting, joining in the app; (4) the end-to-end encrypted relay; (5) offline
+snapshots and the greyed-out state; (6) self-host mode.
+
 ## How it makes money
 
 Open-source and free to self-host, with paid plans on top - the Snipe-IT
