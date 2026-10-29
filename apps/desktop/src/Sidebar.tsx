@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { ACCOUNT, AGENTS, type Department } from './data';
 import { currentOrg, ownOrg, state, switchAgency, teamOrgs } from './account';
+import { openSignIn } from './SignIn';
 import { useDismiss } from './useDismiss';
 import { usePhoto } from './photo';
 import type { SettingsSection } from './Settings';
@@ -283,8 +284,14 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
           <span className="switcher-title">{ACCOUNT.name}</span>
           <span className="switcher-sub">{ACCOUNT.org ? `${{ owner: 'Owner', admin: 'Admin', member: 'Member' }[currentOrg()?.role ?? 'member']} of ${ACCOUNT.org.name}` : (state.me?.user.email ?? 'Not signed in')}</span>
         </span>
-        <ChevronsUpDown size={16} className="muted" />
+        {state.me && <ChevronsUpDown size={16} className="muted" />}
       </button>
+      {/* No account needed for your own agency; one is for organisations. */}
+      {!state.me && (
+        <button className="sbtn primary account-signup" onClick={() => openSignIn('up')}>
+          Sign up
+        </button>
+      )}
     </div>
   );
 }

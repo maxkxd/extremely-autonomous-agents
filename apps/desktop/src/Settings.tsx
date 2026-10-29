@@ -24,7 +24,6 @@ import {
 import { openSignIn } from './SignIn';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { AI_IDES, IdeLogo, setYourIde, yourIde, type IdeId } from './Requests';
-import { useProfileChat } from './ProfileChat';
 import { ModelConnectors } from './ModelConnectors';
 import { Integrations } from './Integrations';
 import { useDismiss } from './useDismiss';
@@ -509,9 +508,10 @@ function Memories({ notes, onChange }: { notes: string[]; onChange: (n: string[]
 
 function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => void; chatOpen: React.MutableRefObject<boolean> }) {
   const org = ACCOUNT.org;
-  const chat = useProfileChat();
-  chatOpen.current = !!chat.element;
-  const startBtn = useRef<HTMLButtonElement>(null);
+  // No chat here: an organisation is just a name. Its profile is filled in the
+  // first time someone builds an agent in it (NewAgent.tsx).
+  chatOpen.current = false;
+  const [name, setName] = useState('');
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -521,27 +521,27 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
       <section className="ssection">
         <h2>Organization</h2>
         <div className="sorg-center">
-          <p className="sorg-convert">Sign in to create or join an organization</p>
-          <button className="sbtn primary" onClick={openSignIn}>
-            Sign in
+          <p className="sorg-convert">Sign up to create or join an organization</p>
+          <button className="sbtn primary" onClick={() => openSignIn('up')}>
+            Sign up
           </button>
         </div>
       </section>
     );
 
-  // The chat asks for the name along with everything else; then it's made, hosted here.
-  const start = () =>
-    chat.start('', startBtn.current, async name => {
-      setError(null);
-      try {
-        const made = await createOrganisation(name, setStep);
-        onOrgChange();
-        switchAgency(made.id);
-      } catch (e) {
-        setStep(null);
-        setError((e as Error).message);
-      }
-    });
+  // Made, hosted on this computer, and opened.
+  const start = async () => {
+    if (!name.trim()) return;
+    setError(null);
+    try {
+      const made = await createOrganisation(name.trim(), setStep);
+      onOrgChange();
+      switchAgency(made.id);
+    } catch (e) {
+      setStep(null);
+      setError((e as Error).message);
+    }
+  };
   const mine = ownOrg();
   const others = teamOrgs().filter(o => o !== mine);
   return (
@@ -559,11 +559,14 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
       ) : step ? (
         <p className="snotes-empty">{step}...</p>
       ) : (
-        <div className="sorg-row">
-          <span>Create an organization, hosted on this computer</span>
-          <button className="sbtn primary" ref={startBtn} onClick={start}>
-            Get started
-          </button>
+        <div className="sfield">
+          <span className="sfield-label">Create an organization, hosted on this computer</span>
+          <div className="sinline">
+            <input value={name} placeholder="Its name" maxLength={80} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && start()} />
+            <button className="sbtn primary" disabled={!name.trim()} onClick={start}>
+              Create
+            </button>
+          </div>
         </div>
       )}
       {error && <p className="custom-error">{error}</p>}
@@ -578,7 +581,6 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
         </div>
       ))}
       <JoinWithCode />
-      {chat.element}
     </section>
   );
 }

@@ -1121,7 +1121,7 @@ ul { list-style: none; margin: 0; padding: 0; }
    many rows as there are packs; 2 / 1 columns when the space is narrow.
    --------------------------------------------------------------------------- */
 .icon-btn.on { background: var(--surface-hover); color: var(--text); }
-.packs-wrap { container-type: inline-size; }
+.packs-wrap { container-type: inline-size; position: relative; }
 .packs {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;
   padding: 28px 28px 48px; align-items: stretch;
@@ -1825,3 +1825,36 @@ a.sbtn { text-decoration: none; color: inherit; }
 .slocked:disabled > * { opacity: 0.5; pointer-events: none; }
 .slocked:disabled > .slocked-note { opacity: 1; }
 .slocked-note { margin: 0; font-size: 13px; color: var(--muted); }
+
+/* No AI model connected (NoModels.tsx): what to do about it, in the model picker
+   and over a dimmed new-agent page. */
+.no-models { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 8px; text-align: center; }
+.no-models .sbtn { align-self: center; }
+.no-models-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--text); }
+.no-models-sub { margin: 0; font-size: 13px; color: var(--muted); }
+.packs-locked {
+  position: absolute; inset: -8px; z-index: 5; border-radius: 16px;
+  background: rgba(20, 20, 20, 0.78); backdrop-filter: blur(2px);
+}
+.packs-locked .no-models { position: sticky; top: 30vh; padding: 24px; }
+.packs-locked .no-models-title { font-size: 19px; }
+
+/* --- First run (Onboarding.tsx): the logo and name, then connect an AI model --- */
+.onboarding { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; background: var(--bg); }
+.onboarding-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; align-items: center; padding: 56px 24px 32px; }
+.onboarding-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; margin-bottom: 30px; }
+.onboarding-logo { width: 120px; height: auto; filter: drop-shadow(0 0 18px rgba(63, 123, 214, 0.35)); }
+/* The website's brand line: blue, with its glow. */
+.onboarding-title {
+  margin: 0; font-size: 38px; font-weight: 700; line-height: 1.1; letter-spacing: -0.01em; color: var(--attention);
+  text-shadow: 0 0 6px rgba(63, 123, 214, 0.9), 0 0 24px rgba(63, 123, 214, 0.75), 0 0 60px rgba(63, 123, 214, 0.45);
+}
+.onboarding-title span { white-space: nowrap; }
+.onboarding-lead { margin: 0; font-size: 15px; color: var(--muted); }
+.onboarding-models { width: 100%; max-width: 620px; }
+.onboarding-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 28px; border-top: 1px solid var(--hairline); }
+.onboarding-foot .sbtn { align-self: center; min-width: 88px; justify-content: center; }
+.onboarding-skip { color: var(--muted); border-color: var(--border); }
+/* Signed out: Sign up beside your name, where the account menu's arrows would be. */
+.account-signup { position: absolute; right: 10px; bottom: 15px; height: 30px; padding: 0 12px; font-size: 13px; }
+.model-panel:has(> .no-models) { flex: 1; justify-content: center; }

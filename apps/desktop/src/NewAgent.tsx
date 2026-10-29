@@ -6,6 +6,7 @@ import { BuilderChat } from './BuilderChat';
 import { ACCOUNT } from './data';
 import { useProfileChat } from './ProfileChat';
 import { addPack, buildAgent, getProfile, matchPack, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
+import { ConnectModel, useHasModels } from './NoModels';
 
 // "Customize your own agent" always takes the last slot of the top row (the
 // 4th card), or follows the packs straight away if there are fewer than three.
@@ -278,9 +279,17 @@ export function NewAgent({
     />,
     ...AGENT_PACKS.slice(at).map(pack),
   ];
+  // Nothing builds or runs without an AI model: until one's connected, the page
+  // is dimmed behind the way to connect one.
+  const hasModels = useHasModels();
   return (
     <div className="packs-wrap">
       <div className="packs">{cards}</div>
+      {hasModels === false && (
+        <div className="packs-locked">
+          <ConnectModel title="First, connect an AI model" />
+        </div>
+      )}
       {session.open && origin && (
         <BuilderChat
           origin={origin}
