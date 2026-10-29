@@ -11,16 +11,16 @@ is the last stop, not the first.
 agent files request
         |
         v
-   Conductor  (tiny, cheap built-in agent)
+   Agency Conductor  (tiny, cheap built-in agent)
         |-- a closely related agent can do it?  -> hand it over, write the answer, close
         |     e.g. SEO agent can't email -> partnerships marketing agent CAN email.
         |     Only genuinely related agents - NOT e.g. customer support for an
         |     outreach email.
         |
-        |-- it's asking for a NEW TOOL / capability? -> Fleet Engineer
+        |-- it's asking for a NEW TOOL / capability? -> Agency Engineer
         |
         v
-   Fleet Engineer  (built-in agent)
+   Agency Engineer  (built-in agent)
         |-- can build the tool? -> raise a HUMAN APPROVAL to create it
         |       approved -> build it, give it to the agent, close the request
         |       rejected / expired -> request goes to a person (below)
@@ -29,14 +29,14 @@ agent files request
    Requests page  (a person)
 ```
 
-When a request is closed by the Conductor or the Fleet Engineer, the agent is
+When a request is closed by the Agency Conductor or the Agency Engineer, the agent is
 told on its **next run**: the request was answered, and here's the answer /
-the new tool. The Fleet Engineer writes that note.
+the new tool. The Agency Engineer writes that note.
 
 ### When a request reaches a person
 
 - it's too difficult, or isn't about a tool/agent at all
-- the Fleet Engineer's tool approval was rejected or expired
+- the Agency Engineer's tool approval was rejected or expired
 - it has been rerouted too many times (rerouting costs runs of several agents,
   so it's capped rather than allowed to bounce around)
 
@@ -66,8 +66,8 @@ instructions. Like the schedules there, the wording is a first draft.
 ## Built-in agents
 
 Every organization (and solo account) gets three built-in agents, owned by no
-one and never deleted: the **Fleet Engineer**, the **Conductor** and the
-**Security Reviewer** (`runner/helpers.ts`). The Conductor is separate so cheap
+one and never deleted: the **Agency Engineer**, the **Agency Conductor** and the
+**Agency Reviewer** (`runner/helpers.ts`). The Agency Conductor is separate so cheap
 rerouting decisions don't spend a full engineering run.
 
 Each has a card on the dashboard with its three models (changeable), runs and
@@ -77,37 +77,37 @@ schedule, so their cards have no Ferocity or Standby. Each call is a run: on
 the card, in Usage, and as a post in the helper's DMs saying what it decided.
 Those DMs are logs and take no messages. None of the three has a Stop of its
 own: Stop agency on the dashboard covers them. While the agency is stopped,
-requests wait for the Fleet Engineer and plugins can't be proposed.
+requests wait for the Agency Engineer and plugins can't be proposed.
 
 Models (`runner/defaults.ts`): a built-in with none gets three from what's
 connected, on every tick, so connecting the first AI model sets them all.
 The person's plans come first, then what suits the job (strong for the
-engineer, cheap for the Conductor, careful for the reviewer), then anything
+engineer, cheap for the Agency Conductor, careful for the reviewer), then anything
 else connected - DeepSeek, Mistral, Ollama, a custom provider - free ones
 first. Models a person picked are left alone.
 
 ## The Requests page
 
-A request shows here only once it needs you: the Fleet Engineer asked you
+A request shows here only once it needs you: the Agency Engineer asked you
 something, handed it to you, or its go-live waits on your approval. While the
-Conductor or the engineer is still working it out, it isn't listed. Once
+Agency Conductor or the engineer is still working it out, it isn't listed. Once
 you've replied on one, it stays while the engineer works on your reply.
 
 - Each request is owned by the owner of the agent that filed it. You see your
   own; org admins can switch to everyone's (same as Approvals).
 - Long thin rows: one sentence of what the agent needs. Click to expand for
-  the detail and the routing trail (what the Conductor / Fleet Engineer tried
+  the detail and the routing trail (what the Agency Conductor / Agency Engineer tried
   and why it ended up with you).
 - Actions on an expanded request:
-  - **Task Fleet Engineer** - opens a conversation with the engineer inside
+  - **Task Agency Engineer** - opens a conversation with the engineer inside
     the request. You can say what you're able to do ("I'll get a Sales
     Navigator seat - what do you need?"), it answers, you go do it, then reply
     "done" and it designs the tool with all that context.
 
     **Building the tool is always a human approval.** The engineer raises it
-    ("Fleet Engineer wants to build a new tool for Lead Finder: ...") and the
+    ("Agency Engineer wants to build a new tool for Lead Finder: ...") and the
     request shows *Waiting on approval*. The approval belongs to the owner of
-    the agent that asked (the Fleet Engineer itself is owned by no one).
+    the agent that asked (the Agency Engineer itself is owned by no one).
     Approved -> it builds the tool, says what it built, and the request
     closes. A new version of a live integration doesn't interrupt it:
     agents keep the live version (plugin code included) until the new one
@@ -116,7 +116,7 @@ you've replied on one, it stays while the engineer works on your reply.
     expired -> the draft stays. Either way it says so in
     the conversation and the request stays open.
 
-    **Rule: the Fleet Engineer always tells you what to do.** It never just
+    **Rule: the Agency Engineer always tells you what to do.** It never just
     explains why it can't do something. If it can't finish on its own, its
     reply is the steps that would unblock it (buy this, create that key, tell
     me which file is current) and what it will do once they're done. Secrets
@@ -133,28 +133,28 @@ you've replied on one, it stays while the engineer works on your reply.
     `Requests.tsx`). Opens the IDE on the request with the agency's own MCP
     server (below). Nothing is posted on the request for it.
   - **DIY** - you did it yourself; write what you did / how it fixed it.
-  - **Reject** - write why (optional). Anything the Fleet Engineer drafted
+  - **Reject** - write why (optional). Anything the Agency Engineer drafted
     for it is discarded, with its go-live approval.
 
 ## Guiding people
 
-The Fleet Engineer knows every button on the Requests and Approvals screens so
+The Agency Engineer knows every button on the Requests and Approvals screens so
 it can steer confused people to the right one (e.g. "done" while it's waiting
 on its build approval -> go to Approvals and press Approve). What it's told
 about the UI lives in [fleet-engineer-ui-guide.md](fleet-engineer-ui-guide.md).
 
 ## Status (2026-10-29)
 
-Real for real agents' requests: every request goes to the Fleet Engineer
+Real for real agents' requests: every request goes to the Agency Engineer
 (`runner/engineer.ts`), a built-in agent run by the runner like any other,
 owned by no one. It talks to the person in the request (the thread is kept on
 the server), hands work to a related agent, builds integrations (docs/
 integrations.md), or hands the request to the person. A request's stage shows
-on its row: Fleet Engineer, Waiting on you, Waiting on approval, Needs you.
+on its row: Agency Engineer, Waiting on you, Waiting on approval, Needs you.
 Accepting an agent files a request for every tool its builder invented that
 nothing provides yet.
 
-The Conductor (`runner/conductor.ts`) takes every request first: one quick
+The Agency Conductor (`runner/conductor.ts`) takes every request first: one quick
 model call on its own models (Haiku on the person's Claude plan when there is
 one) hands it to
 an agent that already does this as part of its job - as a task, closing the
@@ -177,4 +177,4 @@ computer, kept across restarts (Settings -> Connectors -> Your IDE copies it,
 or Claude Code's `claude mcp add` command). Agents made from it belong to the
 host.
 
-The person can also simply message the Fleet Engineer in its DM channel.
+The person can also simply message the Agency Engineer in its DM channel.

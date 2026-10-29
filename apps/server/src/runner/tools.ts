@@ -47,13 +47,13 @@ type ToolDef = {
 
 export type Wake = (agentId: string, trigger: string, task: string) => void;
 
-// Where a new request goes first: the Conductor (conductor.ts) sets this;
-// without it, straight to the Fleet Engineer.
+// Where a new request goes first: the Agency Conductor (conductor.ts) sets this;
+// without it, straight to the Agency Engineer.
 let router: ((requestId: number, wake: Wake) => Promise<void>) | null = null;
 export const setRequestRouter = (fn: typeof router) => void (router = fn);
 
-// A request goes to the Conductor, which hands it to a related agent or to the
-// Fleet Engineer (docs/requests.md); direct: straight to the engineer (a tool
+// A request goes to the Agency Conductor, which hands it to a related agent or to the
+// Agency Engineer (docs/requests.md); direct: straight to the engineer (a tool
 // the builder invented - always the engineer's). The engineer's own requests
 // go to a person.
 export function fileRequest(

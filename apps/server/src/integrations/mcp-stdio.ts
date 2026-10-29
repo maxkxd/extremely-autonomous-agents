@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 // started by the app, spoken to with newline-separated JSON-RPC on its stdin
 // and stdout. One process per integration, kept running and reused; started
 // again if it exits. Only a person adds these (Settings): it runs with their
-// permissions, which is why the Fleet Engineer can't.
+// permissions, which is why the Agency Engineer can't.
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout };
 

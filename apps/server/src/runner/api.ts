@@ -58,11 +58,11 @@ const isLocalAddress = (u: string) => {
 
 // A person's answer to a request: done (with what they did or decided) or
 // turned down. The agent is told at the start of its next run. Turned down:
-// what the Fleet Engineer drafted for it goes, and so does its go-live card.
+// what the Agency Engineer drafted for it goes, and so does its go-live card.
 // A run's task about request #N ("Request #4 from ...", "... replied on request #4: ...").
 const mentions = (task: string | null, id: number) => new RegExp(`request #${id}\\b`, 'i').test(task ?? '');
 
-// A person's reply on a request wakes the Fleet Engineer. Replies sent while
+// A person's reply on a request wakes the Agency Engineer. Replies sent while
 // that wake is still waiting join it, so one run answers them all, not one each.
 export function replyToEngineer(requestId: number, who: string, text: string) {
   const said = `"${text.slice(0, 1500)}"`;
@@ -229,12 +229,12 @@ export const runnerRoutes: Record<string, Route> = {
       'SELECT id, agent_id, run_id, what, why, evidence, expected_effect, status, stage, answer, created_at, answered_at FROM requests ORDER BY created_at DESC',
     );
     const messages = all<{ request_id: number; from_who: string; text: string; at: number }>('SELECT request_id, from_who, text, at FROM request_messages ORDER BY id');
-    // What the Fleet Engineer is doing and has waiting, to tell which request it's on.
+    // What the Agency Engineer is doing and has waiting, to tell which request it's on.
     const onIt = {
       running: isRunning(FLEET_ENGINEER) ? all<{ task: string | null }>("SELECT task FROM runs WHERE agent_id = ? AND status = 'running'", FLEET_ENGINEER).map(x => x.task) : [],
       queued: all<{ task: string | null }>('SELECT task FROM bookings WHERE agent_id = ?', FLEET_ENGINEER).map(x => x.task),
     };
-    // The approval a request waits on (the Fleet Engineer's go-live), to go straight to.
+    // The approval a request waits on (the Agency Engineer's go-live), to go straight to.
     const waiting = all<{ id: string; request: number }>(
       "SELECT id, json_extract(args, '$.request_id') AS request FROM approvals WHERE status = 'pending' AND expires_at > ? AND agent_id = ?",
       Date.now(),
@@ -254,7 +254,7 @@ export const runnerRoutes: Record<string, Route> = {
     }));
   },
 
-  // A person writes to the Fleet Engineer on a request; it's woken to answer.
+  // A person writes to the Agency Engineer on a request; it's woken to answer.
   'POST /api/runner/requests/message': async (_req, _q, body) => {
     const { id, text } = await body<{ id: number; text: string }>();
     const r = one<{ id: number; status: string; agent_id: string }>('SELECT id, status, agent_id FROM requests WHERE id = ?', Number(id));
@@ -272,7 +272,7 @@ export const runnerRoutes: Record<string, Route> = {
     return sendToIde(Number(id), ide);
   },
 
-  // Whether the Fleet Engineer may write code plugins (docs/integrations.md).
+  // Whether the Agency Engineer may write code plugins (docs/integrations.md).
   // The agency's own MCP server, for the person's AI IDE (agency-mcp.ts): its
   // address, and a new one (the old stops working) if it was shared by mistake.
   'GET /api/settings/agency-mcp': async () => ({ url: agencyMcpUrl() }),
@@ -297,7 +297,7 @@ export const runnerRoutes: Record<string, Route> = {
     const { allowed } = await body<{ allowed: boolean }>();
     const was = pluginsAllowed();
     setSetting('code_plugins', !!allowed);
-    // Turned on: the Fleet Engineer may have requests waiting on exactly this.
+    // Turned on: the Agency Engineer may have requests waiting on exactly this.
     if (allowed && !was) book(FLEET_ENGINEER, 'request reply', 'The person turned on code plugins in Settings. Pick up any request that was waiting on them.');
     return { allowed: pluginsAllowed() };
   },

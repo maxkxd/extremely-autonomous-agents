@@ -9,7 +9,7 @@ import { adapterFor } from './providers.js';
 import { getHealth, newRunId, overSpend, postRun, putHealth, stateOf, type Trigger } from './run.js';
 
 // One quick model call with no tools, made by one of the agency's built-in
-// helpers (helpers.ts) - the Conductor routing a request, the Security Reviewer
+// helpers (helpers.ts) - the Agency Conductor routing a request, the Agency Reviewer
 // reading a plugin. It runs on that agent's own models, in order, falling to
 // the next when one fails, and is recorded as a run: on its card, in Usage, and
 // as a post in its DMs saying what it decided.

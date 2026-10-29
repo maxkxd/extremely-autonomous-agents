@@ -152,7 +152,7 @@ export function verifySignature(raw: Buffer, given: string | undefined, secret: 
 export async function handleHook(token: string, raw: Buffer, headers: Record<string, string | string[] | undefined>, book: Book, now = Date.now(), sources: EventSource[] = liveEvents()) {
   const eventId = getSetting<Record<string, string>>(HOOKS, {})[token];
   const live = eventId ? sources.find(s => s.event.id === eventId && s.event.webhook) : undefined;
-  // Not live yet (the Fleet Engineer is still building it): taken and kept, so it
+  // Not live yet (the Agency Engineer is still building it): taken and kept, so it
   // can see what the service sends, but nobody is woken.
   const draft = !live && eventId ? everyEvent().find(s => s.event.id === eventId && s.event.webhook) : undefined;
   const src = live ?? draft;

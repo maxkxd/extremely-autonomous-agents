@@ -10,12 +10,12 @@ export async function forgetAgentRuns(id: string, now = Date.now()) {
   abortRun(id);
   exec('DELETE FROM bookings WHERE agent_id = ?', id);
 
-  // Its approvals, and the Fleet Engineer's for it (tools going live for it).
+  // Its approvals, and the Agency Engineer's for it (tools going live for it).
   const gone = "status = 'rejected', decided_at = ?, note = 'Its agent was deleted.'";
   exec(`UPDATE approvals SET ${gone} WHERE status = 'pending' AND agent_id = ?`, now, id);
   exec(`UPDATE approvals SET ${gone} WHERE status = 'pending' AND agent_id = ? AND json_extract(args, '$.for_agent') = ?`, now, FLEET_ENGINEER, id);
 
-  // Its open requests, with whatever the Fleet Engineer drafted for them.
+  // Its open requests, with whatever the Agency Engineer drafted for them.
   for (const r of all<{ id: number }>("SELECT id FROM requests WHERE agent_id = ? AND status = 'open'", id)) {
     for (const d of draftsForRequest(r.id)) await discardDraft(d).catch(() => {});
     exec("UPDATE requests SET status = 'rejected', answer = 'Its agent was deleted.', answered_at = ?, stage = NULL WHERE id = ?", now, r.id);

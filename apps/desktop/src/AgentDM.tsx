@@ -58,7 +58,7 @@ function RunPostView({
         </div>
         {/* Status line: outcome, run id, trigger, actions, cost, duration. */}
         {/* The run id is kept for debugging but not shown: hover the line to see
-            it, click to copy it (e.g. to ask the Fleet Engineer about a run). */}
+            it, click to copy it (e.g. to ask the Agency Engineer about a run). */}
         <button
           className={`dm-runline${ok ? '' : stopped ? ' stopped' : ' failed'}`}
           title={`Run ${post.id} - click to copy`}

@@ -23,7 +23,7 @@ import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { all, one, run as exec } from './db.js';
 import { registerTools, type ToolDef } from './tools.js';
 
-// The Fleet Engineer (docs/requests.md, docs/integrations.md): the built-in
+// The Agency Engineer (docs/requests.md, docs/integrations.md): the built-in
 // agent, owned by no one, that every request goes to first. It hands work to an
 // agent that can already do it, or builds what's missing - an integration in
 // Settings, written as a draft, connected by a person, tested for real, and made
@@ -49,7 +49,7 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'web.fetch_page': 'T0',
 };
 
-const CHARTER = `# CHARTER - Fleet Engineer
+const CHARTER = `# CHARTER - Agency Engineer
 
 ## Mission
 You are the agency's engineer. Every request an agent files comes to you first. You make sure each one ends well: handed to an agent that can already do it, answered by a tool you build, or put to a person with exactly what only they can do. You are owned by no one; what you build is for the agent that asked, and its owner approves it.
@@ -93,7 +93,7 @@ Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't d
 Every request you touched moved: handed over, a draft written, a person asked something precise, a test run, or a go-live proposed.
 `;
 
-const KPI = `# KPI - Fleet Engineer: successful calls of these actions are its output.
+const KPI = `# KPI - Agency Engineer: successful calls of these actions are its output.
 agent_id: ${FLEET_ENGINEER}
 output:
   - action: engineer.write_integration
@@ -126,8 +126,8 @@ export async function ensureFleetEngineer() {
     ferocity: { every_hours: [24, 24, 24, 24], soft_floor: 0, floor: 0, apocalyptic_floor: 0, counts: [], hint: '', extra_effort: '' },
   });
   await save(
-    { id: FLEET_ENGINEER, name: 'Fleet Engineer', department: 'engineering', charter: CHARTER, tools: `# TOOLS - Fleet Engineer (built in)\n${tools}`, kpi: KPI, models },
-    { name: 'Fleet Engineer', department: 'engineering', output: ['integrations written', 'tests run', 'requests closed'], status: 'ready', builtIn: true },
+    { id: FLEET_ENGINEER, name: 'Agency Engineer', department: 'engineering', charter: CHARTER, tools: `# TOOLS - Agency Engineer (built in)\n${tools}`, kpi: KPI, models },
+    { name: 'Agency Engineer', department: 'engineering', output: ['integrations written', 'tests run', 'requests closed'], status: 'ready', builtIn: true },
   );
   return dir;
 }

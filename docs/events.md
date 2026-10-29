@@ -53,7 +53,7 @@ catches anything a webhook missed.
 - **Standby and Stop**: an event wake waits, like a schedule. While the
   agency is stopped nothing is polled (the next poll catches up); a webhook
   post is still taken, and its run waits.
-- **A draft's webhook**: posts are kept but wake nobody, so the Fleet Engineer
+- **A draft's webhook**: posts are kept but wake nobody, so the Agency Engineer
   can see what the service sends (`engineer.test_event`).
 
 ## Webhooks and the tunnel (`runner/hooks.ts`)
@@ -75,9 +75,9 @@ exists it can relay webhooks instead.
 
 - **The agent builder**: gives an agent existing events by id, and defines
   `new_events` for ones nothing provides yet. Each missing one becomes a
-  request to the Fleet Engineer ("Set up the event sentry.new_issue"), once -
+  request to the Agency Engineer ("Set up the event sentry.new_issue"), once -
   a pack agent asks again after its tailoring if that added any.
-- **The Fleet Engineer**: writes the event into the service's integration,
+- **The Agency Engineer**: writes the event into the service's integration,
   tries it (`engineer.test_event`: a real poll, and the webhook address), asks
   the person for the key, webhook setup and signing secret, and on go-live the
   agent that asked is subscribed. `engineer.give_events` subscribes an agent

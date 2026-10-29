@@ -11,7 +11,7 @@ import { runApproved } from './tools.js';
 // nobody decides in time, the agent gets a run to hear the outcome.
 
 // Books a run (the scheduler's book): the agent hearing an outcome, or work a
-// tool that ran sets off (the Fleet Engineer picking a request back up).
+// tool that ran sets off (the Agency Engineer picking a request back up).
 type Wake = (agentId: string, trigger: 'approval' | 'request', task: string) => void;
 
 export type ApprovalRow = { id: string; agent_id: string; run_id: string; tool: string; args: string; status: string; created_at: number; expires_at: number };

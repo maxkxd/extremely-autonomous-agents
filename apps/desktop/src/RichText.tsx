@@ -1,6 +1,6 @@
 import { Fragment } from 'react';
 
-// Agents' and the Fleet Engineer's text, made easy to follow: numbered steps as a
+// Agents' and the Agency Engineer's text, made easy to follow: numbered steps as a
 // numbered list (also when they're written inline, "1. Do this. 2. Then that."),
 // "- " lines as bullets, `code` set apart, web addresses as links, and other
 // requests ("request #41", "#41") as links that take you to them.
@@ -54,7 +54,7 @@ function Inline({ text, refs }: { text: string; refs: Ref }) {
             {m[0]}
           </a>
         ) : refs.onRequest && named ? (
-          <span key={at} className="rt-ref" title="That request isn't on the Requests page: it's closed, or the Fleet Engineer is still working on it">
+          <span key={at} className="rt-ref" title="That request isn't on the Requests page: it's closed, or the Agency Engineer is still working on it">
             {m[0]}
           </span>
         ) : (

@@ -35,7 +35,7 @@ function Countdown({ deadline, onExpire }: { deadline: number; onExpire: () => v
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const sec = String(total % 60).padStart(2, '0');
-  // A day or more (the Fleet Engineer's week-long ones): days and hours is enough.
+  // A day or more (the Agency Engineer's week-long ones): days and hours is enough.
   if (h >= 24) return <>{`${Math.floor(h / 24)}d ${h % 24}h`}</>;
   return <>{h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`}</>;
 }

@@ -36,7 +36,7 @@ import { stateOf } from './run.js';
 import { abortRun, book } from './scheduler.js';
 
 // The agency as an MCP server, for the person's own AI IDE (Claude Code,
-// Cursor, Codex...): everything the Fleet Engineer and the agent builder can
+// Cursor, Codex...): everything the Agency Engineer and the agent builder can
 // do - requests, agents' files and settings, new agents, integrations and
 // plugins. It acts for the person, so nothing queues in the app's Approvals:
 // the IDE asks them before each tool call. A plugin still gets the independent
@@ -66,7 +66,7 @@ const TOOLS: Tool[] = [
   // --- Requests ---
   {
     name: 'list_requests',
-    description: "Requests agents filed for things they can't do themselves: what they need, why, where each stands, and the conversation with the Fleet Engineer.",
+    description: "Requests agents filed for things they can't do themselves: what they need, why, where each stands, and the conversation with the Agency Engineer.",
     schema: obj({ include_closed: { type: 'boolean', description: 'Closed ones too (default: open only)' } }),
     run: async a => {
       const rows = all<{ id: number; agent_id: string; what: string; why: string; evidence: string | null; status: string; stage: string | null; answer: string | null }>(
@@ -85,7 +85,7 @@ const TOOLS: Tool[] = [
           why: r.why,
           evidence: r.evidence,
           answer: r.answer,
-          conversation: thread.map(m => `${m.from_who === 'you' ? 'Person' : 'Fleet Engineer'}: ${m.text}`),
+          conversation: thread.map(m => `${m.from_who === 'you' ? 'Person' : 'Agency Engineer'}: ${m.text}`),
         });
       }
       return json(out);
@@ -222,7 +222,7 @@ const TOOLS: Tool[] = [
   {
     name: 'create_agent',
     description:
-      "Add a new agent, as the app's agent builder would: the full build (name, department, Charter, tools with tiers, KPIs, models, ferocity plan). Use tools from list_integrations or the built-in ones (read_agent on an existing agent shows them); define new_tools for ones nothing provides yet - a request goes to the Fleet Engineer for each.",
+      "Add a new agent, as the app's agent builder would: the full build (name, department, Charter, tools with tiers, KPIs, models, ferocity plan). Use tools from list_integrations or the built-in ones (read_agent on an existing agent shows them); define new_tools for ones nothing provides yet - a request goes to the Agency Engineer for each.",
     schema: z.toJSONSchema(BuildSchema) as Record<string, unknown>,
     run: async a => {
       const parsed = BuildSchema.safeParse(a);

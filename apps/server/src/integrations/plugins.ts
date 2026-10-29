@@ -7,7 +7,7 @@ import type { Tier } from '../catalog.js';
 import type { CodeModule } from './modules/types.js';
 import { buildPlugin, runSandboxed, type Permissions } from './sandbox.js';
 
-// Code plugins (docs/integrations.md): TypeScript the Fleet Engineer writes for
+// Code plugins (docs/integrations.md): TypeScript the Agency Engineer writes for
 // what an HTTP or MCP definition can't do (an action on this computer, say).
 // Off unless a person turns them on in Settings. A plugin's code never runs
 // before a person has approved it - with the code shown - and it runs only

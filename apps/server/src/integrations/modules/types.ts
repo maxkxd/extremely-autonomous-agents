@@ -1,7 +1,7 @@
 import type { Tier } from '../../catalog.js';
 
 // The contract for an integration whose tools are code (kind: code): shipped
-// ones like Gmail, and later the Fleet Engineer's code plugins.
+// ones like Gmail, and later the Agency Engineer's code plugins.
 //   tools   - each gets the agent's inputs, the integration's current key or
 //             access token, and the kit; it returns what the agent reads
 //   kit     - kit.fetch: the only way a tool reaches the network. Public

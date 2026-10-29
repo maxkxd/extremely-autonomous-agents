@@ -73,7 +73,7 @@ function eventsForPrompt(): string {
   const events = integrationEventsForPrompt();
   return events
     ? `Events from connected services (give them by id in events; define new_events for ones nothing provides yet):\n${events}`
-    : 'No events are set up yet. An agent that should react to something happening at a service (a new error, a ticket, an alarm) gets new_events: the Fleet Engineer sets them up.';
+    : 'No events are set up yet. An agent that should react to something happening at a service (a new error, a ticket, an alarm) gets new_events: the Agency Engineer sets them up.';
 }
 
 // Tools from services the person has connected (docs/integrations.md): use
@@ -339,7 +339,7 @@ export const BuildSchema = z.object({
         how_detected: z.string().describe("How the service tells it: its webhook for this, or the API to poll for new items"),
       }),
     )
-    .describe('Events nothing connected provides yet that this agent should wake on. The Fleet Engineer sets each up and the person connects it. Empty when none.'),
+    .describe('Events nothing connected provides yet that this agent should wake on. The Agency Engineer sets each up and the person connects it. Empty when none.'),
   kpi: z
     .array(z.object({ id: z.string().describe('A tool id from tools'), label: z.string().describe('Plural, lowercase, e.g. "invoices chased"') }))
     .describe('1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing.'),

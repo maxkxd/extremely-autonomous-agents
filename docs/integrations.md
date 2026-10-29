@@ -1,6 +1,6 @@
 # Integrations: the services agents' tools run on
 
-Agreed 2026-10-29. Integrations are **addable**: the Fleet Engineer (once it
+Agreed 2026-10-29. Integrations are **addable**: the Agency Engineer (once it
 runs) or a person can add one without changing the app, and it shows up in
 Settings -> Connectors like the built-in ones.
 
@@ -19,7 +19,7 @@ A definition file (`apps/server/src/integrations/schema.ts`):
   for a service whose calls need more than a request template: Gmail builds
   and decodes email. Each tool gets the agent's inputs and the current key or
   access token (`modules/types.ts`). Shipped ones only, for now.
-- **Code plugins** (TypeScript the Fleet Engineer writes) - agreed as an
+- **Code plugins** (TypeScript the Agency Engineer writes) - agreed as an
   opt-in setting on top of these, for what HTTP and MCP can't do; they'll
   use the `kind: code` contract. Not built.
 
@@ -30,7 +30,7 @@ definition and shown in Settings); the sign-in opens in their browser and
 lands back on this server at 127.0.0.1. Tokens are kept in the vault and
 refreshed when they run out. Disconnect revokes the sign-in at the service
 and keeps only the client, so signing back in is one click. Any definition
-can use it, so the Fleet Engineer can add OAuth services the same way.
+can use it, so the Agency Engineer can add OAuth services the same way.
 
 A tool either **provides a standard agency tool** - `web.web_search` - which
 several integrations can provide (agents use whichever is connected, so
@@ -42,9 +42,9 @@ search services: Brave Search, Tavily, Serper, Exa - also the reference
 examples of the format - Gmail and GitHub). Added ones live in `data/integrations/`. Keys are in
 the vault; connection state and an MCP server's tools in the runner's store.
 
-## The Fleet Engineer's loop (agreed 2026-10-29)
+## The Agency Engineer's loop (agreed 2026-10-29)
 
-Adding and testing integrations is the Fleet Engineer's job, not a
+Adding and testing integrations is the Agency Engineer's job, not a
 developer's. What was done by hand to bring web search live is the loop it
 runs for every new service:
 
@@ -56,7 +56,7 @@ runs for every new service:
    an account or a paid plan. It says exactly what to do and where; the key
    or sign-in goes into Settings -> Connectors, never into a conversation.
 3. **Woken when it's in.** Connecting a draft's key or finishing its sign-in
-   wakes the Fleet Engineer with that integration's id (not a timer, not
+   wakes the Agency Engineer with that integration's id (not a timer, not
    polling).
 4. **Test it like a person would**: the definition's own test, then real
    calls with real-looking inputs and the edge cases - empty and missing
@@ -87,7 +87,7 @@ Connectors. Three layers, so a person who can't read code is still safe:
    the server), and none of the server's environment (its keys). Programs it
    starts are not contained - the card says so plainly.
 2. **An independent security review** (`review.ts`): before a plugin can be
-   proposed, the Security Reviewer (a built-in agent, docs/requests.md) reads
+   proposed, the Agency Reviewer (a built-in agent, docs/requests.md) reads
    it as an attacker would (agent inputs are attacker-controlled). A high
    concern sends it back to the engineer. About 20 seconds, once per
    proposal. With the reviewer stopped, no plugin can be proposed.
@@ -173,7 +173,7 @@ is forced under `agent/`. Approving a review is for people.
   `npx -y @modelcontextprotocol/server-filesystem C:/notes`), or a `url` on
   this computer or its network (`local: true`). The deliberate exception to
   agents never reaching this computer: only a person adds these, in
-  Settings, warned that they run with their permissions; the Fleet Engineer
+  Settings, warned that they run with their permissions; the Agency Engineer
   is refused. Tools are tiered as for any MCP server (reads T0, the rest T2).
 
 ## Safety
@@ -184,7 +184,7 @@ is forced under `agent/`. Approving a review is for people.
   agent can call this app's own server (its keys), Ollama, or the router.
 - **Keys never come back to an agent**: an integration's error that quotes
   the key has it replaced.
-- An integration the Fleet Engineer adds goes through a person's approval
+- An integration the Agency Engineer adds goes through a person's approval
   (docs/requests.md), like any tool it builds.
 
 ## Web tools
