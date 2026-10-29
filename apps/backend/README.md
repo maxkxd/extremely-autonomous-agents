@@ -34,6 +34,10 @@ All from the environment: `.env` locally (gitignored), Railway's **Variables** i
 | `PUBLIC_URL` | Where the backend is reached, e.g. `https://api.example.com`. It's the issuer hosts expect. |
 | `DATABASE_URL` | Postgres. Railway sets it when you link its Postgres. |
 | `PORT` | Railway sets it. Default 5180. |
+| `RESEND_API_KEY` | Resend → API Keys. Sends invite emails. Without it, the invite link is logged (and shown to the inviter) instead. |
+| `RESEND_FROM_EMAIL` | The sender, on a domain verified in Resend, e.g. `invites@extremely.agency`. |
+| `RESEND_FROM_NAME` | Optional. Default `Extremely Autonomous Agents`. |
+| `INVITE_URL` | Optional. Where an invite's link goes. Default `https://extremely.agency/join` (extremely-agency-site/join). |
 
 ## Clerk
 

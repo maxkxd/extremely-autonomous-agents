@@ -1893,3 +1893,11 @@ a.sbtn { text-decoration: none; color: inherit; }
 .sself-form .sbtn { align-self: flex-start; }
 .sself-form .slink { align-self: flex-start; font-size: 12.5px; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; }
 .sself-form .slink:hover { color: var(--text); }
+
+/* Settings > Organization: invites waiting for you, and what's folded under Advanced. */
+.sinvite-me { border-color: rgba(63, 123, 214, 0.5); }
+.sinvite-me .sinline { flex-shrink: 0; }
+.sadvanced { margin-top: 26px; }
+.sadvanced-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; color: #6a6a6a; cursor: pointer; }
+.sadvanced-toggle:hover { color: var(--muted); }
+.sadvanced .sself { margin-top: 12px; }

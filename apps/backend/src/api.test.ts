@@ -104,7 +104,7 @@ test('invites: preview, email lock, single use, revoke', async () => {
   const forBen = await call('ana', 'POST', `/orgs/${org}/invites`, { email: 'BEN@example.com', role: 'admin' });
   assert.equal(forBen.body.email, 'ben@example.com');
   const preview = await call(null, 'GET', `/invites/${forBen.body.code}`);
-  assert.equal(preview.status, 401); // only for people signed in
+  assert.equal(preview.status, 200); // the join page on our site shows it before they sign in
   assert.deepEqual((await call('cat', 'GET', `/invites/${forBen.body.code}`)).body, { org: 'Ana Co', invitedBy: 'Ana', role: 'admin', forEmail: 'ben@example.com' });
   assert.equal((await call('cat', 'POST', `/invites/${forBen.body.code}/accept`)).status, 403);
   assert.equal((await call('ben', 'POST', `/invites/${forBen.body.code}/accept`)).status, 200);
@@ -245,4 +245,21 @@ test('a display name: chosen in the app, shown everywhere, kept through sign-ins
   assert.equal(JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).name, 'Benjamin B', 'and in org tokens');
   assert.equal((await call('ben', 'PATCH', '/me', { name: 'x'.repeat(81) })).status, 400);
   assert.equal((await call('ben', 'PATCH', '/me', { name: '' })).body.user.name, 'Ben', "blank: the provider's again");
+});
+
+test('email invites: waiting in their app, declinable, a new one replaces the old', async () => {
+  const org = (await call('ana', 'GET', '/me')).body.orgs.find((o: any) => o.kind === 'team').id;
+  const first = await call('ana', 'POST', `/orgs/${org}/invites`, { email: 'Cat@Example.com' });
+  assert.equal(first.body.sent, false, 'no mail service here: logged instead');
+  const again = await call('ana', 'POST', `/orgs/${org}/invites`, { email: 'cat@example.com' });
+  const waiting = (await call('cat', 'GET', '/me/invites')).body;
+  assert.equal(waiting.length, 1, 'one invite each');
+  assert.equal(waiting[0].code, again.body.code);
+  assert.equal(waiting[0].invitedBy, 'Ana');
+  assert.equal((await call('ben', 'POST', `/invites/${again.body.code}/decline`)).status, 404, 'only theirs to turn down');
+  assert.equal((await call('cat', 'POST', `/invites/${again.body.code}/decline`)).status, 200);
+  assert.deepEqual((await call('cat', 'GET', '/me/invites')).body, []);
+  const third = await call('ana', 'POST', `/orgs/${org}/invites`, { email: 'cat@example.com' });
+  await call('cat', 'POST', `/invites/${third.body.code}/accept`);
+  assert.deepEqual((await call('cat', 'GET', '/me/invites')).body, [], 'joined: nothing waiting');
 });

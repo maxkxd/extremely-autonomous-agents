@@ -4,6 +4,8 @@ import {
   acceptInvite,
   ApiError,
   createInvite,
+  declineInvite,
+  invitesFor,
   createOrg,
   displayName,
   deleteOrg,
@@ -24,6 +26,7 @@ import {
   setRole,
 } from './directory.js';
 import type { Auth } from './tokens.js';
+import { sendInvite } from './mail.js';
 
 // Our backend's API (docs/architecture.md, "Accounts and organisations").
 // Every route but /health and the keys needs a signed-in person: their Clerk
@@ -87,10 +90,26 @@ const ROUTES: Route[] = [
   { method: 'DELETE', path: /^\/orgs\/([\w-]+)\/members\/([^/]+)$/, run: async c => (await removeMember(c.db, c.params[0], c.userId, decodeURIComponent(c.params[1])), { ok: true }) },
   { method: 'POST', path: /^\/orgs\/([\w-]+)\/leave$/, run: async c => (await leave(c.db, c.params[0], c.userId), { ok: true }) },
 
-  { method: 'POST', path: /^\/orgs\/([\w-]+)\/invites$/, run: async c => createInvite(c.db, c.params[0], c.userId, { email: c.body.email, role: c.body.role }) },
+  // An invite by email: sent to them (mail.ts), and waiting in their app when they sign in with it.
+  {
+    method: 'POST',
+    path: /^\/orgs\/([\w-]+)\/invites$/,
+    run: async c => {
+      const me = await user(c);
+      const inv = await createInvite(c.db, c.params[0], c.userId, { email: c.body.email, role: c.body.role });
+      if (!inv.email) return { ...inv, sent: false };
+      const org = await roleIn(c.db, c.params[0], c.userId);
+      const { sent, url } = await sendInvite({ to: inv.email, inviter: me.name || me.email, org: org.name, role: inv.role, code: inv.code });
+      // Not emailed (no mail service yet): the link, for the inviter to send themselves.
+      return { ...inv, sent, ...(sent ? {} : { url }) };
+    },
+  },
+  { method: 'GET', path: /^\/me\/invites$/, run: async c => invitesFor(c.db, await user(c)) },
+  { method: 'POST', path: /^\/invites\/([\w-]+)\/decline$/, run: async c => (await declineInvite(c.db, c.params[0], await user(c)), { ok: true }) },
   { method: 'GET', path: /^\/orgs\/([\w-]+)\/invites$/, run: async c => pendingInvites(c.db, c.params[0], c.userId) },
   { method: 'DELETE', path: /^\/invites\/([\w-]+)$/, run: async c => (await revokeInvite(c.db, c.params[0], c.userId), { ok: true }) },
-  { method: 'GET', path: /^\/invites\/([\w-]+)$/, run: async c => previewInvite(c.db, c.params[0]) },
+  // The join page on our site shows who invited them, before they've signed in.
+  { method: 'GET', path: /^\/invites\/([\w-]+)$/, open: true, run: async c => previewInvite(c.db, c.params[0]) },
   { method: 'POST', path: /^\/invites\/([\w-]+)\/accept$/, run: async c => acceptInvite(c.db, c.params[0], await user(c)) },
 
   // An org access token, for talking to one of your organisations' hosts.

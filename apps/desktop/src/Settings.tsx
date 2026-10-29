@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Building2, Check, ChevronDown, Gauge, LogOut, Plug, Plus, Trash2, User, X } from 'lucide-react';
+import { Building2, Check, ChevronDown, ChevronRight, Gauge, LogOut, Plug, Plus, Trash2, User, X } from 'lucide-react';
 import { ACCOUNT, AGENTS } from './data';
 import {
   createInvite,
@@ -18,6 +18,9 @@ import {
   invites as listInvites,
   isAdmin,
   joinWithCode,
+  myInvites,
+  declineInvite,
+  type WaitingInvite,
   leaveOrganisation,
   members as listMembers,
   ownOrg,
@@ -574,6 +577,7 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
   return (
     <section className="ssection">
       <h2>Organization</h2>
+      {state.me && <InvitesForMe />}
       {!state.me ? (
         <div className="sorg-row">
           <span>Sign up to create or join one with us</span>
@@ -614,8 +618,9 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
           </button>
         </div>
       ))}
-      {state.me && <JoinWithCode />}
-      <SelfHosted />
+      <Advanced>
+        <SelfHosted />
+      </Advanced>
     </section>
   );
 }
@@ -741,47 +746,67 @@ function SelfAddress({ manage }: { manage: boolean }) {
   );
 }
 
-function JoinWithCode() {
-  const [code, setCode] = useState('');
-  const [preview, setPreview] = useState<{ org: string; invitedBy: string; role: string } | null>(null);
+// Invites waiting for you, by your email (an invite email brings you here too).
+// What most people never need, folded away: a small grey toggle.
+function Advanced({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="sadvanced">
+      <button className="sadvanced-toggle" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        Advanced
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
+function InvitesForMe() {
+  const [list, setList] = useState<WaitingInvite[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const go = async () => {
-    setBusy(true);
+  useEffect(() => void myInvites().then(setList, () => {}), []);
+  if (!list.length) return null;
+  const act = async (code: string, fn: () => Promise<void>) => {
+    setBusy(code);
     setError(null);
     try {
-      if (!preview) setPreview(await previewInvite(code.trim()));
-      else switchAgency((await joinWithCode(code.trim())).orgId);
+      await fn();
     } catch (e) {
       setError((e as Error).message);
+      setBusy(null);
     }
-    setBusy(false);
   };
   return (
-    <div className="sfield">
-      <span className="sfield-label">Join with a code</span>
-      <div className="sinline">
-        <input
-          value={code}
-          spellCheck={false}
-          placeholder="Invite code"
-          onChange={e => {
-            setCode(e.target.value);
-            setPreview(null);
-          }}
-          onKeyDown={e => e.key === 'Enter' && code.trim() && go()}
-        />
-        <button className={`sbtn${preview ? ' primary' : ''}`} disabled={!code.trim() || busy} onClick={go}>
-          {preview ? `Join ${preview.org}` : 'Continue'}
-        </button>
-      </div>
-      {preview && (
-        <span className="sfield-hint">
-          {preview.invitedBy} invited you as {preview.role === 'admin' ? 'an admin' : 'a member'}.
-        </span>
-      )}
-      {error && <span className="custom-error">{error}</span>}
-    </div>
+    <>
+      {list.map(i => (
+        <div className="sorg-row sinvite-me" key={i.code}>
+          <span>
+            <strong>{i.invitedBy}</strong> invited you to <strong>{i.org}</strong>
+            {i.role === 'admin' ? ' as an admin' : ''}
+          </span>
+          <span className="sinline">
+            <button
+              className="sbtn"
+              disabled={busy === i.code}
+              onClick={() =>
+                act(i.code, async () => {
+                  await declineInvite(i.code);
+                  setList(l => l.filter(x => x.code !== i.code));
+                  setBusy(null);
+                })
+              }
+            >
+              Decline
+            </button>
+            <button className="sbtn primary" disabled={busy === i.code} onClick={() => act(i.code, async () => switchAgency((await joinWithCode(i.code)).orgId))}>
+              Join
+            </button>
+          </span>
+        </div>
+      ))}
+      {error && <p className="custom-error">{error}</p>}
+    </>
   );
 }
 
@@ -848,7 +873,7 @@ function OrgPeople() {
         <div className="sfield">
           <span className="sfield-label">Invite someone</span>
           <div className="sinline">
-            <input type="email" value={email} placeholder="Email (optional)" onChange={e => setEmail(e.target.value)} />
+            <input type="email" value={email} placeholder={org.self ? 'Email (optional)' : 'Their email'} onChange={e => setEmail(e.target.value)} />
             {org.role === 'owner' && (
               <select className="srole" value={role} onChange={e => setRoleChoice(e.target.value as 'member' | 'admin')}>
                 <option value="member">Member</option>
@@ -857,6 +882,7 @@ function OrgPeople() {
             )}
             <button
               className="sbtn"
+              disabled={!org.self && !email.trim()}
               onClick={() =>
                 act(async () => {
                   setMade(await createInvite(org.id, email.trim(), role));
@@ -867,22 +893,31 @@ function OrgPeople() {
               <Plus size={14} /> Invite
             </button>
           </div>
-          {made && (
-            <span className="sfield-hint">
-              {org.self && address && (
-                <>
-                  Address: <code className="scode">{address}</code>{' '}
-                </>
-              )}
-              Their code: <code className="scode">{made.code}</code>
-              {made.email ? ` Only ${made.email} can use it.` : ''} It lasts 14 days.
-            </span>
-          )}
+          {/* Ours: emailed, and waiting in their app. Self-hosted (no mail from us): the address and a code to pass on. */}
+          {made &&
+            (org.self ? (
+              <span className="sfield-hint">
+                {address && (
+                  <>
+                    Address: <code className="scode">{address}</code>{' '}
+                  </>
+                )}
+                Their code: <code className="scode">{made.code}</code>
+                {made.email ? ` Only ${made.email} can use it.` : ''} It lasts 14 days.
+              </span>
+            ) : made.sent ? (
+              <span className="sfield-hint">Invite sent to {made.email}. It's waiting in their app too when they sign in with it.</span>
+            ) : (
+              <span className="sfield-hint">
+                Invite made for {made.email}: it's waiting in their app when they sign in with it. Email isn't set up yet, so send them this link:{' '}
+                <code className="scode">{made.url}</code>
+              </span>
+            ))}
           {pending.length > 0 && (
             <ul className="sinvites">
               {pending.map(i => (
                 <li key={i.code}>
-                  <code className="scode">{i.code}</code>
+                  {org.self && <code className="scode">{i.code}</code>}
                   <span className="muted">{i.email ?? 'Anyone with the code'}</span>
                   <button className="sicon" aria-label="Revoke" onClick={() => act(() => revokeInvite(i.code))}>
                     <X size={14} />
