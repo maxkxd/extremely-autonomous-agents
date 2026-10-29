@@ -20,6 +20,7 @@ import { openProfileForSignIn, profileStatus } from './browser.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { spentToday } from './pricing.js';
+import { isPrivateIp } from './net.js';
 import { stateOf, type Trigger } from './run.js';
 import { abortRun, book, isRunning } from './scheduler.js';
 
@@ -38,6 +39,14 @@ const outputLabel = (tool: string) => {
   return name.charAt(0).toUpperCase() + name.slice(1);
 };
 const connName = (id: string | null) => PROVIDERS.find(p => p.id === id)?.name ?? id ?? 'Unknown';
+
+// "npx -y @scope/server C:/My Notes" -> its words; quotes keep spaces together.
+const splitCommand = (s: string) => (s.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map(w => w.replace(/^["']|["']$/g, ''));
+// An address on this computer or its network (a local MCP server the person adds).
+const isLocalAddress = (u: string) => {
+  const h = new URL(u).hostname.replace(/^\[|\]$/g, '');
+  return h === 'localhost' || h.endsWith('.local') || isPrivateIp(h);
+};
 
 export const runnerRoutes: Record<string, Route> = {
   // Every real agent's card: state and stats over the last `days`.
@@ -240,22 +249,37 @@ export const runnerRoutes: Record<string, Route> = {
   },
   // A person adds a remote MCP server by its address (or a full definition).
   'POST /api/integrations/add': async (_req, _q, body) => {
-    const b = await body<{ definition?: unknown; name?: string; url?: string; auth?: 'none' | 'bearer' | 'header'; header?: string; key?: string }>();
-    const name = b.name?.trim() || (b.url ? new URL(b.url).hostname.replace(/^www\.|^mcp\./, '') : '');
+    const b = await body<{ definition?: unknown; name?: string; url?: string; auth?: 'none' | 'bearer' | 'header' | 'signin'; header?: string; key?: string }>();
+    // An address, or a command that starts a server on this computer (npx -y ...).
+    const where = b.url?.trim() ?? '';
+    const isUrl = /^https?:\/\//i.test(where);
+    const command = isUrl ? undefined : splitCommand(where);
+    const local = isUrl ? isLocalAddress(where) : undefined;
+    const name =
+      b.name?.trim() || (isUrl ? new URL(where).hostname.replace(/^www\.|^mcp\./, '') : (command?.find(a => /server|mcp/i.test(a)) ?? command?.[0] ?? 'local').replace(/^@[^/]+\//, '').replace(/^server-|-mcp$|^mcp-/g, ''));
     const def =
       b.definition ??
       ({
         kind: 'mcp',
         id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'mcp',
         name,
-        what: `MCP server at ${b.url ? new URL(b.url).host : ''}`,
-        url: b.url,
-        auth: b.auth === 'bearer' ? { type: 'bearer' } : b.auth === 'header' ? { type: 'api_key', header: b.header || 'x-api-key' } : { type: 'none' },
+        what: isUrl ? `MCP server at ${new URL(where).host}` : `MCP server on this computer: ${where.slice(0, 120)}`,
+        ...(isUrl ? { url: where, ...(local ? { local: true } : {}) } : { command }),
+        auth:
+          b.auth === 'signin'
+            ? { type: 'mcp_oauth' }
+            : b.auth === 'bearer'
+              ? { type: 'bearer' }
+              : b.auth === 'header'
+                ? { type: 'api_key', header: b.header || 'x-api-key' }
+                : { type: 'none' },
       } as const);
     const integration = await addIntegration(def);
+    // One that signs in: the app opens its sign-in next (it connects when that lands).
+    if (integration.auth.type === 'mcp_oauth') return { id: integration.id, ok: true, signIn: (await startIntegrationSignIn(integration.id, {})).url };
     // Connect straight away, so its tools are discovered.
     const result = await connectIntegration(integration.id, b.key).catch(e => ({ ok: false, message: (e as Error).message }));
-    return { id: integration.id, ...result };
+    return { id: integration.id, ok: result.ok, message: result.message };
   },
   'POST /api/integrations/remove': async (_req, _q, body) => {
     const { id } = await body<{ id: string }>();

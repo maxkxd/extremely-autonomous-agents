@@ -95,7 +95,7 @@ export function authParts(auth: AuthDef, key: string | undefined): { headers: Re
   if (auth.type === 'none') return { headers: {}, query: {} };
   if (!key) throw new Error('This integration has no key saved. Connect it in Settings -> Connectors.');
   // A signed-in (OAuth) service gets its current access token the same way.
-  if (auth.type === 'bearer' || auth.type === 'oauth2') return { headers: { authorization: `Bearer ${key}` }, query: {} };
+  if (auth.type === 'bearer' || auth.type === 'oauth2' || auth.type === 'mcp_oauth') return { headers: { authorization: `Bearer ${key}` }, query: {} };
   if (auth.query) return { headers: {}, query: { [auth.query]: key } };
   return { headers: { [auth.header ?? 'x-api-key']: `${auth.prefix ?? ''}${key}` }, query: {} };
 }

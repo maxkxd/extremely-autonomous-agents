@@ -160,6 +160,21 @@ naming the permissions to add.
 Agents never write to main or any branch a person made: every branch name
 is forced under `agent/`. Approving a review is for people.
 
+## MCP servers that sign in, and ones on this computer
+
+- **Sign in** (`auth: { type: mcp_oauth }`, `integrations/mcp-auth.ts`): the
+  MCP authorization spec. The server says where its sign-in is; the app
+  registers itself there (dynamic client registration), so the person makes
+  no OAuth client - they choose Sign in, and sign in. Tested to the sign-in
+  page with Linear and Notion.
+- **On this computer** (`integrations/mcp-stdio.ts`): a `command` the app
+  starts and talks to over stdin/stdout (most MCP servers, e.g.
+  `npx -y @modelcontextprotocol/server-filesystem C:/notes`), or a `url` on
+  this computer or its network (`local: true`). The deliberate exception to
+  agents never reaching this computer: only a person adds these, in
+  Settings, warned that they run with their permissions; the Fleet Engineer
+  is refused. Tools are tiered as for any MCP server (reads T0, the rest T2).
+
 ## Safety
 
 - **Agents can't reach this computer or its network** (`runner/net.ts`):
@@ -204,8 +219,3 @@ same code but haven't been run against their real services.
 
 Not yet:
 
-- **OAuth for MCP servers** (their own sign-in discovery); OAuth works for
-  definitions that name their sign-in addresses.
-- **MCP servers on this computer** (local addresses are refused, like
-  everything else agents reach).
-- **PDFs** in `fetch_page`.

@@ -87,3 +87,8 @@ test('a plugin reaches the network only through kit.fetch', async () => {
   assert.equal(networkProblems("run('Invoke-WebRequest -Uri $u')").length, 1);
   await assert.rejects(writePlugin('zz-test-net', "export default { tools: [] }; fetch('http://localhost')"), /only through kit.fetch/);
 });
+
+test("the engineer can't add an MCP server that runs on this computer", async () => {
+  await assert.rejects(writeDraftIntegration('kind: mcp\nid: zz-local\nname: L\nwhat: x\nauth: { type: none }\ncommand: [cmd, /c, calc]\n', 'fleet'), /only be added by a person/);
+  await assert.rejects(writeDraftIntegration('kind: mcp\nid: zz-local\nname: L\nwhat: x\nauth: { type: none }\nurl: http://localhost:3000/mcp\nlocal: true\n', 'fleet'), /only be added by a person/);
+});

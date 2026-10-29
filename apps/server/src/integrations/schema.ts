@@ -30,11 +30,15 @@ export const Auth = z.discriminatedUnion('type', [
     authorize_url: z.string().url().startsWith('https://'),
     token_url: z.string().url().startsWith('https://'),
     revoke_url: z.string().url().startsWith('https://').optional(), // ends the sign-in on Disconnect
+    resource: z.string().optional(), // the resource the tokens are for (RFC 8707), sent with token requests
     scopes: z.array(z.string()).min(1),
     params: z.record(z.string(), z.string()).optional(), // extra authorize params (Google: access_type=offline)
     client_url: z.string().url().optional(), // where to make the OAuth client
     client_help: z.string().optional(), // how to make it, in steps
   }),
+  // A remote MCP server's own sign-in (the MCP authorization spec): found and
+  // registered with when the person signs in - no OAuth client to make.
+  z.object({ type: z.literal('mcp_oauth') }),
 ]);
 
 const Request = z.object({
@@ -84,7 +88,14 @@ export const Integration = z.discriminatedUnion('kind', [
     key_url: z.string().optional(),
     key_help: z.string().optional(), // what the key needs (permissions), shown by its field
     auth: Auth,
-    url: z.string().url(),
+    // Where it is: an address, or - on this computer - a program to start
+    // (command, e.g. ["npx", "-y", "@modelcontextprotocol/server-filesystem", "C:/notes"]).
+    // local: the address is on this computer or its network. Only a person adds
+    // either (Settings); they run with that person's permissions.
+    url: z.string().url().optional(),
+    command: z.array(z.string().min(1)).min(1).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    local: z.boolean().optional(),
     tiers: z.record(z.string(), Tier).optional(), // overrides for discovered tools
   }),
   z.object({
