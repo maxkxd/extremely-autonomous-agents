@@ -17,6 +17,8 @@ const agent: AgentDef = {
   tiers: { 'mail.send': 'T2' },
   approvalHours: { 'mail.send': 1 },
   newTools: [],
+  events: [],
+  newEvents: [],
   output: [],
   maxRunsPerDay: 24,
   ferocity: { ...DEFAULT_PLAN, counts: [] },

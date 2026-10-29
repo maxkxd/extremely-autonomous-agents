@@ -58,6 +58,49 @@ const Response = z
   })
   .optional();
 
+// An event (docs/events.md): something happening at the service that wakes the
+// agents subscribed to it - a new Sentry issue, a ticket, an alarm. Detected by
+// polling the service's API for new items, or pushed by the service to a
+// webhook address, or both. Each item is told to the agent once.
+export const EventDef = z
+  .object({
+    id: z.string().regex(/^[a-z0-9_-]+\.[a-z0-9_]+$/, 'server.event, lowercase'),
+    description: z.string(), // what happened, for the agent and the person
+    // Polling: a request like a tool's (base_url: the integration's, unless given),
+    // the list of items in the answer, each one's id, and what the agent sees of it.
+    poll: z
+      .object({
+        base_url: z.string().url().optional(),
+        request: Request,
+        items: z.string().default(''), // dot path to the list; empty: the answer is the list
+        id: z.string(), // dot path in an item to its unique id
+        fields: z.record(z.string(), z.string()).optional(), // per item: name -> dot path
+        every_minutes: z.number().min(1).max(1440).default(5),
+      })
+      .optional(),
+    // Webhooks: the service posts to the agency's address for this event.
+    webhook: z
+      .object({
+        items: z.string().optional(), // dot path to a list in the body, when one post carries several
+        id: z.string().optional(), // dot path to an item's id (else the whole post is one new item)
+        fields: z.record(z.string(), z.string()).optional(),
+        // Signed posts (Sentry, GitHub, Stripe...): HMAC of the raw body with the
+        // signing secret the person pastes in Settings, in this header.
+        signature: z
+          .object({
+            header: z.string(),
+            algorithm: z.enum(['sha256', 'sha1']).default('sha256'),
+            prefix: z.string().optional(), // e.g. "sha256="
+            encoding: z.enum(['hex', 'base64']).default('hex'),
+          })
+          .optional(),
+        secret_help: z.string().optional(), // where the person finds the signing secret
+      })
+      .optional(),
+    setup_help: z.string().optional(), // for webhooks: where in the service to paste the address
+  })
+  .refine(e => e.poll || e.webhook, 'An event needs poll, webhook, or both.');
+
 export const HttpTool = z.object({
   id: z.string().regex(/^[a-z0-9_-]+\.[a-z0-9_]+$/, 'server.tool, lowercase'),
   tier: Tier,
@@ -76,6 +119,7 @@ export const Integration = z.discriminatedUnion('kind', [
     key_url: z.string().optional(),
     key_help: z.string().optional(), // what the key needs (permissions), shown by its field
     auth: Auth,
+    events: z.array(EventDef).optional(),
     base_url: z.string().url(),
     test: z.object({ tool: z.string(), args: z.record(z.string(), z.unknown()) }),
     tools: z.array(HttpTool).min(1),
@@ -88,6 +132,7 @@ export const Integration = z.discriminatedUnion('kind', [
     key_url: z.string().optional(),
     key_help: z.string().optional(), // what the key needs (permissions), shown by its field
     auth: Auth,
+    events: z.array(EventDef).optional(),
     // Where it is: an address, or - on this computer - a program to start
     // (command, e.g. ["npx", "-y", "@modelcontextprotocol/server-filesystem", "C:/notes"]).
     // local: the address is on this computer or its network. Only a person adds
@@ -106,6 +151,7 @@ export const Integration = z.discriminatedUnion('kind', [
     key_url: z.string().optional(),
     key_help: z.string().optional(), // what the key needs (permissions), shown by its field
     auth: Auth,
+    events: z.array(EventDef).optional(),
     module: z.string().regex(/^[a-z0-9-]+$/), // integrations/modules/<module>.ts, or a plugin
     // A plugin's sandbox (sandbox.ts): the folders it reads and writes (absolute,
     // or ~/...), and whether it may start programs. Nothing else is allowed.
@@ -123,3 +169,5 @@ export type CodeIntegration = Extract<Integration, { kind: 'code' }>;
 export type OAuthDef = Extract<AuthDef, { type: 'oauth2' }>;
 export type HttpToolDef = z.infer<typeof HttpTool>;
 export type AuthDef = z.infer<typeof Auth>;
+export type EventDefT = z.infer<typeof EventDef>;
+export type RequestDef = z.infer<typeof Request>;

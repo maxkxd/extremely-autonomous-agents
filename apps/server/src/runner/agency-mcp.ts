@@ -12,6 +12,7 @@ import {
   integrationSource,
   integrationToolIds,
   listIntegrations,
+  liveEventIds,
   publishIntegration,
   publishPreview,
   removeIntegration,
@@ -26,7 +27,9 @@ import type { Tier } from '../catalog.js';
 import { loadAgent } from './agent.js';
 import { answerRequest } from './api.js';
 import { all, getSetting, run as exec, setSetting } from './db.js';
-import { giveTools } from './engineer.js';
+import { giveEvents, giveTools } from './engineer.js';
+import { checkEvent } from './events.js';
+import { hooksBase } from './hooks.js';
 import { LEVELS } from './ferocity.js';
 import { openBridge } from './mcp.js';
 import { stateOf } from './run.js';
@@ -229,7 +232,7 @@ const TOOLS: Tool[] = [
       let id = slug(b.name);
       for (let n = 2; taken.has(id); n++) id = `${slug(b.name)}-${n}`;
       const fleet = await scanFleet();
-      const files = compose(b, id, new Set([...fleet.tools.map(t => t.id), ...integrationToolIds()]), await availableModels());
+      const files = compose(b, id, new Set([...fleet.tools.map(t => t.id), ...integrationToolIds()]), await availableModels(), new Set(liveEventIds()));
       const owners = (await Promise.all([...taken].map(async x => (await readMeta(x))?.owner))).filter((o): o is string => !!o);
       const person = hostPerson() ?? owners[0] ?? 'The host';
       await createAgent({ person, org: null, files });
@@ -329,6 +332,7 @@ const TOOLS: Tool[] = [
         integration_id: str('The draft'),
         for_agent: str('Optional: the agent that gets its tools'),
         tools: { type: 'array', description: 'For for_agent: the tools to give and their tiers (T0 read, T1 reversible write, T2 needs a person)', items: obj({ id: str('Tool id'), tier: { type: 'string', enum: ['T0', 'T1', 'T2'] } }, ['id', 'tier']) },
+        events: { type: 'array', items: { type: 'string' }, description: 'For for_agent: its events the agent should wake on' },
       },
       ['integration_id'],
     ),
@@ -345,9 +349,32 @@ const TOOLS: Tool[] = [
         const { agentId, meta } = await agentOrThrow(a.for_agent);
         const tools = ((a.tools as { id: string; tier: Tier }[]) ?? out.tools).filter(t => out.tools.some(x => x.id === t.id));
         await giveTools(agentId, tools);
-        given = ` ${meta.name} has ${tools.map(t => t.id).join(', ') || 'none of them'}.`;
+        const provided = new Set(liveEventIds());
+        const events = ((a.events as string[]) ?? []).map(String).filter(e => provided.has(e));
+        if (events.length) await giveEvents(agentId, events);
+        given = ` ${meta.name} has ${tools.map(t => t.id).join(', ') || 'none of them'}${events.length ? `, and wakes on ${events.join(', ')}` : ''}.`;
       }
       return `${p.name} is live: ${out.tools.map(t => `${t.id} (${t.tier})`).join(', ') || 'no tools found yet'}.${out.test ? ` Test: ${out.test}.` : ''}${given}`;
+    },
+  },
+  {
+    name: 'test_event',
+    description: "Try an integration's event (draft or live) without waking anyone: a real poll showing what it finds, and the webhook address to paste into the service.",
+    schema: obj({ integration_id: str('The integration id'), event_id: str('The event (server.event)') }, ['integration_id', 'event_id']),
+    run: async a => checkEvent(String(a.integration_id), String(a.event_id), hooksBase()),
+  },
+  {
+    name: 'give_events',
+    description: 'Subscribe an agent to live events: it wakes when they happen, as well as on its schedule. list_integrations shows each integration\'s events.',
+    schema: obj({ agent_id: str('The agent id'), events: { type: 'array', items: { type: 'string' }, description: 'Event ids (server.event)' } }, ['agent_id', 'events']),
+    run: async a => {
+      const { agentId, meta } = await agentOrThrow(a.agent_id);
+      const live = new Set(liveEventIds());
+      const events = ((a.events as string[]) ?? []).map(String);
+      const bad = events.filter(e => !live.has(e));
+      if (bad.length) throw new Error(`Not live: ${bad.join(', ')}.`);
+      await giveEvents(agentId, events);
+      return `${meta.name} now wakes on ${events.join(', ')}.`;
     },
   },
   {

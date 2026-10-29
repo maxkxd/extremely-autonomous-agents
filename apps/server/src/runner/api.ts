@@ -11,6 +11,7 @@ import {
   listIntegrations,
   recheckStale,
   removeIntegration,
+  setWebhookSecret,
   startIntegrationSignIn,
 } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
@@ -24,6 +25,8 @@ import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
 import { agencyMcpUrl, startAgencyMcp } from './agency-mcp.js';
+import { eventOverview } from './events.js';
+import { hooksBase, setTunnel, tunnelState } from './hooks.js';
 import { resume as resumeJobs } from '../jobs.js';
 import { isPrivateIp } from './net.js';
 import { agencyState, stateOf, type AgencyState, type Trigger } from './run.js';
@@ -291,6 +294,21 @@ export const runnerRoutes: Record<string, Route> = {
     const { id, decision, note } = await body<{ id: string; decision: 'approved' | 'rejected'; note?: string }>();
     if (decision !== 'approved' && decision !== 'rejected') throw new Error('Approve or reject.');
     return decideApproval(id, decision, note ?? null, book);
+  },
+
+  // --- Events (docs/events.md) ---
+  // Every event agents can subscribe to: who listens, its last check, its webhook
+  // address; and the tunnel that gives those addresses a public https one.
+  'GET /api/events': async () => ({ tunnel: tunnelState(), base: hooksBase(), events: await eventOverview(hooksBase()) }),
+  'POST /api/events/tunnel': async (_req, _q, body) => {
+    const { on } = await body<{ on: boolean }>();
+    return { tunnel: await setTunnel(!!on), base: hooksBase() };
+  },
+  // The signing secret a service gives for its webhook posts.
+  'POST /api/integrations/webhook-secret': async (_req, _q, body) => {
+    const { id, secret } = await body<{ id: string; secret: string }>();
+    await setWebhookSecret(String(id), String(secret ?? ''));
+    return { ok: true };
   },
 
   // --- Integrations (docs/integrations.md) ---

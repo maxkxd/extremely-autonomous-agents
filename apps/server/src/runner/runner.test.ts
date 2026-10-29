@@ -28,6 +28,8 @@ const agent = (over: Partial<AgentDef> = {}): AgentDef => ({
   tiers: {},
   approvalHours: {},
   newTools: [],
+  events: [],
+  newEvents: [],
   output: [{ action: 'files.write_file', label: 'ideas written' }],
   maxRunsPerDay: 24,
   ferocity: { ...DEFAULT_PLAN, counts: ['files.write_file'], floor: 10, soft_floor: 3, apocalyptic_floor: 30 },
