@@ -389,3 +389,21 @@ test("quick replies on a request join the Fleet Engineer's waiting run: one run 
   assert.match(queued[0], /replied on request #4: "use acme\/web"\nThen: "actually acme\/app"/);
   assert.match(queued[1], /request #41: "yes"/);
 });
+
+test('a resumed Fleet Engineer run is told what it already said, so it does not answer twice', async () => {
+  const now = Date.now();
+  exec("INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at) VALUES ('r_cut2', 'fleet', 'request reply', 'x', 0, 'failed', ?)", now - 60_000);
+  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, at) VALUES ('r_cut2', 'fleet', 'engineer.reply_to_request', '[]', 'T0', 'ok', ?)", now - 30_000);
+  exec("INSERT INTO request_messages (request_id, from_who, text, at) VALUES (37, 'engineer', 'Sentry is the right provider. Reply with the org slug.', ?)", now - 30_000);
+  exec("INSERT INTO request_messages (request_id, from_who, text, at) VALUES (37, 'engineer', 'An older message from before the run.', ?)", now - 600_000);
+  let opening = '';
+  const adapter: Adapter = async req => {
+    const first = req.messages[0];
+    opening ||= first.role === 'user' ? first.text : '';
+    return { text: 'Done.', calls: [], usage: { input: 1, output: 1 } };
+  };
+  await runAgent({ ...agent(), id: 'fleet' }, 'run now', null, deps(adapter), undefined, 'r_cut2');
+  assert.match(opening, /Already sent on request #37 \(the person has it - don't send it again\): "Sentry is the right provider/);
+  assert.doesNotMatch(opening, /older message/);
+  assert.match(opening, /you're done: end the run/);
+});

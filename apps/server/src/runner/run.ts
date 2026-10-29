@@ -4,7 +4,7 @@ import { loadPerson, loadProfile, profileForPrompt } from '../org.js';
 import { fitEffort } from '../models/caps.js';
 import type { Effort, ModelChoice } from '../models/choice.js';
 import { pickModel, recordFailure, recordSuccess, choiceKey, type Health } from '../models/health.js';
-import type { AgentDef } from './agent.js';
+import { FLEET_ENGINEER, type AgentDef } from './agent.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { backoffMs, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
@@ -435,11 +435,24 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
 
 // What this run already did, for a model taking over part-way.
 // For a run carrying on one the app's restart cut short.
+// What it said matters as much as what it did: a run that had already answered
+// the person, told only "you replied", answers them again.
 function resumeText(cutRunId: string): string {
   const done = all<{ tool: string; outcome: string }>('SELECT tool, outcome FROM actions WHERE run_id = ? ORDER BY id', cutRunId);
-  return done.length
-    ? `You started this before and the app restarted part-way. You already did (don't redo these): ${done.map(d => `${d.tool} (${d.outcome})`).join(', ')}. Carry on from there.`
-    : 'You started this before and the app restarted before you did anything. Start it again.';
+  if (!done.length) return 'You started this before and the app restarted before you did anything. Start it again.';
+  const run = one<{ agent_id: string; started_at: number }>('SELECT agent_id, started_at FROM runs WHERE id = ?', cutRunId);
+  // The Fleet Engineer's messages on requests since that run began (it runs one at a time).
+  const said =
+    run?.agent_id === FLEET_ENGINEER
+      ? all<{ request_id: number; text: string }>("SELECT request_id, text FROM request_messages WHERE from_who = 'engineer' AND at >= ? ORDER BY id", run.started_at)
+      : [];
+  const filed = all<{ id: number; what: string }>('SELECT id, what FROM requests WHERE run_id = ?', cutRunId);
+  return [
+    `You started this before and the app restarted part-way. You already did (don't redo these): ${done.map(d => `${d.tool} (${d.outcome})`).join(', ')}.`,
+    ...said.map(m => `Already sent on request #${m.request_id} (the person has it - don't send it again): "${m.text.slice(0, 1500)}"`),
+    ...filed.map(r => `Already filed as request #${r.id}: ${r.what}`),
+    said.length ? "If that answered what you were woken for, you're done: end the run." : 'Carry on from there.',
+  ].join('\n');
 }
 
 function doneSoFar(runId: string): string {
