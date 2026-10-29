@@ -9,7 +9,7 @@ import { deleteSecret, getSecret, setSecret } from '../vault.js';
 import { callHttp } from './http.js';
 import { callMcpTool, listMcpTools, type McpTool } from './mcp-client.js';
 import { MODULES, type CodeModule } from './modules/index.js';
-import { codeHash, dropPluginBackup, installPlugin, pluginModule, readPlugin, removePlugin, restorePlugin } from './plugins.js';
+import { codeHash, dropPluginBackup, installPlugin, pluginModule, readPlugin, readPluginBackup, removePlugin, restorePlugin } from './plugins.js';
 import { resolvePermissions } from './sandbox.js';
 import { safeFetch } from '../runner/net.js';
 import type { Kit } from './modules/types.js';
@@ -83,24 +83,37 @@ async function readDir(dir: string, shipped: boolean) {
   }
 }
 
+// A live integration being redrafted: the version agents keep using meanwhile.
+let liveCopies = new Map<string, Integration>();
+
 export async function loadIntegrations() {
   loaded = [];
   problems = [];
+  liveCopies = new Map();
   await readDir(SHIPPED, true);
   await readDir(ADDED, false);
+  for (const file of (await readdir(LIVE).catch(() => [] as string[])).filter(f => /\.ya?ml$/.test(f))) {
+    const parsed = Integration.safeParse(parse(await readFile(join(LIVE, file), 'utf8').catch(() => '')));
+    if (parsed.success && states()[parsed.data.id]?.draft) liveCopies.set(parsed.data.id, parsed.data);
+  }
   // Plugins a person approved, loaded only if their code is still what they saw.
-  for (const { integration } of loaded) {
-    const hash = states()[integration.id]?.codeHash;
+  // One being redrafted runs its live code (kept aside) until the new code is approved.
+  for (const { integration: drafted } of loaded) {
+    const st = states()[drafted.id];
+    const integration = liveCopies.get(drafted.id) ?? drafted;
+    const hash = st?.codeHash ?? (liveCopies.has(drafted.id) ? st?.liveHash : undefined);
     if (integration.kind !== 'code' || MODULES[integration.module] || !hash) continue;
-    await installPlugin(integration.module, hash, resolvePermissions(integration.permissions)).catch(e => problems.push({ file: `${integration.module}.ts`, error: (e as Error).message }));
+    const source = st?.codeHash ? undefined : ((await readPluginBackup(integration.module)) ?? undefined);
+    await installPlugin(integration.module, hash, resolvePermissions(integration.permissions), source).catch(e => problems.push({ file: `${integration.module}.ts`, error: (e as Error).message }));
   }
   register();
 }
 
 const find = (id: string) => loaded.find(l => l.integration.id === id)?.integration;
 const isConnected = (id: string) => !!states()[id]?.connectedAt;
-// What agents can use: connected, and not a draft.
-const isLive = (id: string) => isConnected(id) && !states()[id]?.draft;
+// What agents can use: connected, and not a draft - or a draft of one that's
+// live, whose live version they keep using until the draft is approved.
+const isLive = (id: string) => isConnected(id) && (!states()[id]?.draft || liveCopies.has(id));
 // A code integration's tools: shipped modules, or an approved plugin.
 const moduleOf = (name: string): CodeModule | undefined => MODULES[name] ?? pluginModule(name);
 
@@ -114,15 +127,17 @@ const mcpTier = (integration: McpIntegration, t: McpTool): Tier => integration.t
 
 type Provider = { integration: Integration; call: (args: Record<string, unknown>) => Promise<string> };
 
-// Every tool any integration offers, with who can serve it.
-function providers(): Map<string, { def: Omit<ToolDef, 'impl'>; by: Provider[] }> {
+// Every tool any integration offers, with who can serve it. For agents, one
+// being redrafted is its live version; for the engineer testing, the draft.
+function providers(forAgents = false): Map<string, { def: Omit<ToolDef, 'impl'>; by: Provider[] }> {
   const out = new Map<string, { def: Omit<ToolDef, 'impl'>; by: Provider[] }>();
   const add = (id: string, def: Omit<ToolDef, 'impl'>, p: Provider) => {
     const entry = out.get(id) ?? { def, by: [] };
     entry.by.push(p);
     out.set(id, entry);
   };
-  for (const { integration } of loaded) {
+  for (const { integration: drafted } of loaded) {
+    const integration = (forAgents && liveCopies.get(drafted.id)) || drafted;
     if (integration.kind === 'http') {
       for (const tool of integration.tools)
         add(tool.id, { id: tool.id, tier: tool.tier, description: tool.description, schema: tool.input }, {
@@ -152,7 +167,7 @@ function providers(): Map<string, { def: Omit<ToolDef, 'impl'>; by: Provider[] }
 // integration that provides it is live; the first live one serves it.
 function register() {
   const defs: ToolDef[] = [];
-  for (const [id, { def, by }] of providers())
+  for (const [id, { def, by }] of providers(true))
     defs.push({
       ...def,
       ready: () => by.some(p => isLive(p.integration.id)),
@@ -346,13 +361,13 @@ export const integrationProblems = () => problems;
 
 // The ids of tools a connected integration provides, which a build may use.
 export function integrationToolIds(): string[] {
-  return [...providers()].filter(([, { by }]) => by.some(p => isLive(p.integration.id))).map(([id]) => id);
+  return [...providers(true)].filter(([, { by }]) => by.some(p => isLive(p.integration.id))).map(([id]) => id);
 }
 
 // Tools from connected integrations, for the builder's catalogue.
 export function integrationToolsForPrompt(): string {
   const lines: string[] = [];
-  for (const [id, { def, by }] of providers()) {
+  for (const [id, { def, by }] of providers(true)) {
     const connected = by.filter(p => isLive(p.integration.id)).map(p => p.integration.name);
     if (connected.length) lines.push(`- ${id} [${def.tier}] ${def.description.split('\n')[0].slice(0, 160)} (via ${connected.join(', ')})`);
   }
@@ -447,7 +462,8 @@ export async function testIntegrationTool(id: string, toolId: string, args: Reco
   if (!integration) throw new Error(`No integration "${id}".`);
   if (integration.auth.type !== 'none' && !isConnected(id))
     throw new Error(`${integration.name} isn't connected yet: ask the person to add its key (engineer.ask_for_connection).`);
-  if (integration.kind === 'code' && !moduleOf(integration.module))
+  // A redrafted plugin's loaded code is still the live version: the draft can't be tried.
+  if (integration.kind === 'code' && (!moduleOf(integration.module) || (liveCopies.has(id) && !MODULES[integration.module])))
     throw new Error("A code plugin's code runs only after a person approves it. Propose it with engineer.publish_integration; it's tested as it goes live.");
   const p = providers().get(toolId)?.by.find(x => x.integration.id === id);
   if (!p) throw new Error(`${integration.name} has no tool "${toolId}". Its tools: ${toolsOf(id).map(([t]) => t).join(', ') || 'none found yet'}.`);
@@ -482,6 +498,7 @@ export async function publishIntegration(id: string, approvedHash: string | null
   putState(id, { ...states()[id], draft: false, published: true, liveHash: undefined });
   // The new version is the live one now.
   await rm(join(LIVE, `${id}.yaml`), { force: true });
+  liveCopies.delete(id);
   if (integration.kind === 'code') await dropPluginBackup(integration.module);
   // Tested now that it can run (a plugin's first run is after approval).
   let test: string | null = null;

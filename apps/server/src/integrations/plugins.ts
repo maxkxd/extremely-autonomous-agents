@@ -49,8 +49,10 @@ export async function restorePlugin(module: string) {
   return true;
 }
 export const dropPluginBackup = (module: string) => rm(backup(module), { force: true });
+export const readPluginBackup = (module: string) => readFile(backup(module), 'utf8').catch(() => null);
 
-// Saves a plugin's code. It isn't loaded: that waits for a person's approval.
+// Saves a plugin's code. It isn't loaded: that waits for a person's approval
+// (a live one keeps running its approved code meanwhile).
 export async function writePlugin(module: string, code: string) {
   const bad = networkProblems(code);
   if (bad.length) throw new Error(`Plugins reach the network only through kit.fetch. Found: ${bad.join('; ')}.`);
@@ -59,7 +61,6 @@ export async function writePlugin(module: string, code: string) {
   const live = await readPlugin(module);
   if (installed.has(module) && live != null && (await readFile(backup(module)).catch(() => null)) == null) await writeFile(backup(module), live);
   await writeFile(file(module), code);
-  installed.delete(module);
 }
 
 const installed = new Map<string, CodeModule>();
@@ -68,8 +69,9 @@ export const pluginModule = (module: string) => installed.get(module);
 // Loads the plugin a person approved, into its sandbox (sandbox.ts) with the
 // permissions they saw. Refuses if the code changed since. Nothing of it runs
 // in this server: describing its tools and every call happen in the sandbox.
-export async function installPlugin(module: string, approvedHash: string, permissions: Permissions): Promise<CodeModule> {
-  const code = await readPlugin(module);
+// source: the code to load instead of the plugin's file (its live code, while it's redrafted).
+export async function installPlugin(module: string, approvedHash: string, permissions: Permissions, source?: string): Promise<CodeModule> {
+  const code = source ?? (await readPlugin(module));
   if (code == null) throw new Error(`The plugin "${module}" has no code.`);
   if (codeHash(code) !== approvedHash) throw new Error(`The plugin "${module}" changed after it was approved, so it won't run. Propose it again.`);
   const bad = networkProblems(code);
