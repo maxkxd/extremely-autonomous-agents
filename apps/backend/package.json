@@ -1,0 +1,25 @@
+{
+  "name": "@eaa/backend",
+  "private": true,
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --watch --import tsx src/index.ts",
+    "start": "node --import tsx src/index.ts",
+    "keygen": "node --import tsx src/keygen.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "jose": "6.2.12",
+    "pg": "8.23.1",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.10",
+    "@types/node": "^26.6.5",
+    "@types/pg": "8.23.1",
+    "typescript": "^7.0.2"
+  }
+}
