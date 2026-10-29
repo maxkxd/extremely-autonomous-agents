@@ -55,13 +55,28 @@ export const liveDeps: RunDeps = {
 // The Fleet Engineer's queued runs for requests that have since closed (turned
 // down, handed over, or their agent deleted): dropped, not run - a whole run
 // just to find the request gone.
+// Also a reply already answered: replies sent while it was working on that
+// request queue a run, but it reads the whole conversation (list_requests) - if
+// it read it after they came and answered since, they've had their answer.
 export function dropStaleRequestRuns() {
-  const queued = all<{ id: number; task: string | null }>("SELECT id, task FROM bookings WHERE agent_id = ? AND trigger IN ('request', 'request reply', 'connected')", FLEET_ENGINEER);
+  const queued = all<{ id: number; task: string | null; trigger: string; created_at: number }>(
+    "SELECT id, task, trigger, created_at FROM bookings WHERE agent_id = ? AND trigger IN ('request', 'request reply', 'connected')",
+    FLEET_ENGINEER,
+  );
   for (const b of queued) {
     const request = Number(/request #(\d+)/i.exec(b.task ?? '')?.[1]);
     if (!request) continue;
     const open = one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE id = ? AND status = 'open'", request)?.n;
-    if (!open) exec('DELETE FROM bookings WHERE id = ?', b.id);
+    if (!open) {
+      exec('DELETE FROM bookings WHERE id = ?', b.id);
+      continue;
+    }
+    if (b.trigger !== 'request reply') continue;
+    // The latest reply it's for, and whether the engineer read the conversation after it, then answered.
+    const lastReply = one<{ at: number | null }>("SELECT MAX(at) AS at FROM request_messages WHERE request_id = ? AND from_who = 'you'", request)?.at ?? b.created_at;
+    const read = one<{ at: number | null }>("SELECT MIN(at) AS at FROM actions WHERE agent_id = ? AND tool = 'engineer.list_requests' AND at >= ?", FLEET_ENGINEER, lastReply)?.at;
+    const answered = read != null && one<{ n: number }>("SELECT COUNT(*) AS n FROM request_messages WHERE request_id = ? AND from_who = 'engineer' AND at > ?", request, read)?.n;
+    if (answered) exec('DELETE FROM bookings WHERE id = ?', b.id);
   }
 }
 

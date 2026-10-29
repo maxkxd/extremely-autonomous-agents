@@ -407,3 +407,24 @@ test('a resumed Fleet Engineer run is told what it already said, so it does not 
   assert.doesNotMatch(opening, /older message/);
   assert.match(opening, /you're done: end the run/);
 });
+
+test("a queued reply the engineer has since read and answered is dropped; one it hasn't read stays", () => {
+  const now = Date.now();
+  const id = Number(exec("INSERT INTO requests (agent_id, what, why, created_at, stage) VALUES ('a', 'x', 'y', ?, 'engineer')", now - 60_000).lastInsertRowid);
+  exec("INSERT INTO request_messages (request_id, from_who, text, at) VALUES (?, 'you', 'reply 1', ?)", id, now - 50_000);
+  exec("INSERT INTO request_messages (request_id, from_who, text, at) VALUES (?, 'you', 'reply 2', ?)", id, now - 49_000);
+  exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES ('fleet', 'request reply', ?, ?, ?)", `Max replied on request #${id}: "reply 2"`, now, now - 49_000);
+  // Not read yet: it stays.
+  dropStaleRequestRuns();
+  assert.equal(all('SELECT id FROM bookings').length, 1);
+  // Read before reply 2 came: still not seen.
+  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, at) VALUES ('r1', 'fleet', 'engineer.list_requests', '[]', 'T0', 'ok', ?)", now - 49_500);
+  exec("INSERT INTO request_messages (request_id, from_who, text, at) VALUES (?, 'engineer', 'answer to reply 1', ?)", id, now - 40_000);
+  dropStaleRequestRuns();
+  assert.equal(all('SELECT id FROM bookings').length, 1);
+  // Read after it, then answered: dropped.
+  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, at) VALUES ('r1', 'fleet', 'engineer.list_requests', '[]', 'T0', 'ok', ?)", now - 45_000);
+  exec("INSERT INTO request_messages (request_id, from_who, text, at) VALUES (?, 'engineer', 'answer to both', ?)", id, now - 30_000);
+  dropStaleRequestRuns();
+  assert.equal(all('SELECT id FROM bookings').length, 0);
+});
