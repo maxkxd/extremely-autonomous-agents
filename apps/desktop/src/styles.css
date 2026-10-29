@@ -1858,3 +1858,13 @@ a.sbtn { text-decoration: none; color: inherit; }
 /* Signed out: Sign up beside your name, where the account menu's arrows would be. */
 .account-signup { position: absolute; right: 10px; bottom: 15px; height: 30px; padding: 0 12px; font-size: 13px; }
 .model-panel:has(> .no-models) { flex: 1; justify-content: center; }
+
+/* The host is offline (account.ts): the last snapshot, readable, greyed, nothing to press. */
+.offline-banner {
+  margin: 10px 28px 0; padding: 9px 14px; border-radius: 10px; font-size: 13.5px;
+  color: #d9d9d9; background: var(--surface); border: 1px solid var(--border-strong);
+}
+/* The sidebar stays usable: moving between pages and agents, to read them. */
+.app.offline .main-body, .app.offline .main-header { filter: grayscale(1); opacity: 0.55; }
+.app.offline .main button, .app.offline .main input, .app.offline .main textarea, .app.offline .main select,
+.app.offline .main [role='button'] { pointer-events: none; }
