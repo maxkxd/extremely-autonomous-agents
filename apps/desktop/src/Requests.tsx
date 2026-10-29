@@ -257,7 +257,7 @@ function RequestRow({
                     <textarea
                       className="reject-reason"
                       rows={2}
-                      placeholder={'Reply to the Agency Engineer, e.g. "I\'ll get a seat - what do you need?" or "done"'}
+                      placeholder="Reply to the Agency Engineer"
                       value={draft}
                       onChange={e => setDraft(e.target.value)}
                       onKeyDown={e => {
