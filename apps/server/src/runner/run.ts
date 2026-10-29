@@ -8,7 +8,7 @@ import { FLEET_ENGINEER, type AgentDef } from './agent.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { backoffMs, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
-import { costOf, isFree, spentToday } from './pricing.js';
+import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
 import type { Harness } from './harness.js';
 import { ModelError, type Adapter, type Msg } from './providers.js';
@@ -82,11 +82,11 @@ export function eligibleModels(agent: AgentDef, deps: RunDeps): ModelChoice[] {
   );
 }
 
-// Today's spending limit reached - the agency's, or this agent's own.
+// This month's spending limit reached - the agency's, or this agent's own.
 export function overSpend(agentId: string, now: number): boolean {
   const orgCap = getSetting<number | null>('spend_cap_org_usd', null);
   const cap = stateOf(agentId, now).spend_cap_usd;
-  return (orgCap != null && spentToday(now) >= orgCap) || (cap != null && spentToday(now, agentId) >= cap);
+  return (orgCap != null && spentThisMonth(now) >= orgCap) || (cap != null && spentThisMonth(now, agentId) >= cap);
 }
 
 // Why an agent has no model to run on - said plainly on its card and in its DMs.
@@ -97,10 +97,10 @@ export function noModelReason(agent: AgentDef, deps: RunDeps): string {
   const usable = agent.models.filter(c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)));
   if (!agent.models.length) return 'It has no models. Pick some on its card.';
   if (!usable.length) return "None of its models can run right now. Check them on its card.";
-  if (orgCap != null && spentToday(now) >= orgCap)
-    return `Today's $${orgCap.toFixed(2)} spending limit is reached. It runs again tomorrow, or now on an AI plan.`;
-  if (cap != null && spentToday(now, agent.id) >= cap)
-    return `Its $${cap.toFixed(2)} daily limit is reached. It runs again tomorrow, or now on an AI plan.`;
+  if (orgCap != null && spentThisMonth(now) >= orgCap)
+    return `This month's $${orgCap.toFixed(2)} spending limit is reached. It runs again next month, or now on an AI plan.`;
+  if (cap != null && spentThisMonth(now, agent.id) >= cap)
+    return `Its $${cap.toFixed(2)} monthly limit is reached. It runs again next month, or now on an AI plan.`;
   return 'No model it can use right now.';
 }
 

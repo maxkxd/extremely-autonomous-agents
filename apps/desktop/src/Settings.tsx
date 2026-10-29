@@ -1062,12 +1062,12 @@ function UsageSection() {
         </div>
       </div>
       <h3>By agent</h3>
-      {/* Each one's daily spending limit sits beside its cost (docs/runner.md, "Money
-          and limits"): reached, pay-per-use models pause until tomorrow; plans and
-          local models carry on. Blank: no limit. */}
+      {/* Each one's monthly spending limit sits beside its cost this month
+          (docs/runner.md, "Money and limits"): reached, pay-per-use models pause
+          until next month; plans and local models carry on. Blank: no limit. */}
       <ul className={`susage${isAdmin() ? '' : ' locked'}`}>
         {usage && (
-          <li className="susage-org" title={`The whole organisation: ${money(total)} over ${runs} runs this month, ${money(usage.spentTodayUsd)} today`}>
+          <li className="susage-org" title={`${ACCOUNT.org ? 'The whole organisation' : 'All agents'}: ${money(total)} over ${runs} runs this month`}>
             <span className="susage-name">
               <Building2 size={14} strokeWidth={1.75} />
               {ACCOUNT.org ? 'Whole organisation' : 'All agents'}
@@ -1080,7 +1080,7 @@ function UsageSection() {
               {money(total)}
               {unknown > 0 && '*'}
             </span>
-            <CapInput value={usage.orgCapUsd} disabled={!isAdmin()} onSave={v => setOrgCap(parseCap(v)).catch(() => {})} label="Daily limit for the whole organisation" />
+            <CapInput value={usage.orgCapUsd} disabled={!isAdmin()} onSave={v => setOrgCap(parseCap(v)).catch(() => {})} label="Monthly limit for the whole organisation" />
           </li>
         )}
         {rows.map(({ a, spend }) => {
@@ -1099,12 +1099,12 @@ function UsageSection() {
                 {money(spend)}
                 {a.monthUnknownRuns > 0 && '*'}
               </span>
-              <CapInput value={a.capUsd} disabled={!isAdmin()} onSave={v => setAgentRunner(a.id, { spendCapUsd: parseCap(v) }).catch(() => {})} label={`Daily limit for ${a.name}`} />
+              <CapInput value={a.capUsd} disabled={!isAdmin()} onSave={v => setAgentRunner(a.id, { spendCapUsd: parseCap(v) }).catch(() => {})} label={`Monthly limit for ${a.name}`} />
             </li>
           );
         })}
       </ul>
-      {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change the daily limits.</p>}
+      {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change the monthly limits.</p>}
     </section>
   );
 }
@@ -1115,7 +1115,7 @@ const parseCap = (v: string) => {
   return v.trim() === '' || !Number.isFinite(n) || n < 0 ? null : n;
 };
 
-// A daily dollar limit that saves when you leave it (or press Enter).
+// A monthly dollar limit that saves when you leave it (or press Enter).
 function CapInput({ value, onSave, label, disabled }: { value: number | null; onSave: (v: string) => void; label: string; disabled?: boolean }) {
   const [text, setText] = useState(value == null ? '' : String(value));
   const saved = useRef(text);
@@ -1137,7 +1137,6 @@ function CapInput({ value, onSave, label, disabled }: { value: number | null; on
         onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         disabled={disabled}
       />
-      <span className="slimit-per">/day</span>
     </label>
   );
 }

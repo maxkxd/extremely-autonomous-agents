@@ -147,9 +147,10 @@ opening says what it already did, so nothing is done twice.
 
 - **Plans run out**: the agent moves on to its 2nd and 3rd models, even onto
   pay-per-use keys, and keeps going.
-- **Spend caps** (Settings -> Usage): an optional daily dollar cap for the
-  whole organisation, and an optional daily cap per agent. Hitting one pauses
-  that spending until the next day; plans and local models aren't affected.
+- **Spend caps** (Settings -> Usage): an optional monthly dollar cap for the
+  whole organisation, and an optional monthly cap per agent (the host's
+  calendar month). Hitting one pauses that spending until the next month;
+  plans and local models aren't affected.
 - **What a run cost**: OpenRouter's public price list, refreshed daily. A
   run on a plan (Claude Code, ChatGPT) is priced as the same model on an API
   would be - more than it really costs, but it shows what the plan is worth,
@@ -215,7 +216,7 @@ Step 1 is built and tested:
   research, dating work and "this year" need it.
 - **In the app**: real agents' cards (state, stats, ferocity, Standby/Stop,
   Run now), DM channels, requests (your DIY/Reject answer reaches the agent),
-  daily spending limits in Settings -> Usage.
+  monthly spending limits in Settings -> Usage.
 - **The builder** writes each agent's ferocity plan and natural limits.
   First real one: "Morning Wallpaper" capped its wallpaper change at once a
   day and put higher-level effort into stocking ideas, as designed.
