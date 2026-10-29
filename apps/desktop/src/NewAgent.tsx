@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUp, Plus, Sparkles } from 'lucide-react';
+import { ArrowUp, Plus, Sparkles, TriangleAlert } from 'lucide-react';
 import { AGENT_PACKS, type AgentPack } from './packs';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { BuilderChat } from './BuilderChat';
@@ -82,11 +82,13 @@ function CustomCard({
   onSubmit,
   onReopen,
   cardRef,
+  stopped,
 }: {
   session: BuilderSession;
   onSubmit: (text: string) => void;
   onReopen: () => void;
   cardRef: React.Ref<HTMLElement>;
+  stopped: boolean; // the whole agency is stopped: no building until it's resumed
 }) {
   const [text, setText] = useState('');
   const { phase } = session;
@@ -115,7 +117,12 @@ function CustomCard({
             it works.
           </p>
         )}
-        {started ? (
+        {stopped ? (
+          <div className="custom-input custom-stopped">
+            <TriangleAlert size={16} strokeWidth={2} />
+            The whole agency is stopped
+          </div>
+        ) : started ? (
           <button className="pack-add custom-add" onClick={onReopen}>
             Continue building
           </button>
@@ -140,7 +147,7 @@ function CustomCard({
           </div>
         )}
         {phase === 'matching' && <div className="custom-status">Checking the packs first...</div>}
-        {session.error && !session.open && <div className="custom-error">{session.error}</div>}
+        {session.error && !session.open && !stopped && !/agency is stopped/i.test(session.error) && <div className="custom-error">{session.error}</div>}
       </div>
     </article>
   );
@@ -150,10 +157,12 @@ export function NewAgent({
   session,
   setSession,
   onBuilt,
+  agencyStopped = false,
 }: {
   session: BuilderSession;
   setSession: SetSession;
   onBuilt: (b: Built[]) => void;
+  agencyStopped?: boolean;
 }) {
   const packEls = useRef(new Map<string, HTMLElement>());
   const customEl = useRef<HTMLElement>(null);
@@ -265,6 +274,7 @@ export function NewAgent({
       onSubmit={submitBox}
       onReopen={() => setSession(s => ({ ...s, open: true }))}
       cardRef={customEl}
+      stopped={agencyStopped}
     />,
     ...AGENT_PACKS.slice(at).map(pack),
   ];

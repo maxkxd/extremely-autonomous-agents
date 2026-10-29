@@ -500,6 +500,7 @@ export function App() {
               session={builder}
               setSession={setBuilder}
               onBuilt={built => setReveal({ built, leaving: false, error: null })}
+              agencyStopped={agency === 'stopped'}
             />
           ) : view.startsWith('agent:') ? (
             <LiveDM key={view} agentId={view.slice('agent:'.length)} approvalOutcomes={resolved} />
