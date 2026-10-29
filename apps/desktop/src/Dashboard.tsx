@@ -312,8 +312,9 @@ export function AgentCard({
         <header className="card-head">
           <div className="card-name">
             <DeptIcon size={18} strokeWidth={1.75} className="dept-icon" />
+            {/* The pill and counts wrap as one, under the name, never apart. */}
+            <div className="card-title">
             <h2>{agent.name}</h2>
-            {/* The pill and counts wrap as one, never apart. */}
             <span className="head-tags">
             {agent.settingUp && (
               <span className="state-pill setting-up" title="Being tailored to your organisation. It won't run until it's done.">
@@ -339,6 +340,7 @@ export function AgentCard({
               </a>
             </span>
             </span>
+            </div>
           </div>
           {/* Owners only exist inside an organization. */}
           <div className="card-owner">
