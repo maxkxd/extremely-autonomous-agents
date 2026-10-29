@@ -378,3 +378,14 @@ test("the Fleet Engineer's queued runs for closed requests are dropped, not run"
   dropStaleRequestRuns();
   assert.deepEqual(all<{ task: string }>('SELECT task FROM bookings').map(b => b.task), [`Request #${open} from a: x`]);
 });
+
+test("quick replies on a request join the Fleet Engineer's waiting run: one run answers them all", async () => {
+  const { replyToEngineer } = await import('./api.js');
+  replyToEngineer(4, 'Max', 'use acme/web');
+  replyToEngineer(4, 'Max', 'actually acme/app');
+  replyToEngineer(41, 'Max', 'yes');
+  const queued = all<{ task: string }>("SELECT task FROM bookings WHERE agent_id = 'fleet' ORDER BY id").map(b => b.task);
+  assert.equal(queued.length, 2);
+  assert.match(queued[0], /replied on request #4: "use acme\/web"\nThen: "actually acme\/app"/);
+  assert.match(queued[1], /request #41: "yes"/);
+});
