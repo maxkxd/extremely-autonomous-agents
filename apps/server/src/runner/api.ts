@@ -118,7 +118,8 @@ export const runnerRoutes: Record<string, Route> = {
     if (!isId(b.id)) throw new Error('Unknown agent.');
     stateOf(b.id);
     const now = Date.now();
-    if (typeof b.ferocity === 'number' && b.ferocity >= 0 && b.ferocity < LEVELS.length)
+    // Built-ins keep theirs: they work when there's work, with a daily look otherwise.
+    if (typeof b.ferocity === 'number' && b.ferocity >= 0 && b.ferocity < LEVELS.length && !(await readMeta(b.id))?.builtIn)
       exec('UPDATE agent_state SET ferocity = ?, updated_at = ? WHERE agent_id = ?', Math.floor(b.ferocity), now, b.id);
     if (b.state === 'active' || b.state === 'draining' || b.state === 'stopped') {
       const state = b.state;

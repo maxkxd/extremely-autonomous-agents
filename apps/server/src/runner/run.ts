@@ -77,11 +77,11 @@ export function noModelReason(agent: AgentDef, deps: RunDeps): string {
   const cap = stateOf(agent.id, now).spend_cap_usd;
   const usable = agent.models.filter(c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)));
   if (!agent.models.length) return 'It has no models. Pick some on its card.';
-  if (!usable.length) return "None of its models can run right now: they're not connected, or failed their checks. Check its models on its card, and Settings -> Connectors.";
+  if (!usable.length) return "None of its models can run right now. Check them on its card.";
   if (orgCap != null && spentToday(now) >= orgCap)
-    return `Today's spending limit ($${orgCap.toFixed(2)}) is reached, and its models are all paid ones. It runs again tomorrow, or on one of your AI plans if you give it one (Settings -> Usage to change the limit).`;
+    return `Today's $${orgCap.toFixed(2)} spending limit is reached. It runs again tomorrow, or now on an AI plan.`;
   if (cap != null && spentToday(now, agent.id) >= cap)
-    return `Its own daily spending limit ($${cap.toFixed(2)}) is reached, and its models are all paid ones. It runs again tomorrow (Settings -> Usage to change the limit).`;
+    return `Its $${cap.toFixed(2)} daily limit is reached. It runs again tomorrow, or now on an AI plan.`;
   return 'No model it can use right now.';
 }
 
