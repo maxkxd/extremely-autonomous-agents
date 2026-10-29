@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { CircleAlert, CircleCheck, CircleStop, Loader2, SendHorizontal } from 'lucide-react';
 import { Linkify } from './Linkify';
+import { RichText } from './RichText';
 import { ACCOUNT, AGENTS } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import type { DmEntry, RunPost, ToolLine } from './dms';
@@ -67,9 +68,9 @@ function RunPostView({
           {post.trigger} · {post.tools.length} action{post.tools.length === 1 ? '' : 's'} · {post.costKnown === false ? 'cost unknown' : `$${post.cost.toFixed(2)}`} ·{' '}
           {duration(post.seconds)}
         </button>
-        <p className="dm-text">
-          <Linkify text={post.text} />
-        </p>
+        <div className="dm-text">
+          <RichText text={post.text} />
+        </div>
         {post.tools.length > 0 && (
           <ul className="dm-tools">
             {post.tools.map((t, i) => (

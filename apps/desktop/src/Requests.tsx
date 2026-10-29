@@ -5,7 +5,7 @@ import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { visibleApprovals, type ApprovalScope } from './Approvals';
 import { sendRequestMessage, sendToIde } from './builder';
-import { Linkify } from './Linkify';
+import { RichText } from './RichText';
 
 // How a request left the page: you did it, or you rejected it. (One the Fleet
 // Engineer settles is closed on the server.)
@@ -81,17 +81,35 @@ function RequestRow({
   onDecide,
   onGone,
   onOpenApprovals,
+  refs,
+  spotlight,
+  onFocused,
 }: {
   request: ResourceRequest;
   showOwner: boolean;
   onDecide: (r: RequestResolution, note: string) => void;
   onGone: () => void;
   onOpenApprovals: (approvalId?: string | null) => void; // takes you to that approval
+  refs: RequestRefs; // other requests named in its text, as links
+  spotlight: boolean; // you came here for this one - open it, centre it and glow
+  onFocused: () => void;
 }) {
   const agent = agentOf(request);
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   // Closed unless it's waiting on you.
   const [open, setOpen] = useState(request.stage === 'waiting_you' || request.stage === 'person');
+  // Arriving for this one (a link from another request): open, centred, a blue glow.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [spotlit, setSpotlit] = useState(false);
+  useEffect(() => {
+    if (!spotlight) return;
+    setOpen(true);
+    // Once it's open (0.28s), its top into view: an open request can be taller than the window.
+    window.setTimeout(() => wrapRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 320);
+    setSpotlit(true);
+    onFocused();
+    window.setTimeout(() => setSpotlit(false), 2600);
+  }, [spotlight]);
   const [drawer, setDrawer] = useState<Drawer | null>(null);
   const [note, setNote] = useState('');
   const [echo, setEcho] = useState<Message[]>([]);
@@ -160,8 +178,8 @@ function RequestRow({
   const typing = !!request.busy || echo.length > 0;
 
   return (
-    <div className={`request-wrap${collapsing ? ' collapsing' : ''}`}>
-      <article className={`request${open ? ' open' : ''}${leaving ? ` leaving ${leaving}` : ''}`}>
+    <div className={`request-wrap${collapsing ? ' collapsing' : ''}`} ref={wrapRef}>
+      <article className={`request${open ? ' open' : ''}${leaving ? ` leaving ${leaving}` : spotlit ? ' spotlit' : ''}`}>
         <button className="request-row" onClick={() => setOpen(o => !o)} aria-expanded={open}>
           <ChevronRight size={15} className="request-chevron" />
           <DeptIcon size={15} strokeWidth={1.75} className="request-dept" />
@@ -187,7 +205,9 @@ function RequestRow({
         <div className="request-expand" {...(open ? {} : { inert: '' })}>
           <div className="request-clip">
             <div className="request-body">
-              <p className="request-detail">{request.detail}</p>
+              <div className="request-detail">
+                <RichText text={request.detail} {...refs} />
+              </div>
 
               {/* Conversation with the Fleet Engineer. */}
               <div className="eng-chat">
@@ -200,7 +220,7 @@ function RequestRow({
                       </span>
                     )}
                     <div className="eng-text">
-                      <Linkify text={m.text} />
+                      <RichText text={m.text} {...refs} />
                     </div>
                   </div>
                 ))}
@@ -315,6 +335,8 @@ function RequestRow({
                   </div>
                 </div>
               </div>
+              {/* Its number, which other requests (and the Fleet Engineer) refer to it by. */}
+              {request.live && <span className="request-id">#{request.live}</span>}
             </div>
           </div>
         </div>
@@ -323,6 +345,10 @@ function RequestRow({
   );
 }
 
+// Other requests named in a request's text ("request #41"): which can be opened
+// (they're on this page), and how.
+export type RequestRefs = { onRequest: (id: number) => void; canOpen: (id: number) => boolean };
+
 export function Requests({
   pending,
   scope,
@@ -330,6 +356,9 @@ export function Requests({
   onDecide,
   onGone,
   onOpenApprovals,
+  refs,
+  focus,
+  onFocused,
 }: {
   pending: ResourceRequest[];
   scope: ApprovalScope;
@@ -337,6 +366,9 @@ export function Requests({
   onDecide: (id: string, r: RequestResolution, note: string) => void;
   onGone: (id: string) => void;
   onOpenApprovals: (approvalId?: string | null) => void;
+  refs: RequestRefs;
+  focus: number | null; // the request to bring into view (its number)
+  onFocused: () => void;
 }) {
   const shown = visibleApprovals(pending, scope)
     .filter(r => !agentFilter || r.agentId === agentFilter)
@@ -356,6 +388,9 @@ export function Requests({
           onDecide={(res, note) => onDecide(r.id, res, note)}
           onGone={() => onGone(r.id)}
           onOpenApprovals={onOpenApprovals}
+          refs={refs}
+          spotlight={r.live === focus}
+          onFocused={onFocused}
         />
       ))}
     </div>
