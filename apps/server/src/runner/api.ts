@@ -59,6 +59,22 @@ const isLocalAddress = (u: string) => {
 // A person's answer to a request: done (with what they did or decided) or
 // turned down. The agent is told at the start of its next run. Turned down:
 // what the Fleet Engineer drafted for it goes, and so does its go-live card.
+// A run's task about request #N ("Request #4 from ...", "... replied on request #4: ...").
+const mentions = (task: string | null, id: number) => new RegExp(`request #${id}\\b`, 'i').test(task ?? '');
+
+// A person's reply on a request wakes the Fleet Engineer. Replies sent while
+// that wake is still waiting join it, so one run answers them all, not one each.
+export function replyToEngineer(requestId: number, who: string, text: string) {
+  const said = `"${text.slice(0, 1500)}"`;
+  const waiting = one<{ id: number; task: string | null }>(
+    "SELECT id, task FROM bookings WHERE agent_id = ? AND trigger = 'request reply' AND task LIKE ? ORDER BY id LIMIT 1",
+    FLEET_ENGINEER,
+    `%request #${requestId}:%`,
+  );
+  if (waiting) exec('UPDATE bookings SET task = ? WHERE id = ?', `${waiting.task ?? ''}\nThen: ${said}`.slice(-6000), waiting.id);
+  else book(FLEET_ENGINEER, 'request reply', `${who} replied on request #${requestId}: ${said}`);
+}
+
 export async function answerRequest(id: number, status: 'done' | 'rejected', answer?: string | null): Promise<boolean> {
   if (status !== 'done' && status !== 'rejected') throw new Error('Answer with done or rejected.');
   const changed = exec(
@@ -213,6 +229,11 @@ export const runnerRoutes: Record<string, Route> = {
       'SELECT id, agent_id, run_id, what, why, evidence, expected_effect, status, stage, answer, created_at, answered_at FROM requests ORDER BY created_at DESC',
     );
     const messages = all<{ request_id: number; from_who: string; text: string; at: number }>('SELECT request_id, from_who, text, at FROM request_messages ORDER BY id');
+    // What the Fleet Engineer is doing and has waiting, to tell which request it's on.
+    const onIt = {
+      running: isRunning(FLEET_ENGINEER) ? all<{ task: string | null }>("SELECT task FROM runs WHERE agent_id = ? AND status = 'running'", FLEET_ENGINEER).map(x => x.task) : [],
+      queued: all<{ task: string | null }>('SELECT task FROM bookings WHERE agent_id = ?', FLEET_ENGINEER).map(x => x.task),
+    };
     // The approval a request waits on (the Fleet Engineer's go-live), to go straight to.
     const waiting = all<{ id: string; request: number }>(
       "SELECT id, json_extract(args, '$.request_id') AS request FROM approvals WHERE status = 'pending' AND expires_at > ? AND agent_id = ?",
@@ -222,7 +243,8 @@ export const runnerRoutes: Record<string, Route> = {
     return rows.map(r => ({
       ...r,
       thread: messages.filter(m => m.request_id === r.id).map(m => ({ from: m.from_who === 'you' ? 'you' : 'engineer', text: m.text, at: m.at })),
-      engineerBusy: r.stage === 'engineer' && isRunning(FLEET_ENGINEER),
+      // Its run for this request is going or waiting - not just any run of its.
+      engineerBusy: r.stage === 'engineer' && (onIt.running.some(t => mentions(t, r.id)) || onIt.queued.some(t => mentions(t, r.id))),
       // The Requests page shows a request only once it needs the person: the
       // engineer asked them something, handed it to them, or its go-live waits
       // on them. While the engineer is still working it out, it isn't there.
@@ -240,7 +262,7 @@ export const runnerRoutes: Record<string, Route> = {
     if (!text?.trim()) throw new Error('Nothing to send.');
     postToRequest(r.id, 'you', text.trim());
     exec("UPDATE requests SET stage = 'engineer' WHERE id = ?", r.id);
-    book(FLEET_ENGINEER, 'request reply', `${(await readMeta(r.agent_id))?.owner ?? 'The person'} replied on request #${r.id}: "${text.trim().slice(0, 1500)}"`);
+    replyToEngineer(r.id, (await readMeta(r.agent_id))?.owner ?? 'The person', text.trim());
     return { ok: true };
   },
 
