@@ -263,9 +263,16 @@ export function ModelPanel({
 // a check for any chosen model that has none, and a fresh one when a model is
 // picked. A check can learn a model's exact effort levels, so it hands back
 // the updated list of what's connected.
+// The last checks seen, so a screen opened again starts from them instead of
+// showing every model as unchecked for a moment.
+let lastChecks: Checks | null = null;
+
 export function useModelChecks(chosen: ModelChoice[], setAvailable: (a: AvailableModels[]) => void) {
-  const [checks, setChecks] = useState<Checks>({});
-  const [loaded, setLoaded] = useState(false);
+  const [checks, setChecks] = useState<Checks>(() => lastChecks ?? {});
+  const [loaded, setLoaded] = useState(lastChecks !== null);
+  useEffect(() => {
+    if (loaded) lastChecks = checks;
+  }, [checks, loaded]);
   useEffect(() => {
     getModelChecks()
       .then(all => setChecks(prev => ({ ...all, ...prev })))
@@ -293,7 +300,7 @@ export function useModelChecks(chosen: ModelChoice[], setAvailable: (a: Availabl
       if (c) run(c.connection, c.model);
     }
   }, [missing.join('|')]);
-  return { checks, check: (connection: string, model: string) => run(connection, model, true) };
+  return { checks, loaded, check: (connection: string, model: string) => run(connection, model, true) };
 }
 
 // The slide: the right column moves left over the pies by exactly the pies'

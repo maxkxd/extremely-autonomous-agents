@@ -17,6 +17,8 @@ type RunState = 'active' | 'draining' | 'stopped';
 
 // The runner's last answer per time frame, kept across visits to the dashboard.
 const lastLive: Partial<Record<TimeRange, Record<string, LiveAgent>>> = {};
+// And each agent's models, and the models there are, for the same reason.
+const lastModels: { choices?: Record<string, ModelChoice[]>; available?: AvailableModels[] } = {};
 
 const SIZE = 220;
 const R = 82;
@@ -33,7 +35,7 @@ const CUT_TO = R + 34; // past its outer edge
 const TOTAL_MAX_WIDTH = 100;
 
 // No legend: hovering a slice highlights it and shows its label, value and share.
-function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; format: (n: number) => string }) {
+function Donut({ caption, slices, format, loading = false }: { caption: string; slices: Slice[]; format: (n: number) => string; loading?: boolean }) {
   const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
   const maskId = `cuts${useId().replace(/:/g, '')}`;
   // The centre total keeps its full size unless it would spill out of the hole;
@@ -78,7 +80,7 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
         viewBox={`0 0 ${SIZE} ${SIZE}`}
         className="donut"
         role="img"
-        aria-label={`${caption}: ${format(total)}`}
+        aria-label={loading ? `${caption}: loading` : `${caption}: ${format(total)}`}
       >
         <defs>
           <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width={SIZE} height={SIZE}>
@@ -102,9 +104,9 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
         </defs>
         <g transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`} mask={`url(#${maskId})`}>
           {/* Track only for an empty chart - otherwise it would fill the slice gaps. */}
-          {total <= 0 && <circle cx={SIZE / 2} cy={SIZE / 2} r={R} className="donut-track" />}
+          {(total <= 0 || loading) && <circle cx={SIZE / 2} cy={SIZE / 2} r={R} className={`donut-track${loading ? ' skel-ring' : ''}`} />}
           {slices.map((s, i) => {
-            if (s.value <= 0 || total <= 0) return null;
+            if (s.value <= 0 || total <= 0 || loading) return null;
             const len = (s.value / total) * C;
             const seg = (
               <circle
@@ -126,7 +128,7 @@ function Donut({ caption, slices, format }: { caption: string; slices: Slice[]; 
             return seg;
           })}
         </g>
-        <text ref={totalRef} x={SIZE / 2} y={SIZE / 2 - 9} className="donut-total">{format(total)}</text>
+        {!loading && <text ref={totalRef} x={SIZE / 2} y={SIZE / 2 - 9} className="donut-total">{format(total)}</text>}
         <text x={SIZE / 2} y={SIZE / 2 + 20} className="donut-caption">{caption}</text>
       </svg>
       {hover && (
@@ -150,6 +152,8 @@ function timeAgo(minutes: number): string {
 }
 
 const count = (n: number) => n.toLocaleString();
+// Where a value goes while it loads: a shimmering bar, never a made-up number.
+const Skel = ({ w, h }: { w: number; h?: number }) => <span className="skel" style={{ width: w, height: h }} aria-hidden />;
 // Cents only matter for small amounts; from $100 up show whole dollars with commas.
 const dollars = (n: number) =>
   n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n).toLocaleString()}`;
@@ -203,6 +207,25 @@ function Tuning({
   );
 }
 
+// The ferocity block's shape while its level isn't known yet.
+function TuningSkeleton() {
+  return (
+    <div className="tuning">
+      <div className="ferocity">
+        <div className="ferocity-head">
+          <span className="stat-label">Ferocity</span>
+          <Skel w={56} h={14} />
+        </div>
+        <span className="skel skel-slider" />
+        <div className="ferocity-est">
+          <span className="stat-label">Est. Output:</span>
+          <Skel w={24} h={12} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // "About 3 runs a day", "About 1 run a week", "Non-stop: about 400 runs a day".
 function runsLabel(perDay: number): string {
   if (perDay >= 48) return `Non-stop: about ${Math.round(perDay)} runs a day`;
@@ -233,6 +256,9 @@ export function AgentCard({
   onRunNow,
   agencyHeld = false,
   agencyStopped = false,
+  loading = false,
+  countsLoading = false,
+  modelsLoading = false,
 }: {
   agent: Agent;
   range: TimeRange;
@@ -255,6 +281,11 @@ export function AgentCard({
   onRunNow?: () => void; // a real agent: start a run now
   agencyHeld?: boolean; // the whole agency is on standby or stopped: its own controls wait
   agencyStopped?: boolean; // the whole agency is stopped: the card says so
+  // Not known yet, so shown as placeholders rather than zeros: its state and
+  // numbers (loading), its open requests and approvals, its models.
+  loading?: boolean;
+  countsLoading?: boolean;
+  modelsLoading?: boolean;
 }) {
   // The model picker: the right column slides over the pies to make room.
   const cardRef = useRef<HTMLElement>(null);
@@ -303,7 +334,7 @@ export function AgentCard({
   return (
     <article
       ref={cardRef}
-      className={`agent-card${modelsOpen ? ` models-open${slide.stacked ? ' stacked' : ''}` : ''}${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
+      className={`agent-card${modelsOpen ? ` models-open${slide.stacked ? ' stacked' : ''}` : ''}${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} ${loading ? 'loading fero-0 is-active' : `fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}`}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
       style={{ '--tx': tx, '--shift': `${slide.shift}px` } as React.CSSProperties}
     >
       {/* Drag handle: centred on the card's left edge. */}
@@ -340,7 +371,7 @@ export function AgentCard({
                 onClick={() => onNavigate('requests')}
               >
                 <Wrench size={14} strokeWidth={1.75} />
-                {openRequests}
+                {countsLoading ? <Skel w={9} h={12} /> : openRequests}
               </a>
               <a
                 className={`head-count${openApprovals ? ' has' : ''}`}
@@ -348,7 +379,7 @@ export function AgentCard({
                 onClick={() => onNavigate('approvals')}
               >
                 <CircleCheckBig size={14} strokeWidth={1.75} />
-                {openApprovals}
+                {countsLoading ? <Skel w={9} h={12} /> : openApprovals}
               </a>
             </span>
             </span>
@@ -364,16 +395,20 @@ export function AgentCard({
             )}
             {/* Flash when anyone's decision lands; re-keyed on the time frame so
                 switching it (which changes every number) doesn't flash. */}
-            <span className="decision-counts">
-              <FlashCount key={`a-${range}`} outcome="approved" count={decisions.approved} />
-              <FlashCount key={`r-${range}`} outcome="rejected" count={decisions.rejected} />
-              <FlashCount key={`e-${range}`} outcome="expired" count={decisions.expired} />
-            </span>
+            {loading ? (
+              <Skel w={84} h={12} />
+            ) : (
+              <span className="decision-counts">
+                <FlashCount key={`a-${range}`} outcome="approved" count={decisions.approved} />
+                <FlashCount key={`r-${range}`} outcome="rejected" count={decisions.rejected} />
+                <FlashCount key={`e-${range}`} outcome="expired" count={decisions.expired} />
+              </span>
+            )}
           </div>
         </header>
         <div className="card-charts">
-          <Donut caption="output" slices={output} format={count} />
-          <Donut caption="cost" slices={cost} format={dollars} />
+          <Donut caption="output" slices={output} format={count} loading={loading} />
+          <Donut caption="cost" slices={cost} format={dollars} loading={loading} />
         </div>
       </div>
 
@@ -381,12 +416,14 @@ export function AgentCard({
         <div className="stats">
           <div className="stat">
             <span className="stat-label">Runs · {rangeLabel(range).toLowerCase()}</span>
-            <span className="stat-value">{count(agent.live ? agent.runs : scaleTo(range, agent.runs))}</span>
+            <span className="stat-value">{loading ? <Skel w={28} h={22} /> : count(agent.live ? agent.runs : scaleTo(range, agent.runs))}</span>
           </div>
           <div className="stat">
             <span className="stat-label">Last run</span>
             <span className="stat-value small">
-              {last ? (
+              {loading ? (
+                <Skel w={110} h={14} />
+              ) : last ? (
                 <>
                   <span className={`outcome ${outcome}`} />
                   {timeAgo(last.minutesAgo)}
@@ -405,7 +442,13 @@ export function AgentCard({
             reads in a dark UI; Resume takes the attention blue. */}
         {/* Built-ins have none of their own: the agency's Stop covers them. While
             the agency is stopped, every card reads stopped and its own controls wait. */}
-        {!agent.builtIn && <div className="controls">
+        {!agent.builtIn && loading && (
+          <div className="controls">
+            <span className="skel skel-btn" />
+            <span className="skel skel-btn" />
+          </div>
+        )}
+        {!agent.builtIn && !loading && <div className="controls">
           <button
             key={state === 'draining' ? 'drain-resume' : 'drain'}
             className={`ctl-btn${state === 'draining' ? ' resume' : ''}`}
@@ -427,8 +470,9 @@ export function AgentCard({
         </div>}
 
         {/* Built-ins work when there's work: no schedule to set. */}
-        {!agent.builtIn && <Tuning agent={agent} range={range} level={level} setLevel={setLevel} />}
-        {models && (
+        {!agent.builtIn && (loading ? <TuningSkeleton /> : <Tuning agent={agent} range={range} level={level} setLevel={setLevel} />)}
+        {models && modelsLoading && <span className="skel skel-model" />}
+        {models && !modelsLoading && (
           <ModelRow choices={models} available={available} checks={checks} open={modelsOpen} readOnly={preview} onOpen={() => setModelsOpen(o => !o)} />
         )}
       </aside>
@@ -505,9 +549,13 @@ export function Dashboard({
   newDecisions,
   arrivingIds,
   onDeleteAgent,
+  agencyReady,
+  countsReady,
 }: {
   range: TimeRange;
   agency: AgencyState;
+  agencyReady: boolean; // the server has said whether the agency is stopped
+  countsReady: boolean; // and what requests and approvals are open
   onNavigate: (v: View) => void;
   approvalCounts: Record<string, number>;
   requestCounts: Record<string, number>;
@@ -526,12 +574,20 @@ export function Dashboard({
     return agency === 'standby' && own === 'active' ? 'draining' : own;
   };
   // Each agent's models, and every model that could be given (docs/model-connections.md).
-  const [modelChoices, setModelChoices] = useState<Record<string, ModelChoice[]>>({});
-  const [available, setAvailable] = useState<AvailableModels[]>([]);
+  const [modelChoices, setModelChoices] = useState<Record<string, ModelChoice[]>>(() => lastModels.choices ?? {});
+  const [available, setAvailable] = useState<AvailableModels[]>(() => lastModels.available ?? []);
+  const [modelsIn, setModelsIn] = useState(() => !!lastModels.choices && !!lastModels.available);
   useEffect(() => {
-    getAgentModels().then(setModelChoices, () => {});
-    getAvailableModels().then(setAvailable, () => {});
+    Promise.all([getAgentModels(), getAvailableModels()]).then(([choices, avail]) => {
+      lastModels.choices = choices;
+      lastModels.available = avail;
+      setModelChoices(choices);
+      setAvailable(avail);
+      setModelsIn(true);
+    }, () => {});
   }, [arrivingIds.join(',')]);
+  useEffect(() => void (modelsIn && (lastModels.choices = modelChoices)), [modelChoices, modelsIn]);
+  useEffect(() => void (modelsIn && (lastModels.available = available)), [available, modelsIn]);
   // Kept in step with the server too: a pack's tailoring picks an agent's models
   // after its card is up, and the server gives built-ins theirs. One you just
   // changed here keeps your pick while it saves.
@@ -558,17 +614,28 @@ export function Dashboard({
     if (wasSettingUp.current.split(',').some(id => id && !now.has(id))) void refreshModels();
     wasSettingUp.current = settingUp;
   }, [settingUp]);
-  const { checks, check } = useModelChecks(Object.values(modelChoices).flat(), setAvailable);
+  const { checks, check, loaded: checksIn } = useModelChecks(Object.values(modelChoices).flat(), setAvailable);
+  const modelsReady = modelsIn && checksIn;
   // Real agents' state and stats from the runner, refreshed every few seconds.
   // Coming back to the dashboard starts from the last ones seen, so cards don't
   // fade in from placeholders (grey, Chill) as if they'd just changed.
   const [live, setLive] = useState<Record<string, LiveAgent>>(() => lastLive[range] ?? {});
+  // Which time frame those are for: until this one's are in, cards wait (a
+  // switch never shows the last frame's numbers under the new frame's name).
+  const [liveFor, setLiveFor] = useState<TimeRange | null>(() => (lastLive[range] ? range : null));
   useEffect(() => {
     let stop = false;
+    const cached = lastLive[range];
+    if (cached) {
+      setLive(cached);
+      setLiveFor(range);
+    }
     const load = () =>
       getLiveAgents(Math.max(1, Math.round(rangeDays(range)))).then(l => {
         lastLive[range] = l;
-        if (!stop) setLive(l);
+        if (stop) return;
+        setLive(l);
+        setLiveFor(range);
       }, () => {});
     load();
     const t = setInterval(load, 4000);
@@ -763,6 +830,7 @@ export function Dashboard({
         if (!found) return null;
         const a = view(found);
         const l = live[a.id];
+        const loading = liveFor !== range || !agencyReady;
         return (
           <div
             key={a.id}
@@ -770,6 +838,12 @@ export function Dashboard({
             ref={el => (el ? slots.current.set(a.id, el) : slots.current.delete(a.id))}
           >
             <AgentCard
+              // Remounted when its data arrives, so it starts at its real level and
+              // state instead of fading there from the placeholders.
+              key={loading ? 'loading' : 'ready'}
+              loading={loading}
+              countsLoading={!countsReady}
+              modelsLoading={!modelsReady}
               agent={a}
               range={range}
               state={stateFor(a.id, l)}

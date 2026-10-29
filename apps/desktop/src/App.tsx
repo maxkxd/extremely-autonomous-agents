@@ -66,9 +66,16 @@ export function App() {
   const [range, setRange] = useState<TimeRange>('week');
   // The whole agency's Standby and Stop (the dashboard's), kept in step with the server.
   const [agency, setAgencyState] = useState<AgencyState>('active');
+  // Whether the server has answered yet: until then the dashboard's cards (and
+  // their request and approval counts) wait rather than guess.
+  const [agencyReady, setAgencyReady] = useState(false);
   const agencySetAt = useRef(0);
   useEffect(() => {
-    const load = () => getAgency().then(a => Date.now() - agencySetAt.current > 4000 && setAgencyState(a.state), () => {});
+    const load = () =>
+      getAgency().then(a => {
+        if (Date.now() - agencySetAt.current > 4000) setAgencyState(a.state);
+        setAgencyReady(true);
+      }, () => {});
     load();
     const t = window.setInterval(load, 5000);
     return () => window.clearInterval(t);
@@ -97,12 +104,14 @@ export function App() {
   const [gone, setGone] = useState<Record<string, true>>({});
   // Real agents' T2 calls waiting on you (docs/runner.md), decided on the server.
   const [liveApprovals, setLiveApprovals] = useState<Approval[]>([]);
+  const [approvalsReady, setApprovalsReady] = useState(false);
   // Ones you've decided leave the server's list; keep them so the tallies still know them.
   const decidedLive = useRef(new Map<string, Approval>());
   useEffect(() => {
     const load = () =>
       getLiveApprovals().then(
-        list =>
+        list => {
+          setApprovalsReady(true);
           setLiveApprovals([
             ...list.map(a => ({
               id: a.id,
@@ -121,7 +130,8 @@ export function App() {
               forAgentId: a.agentId === 'fleet' && typeof a.args.for_agent === 'string' ? a.args.for_agent : undefined,
             })),
             ...[...decidedLive.current.values()].filter(d => !list.some(a => a.id === d.id)),
-          ]),
+          ]);
+        },
         () => {},
       );
     load();
@@ -185,6 +195,7 @@ export function App() {
   // Requests agents filed, with their Agency Engineer conversations. Your DIY
   // note or reason is the agent's answer.
   const [liveRequests, setLiveRequests] = useState<ResourceRequest[]>([]);
+  const [requestsReady, setRequestsReady] = useState(false);
   // The ones on the page last time: one of them closed since (the Agency Engineer
   // finished it) stays for one more look, to play its exit.
   const shownRequests = useRef<Set<number>>(new Set());
@@ -192,6 +203,7 @@ export function App() {
     const load = () =>
       getLiveRequests().then(
         list => {
+          setRequestsReady(true);
           const shown = list.filter(r => r.status === 'open' && r.needsYou);
           const closing = list.filter(r => r.status !== 'open' && shownRequests.current.has(r.id));
           shownRequests.current = new Set(shown.map(r => r.id));
@@ -492,6 +504,8 @@ export function App() {
               requestCounts={requestCounts}
               newDecisions={newDecisions}
               arrivingIds={arrivingIds}
+              agencyReady={agencyReady}
+              countsReady={approvalsReady && requestsReady}
               onDeleteAgent={async id => {
                 await deleteAgentFiles(id);
                 removeAgent(id);
