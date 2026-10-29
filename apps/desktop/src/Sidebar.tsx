@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -21,7 +21,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { ACCOUNT, AGENTS, type Department } from './data';
-import { currentOrg, ownOrg, state, switchAgency, teamOrgs } from './account';
+import { currentOrg, myName, onMyName, ownOrg, state, switchAgency, teamOrgs } from './account';
 import { openSignIn } from './SignIn';
 import { useDismiss } from './useDismiss';
 import { usePhoto } from './photo';
@@ -230,6 +230,8 @@ const ACCOUNT_ITEMS: { label: string; Icon: typeof Settings; section: SettingsSe
 // Same joined dropdown as the org picker, opening upward from the sidebar foot.
 function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: SettingsSection) => void; onLogOut: () => void }) {
   const [open, setOpen] = useState(false);
+  // The name you go by (Settings > Account), kept in step as it changes.
+  const name = useSyncExternalStore(onMyName, myName);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, open, () => setOpen(false));
 
@@ -281,7 +283,7 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
       >
         <MyAvatar size={34} />
         <span className="switcher-text">
-          <span className="switcher-title">{ACCOUNT.name}</span>
+          <span className="switcher-title">{name}</span>
           <span className="switcher-sub">{ACCOUNT.org ? `${{ owner: 'Owner', admin: 'Admin', member: 'Member' }[currentOrg()?.role ?? 'member']} of ${ACCOUNT.org.name}` : (state.me?.user.email ?? 'Not signed in')}</span>
         </span>
         {state.me && <ChevronsUpDown size={16} className="muted" />}

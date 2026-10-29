@@ -235,3 +235,14 @@ test("hosts check a member's role with their own secret, never a person's sessio
   await call('ana', 'DELETE', `/orgs/${org}/members/ben`);
   assert.equal((await ask('ben', `Host ${hostSecret}`))[0], 404); // removed: no longer
 });
+
+test('a display name: chosen in the app, shown everywhere, kept through sign-ins', async () => {
+  assert.equal((await call('ben', 'PATCH', '/me', { name: 'Benjamin  B' })).body.user.name, 'Benjamin B');
+  assert.equal((await call('ben', 'GET', '/me')).body.user.name, 'Benjamin B', 'signing in again keeps it');
+  const org = (await call('ben', 'GET', '/me')).body.orgs.find((o: any) => o.kind === 'team')?.id ?? (await call('ben', 'POST', '/orgs', { name: 'Ben Again' })).body.id;
+  assert.ok((await call('ben', 'GET', `/orgs/${org}/members`)).body.some((m: any) => m.name === 'Benjamin B'));
+  const { token } = (await call('ben', 'POST', `/orgs/${org}/token`)).body;
+  assert.equal(JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).name, 'Benjamin B', 'and in org tokens');
+  assert.equal((await call('ben', 'PATCH', '/me', { name: 'x'.repeat(81) })).status, 400);
+  assert.equal((await call('ben', 'PATCH', '/me', { name: '' })).body.user.name, 'Ben', "blank: the provider's again");
+});

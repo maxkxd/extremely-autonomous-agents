@@ -51,6 +51,7 @@ export const state = {
   agency: 'personal' as string,
   members: [] as Member[], // the current organisation's
   localName: null as string | null, // this computer's own person, as its agency knows them
+  localFullName: null as string | null, // the name they chose, when not signed in (their agency's profile of them)
   unreachable: null as string | null, // the organisation the app is in can't be reached: why ('offline', or a message)
 };
 
@@ -172,6 +173,32 @@ const local = async <T>(path: string, body?: unknown): Promise<T> => {
 
 // Every organisation you're in: ours (signed in with us), the one this computer
 // self-hosts, and self-hosted ones you've joined elsewhere.
+// --- Your name ---
+//
+// The one you go by everywhere: signed in, the one on your account with us
+// (your organisations see it); otherwise the one in your own agency.
+export const myName = () => state.me?.user.name || state.localFullName || state.localName || 'You';
+const nameListeners = new Set<() => void>();
+export const onMyName = (l: () => void) => (nameListeners.add(l), () => void nameListeners.delete(l));
+export async function setMyName(name: string) {
+  state.localFullName = name.trim() || null;
+  if (state.me) {
+    const r = await backend<{ user: User }>('/me', { method: 'PATCH', body: { name } });
+    state.me = { ...state.me, user: r.user };
+    write(ME_KEY, state.me);
+  }
+  nameListeners.forEach(l => l());
+}
+// Self-hosted organisations you've joined, and the account you have in each.
+export const selfAccounts = () => selfOrgs().map(s => ({ id: s.id, org: s.name, email: s.you.email, address: s.address }));
+export function signOutOfSelf(orgId: string) {
+  const s = selfOrgs().find(x => x.id === orgId);
+  if (s) void fetch(`${s.address}/hosted/auth/sign-out`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ session: s.session }) }).catch(() => {});
+  saveSelfOrgs(selfOrgs().filter(x => x.id !== orgId));
+  forgetSnapshots(orgId);
+  if (state.agency === orgId) switchAgency('personal');
+}
+
 export const teamOrgs = (): OrgView[] => {
   const hostingSelf: OrgView[] = state.hosting?.self
     ? [{ id: state.hosting.orgId, kind: 'team', name: state.hosting.orgName, role: 'owner', ownerId: 'local', host: { registered: true, publicKey: null }, self: { address: '' } }]
@@ -270,6 +297,9 @@ export async function initAccount() {
     local<{ you: { name: string } }>('/api/access').catch(() => null),
   ]);
   state.localName = access && access.you.name !== 'The host' ? access.you.name : null;
+  if (state.localName)
+    state.localFullName =
+      (await local<{ person: { full_name?: string } | null }>(`/api/person?name=${encodeURIComponent(state.localName)}`).catch(() => null))?.person?.full_name?.trim() || null;
   state.signIn = config?.signIn ?? null;
   state.issuer = config?.issuer ?? BACKEND;
   state.hosting = hosting.hosting;
