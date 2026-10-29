@@ -1,4 +1,5 @@
 import type { Clerk as ClerkType } from '@clerk/clerk-js';
+import { HostOffline, RelayLink } from './relay';
 
 // Who's signed in, which agency the app is in, and where its requests go
 // (docs/architecture.md, "Accounts and organisations").
@@ -49,6 +50,7 @@ export const state = {
   agency: 'personal' as string,
   members: [] as Member[], // the current organisation's
   localName: null as string | null, // this computer's own person, as its agency knows them
+  unreachable: null as string | null, // the organisation the app is in can't be reached: why ('offline', or a message)
 };
 
 // --- Signing in ---
@@ -190,6 +192,8 @@ export async function initAccount() {
   if (state.agency !== 'personal' && !currentOrg()) state.agency = 'personal';
   const org = currentOrg();
   if (org) state.members = await backend<Member[]>(`/orgs/${org.id}/members`).catch(() => []);
+  // Hosted elsewhere: reached through the relay, if its host is online.
+  if (org) state.unreachable = await reachable();
 }
 
 // Moving between agencies starts the app afresh in the other one.
@@ -213,15 +217,45 @@ async function orgToken(orgId: string) {
   return t.token;
 }
 
-// Where a request for "/api/..." goes, and with what: your own agency as is; the
+// Testing the relay on one computer: go through it even to the organisation this
+// computer hosts (localStorage eaa.viaRelay = "1").
+const viaRelay = () => read<string | null>('eaa.viaRelay', null) === '1';
+export const reachedHere = (o: OrgView | null) => hostedHere(o) && !viaRelay();
+
+// Organisations hosted elsewhere: one encrypted link each, through our relay (relay.ts).
+const links = new Map<string, RelayLink>();
+const linkTo = (o: OrgView) => {
+  if (!o.host.publicKey) throw new HostOffline(`${o.name} isn't hosted anywhere yet.`);
+  let l = links.get(o.id);
+  if (!l) links.set(o.id, (l = new RelayLink(BACKEND, o.id, o.host.publicKey, sessionToken)));
+  return l;
+};
+
+// A request for "/api/..." to the agency the app is in: your own as is; the
 // organisation this computer hosts through /hosted, as its owner (this computer)
-// or, for anyone else signed in here, with their org access token.
-export async function route(path: string): Promise<{ url: string; headers: Record<string, string> }> {
+// or, for anyone else signed in here, with their org access token; one hosted
+// elsewhere through the relay, with your org access token inside it.
+export async function agencyFetch(path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<Response> {
   const org = currentOrg();
-  if (!org) return { url: path, headers: {} };
-  if (!hostedHere(org)) throw new Error(`${org.name} runs on its owner’s computer, which can’t be reached from here yet.`);
-  if (org.role === 'owner') return { url: `/hosted${path}`, headers: {} };
-  return { url: `/hosted${path}`, headers: { authorization: `Bearer ${await orgToken(org.id)}` } };
+  if (!org) return fetch(path, init);
+  if (reachedHere(org)) {
+    const auth: Record<string, string> = org.role === 'owner' ? {} : { authorization: `Bearer ${await orgToken(org.id)}` };
+    return fetch(`/hosted${path}`, { ...init, headers: { ...init.headers, ...auth } });
+  }
+  return linkTo(org).request(path, { ...init, headers: { ...init.headers, authorization: `Bearer ${await orgToken(org.id)}` } });
+}
+
+// Whether the organisation the app is in can be reached now (startup): here, or
+// its host through the relay. null: it can; otherwise why not.
+export async function reachable(): Promise<string | null> {
+  const org = currentOrg();
+  if (!org || reachedHere(org)) return null;
+  try {
+    await linkTo(org).open();
+    return null;
+  } catch (e) {
+    return e instanceof HostOffline ? 'offline' : (e as Error).message;
+  }
 }
 
 // --- Organisations ---

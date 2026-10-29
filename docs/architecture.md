@@ -87,6 +87,19 @@ service than from the user's own machine (docs/model-connections.md).
   listening only on your computer, started and watched by your own agency
   (apps/server/src/hosting.ts). The app reaches it at `/hosted/...` through
   your own agency, as its owner. One machine hosts at most one organisation.
+- **The relay** (built 2026-10-30) is part of our backend
+  (apps/backend/src/relay.ts): a hosting computer keeps one outbound
+  WebSocket to `/relay/host`, signed in with its host secret; a member's app
+  opens `/relay/app`, signed in as them, for an organisation they're in. The
+  app and the host then run a Noise-NK-shaped handshake (X25519 with the
+  host's key from our directory, HKDF-SHA256, AES-256-GCM with counter
+  nonces; `relay-crypto.ts`, the same file in the app and the server), so
+  the relay passes on only ciphertext and a fake host can't finish it.
+  Inside, each message is one of the app's `/api/...` requests with the
+  member's org access token; the host refuses any without one. Host not
+  connected: the app says it's offline. `localStorage eaa.viaRelay = "1"`
+  makes the app go through the relay even to an organisation this computer
+  hosts, for testing on one machine.
 - Each agency keeps its own browser storage in the app (card order and so on);
   switching agencies starts the app afresh in the other.
 

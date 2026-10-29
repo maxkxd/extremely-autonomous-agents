@@ -14,12 +14,14 @@
   "dependencies": {
     "jose": "6.2.12",
     "pg": "8.23.1",
-    "tsx": "^4.23.15"
+    "tsx": "^4.23.15",
+    "ws": "8.22.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.10",
     "@types/node": "^26.6.5",
     "@types/pg": "8.23.1",
+    "@types/ws": "8.18.1",
     "typescript": "^7.0.2"
   }
 }

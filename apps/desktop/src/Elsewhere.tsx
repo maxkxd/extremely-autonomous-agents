@@ -1,13 +1,12 @@
 import { useState } from 'react';
-import { hostedHere, hostHere, state, switchAgency, teamOrgs, type OrgView } from './account';
+import { hostHere, state, switchAgency, teamOrgs, type OrgView } from './account';
 
-// An organisation whose agency isn't on this computer. Members reach it from
-// here with the relay (docs/architecture.md, build order phase 4). Its owner,
-// if nothing hosts it yet (creating it stopped part-way), can host it here.
+// An organisation that can't be reached right now: its host is offline, or
+// nothing hosts it yet (creating it stopped part-way: its owner can host it here).
 export function Elsewhere({ org }: { org: OrgView }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const others = teamOrgs().filter(o => o.id !== org.id && (o.role === 'owner' || hostedHere(o)));
+  const others = teamOrgs().filter(o => o.id !== org.id);
   const canHost = org.role === 'owner' && !org.host.registered && !state.hosting;
   const host = async () => {
     setBusy(true);
@@ -27,9 +26,11 @@ export function Elsewhere({ org }: { org: OrgView }) {
         <p>
           {org.role === 'owner' && !org.host.registered
             ? `It isn't running anywhere yet.${state.hosting ? ` This computer already hosts ${state.hosting.orgName}.` : ''}`
-            : org.role === 'owner'
-              ? 'It runs on your other computer. Reaching it from here isn’t built yet.'
-              : 'It runs on its owner’s computer. Reaching it from here isn’t built yet.'}
+            : state.unreachable === 'offline'
+              ? org.role === 'owner'
+                ? 'The computer that hosts it is offline. It can be reached again once that computer is on with the app open.'
+                : 'Its host is offline. It can be reached again once the owner’s computer is on with the app open.'
+              : `It can't be reached right now: ${state.unreachable}`}
         </p>
         {error && <p className="custom-error">{error}</p>}
         <div className="elsewhere-actions">
