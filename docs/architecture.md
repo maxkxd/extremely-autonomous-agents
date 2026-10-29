@@ -56,8 +56,10 @@ service than from the user's own machine (docs/model-connections.md).
 - **Hosted service** (later): we run the same host in a container, registered
   as that org's host. Nothing changes for members.
 - In an organisation the host's AI connections run every member's agents.
-  Personal plans (Claude Code on a subscription, Sign in with ChatGPT) are for
-  individual use: steer organisations to API keys or team plans, and warn.
+  Which plans and keys an organisation connects is its own business: no
+  warnings or steering in the app (team and enterprise plans, a one-person
+  organisation and so on are all legitimate; staying within a provider's
+  terms is the organisation's responsibility).
 
 Build order: (1) our backend - Clerk, Postgres directory, the rules, org
 tokens, host registration; (2) the host checks tokens and roles and records
