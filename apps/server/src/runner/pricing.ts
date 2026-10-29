@@ -1,4 +1,4 @@
-import { startOfDay } from './clock.js';
+import { startOfDay, startOfMonth } from './clock.js';
 import { one } from './db.js';
 
 // What a run cost (docs/runner.md, "Money and limits"). OpenRouter's public
@@ -80,8 +80,17 @@ export async function costOf(connection: string, model: string, input: number, o
 
 // --- Spend caps (Settings -> Usage) ------------------------------------------
 
-// Days start at the host's midnight (clock.ts).
+// Days and months start at the host's midnight (clock.ts).
 export { startOfDay };
+
+// The caps are monthly: what's been spent since the host's 1st of the month.
+export function spentThisMonth(now: number, agentId?: string): number {
+  const since = startOfMonth(now);
+  const row = agentId
+    ? one<{ s: number | null }>('SELECT SUM(cost_usd) AS s FROM runs WHERE agent_id = ? AND started_at >= ?', agentId, since)
+    : one<{ s: number | null }>('SELECT SUM(cost_usd) AS s FROM runs WHERE started_at >= ?', since);
+  return row?.s ?? 0;
+}
 
 export function spentToday(now: number, agentId?: string): number {
   const since = startOfDay(now);

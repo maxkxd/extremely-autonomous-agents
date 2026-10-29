@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS agent_state (
   last_scheduled_at INTEGER,                    -- when its schedule last started a run (ms)
   fail_streak INTEGER NOT NULL DEFAULT 0,       -- runs failed in a row, for backoff
   backoff_until INTEGER,
-  spend_cap_usd REAL,                           -- per-agent daily cap (null = none)
+  spend_cap_usd REAL,                           -- per-agent monthly cap (null = none)
   updated_at INTEGER NOT NULL
 );
 
