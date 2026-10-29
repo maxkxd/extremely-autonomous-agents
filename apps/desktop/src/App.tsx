@@ -12,7 +12,7 @@ import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
 import { NEW_SESSION, agentStatuses, getAgency, getIntegrations, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
-import { currentOrg, hostedHere, isAdmin, signOut, state } from './account';
+import { currentOrg, isAdmin, signOut, state } from './account';
 import { SignIn } from './SignIn';
 import { Elsewhere } from './Elsewhere';
 import { Onboarding, onboarded } from './Onboarding';
@@ -65,14 +65,14 @@ function writeStored(key: string, value: unknown) {
 
 const clamp = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
 
-// An organisation hosted on someone else's computer can't be reached yet (the
-// relay, phase 4): it gets a page saying so instead of the agency.
+// An organisation that can't be reached right now (its host offline, or not
+// hosted anywhere yet) gets a page saying so instead of the agency.
 // A new install opens on the first-run screen (connect an AI model) in your own agency.
 export function App() {
   const org = currentOrg();
   const [firstRun, setFirstRun] = useState(() => !org && !onboarded());
   if (firstRun) return <Onboarding onDone={() => setFirstRun(false)} />;
-  return org && !hostedHere(org) ? <Elsewhere org={org} /> : <Agency />;
+  return org && state.unreachable ? <Elsewhere org={org} /> : <Agency />;
 }
 
 function Agency() {

@@ -7,6 +7,7 @@ import { DATA_DIR } from './paths.js';
 import { getSetting, setSetting } from './runner/db.js';
 import { getSecret, setSecret } from './vault.js';
 import { HERE_HEADER } from './access.js';
+import { relayState, startRelay, stopRelay } from './relay.js';
 
 // Hosting an organisation (docs/architecture.md, "Accounts and organisations").
 // The person's own agency is this server. The organisation they own runs as a
@@ -85,6 +86,8 @@ export async function startHosting(h: Hosting) {
     stopping = false;
     await launch(h);
   }
+  // Registered before (started again): reachable by members straight away.
+  void startRelay(h);
   return { publicKey };
 }
 
@@ -95,6 +98,9 @@ export async function keepHostSecret(orgId: string, secret: string) {
   const out = request({ host: '127.0.0.1', port: HOSTED_PORT, method: 'POST', path: '/api/settings/host-secret', headers: { 'content-type': 'application/json' } });
   out.on('error', () => {}); // not up yet: it gets it when it starts
   out.end(JSON.stringify({ secret }));
+  // Registered: members elsewhere can reach it now, through our relay.
+  const h = hosting();
+  if (h?.orgId === orgId) void startRelay(h);
 }
 
 // The organisation was deleted, or moved to another computer: its agency stops.
@@ -102,18 +108,20 @@ export async function keepHostSecret(orgId: string, secret: string) {
 export async function stopHosting() {
   setSetting('hosting', null);
   stopping = true;
+  stopRelay();
   child?.kill();
 }
 
 export const hostingStatus = () => {
   const h = hosting();
-  return h ? { ...h, running: up } : null;
+  return h ? { ...h, running: up, relay: relayState() } : null;
 };
 
 // On start: carry on hosting.
 export function resumeHosting() {
   const h = hosting();
   if (h && !HOSTED_ORG && !child) void launch(h);
+  if (h && !HOSTED_ORG) void startRelay(h);
 }
 process.on('exit', () => child?.kill());
 

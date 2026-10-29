@@ -1,5 +1,5 @@
 import { ACCOUNT, AGENTS, type Agent, type Department } from './data';
-import { route } from './account';
+import { agencyFetch, currentOrg } from './account';
 import { AGENT_PACKS } from './packs';
 import type { StampedEntry } from './AgentDM';
 
@@ -50,17 +50,14 @@ const OFFLINE = 'The app server is not running. Start apps/server (npm run dev).
 
 // Every request goes to the agency the app is in (account.ts says where, and with what token).
 async function request<T>(path: string, body?: unknown): Promise<T> {
-  const { url, headers } = await route(path);
   let res: Response;
   try {
-    res = await fetch(
-      url,
-      body === undefined
-        ? { headers }
-        : { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ ...who(), ...body }) },
+    res = await agencyFetch(
+      path,
+      body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...who(), ...body }) },
     );
-  } catch {
-    throw new Error(OFFLINE);
+  } catch (e) {
+    throw new Error(currentOrg() ? (e as Error).message : OFFLINE);
   }
   const data = await res.json().catch(() => ({ error: OFFLINE }));
   if (!res.ok) throw new Error(data.error ?? 'Something went wrong.');
