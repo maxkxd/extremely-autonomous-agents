@@ -343,7 +343,7 @@ function AccountSignIn() {
     <div className="sgroup">
       <h3>Sign-in</h3>
       {state.me ? (
-        <Row label={state.me.user.email} sub="Signed in with an email code, Google or GitHub. There's no password to change.">
+        <Row label={state.me.user.email} sub="Your agents reach you here too. Signed in with an email code, Google or GitHub: there's no password.">
           <button className="sbtn" onClick={() => void signOut()}>
             Log out
           </button>
@@ -457,9 +457,12 @@ function AccountSection() {
                 }}
               />
             </Row>
-            <Row label="Email" sub="Where your agents reach you.">
-              <SavedInput value={p.email} placeholder={state.me?.user.email ?? 'you@company.com'} onSave={email => update({ email })} />
-            </Row>
+            {/* Signed in, your agents reach you at the email you sign in with (account.ts keeps it so). */}
+            {!state.me && (
+              <Row label="Email" sub="Where your agents reach you.">
+                <SavedInput value={p.email} placeholder="you@company.com" onSave={email => update({ email })} />
+              </Row>
+            )}
           </div>
 
           <AccountSignIn />
