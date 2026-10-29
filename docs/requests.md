@@ -125,10 +125,8 @@ first. Models a person picked are left alone.
   - **Send to your AI IDE** - one button named and branded for the IDE you
     use ("Send to Claude Code" with Claude's logo, Cursor's for Cursor...).
     Which IDE is a setting in the config menu (for now `YOUR_IDE` in
-    `Requests.tsx`). *Not built yet*. Finds the IDE you use, opens it and places a prompt in it.
-    Needs a proper connector, and the IDE needs this system's MCP so it can read
-    requests and create tools directly. The point is off-platform work the
-    agency can't do itself (e.g. changing settings on your computer).
+    `Requests.tsx`). Opens the IDE on the request with the agency's own MCP
+    server (below). Nothing is posted on the request for it.
   - **DIY** - you did it yourself; write what you did / how it fixed it.
   - **Reject** - write why (optional). Anything the Fleet Engineer drafted
     for it is discarded, with its go-live approval.
@@ -159,8 +157,19 @@ request - and sends anything else, or anything it's unsure of, to the Fleet
 Engineer. Requests for tools the builder invented go straight to the engineer.
 
 Send to your IDE (`runner/ide.ts`): the request's folder gets REQUEST.md and an
-MCP config giving the IDE the Fleet Engineer's tools, so its work still goes
-through drafts, the review and the person's approval. Claude Code and Codex
-start in a terminal on the task; Cursor and Antigravity open the folder.
+MCP config for the agency's MCP server. Claude Code and Codex start in a
+terminal on the task; Cursor and Antigravity open the folder.
+
+**The agency's MCP server** (`runner/agency-mcp.ts`): everything the Fleet
+Engineer and the agent builder can do, for the person's own AI IDE - requests
+(list, answer), agents (read, edit CHARTER/TOOLS/KPI, models, ferocity and
+state, create, delete, run or message), integrations (list, read, draft,
+plugins, test, publish, give tools, discard) and what's waiting in Approvals
+(read-only). It acts for the person, so nothing queues in the app: the IDE
+asks them before each call. A plugin still gets the security review and runs
+sandboxed; built-in agents can't be edited or stopped. One address on this
+computer, kept across restarts (Settings -> Connectors -> Your IDE copies it,
+or Claude Code's `claude mcp add` command). Agents made from it belong to the
+host.
 
 The person can also simply message the Fleet Engineer in its DM channel.

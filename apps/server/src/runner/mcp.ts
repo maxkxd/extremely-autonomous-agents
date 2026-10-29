@@ -13,8 +13,8 @@ const bridges = new Map<string, Bridge>();
 
 const PORT = Number(process.env.PORT ?? 5175);
 
-export function openBridge(b: Bridge): { url: string; close: () => void } {
-  const token = randomBytes(24).toString('hex');
+// token: a standing one (the agency's own MCP server); otherwise a new one per run.
+export function openBridge(b: Bridge, token = randomBytes(24).toString('hex')): { url: string; close: () => void } {
   bridges.set(token, b);
   return { url: `http://127.0.0.1:${PORT}/mcp/${token}`, close: () => bridges.delete(token) };
 }

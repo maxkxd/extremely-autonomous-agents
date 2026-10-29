@@ -4,18 +4,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { readMeta } from '../files.js';
-import { FLEET_ENGINEER, loadAgent } from './agent.js';
+import { loadAgent } from './agent.js';
+import { agencyMcpUrl } from './agency-mcp.js';
 import { all, one } from './db.js';
-import { postToRequest } from './engineer.js';
-import { openBridge } from './mcp.js';
-import { execute, toolsFor, type Wake } from './tools.js';
 
 // Send to your IDE (docs/requests.md): a request handed to the person's own AI
-// IDE, for work the agency can't do itself. Its folder gets REQUEST.md (the
-// request and its conversation, and what to do) and an MCP config giving the
-// IDE the Fleet Engineer's tools - so what it builds still goes through drafts,
-// the security review and the person's approval. Claude Code and Codex start
-// in a terminal with the task; Cursor and Antigravity open the folder.
+// IDE. Its folder gets REQUEST.md (the request, its conversation, what to do)
+// and an MCP config for the agency's own MCP server (agency-mcp.ts): everything
+// the Fleet Engineer and the agent builder can do, approved in the IDE call by
+// call. Claude Code and Codex start in a terminal with the task; Cursor and
+// Antigravity open the folder.
 
 export const IDES = {
   'claude-code': { name: 'Claude Code', command: 'claude', terminal: true },
@@ -27,7 +25,6 @@ export type Ide = keyof typeof IDES;
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'ide');
 const PROMPT = 'Read REQUEST.md in this folder and work through it.';
-const bridges = new Map<number, () => void>();
 
 const onPath = (command: string) =>
   promisify(execFile)(process.platform === 'win32' ? 'where' : 'which', [command]).then(
@@ -50,23 +47,20 @@ ${r.what}
 
 ${thread.length ? `## The conversation so far (the Fleet Engineer and ${owner})\n\n${thread.map(m => `**${m.from_who === 'you' ? owner : 'Fleet Engineer'}:** ${m.text}`).join('\n\n')}\n\n` : ''}## How to work on it
 
-You have the agency's own tools through its MCP server ("agency", already set up for this folder - approve it when asked). They are the Fleet Engineer's:
+You have the whole agency through its MCP server ("agency", already set up for this folder - approve it when asked). It acts for ${owner}, so changes apply straight away:
 
-- \`engineer__list_requests\`, \`engineer__read_agent\` - the request, and the agent it's for (its Charter and tools).
-- \`engineer__list_integrations\`, \`engineer__read_integration\` - what's connected; read \`brave-search\` (HTTP), \`github\` and \`gmail\` as examples of the format.
-- \`engineer__write_integration\`, \`engineer__write_plugin\` - save an integration as a draft (it shows in the app's Settings; nothing can call it yet).
-- \`engineer__ask_for_connection\` - ask ${owner} for a key; it goes in the app's Settings -> Connectors, never in a file or chat.
-- \`engineer__test_integration\` - call a draft's tools for real.
-- \`engineer__publish_integration\` - propose it going live: ${owner} approves it in the app.
-- \`engineer__reply_to_request\` - tell ${owner}, on the request, what you did or need.
+- Requests: \`list_requests\`, \`answer_request\` (done or rejected - say what you did).
+- Agents: \`list_agents\`, \`read_agent\`, \`write_agent_file\` (CHARTER.md, TOOLS.yaml, KPI.yaml), \`set_agent_models\` (\`list_models\`), \`set_agent\`, \`create_agent\`, \`delete_agent\`, \`run_agent\`, \`give_tools\`.
+- Integrations: \`list_integrations\`, \`read_integration\` (\`brave-search\`, \`github\`, \`gmail\` show the format), \`write_integration\` and \`write_plugin\` (drafts), \`test_integration\`, \`publish_integration\`, \`discard_integration\`.
+- \`list_approvals\`: what's waiting on ${owner} in the app.
 
-If the work is something else (code in a repository, a setting on this computer), do it here as you normally would, then say what you did with \`engineer__reply_to_request\`.
+Keys and sign-ins go in the app's Settings -> Connectors, never in a file or chat: ask ${owner} to add one there. If the work is something else (code in a repository, a setting on this computer), do it here as you normally would, then close the request with \`answer_request\`.
 
-Agency MCP server: ${mcpUrl} (local to this computer; it ends when the app restarts - send the request to your IDE again for a new one).
+Agency MCP server: ${mcpUrl} (on this computer only; while the app is running).
 `;
 }
 
-export async function sendToIde(requestId: number, ide: Ide, wake: Wake): Promise<{ opened: boolean; folder: string; prompt: string; ide: string }> {
+export async function sendToIde(requestId: number, ide: Ide): Promise<{ opened: boolean; folder: string; prompt: string; ide: string }> {
   const r = one<{ id: number; agent_id: string; what: string; why: string; evidence: string | null; expected_effect: string | null; status: string }>(
     'SELECT * FROM requests WHERE id = ?',
     requestId,
@@ -74,24 +68,15 @@ export async function sendToIde(requestId: number, ide: Ide, wake: Wake): Promis
   if (!r || r.status !== 'open') throw new Error('That request is closed.');
   const which = IDES[ide];
   if (!which) throw new Error('Unknown IDE.');
-  const engineer = await loadAgent(FLEET_ENGINEER);
-  if (!engineer) throw new Error("The Fleet Engineer isn't set up yet.");
-
-  // The IDE works as the Fleet Engineer: same tools, same tiers, same approvals.
-  bridges.get(requestId)?.();
-  const { specs, ids } = toolsFor(engineer);
-  const runId = `ide-${requestId}-${Date.now().toString(36)}`;
-  const ctx = { agent: engineer, runId, level: 0, now: () => Date.now(), fleet: async () => [], wake };
-  const bridge = openBridge({ tools: specs, call: async c => execute(ctx, c, ids).then(o => ({ content: o.content, error: o.error })) });
-  bridges.set(requestId, bridge.close);
+  const url = agencyMcpUrl();
 
   const folder = join(ROOT, `request-${requestId}`);
   await mkdir(folder, { recursive: true });
-  const mcp = JSON.stringify({ mcpServers: { agency: { type: 'http', url: bridge.url } } }, null, 2);
-  await writeFile(join(folder, 'REQUEST.md'), await brief(r, bridge.url));
+  const mcp = JSON.stringify({ mcpServers: { agency: { type: 'http', url: url } } }, null, 2);
+  await writeFile(join(folder, 'REQUEST.md'), await brief(r, url));
   await writeFile(join(folder, '.mcp.json'), mcp); // Claude Code
   await mkdir(join(folder, '.cursor'), { recursive: true });
-  await writeFile(join(folder, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { agency: { url: bridge.url } } }, null, 2)); // Cursor
+  await writeFile(join(folder, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { agency: { url: url } } }, null, 2)); // Cursor
 
   let opened = false;
   if (process.platform === 'win32' && (await onPath(which.command))) {
@@ -106,6 +91,5 @@ export async function sendToIde(requestId: number, ide: Ide, wake: Wake): Promis
     }
     opened = true;
   }
-  postToRequest(requestId, 'you', `Sent to ${which.name}.`);
   return { opened, folder, prompt: PROMPT, ide: which.name };
 }
