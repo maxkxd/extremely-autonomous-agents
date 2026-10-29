@@ -109,6 +109,17 @@ service than from the user's own machine (docs/model-connections.md).
   the app while the host is offline opens the snapshot; with none, a page
   saying it's offline. Snapshots are forgotten on sign-out, leaving or
   deleting the organisation.
+- **Self-hosting** (built 2026-10-30; apps/server/src/selfhost.ts): anyone
+  can self-host an organisation from Settings, no account with us. The
+  desktop app's computer runs it like any hosted organisation, but it keeps
+  its own accounts (email and password, scrypt), invites and sign-in
+  sessions, and signs org tokens with its own key, trusted by nothing but
+  itself; the role comes from its accounts on every request, so removal and
+  role changes are immediate. Members reach it at its own address (the
+  owner's https tunnel, reverse proxy or network address, set in its
+  settings), where the person's own agency lets through only the sign-in
+  routes without a token and answers CORS. No relay, no directory, no
+  backend. Company sign-in (OIDC) is the next option to add.
 - Each agency keeps its own browser storage in the app (card order and so on);
   switching agencies starts the app afresh in the other.
 

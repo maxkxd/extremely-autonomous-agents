@@ -22,7 +22,10 @@ import { startHooks } from './runner/hooks.js';
 import { agencyStopped } from './runner/run.js';
 import { fileRequest } from './runner/tools.js';
 import { parse as parseYaml } from 'yaml';
-import { forwardToHosted, HOSTED_ORG, hostingStatus, keepHostSecret, resumeHosting, startHosting, stopHosting } from './hosting.js';
+import * as selfhost from './selfhost.js';
+import { SELF_HOSTED } from './selfhost.js';
+import { randomUUID } from 'node:crypto';
+import { forwardToHosted, HOSTED_ORG, HOSTED_PORT, hostingStatus, keepHostSecret, resumeHosting, startHosting, stopHosting } from './hosting.js';
 import { setSetting } from './runner/db.js';
 import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, personFor, recordAction, requireAdmin, setAccessConfig } from './access.js';
 
@@ -150,6 +153,28 @@ const routes: Record<string, Route> = {
 
   // --- An organisation this computer hosts, run beside this agency (hosting.ts) ---
   'GET /api/hosting': async () => ({ hosting: hostingStatus() }),
+  // Self-hosting (selfhost.ts): an organisation of its own here, with its owner's
+  // account, never registered with us. Made, started, and its owner set up.
+  'POST /api/hosting/self': async req => {
+    const { orgName, owner } = await body<{ orgName: string; owner: { email: string; name: string; password: string } }>(req);
+    if (typeof orgName !== 'string' || !orgName.trim()) throw new ConnectError('A name for it.');
+    const orgId = `self-${randomUUID()}`;
+    await startHosting({ orgId, orgName: orgName.trim().slice(0, 80), issuer: 'self', self: true }).catch(e => {
+      throw new ConnectError((e as Error).message);
+    });
+    for (let i = 0; i < 60 && !hostingStatus()?.running; i++) await new Promise(r => setTimeout(r, 500));
+    const r = await fetch(`http://127.0.0.1:${HOSTED_PORT}/api/self/setup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...owner, orgName }),
+    });
+    if (!r.ok) {
+      const why = ((await r.json().catch(() => ({}))) as { error?: string }).error ?? 'Setting up its owner failed.';
+      await stopHosting();
+      throw new ConnectError(why);
+    }
+    return { orgId, orgName: orgName.trim().slice(0, 80) };
+  },
   'POST /api/hosting/start': async req => {
     const { orgId, orgName, issuer } = await body<{ orgId: string; orgName: string; issuer: string }>(req);
     if (typeof orgId !== 'string' || !/^[\w-]{1,64}$/.test(orgId) || typeof orgName !== 'string' || typeof issuer !== 'string' || !/^https?:\/\//.test(issuer))
@@ -172,6 +197,22 @@ const routes: Record<string, Route> = {
     if (typeof secret === 'string' && secret) process.env.EAA_HOST_SECRET = secret;
     return { ok: true };
   },
+
+  // --- A self-hosted organisation's people (selfhost.ts) ---
+  'POST /api/self/setup': async req => selfhost.setup(await body(req)),
+  'GET /api/self/members': async () => selfhost.members(),
+  'POST /api/self/role': async req => {
+    const { userId, role } = await body<{ userId: string; role: string }>(req);
+    selfhost.setRole(currentActor(), String(userId), role);
+    return { ok: true };
+  },
+  'POST /api/self/remove': async req => (selfhost.removeMember(currentActor(), String((await body<{ userId: string }>(req)).userId)), { ok: true }),
+  'POST /api/self/leave': async () => (selfhost.leave(currentActor()), { ok: true }),
+  'GET /api/self/invites': async () => (currentActor().role === 'member' ? [] : selfhost.pendingInvites()),
+  'POST /api/self/invites': async req => selfhost.createInvite(currentActor(), await body(req)),
+  'POST /api/self/invites/revoke': async req => (selfhost.revokeInvite(currentActor(), (await body<{ code: string }>(req)).code), { ok: true }),
+  'GET /api/self/address': async () => ({ address: selfhost.address() }),
+  'POST /api/self/address': async req => selfhost.setAddress((await body<{ address: string }>(req)).address),
 
   // --- Settings: connectors and the server's own state ---
   'GET /api/catalog': async () => CATALOG.map(s => ({ server: s.server, what: s.what, tools: s.tools.length })),
@@ -325,9 +366,37 @@ createServer(async (req, res) => {
   // asking. Only from here, or with a token: without one it would take them for
   // this computer's own person.
   if (url.pathname.startsWith('/hosted/')) {
+    // A self-hosted organisation's members use it from their own apps, at this
+    // computer's address: a bearer token, never a cookie, so any origin may ask.
+    res.setHeader('access-control-allow-origin', '*');
+    res.setHeader('access-control-allow-headers', 'authorization, content-type');
+    res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+    if (req.method === 'OPTIONS') return void res.writeHead(204).end();
     const fromHere = /^(127\.\d+\.\d+\.\d+|::1|::ffff:127\.\d+\.\d+\.\d+)$/.test(req.socket.remoteAddress ?? '');
-    if (!fromHere && !req.headers.authorization) return send(res, 401, { error: 'Sign in first.' });
+    // Signing in to a self-hosted one needs no token yet: only those, and they act as no one.
+    const signingIn = !!hostingStatus()?.self && /^\/hosted\/auth\/(sign-in|accept|token|sign-out|invite)$/.test(url.pathname);
+    if (!fromHere && !req.headers.authorization && !signingIn) return send(res, 401, { error: 'Sign in first.' });
     return forwardToHosted(req, res, url.pathname.slice('/hosted'.length) + url.search);
+  }
+  // A self-hosted organisation's sign-in (selfhost.ts): no token yet, and never anyone's.
+  if (SELF_HOSTED && url.pathname.startsWith('/auth/')) {
+    const auth: Record<string, (b: Record<string, unknown>) => unknown> = {
+      'POST /auth/sign-in': selfhost.signIn,
+      'POST /auth/accept': selfhost.acceptInvite,
+      'POST /auth/token': selfhost.tokenFor,
+      'POST /auth/sign-out': selfhost.signOut,
+      'GET /auth/invite': () => selfhost.previewInvite(url.searchParams.get('code')),
+    };
+    const run = auth[`${req.method} ${url.pathname}`];
+    if (!run) return send(res, 404, { error: 'Not found' });
+    try {
+      return send(res, 200, await run(req.method === 'POST' ? await body<Record<string, unknown>>(req) : {}));
+    } catch (e) {
+      if (e instanceof selfhost.SelfError) return send(res, e.status, { error: e.message });
+      if (e instanceof ConnectError) return send(res, 400, { error: e.message });
+      console.error(e);
+      return send(res, 500, { error: 'Something went wrong on the server.' });
+    }
   }
   const key = `${req.method} ${url.pathname}`;
   const runnerRoute = runnerRoutes[key];
@@ -347,6 +416,7 @@ createServer(async (req, res) => {
     send(res, 200, out);
   } catch (e) {
     if (e instanceof AccessError) return send(res, e.status, { error: e.message });
+    if (e instanceof selfhost.SelfError) return send(res, e.status, { error: e.message });
     if (e instanceof BuilderError) return send(res, 502, { error: e.message });
     if (e instanceof ConnectError) return send(res, 400, { error: e.message });
     console.error(e);

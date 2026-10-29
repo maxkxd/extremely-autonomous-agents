@@ -34,6 +34,7 @@ import { checkEvent } from './events.js';
 import { hooksBase } from './hooks.js';
 import { LEVELS } from './ferocity.js';
 import { openBridge } from './mcp.js';
+import { selfMember, SELF_HOSTED } from '../selfhost.js';
 import { accessConfig, asActor, currentActor, localActor, personFor, requireMakerOrAdmin, type Actor, type Role } from '../access.js';
 import { registeredToolIds } from './tools.js';
 import { stateOf } from './run.js';
@@ -530,6 +531,8 @@ export const forgetMembersForTests = () => seen.clear();
 // Our backend can't be reached: what it last said, for up to an hour.
 const TRUST_LAST = 60 * 60_000;
 async function memberNow(userId: string) {
+  // Self-hosted: its own accounts, always current.
+  if (SELF_HOSTED) return selfMember(userId);
   const had = seen.get(userId);
   if (had && Date.now() - had.at < CHECK_EVERY) return had.member;
   try {

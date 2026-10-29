@@ -16,7 +16,8 @@ import { relayState, startRelay, stopRelay } from './relay.js';
 // it through here (/hosted/...); members elsewhere will through the relay
 // (phase 4). One organisation owned each, so at most one.
 
-export type Hosting = { orgId: string; orgName: string; issuer: string };
+// self: a self-hosted organisation (selfhost.ts) - its own accounts and tokens, reached at its own address, never through us.
+export type Hosting = { orgId: string; orgName: string; issuer: string; self?: boolean };
 export const HOSTED_PORT = Number(process.env.EAA_HOSTED_PORT ?? 5185);
 const HOSTED_HOOKS_PORT = HOSTED_PORT + 1;
 // This process is itself an organisation's agency (started below).
@@ -53,6 +54,7 @@ async function launch(h: Hosting) {
       EAA_DATA_DIR: hostedDir(h.orgId),
       EAA_HOSTED_ORG: h.orgId,
       EAA_TOKEN_ISSUER: h.issuer,
+      EAA_SELF_HOSTED: h.self ? '1' : '',
       EAA_HOST_PERSON: getSetting<string | null>('host_person', null) ?? '',
       EAA_PARENT_PID: String(process.pid),
       EAA_HOST_SECRET: hostSecret,
@@ -86,8 +88,8 @@ export async function startHosting(h: Hosting) {
     stopping = false;
     await launch(h);
   }
-  // Registered before (started again): reachable by members straight away.
-  void startRelay(h);
+  // Registered before (started again): reachable by members straight away. Self-hosted: at its own address.
+  if (!h.self) void startRelay(h);
   return { publicKey };
 }
 
@@ -121,7 +123,7 @@ export const hostingStatus = () => {
 export function resumeHosting() {
   const h = hosting();
   if (h && !HOSTED_ORG && !child) void launch(h);
-  if (h && !HOSTED_ORG) void startRelay(h);
+  if (h && !HOSTED_ORG && !h.self) void startRelay(h);
 }
 process.on('exit', () => child?.kill());
 

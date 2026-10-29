@@ -4,6 +4,7 @@ import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 import { readMeta } from './files.js';
 import { FLEET_ENGINEER } from './runner/agent.js';
 import { getSetting, one, run as exec, setSetting } from './runner/db.js';
+import { checkSelfToken, SELF_HOSTED } from './selfhost.js';
 
 // Who's asking (docs/architecture.md, "Accounts and organisations"). The host is
 // the only authority over its agency, and it checks one thing: an org access
@@ -63,6 +64,8 @@ const keysOf = (issuer: string) => {
 const ROLES: Role[] = ['owner', 'admin', 'member'];
 
 export async function checkToken(token: string): Promise<Actor> {
+  // Self-hosted: only tokens this host signed, for accounts it still has.
+  if (SELF_HOSTED) return (await checkSelfToken(token)) ?? fail401();
   const { issuer, orgId } = accessConfig();
   if (!orgId) throw new AccessError(401, "This host isn't hosting an organisation yet.");
   let payload;
@@ -76,6 +79,10 @@ export async function checkToken(token: string): Promise<Actor> {
   if (typeof payload.sub !== 'string' || !ROLES.includes(role)) throw new AccessError(401, 'Sign in again.');
   return { id: payload.sub, name: typeof payload.name === 'string' && payload.name ? payload.name : 'Someone', role, via: 'token' };
 }
+
+const fail401 = (): never => {
+  throw new AccessError(401, 'Sign in again.');
+};
 
 const LOOPBACK = /^(127\.\d+\.\d+\.\d+|::1|::ffff:127\.\d+\.\d+\.\d+)$/;
 
@@ -120,6 +127,16 @@ const NEEDS: Record<string, Level> = {
   'POST /api/runner/requests/ide': 'member',
   // The secret this organisation's agency asks our backend about members with (hosting.ts).
   'POST /api/settings/host-secret': 'local',
+  // A self-hosted organisation's people (selfhost.ts checks who may change what).
+  'POST /api/self/setup': 'local',
+  'GET /api/self/members': 'member',
+  'POST /api/self/role': 'member',
+  'POST /api/self/remove': 'member',
+  'POST /api/self/leave': 'member',
+  'GET /api/self/invites': 'member',
+  'POST /api/self/invites': 'member',
+  'POST /api/self/invites/revoke': 'member',
+  'GET /api/self/address': 'member',
   // Browser sign-ins land on the host's own address.
   'GET /': 'local',
   'GET /api/oauth/openrouter/callback': 'local',
