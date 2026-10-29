@@ -17,13 +17,14 @@ const Mark = ({ icon }: { icon: SimpleIcon }) => (
 );
 
 // The logo over the title (as on extremely.agency, extremely-agency-site/logo.svg).
-const Head = ({ title }: { title: string }) => (
+const Head = ({ title, sub }: { title: string; sub?: string }) => (
   <div className="signin-head">
     <svg className="signin-logo" viewBox="-42 0 164 96" aria-hidden>
       <polygon fill="#3f7bd6" points="2,32 56,50 2,68 24,50" />
       <polygon fill="#e5484d" points="-40,8 120,44 44,78 78,50" />
     </svg>
     <h2 id="signin-title">{title}</h2>
+    {sub && <p className="signin-sub">{sub}</p>}
   </div>
 );
 
@@ -127,7 +128,10 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
           if (!busy) submit();
         }}
       >
-        <Head title={finish ? 'Check your email' : mode === 'up' ? 'Sign up' : 'Sign in'} />
+        <Head
+          title={finish ? 'Check your email' : mode === 'up' ? 'Sign up' : 'Sign in'}
+          sub={!finish && mode === 'up' ? 'to unlock extremely agentic collaboration' : undefined}
+        />
         {finish ? (
           <>
             <p>A code went to {email.trim()}.</p>
