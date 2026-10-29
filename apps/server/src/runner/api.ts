@@ -31,6 +31,7 @@ import { resume as resumeJobs } from '../jobs.js';
 import { isPrivateIp } from './net.js';
 import { agencyState, stateOf, type AgencyState, type Trigger } from './run.js';
 import { abortAll, abortRun, book, isRunning } from './scheduler.js';
+import { currentActor, requireAdmin, requireMakerOrAdmin } from '../access.js';
 
 // The runner's routes for the app: each agent's card (ferocity, Drain/Stop,
 // real stats), its DM channel, requests, and spend caps (Settings -> Usage).
@@ -191,6 +192,7 @@ export const runnerRoutes: Record<string, Route> = {
       // Turning it back on also clears any failure backoff.
       if (state === 'active') exec('UPDATE agent_state SET fail_streak = 0, backoff_until = NULL WHERE agent_id = ?', b.id);
     }
+    if (b.spendCapUsd !== undefined) requireAdmin(currentActor(), 'A spend cap');
     if (b.spendCapUsd !== undefined)
       exec('UPDATE agent_state SET spend_cap_usd = ? WHERE agent_id = ?', b.spendCapUsd == null || b.spendCapUsd < 0 ? null : b.spendCapUsd, b.id);
     return { ok: true, state: stateOf(b.id) };
@@ -259,6 +261,7 @@ export const runnerRoutes: Record<string, Route> = {
     const { id, text } = await body<{ id: number; text: string }>();
     const r = one<{ id: number; status: string; agent_id: string }>('SELECT id, status, agent_id FROM requests WHERE id = ?', Number(id));
     if (!r || r.status !== 'open') throw new Error('That request is closed.');
+    await requireMakerOrAdmin(r.agent_id);
     if (!text?.trim()) throw new Error('Nothing to send.');
     postToRequest(r.id, 'you', text.trim());
     exec("UPDATE requests SET stage = 'engineer' WHERE id = ?", r.id);
@@ -308,7 +311,12 @@ export const runnerRoutes: Record<string, Route> = {
   // The agent is told at the start of its next run.
   'POST /api/runner/requests/answer': async (_req, _q, body) => {
     const { id, status, answer } = await body<{ id: number; status: 'done' | 'rejected'; answer?: string }>();
-    await answerRequest(Number(id), status, answer);
+    const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', Number(id));
+    if (r) await requireMakerOrAdmin(r.agent_id);
+    if (await answerRequest(Number(id), status, answer)) {
+      const by = currentActor();
+      exec('UPDATE requests SET answered_by = ?, answered_by_id = ? WHERE id = ?', by.name, by.id, Number(id));
+    }
     return { ok: true };
   },
 
@@ -317,7 +325,10 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/runner/approvals/decide': async (_req, _q, body) => {
     const { id, decision, note } = await body<{ id: string; decision: 'approved' | 'rejected'; note?: string }>();
     if (decision !== 'approved' && decision !== 'rejected') throw new Error('Approve or reject.');
-    return decideApproval(id, decision, note ?? null, book);
+    const a = one<{ agent_id: string; request: number | null }>("SELECT agent_id, json_extract(args, '$.request_id') AS request FROM approvals WHERE id = ?", String(id));
+    if (a) await requireMakerOrAdmin(a.agent_id, a.request == null ? null : Number(a.request));
+    const by = currentActor();
+    return decideApproval(id, decision, note ?? null, book, undefined, undefined, by);
   },
 
   // --- Events (docs/events.md) ---
@@ -360,6 +371,10 @@ export const runnerRoutes: Record<string, Route> = {
     const isUrl = /^https?:\/\//i.test(where);
     const command = isUrl ? undefined : splitCommand(where);
     const local = isUrl ? isLocalAddress(where) : undefined;
+    // A command, or a server on the host's own network, runs on the host's computer.
+    const def0 = b.definition as { command?: unknown; url?: unknown; local?: unknown } | undefined;
+    if (def0 ? !!def0.command || !!def0.local || (typeof def0.url === 'string' && /^https?:\/\//i.test(def0.url) && isLocalAddress(def0.url)) : !isUrl || local)
+      requireAdmin(currentActor(), 'A server on the host computer');
     const name =
       b.name?.trim() || (isUrl ? new URL(where).hostname.replace(/^www\.|^mcp\./, '') : (command?.find(a => /server|mcp/i.test(a)) ?? command?.[0] ?? 'local').replace(/^@[^/]+\//, '').replace(/^server-|-mcp$|^mcp-/g, ''));
     const def =

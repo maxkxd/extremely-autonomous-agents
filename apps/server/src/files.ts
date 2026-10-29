@@ -27,6 +27,7 @@ export type Meta = {
   output: string[]; // KPI labels
   status: 'ready' | 'setting-up' | 'generic';
   owner?: string; // the person it works for
+  ownerId?: string; // their account, when they made it from their own app (access.ts); none: the host's own person
   builtIn?: boolean; // part of the agency itself (the Agency Engineer), owned by no one
   service?: boolean; // a built-in helper (Agency Conductor, Agency Reviewer): runs only when called, never scheduled
   org?: string | null; // their organisation, if any

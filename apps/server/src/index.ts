@@ -22,14 +22,25 @@ import { startHooks } from './runner/hooks.js';
 import { agencyStopped } from './runner/run.js';
 import { fileRequest } from './runner/tools.js';
 import { parse as parseYaml } from 'yaml';
+import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, personFor, recordAction, requireAdmin, setAccessConfig } from './access.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
 const PORT = Number(process.env.PORT ?? 5175);
 
-async function body<T>(req: IncomingMessage): Promise<T> {
+// Read once (the server does, before a route runs), so who-did-what can see what it was about.
+const bodies = new WeakMap<IncomingMessage, unknown>();
+async function readBody(req: IncomingMessage) {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(c as Buffer);
-  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as T;
+  try {
+    bodies.set(req, JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
+  } catch {
+    throw new ConnectError('Not JSON.');
+  }
+}
+async function body<T>(req: IncomingMessage): Promise<T> {
+  if (!bodies.has(req)) await readBody(req);
+  return bodies.get(req) as T;
 }
 
 function send(res: ServerResponse, status: number, data: unknown) {
@@ -95,14 +106,16 @@ const routes: Record<string, Route> = {
   'GET /api/org': async (_req, q) => ({ profile: await loadProfile(q.get('name') ?? '') }),
   'POST /api/org/turn': async req => {
     const { person, org, turns } = await body<{ person: string; org: string; turns: Turn[] }>(req);
-    const out = await profileInterview(org, await loadPerson(person), turns);
-    if (person) await addPersonNotes(person, out.person_notes ?? []);
+    const me = personFor(person);
+    const out = await profileInterview(org, await loadPerson(me), turns);
+    if (me) await addPersonNotes(me, out.person_notes ?? []);
     return { ...out, confidence: clamp(out.confidence) };
   },
   // link: check the key people against the members straight away (the profile
   // chat); Settings asks for that itself once a person's row is finished.
   'POST /api/org': async req => {
     const { org, profile, members, link } = await body<{ org: string; profile: Profile; members?: string[]; link?: boolean }>(req);
+    if (await loadProfile(org)) requireAdmin(currentActor(), 'Changing the organisation profile');
     await saveProfile(org, keepLinks(await loadProfile(org), profile));
     if (link && members) linkPeople(org, members).catch(e => console.error('Linking key people failed:', e));
     return { ok: true };
@@ -117,8 +130,20 @@ const routes: Record<string, Route> = {
   'GET /api/person': async (_req, q) => ({ person: await loadPerson(q.get('name') ?? '') }),
   'POST /api/person': async req => {
     const { profile } = await body<{ profile: PersonProfile }>(req);
+    if (personFor(profile?.name) !== profile?.name) throw new AccessError(403, 'You can only change your own profile.');
     await savePerson(profile);
     return { ok: true };
+  },
+
+  // --- Who's asking, and whose tokens this host accepts (access.ts) ---
+  'GET /api/access': async () => {
+    const { issuer, orgId } = accessConfig();
+    return { you: currentActor(), issuer, orgId };
+  },
+  // Set on the host computer itself, when its owner registers it (phase 3).
+  'POST /api/settings/access': async req => {
+    const { issuer, orgId } = await body<{ issuer?: string; orgId?: string | null }>(req);
+    return setAccessConfig({ ...(typeof issuer === 'string' ? { issuer } : {}), ...(orgId !== undefined ? { orgId: typeof orgId === 'string' && orgId ? orgId : null } : {}) });
   },
 
   // --- Settings: connectors and the server's own state ---
@@ -188,7 +213,7 @@ const routes: Record<string, Route> = {
   'POST /api/builder/turn': async req => {
     notStopped();
     const { person, org, members, turns, declinedPack } = await body<{ person: string; org: string | null; members: string[]; turns: Turn[]; declinedPack: string | null }>(req);
-    const out = await interview(await context(person, org, members), turns, declinedPack);
+    const out = await interview(await context(personFor(person), org, members), turns, declinedPack);
     return { ...out, confidence: clamp(out.confidence) };
   },
   // The files stay hidden: the app gets the card's details and an opaque
@@ -196,10 +221,11 @@ const routes: Record<string, Route> = {
   'POST /api/builder/build': async req => {
     notStopped();
     const { person, org, members, turns, takenIds } = await body<{ person: string; org: string | null; members: string[]; turns: Turn[]; takenIds: string[] }>(req);
-    const ctx = await context(person, org, members);
+    const me = personFor(person);
+    const ctx = await context(me, org, members);
     const b = await build(ctx, turns);
     if (org) await addNotes(org, b.profile_notes ?? []);
-    if (person) await addPersonNotes(person, b.person_notes ?? []);
+    if (me) await addPersonNotes(me, b.person_notes ?? []);
     return forApp(b, takenIds, new Set([...ctx.fleet.tools.map(t => t.id), ...integrationToolIds()]), ctx.models);
   },
 
@@ -273,13 +299,19 @@ createServer(async (req, res) => {
   const route = routes[key];
   if (!route && !runnerRoute) return send(res, 404, { error: 'Not found' });
   try {
-    const out = runnerRoute ? await runnerRoute(req, url.searchParams, () => body(req)) : await route(req, url.searchParams);
+    // Who's asking, and whether they may (access.ts); the route runs as them.
+    const actor = await actorFor(req);
+    authorize(actor, req.method ?? 'GET', url.pathname);
+    if (req.method !== 'GET') await readBody(req);
+    const out = await asActor(actor, () => (runnerRoute ? runnerRoute(req, url.searchParams, () => body(req)) : route(req, url.searchParams)));
+    if (req.method !== 'GET') recordAction(actor, req.method ?? '', url.pathname, bodies.get(req));
     if (out instanceof Html) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(out.body);
     }
     send(res, 200, out);
   } catch (e) {
+    if (e instanceof AccessError) return send(res, e.status, { error: e.message });
     if (e instanceof BuilderError) return send(res, 502, { error: e.message });
     if (e instanceof ConnectError) return send(res, 400, { error: e.message });
     console.error(e);

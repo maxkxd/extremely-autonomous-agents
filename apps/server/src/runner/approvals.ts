@@ -39,7 +39,8 @@ const argsLine = (args: Record<string, unknown>) =>
     .join('; ')
     .replace(/\s+/g, ' ');
 
-export async function decideApproval(id: string, decision: 'approved' | 'rejected', note: string | null, wake: Wake, now = Date.now(), load = loadAgent) {
+// by: who decided (access.ts); recorded with the decision.
+export async function decideApproval(id: string, decision: 'approved' | 'rejected', note: string | null, wake: Wake, now = Date.now(), load = loadAgent, by?: { id: string; name: string }) {
   const a = one<ApprovalRow>('SELECT * FROM approvals WHERE id = ?', id);
   if (!a) throw new Error('That approval no longer exists.');
   if (a.status !== 'pending') throw new Error(`Already ${a.status}.`);
@@ -49,7 +50,15 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
     throw new Error('It expired before you decided, so it did not happen.');
   }
   // Claim it first, so a double click can't run it twice.
-  const claimed = exec("UPDATE approvals SET status = ?, decided_at = ?, note = ? WHERE id = ? AND status = 'pending'", decision, now, note, id);
+  const claimed = exec(
+    "UPDATE approvals SET status = ?, decided_at = ?, note = ?, decided_by = ?, decided_by_id = ? WHERE id = ? AND status = 'pending'",
+    decision,
+    now,
+    note,
+    by?.name ?? null,
+    by?.id ?? null,
+    id,
+  );
   if (!claimed.changes) throw new Error('Already decided.');
   const args = JSON.parse(a.args) as Record<string, unknown>;
   const what = `${a.tool} (${argsLine(args)})`;

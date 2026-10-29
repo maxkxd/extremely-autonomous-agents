@@ -61,6 +61,16 @@ service than from the user's own machine (docs/model-connections.md).
   organisation and so on are all legitimate; staying within a provider's
   terms is the organisation's responsibility).
 
+- **What each role may do** (apps/server/src/access.ts): a **member** sees
+  everything, builds agents, messages, runs, stops, starts and deletes any
+  agent, and connects integrations (but not a server that runs on the host's
+  computer). **Admins** and the **owner** can also change AI model
+  connections, the agency's state, spend caps, the org profile and what acts
+  on the host's computer. Approvals and requests go to **the agent's maker
+  or an admin**. Requests from the host computer itself, with no token, are
+  its owner. The host records who made each change (`person_actions`), and
+  who decided each approval and answered each request.
+
 Build order: (1) our backend - Clerk, Postgres directory, the rules, org
 tokens, host registration; (2) the host checks tokens and roles and records
 who did what; (3) sign-in, the personal agency, the org switcher, creating,

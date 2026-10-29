@@ -29,6 +29,11 @@ export function openDb(path = FILE): DatabaseSync {
     'ALTER TABLE requests ADD COLUMN stage TEXT',
     // A run booked again after a restart cut it short: the run it carries on.
     'ALTER TABLE bookings ADD COLUMN resume_from TEXT',
+    // Who decided an approval and answered a request (access.ts): their name and id.
+    'ALTER TABLE approvals ADD COLUMN decided_by TEXT',
+    'ALTER TABLE approvals ADD COLUMN decided_by_id TEXT',
+    'ALTER TABLE requests ADD COLUMN answered_by TEXT',
+    'ALTER TABLE requests ADD COLUMN answered_by_id TEXT',
   ])
     try {
       db.exec(sql);
@@ -181,6 +186,20 @@ CREATE TABLE IF NOT EXISTS bookings (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS bookings_due ON bookings(agent_id, due_at);
+
+-- Who did what (access.ts): every change a person made through the app, and
+-- what it was about (ids and choices, never keys or what they wrote).
+CREATE TABLE IF NOT EXISTS person_actions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  actor_id TEXT NOT NULL,           -- local: the host computer's own person
+  actor_name TEXT NOT NULL,
+  role TEXT NOT NULL,               -- owner | admin | member
+  via TEXT NOT NULL,                -- local | token
+  route TEXT NOT NULL,              -- e.g. POST /api/runner/approvals/decide
+  about TEXT                        -- JSON
+);
+CREATE INDEX IF NOT EXISTS person_actions_at ON person_actions(at);
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
