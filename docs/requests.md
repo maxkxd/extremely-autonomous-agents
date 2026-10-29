@@ -124,6 +124,15 @@ on its row: Fleet Engineer, Waiting on you, Waiting on approval, Needs you.
 Accepting an agent files a request for every tool its builder invented that
 nothing provides yet.
 
-Not yet: the Conductor (the engineer does its routing for now, at the cost of
-an engineer run per request); the Send-to-IDE button; the placeholder
-requests still use the simulated engineer.
+The Conductor (`runner/conductor.ts`) takes every request first: one quick
+model call (Haiku on the person's Claude plan when there is one) hands it to
+an agent that already does this as part of its job - as a task, closing the
+request - and sends anything else, or anything it's unsure of, to the Fleet
+Engineer. Requests for tools the builder invented go straight to the engineer.
+
+Send to your IDE (`runner/ide.ts`): the request's folder gets REQUEST.md and an
+MCP config giving the IDE the Fleet Engineer's tools, so its work still goes
+through drafts, the review and the person's approval. Claude Code and Codex
+start in a terminal on the task; Cursor and Antigravity open the folder.
+
+The person can also simply message the Fleet Engineer in its DM channel.

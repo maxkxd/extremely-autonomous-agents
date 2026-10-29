@@ -16,6 +16,8 @@ import type { Kit } from './modules/types.js';
 
 // What a code tool gets besides its inputs: the safe fetcher, its only way out.
 const KIT: Kit = { fetch: async (url, init) => (await safeFetch(url, init)).res as unknown as Response };
+import { discoverMcpSignIn } from './mcp-auth.js';
+import { stopStdioServer } from './mcp-stdio.js';
 import { oauthAccessToken, oauthCallback, oauthSecret, oauthSignOut, oauthStart, setOAuthAccount } from './oauth.js';
 import { Integration, type HttpIntegration, type McpIntegration } from './schema.js';
 
@@ -54,6 +56,10 @@ const secretKey = (id: string) => `integration:${id}`;
 const keyOf = async (id: string) => {
   const auth = find(id)?.auth;
   if (auth?.type === 'oauth2') return oauthAccessToken(id, auth);
+  if (auth?.type === 'mcp_oauth') {
+    const found = (await oauthSecret(id))?.discovered;
+    return found ? oauthAccessToken(id, found) : undefined;
+  }
   return (await getSecret<{ key: string }>(secretKey(id)))?.key;
 };
 
@@ -188,7 +194,7 @@ async function test(integration: Integration): Promise<{ ok: boolean; message: s
 export async function connectIntegration(id: string, key?: string) {
   const integration = find(id);
   if (!integration) throw new Error('Unknown integration.');
-  if (integration.auth.type === 'oauth2') {
+  if (integration.auth.type === 'oauth2' || integration.auth.type === 'mcp_oauth') {
     if (!(await oauthSecret(id))?.accessToken) throw new Error('Sign in first.');
   } else if (integration.auth.type !== 'none') {
     const k = key?.trim().replace(/^bearer\s+/i, '');
@@ -236,6 +242,12 @@ export const whenDraftConnected = (fn: (id: string, request?: number) => void) =
 // Signing in (OAuth): the person's OAuth client in, the service's sign-in page out.
 export async function startIntegrationSignIn(id: string, client: { clientId?: string; clientSecret?: string }) {
   const integration = find(id);
+  // An MCP server's own sign-in: found and registered with here (mcp-auth.ts).
+  if (integration?.kind === 'mcp' && integration.auth.type === 'mcp_oauth' && integration.url) {
+    const prev = await oauthSecret(id);
+    const found = prev?.discovered && prev.clientId ? { auth: prev.discovered, clientId: prev.clientId, clientSecret: prev.clientSecret } : await discoverMcpSignIn(integration.url, integration.name);
+    return { url: await oauthStart(id, found.auth, { clientId: found.clientId, clientSecret: found.clientSecret }, { discovered: found.auth }) };
+  }
   if (integration?.auth.type !== 'oauth2') throw new Error("That integration doesn't sign in.");
   return { url: await oauthStart(id, integration.auth, client) };
 }
@@ -247,8 +259,11 @@ export async function finishIntegrationSignIn(q: URLSearchParams) {
 }
 
 export async function disconnectIntegration(id: string) {
+  stopStdioServer(id);
   const auth = find(id)?.auth;
+  const found = auth?.type === 'mcp_oauth' ? (await oauthSecret(id))?.discovered : undefined;
   if (auth?.type === 'oauth2') await oauthSignOut(id, auth);
+  else if (found) await oauthSignOut(id, found);
   else await deleteSecret(secretKey(id));
   // Signed out; whether it's a draft, and whose, stays.
   const { draft, by, request, codeHash: hash } = states()[id] ?? {};
@@ -300,8 +315,14 @@ export async function listIntegrations() {
     kind: integration.kind,
     keyUrl: integration.key_url,
     keyHelp: integration.key_help ?? null,
-    needsKey: integration.auth.type !== 'none' && integration.auth.type !== 'oauth2',
-    signIn: integration.auth.type === 'oauth2' ? { clientUrl: integration.auth.client_url ?? null, help: integration.auth.client_help ?? null, hasClient: clients.has(integration.id) } : null,
+    needsKey: integration.auth.type !== 'none' && integration.auth.type !== 'oauth2' && integration.auth.type !== 'mcp_oauth',
+    // An MCP server's sign-in needs no client from the person (it registers itself).
+    signIn:
+      integration.auth.type === 'oauth2'
+        ? { clientUrl: integration.auth.client_url ?? null, help: integration.auth.client_help ?? null, hasClient: clients.has(integration.id) }
+        : integration.auth.type === 'mcp_oauth'
+          ? { clientUrl: null, help: null, hasClient: true }
+          : null,
     shipped,
     connected: !!st[integration.id]?.connectedAt,
     draft: !!st[integration.id]?.draft,
@@ -351,6 +372,10 @@ export async function writeDraftIntegration(definition: string, by: string, requ
   if (!checked.success)
     throw new Error(`The definition doesn't fit the format: ${checked.error.issues.slice(0, 6).map(i => `${i.path.join('.') || '(top)'}: ${i.message}`).join('; ')}`);
   const integration = checked.data;
+  // Programs on this computer, or local addresses, are a person's call alone.
+  if (integration.kind === 'mcp' && (integration.command || integration.local))
+    throw new Error("MCP servers on this computer (a command, or a local address) can only be added by a person, in Settings -> Connectors. Tell them which one and how, with engineer.reply_to_request.");
+  if (integration.kind === 'mcp' && !integration.url) throw new Error('An MCP server needs its address (url).');
   const existing = loaded.find(l => l.integration.id === integration.id);
   if (existing?.shipped) throw new Error(`"${integration.id}" is a built-in integration's id; pick another.`);
   const prev = states()[integration.id];

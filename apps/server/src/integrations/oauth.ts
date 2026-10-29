@@ -24,6 +24,7 @@ export type OAuthSecret = {
   refreshToken?: string;
   expiresAt?: number;
   account?: string; // who signed in, when the service says
+  discovered?: OAuthDef; // an MCP server's sign-in, as found when it was set up (mcp-auth.ts)
 };
 
 const secretKey = (id: string) => `integration:${id}`;
@@ -32,13 +33,13 @@ export const oauthSecret = (id: string) => getSecret<OAuthSecret>(secretKey(id))
 const pending = new Map<string, { id: string; auth: OAuthDef; verifier: string; at: number }>();
 
 // Saves the person's OAuth client and returns the address to sign in at.
-export async function oauthStart(id: string, auth: OAuthDef, client?: { clientId?: string; clientSecret?: string }): Promise<string> {
+export async function oauthStart(id: string, auth: OAuthDef, client?: { clientId?: string; clientSecret?: string }, keep?: Partial<OAuthSecret>): Promise<string> {
   const prev = await oauthSecret(id);
   const clientId = client?.clientId?.trim() || prev?.clientId;
   if (!clientId) throw new ConnectError('Paste your OAuth client ID first.');
   const clientSecret = client?.clientSecret?.trim() || (client?.clientId?.trim() ? undefined : prev?.clientSecret);
   // A new client starts a clean sign-in; the same one keeps its tokens until replaced.
-  await setSecret(secretKey(id), clientId === prev?.clientId ? { ...prev, clientSecret: clientSecret ?? prev.clientSecret } : { clientId, clientSecret });
+  await setSecret(secretKey(id), { ...(clientId === prev?.clientId ? { ...prev, clientSecret: clientSecret ?? prev.clientSecret } : { clientId, clientSecret }), ...keep });
   for (const [k, p] of pending) if (Date.now() - p.at > 10 * 60_000) pending.delete(k);
   const verifier = randomBytes(32).toString('base64url');
   const state = randomBytes(16).toString('base64url');
@@ -48,7 +49,7 @@ export async function oauthStart(id: string, auth: OAuthDef, client?: { clientId
     client_id: clientId,
     response_type: 'code',
     redirect_uri: OAUTH_REDIRECT,
-    scope: auth.scopes.join(' '),
+    ...(auth.scopes.length ? { scope: auth.scopes.join(' ') } : {}),
     state,
     code_challenge: createHash('sha256').update(verifier).digest('base64url'),
     code_challenge_method: 'S256',
@@ -62,7 +63,7 @@ async function tokenRequest(auth: OAuthDef, body: Record<string, string>) {
   const { res } = await safeFetch(auth.token_url, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-    body: new URLSearchParams(body).toString(),
+    body: new URLSearchParams({ ...body, ...(auth.resource ? { resource: auth.resource } : {}) }).toString(),
   });
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
@@ -137,5 +138,5 @@ export async function oauthSignOut(id: string, auth: OAuthDef) {
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ token }).toString(),
     }).catch(() => {});
-  await setSecret(secretKey(id), { clientId: s.clientId, clientSecret: s.clientSecret } satisfies OAuthSecret);
+  await setSecret(secretKey(id), { clientId: s.clientId, clientSecret: s.clientSecret, discovered: s.discovered } satisfies OAuthSecret);
 }

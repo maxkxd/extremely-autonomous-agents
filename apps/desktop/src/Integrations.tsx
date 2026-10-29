@@ -379,11 +379,24 @@ function CodePlugins() {
   );
 }
 
-// Adding a remote MCP server: its address, and how it signs in.
+// A command, or an address on this computer or its network.
+const onThisComputer = (s: string) => {
+  const v = s.trim();
+  if (!v) return false;
+  if (!/^https?:\/\//i.test(v)) return true;
+  try {
+    const h = new URL(v).hostname;
+    return /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?$)/.test(h) || h.endsWith('.local');
+  } catch {
+    return false;
+  }
+};
+
+// Adding an MCP server: its address, or a command for one on this computer, and how it signs in.
 function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean; setOpen: (o: boolean) => void }) {
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
-  const [auth, setAuth] = useState<'none' | 'bearer'>('none');
+  const [auth, setAuth] = useState<'none' | 'bearer' | 'signin'>('none');
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -395,6 +408,8 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
       const r = await addMcpIntegration({ url: url.trim(), name: name.trim() || undefined, auth, key: auth === 'bearer' ? key : undefined });
       if (!r.ok) setError(r.message);
       else {
+        // One that signs in: its sign-in opens now; the row waits for it to land.
+        if (r.signIn) window.open(r.signIn, '_blank', 'popup,width=520,height=720');
         setUrl('');
         setName('');
         setKey('');
@@ -425,7 +440,18 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
       <span className="sconn-what">Its tools are found when it connects</span>
       <span className="sint-actions" />
       <div className="mform sint-form">
-        <input className="srow2-input mwide" autoFocus value={url} placeholder="Address, e.g. https://mcp.example.com/mcp" onChange={e => setUrl(e.target.value)} />
+        <input
+          className="srow2-input mwide"
+          autoFocus
+          value={url}
+          placeholder="Its address (https://mcp.example.com/mcp), or a command that starts one on this computer (npx -y ...)"
+          onChange={e => setUrl(e.target.value)}
+        />
+        {onThisComputer(url) && (
+          <p className="sint-help sint-bad">
+            This one runs on this computer, with your permissions - agents using it can do what it can. Only add servers you trust.
+          </p>
+        )}
         <input className="srow2-input mwide" value={name} placeholder="Name (optional)" onChange={e => setName(e.target.value)} />
         <div className="sint-auth">
           <label>
@@ -433,6 +459,9 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
           </label>
           <label>
             <input type="radio" checked={auth === 'bearer'} onChange={() => setAuth('bearer')} /> API key / token
+          </label>
+          <label>
+            <input type="radio" checked={auth === 'signin'} onChange={() => setAuth('signin')} /> Sign in
           </label>
         </div>
         {auth === 'bearer' && (

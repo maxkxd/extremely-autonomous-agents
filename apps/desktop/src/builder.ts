@@ -282,8 +282,8 @@ export const getIntegrations = () => request<IntegrationsView>('/api/integration
 export const connectIntegration = (id: string, key?: string) => post<{ ok: boolean; message: string }>('/api/integrations/connect', { id, key });
 export const disconnectIntegration = (id: string) => post<{ ok: boolean }>('/api/integrations/disconnect', { id });
 export const removeIntegration = (id: string) => post<{ ok: boolean }>('/api/integrations/remove', { id });
-export const addMcpIntegration = (b: { url: string; name?: string; auth: 'none' | 'bearer'; key?: string }) =>
-  post<{ id: string; ok: boolean; message: string }>('/api/integrations/add', b);
+export const addMcpIntegration = (b: { url: string; name?: string; auth: 'none' | 'bearer' | 'signin'; key?: string }) =>
+  post<{ id: string; ok: boolean; message: string; signIn?: string }>('/api/integrations/add', b);
 export const startIntegrationSignIn = (id: string, client: { clientId?: string; clientSecret?: string }) =>
   post<{ url: string }>('/api/integrations/sign-in', { id, ...client });
 

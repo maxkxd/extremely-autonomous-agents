@@ -1,4 +1,5 @@
 import { safeFetch } from '../runner/net.js';
+import { stdioServer } from './mcp-stdio.js';
 import type { McpIntegration } from './schema.js';
 import { authParts } from './http.js';
 
@@ -10,6 +11,12 @@ export type McpTool = { name: string; description: string; inputSchema: Record<s
 
 const PROTOCOL = '2025-06-18';
 
+// fetch, shaped like the safe fetcher, for a local server the person added.
+async function localFetch(url: string, init: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }) {
+  const res = await fetch(url, { method: init.method, headers: init.headers, body: init.body, signal: AbortSignal.timeout(init.timeoutMs ?? 60_000) });
+  return { res, url };
+}
+
 class Session {
   private sessionId: string | null = null;
   private seq = 1;
@@ -20,9 +27,12 @@ class Session {
 
   private async post(body: object, expectReply: boolean): Promise<unknown> {
     const { headers: auth, query } = authParts(this.integration.auth, this.key);
-    const url = new URL(this.integration.url);
+    const url = new URL(this.integration.url!);
     for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
-    const { res } = await safeFetch(url.toString(), {
+    // A server the person added on this computer: reached directly (the one
+    // exception to agents never reaching local addresses - they chose it).
+    const reach = this.integration.local ? localFetch : safeFetch;
+    const { res } = await reach(url.toString(), {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -74,9 +84,22 @@ class Session {
   }
 }
 
-export async function listMcpTools(integration: McpIntegration, key: string | undefined): Promise<McpTool[]> {
+type Rpc = { request: (method: string, params?: object) => Promise<unknown> };
+
+async function connect(integration: McpIntegration, key: string | undefined): Promise<Rpc> {
+  if (integration.command) {
+    const s = stdioServer(integration.id, integration.name, integration.command, integration.env);
+    await s.open();
+    return s;
+  }
+  if (!integration.url) throw new Error(`${integration.name} has no address or command.`);
   const s = new Session(integration, key);
   await s.open();
+  return s;
+}
+
+export async function listMcpTools(integration: McpIntegration, key: string | undefined): Promise<McpTool[]> {
+  const s = await connect(integration, key);
   const tools: McpTool[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 20; page++) {
@@ -93,8 +116,7 @@ export async function listMcpTools(integration: McpIntegration, key: string | un
 }
 
 export async function callMcpTool(integration: McpIntegration, key: string | undefined, name: string, args: Record<string, unknown>): Promise<string> {
-  const s = new Session(integration, key);
-  await s.open();
+  const s = await connect(integration, key);
   const r = (await s.request('tools/call', { name, arguments: args })) as { content?: { type: string; text?: string }[]; isError?: boolean };
   const text = (r.content ?? [])
     .map(c => (c.type === 'text' ? (c.text ?? '') : `[${c.type} content]`))
