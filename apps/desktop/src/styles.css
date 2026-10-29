@@ -1740,6 +1740,15 @@ a.sbtn { text-decoration: none; color: inherit; }
 .rt-list { margin: 0; padding-left: 22px; }
 .rt-list li + li { margin-top: 4px; }
 .rt-code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 0.92em; padding: 1px 5px; border-radius: 5px; background: var(--surface-hover); }
+/* "Open Sentry Errors in Settings": where to connect what the message is about. */
+.rt-settings { display: inline-flex; align-self: flex-start; margin-top: 10px; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--attention-text); background: var(--attention); border: 1px solid var(--attention); }
+.rt-settings:hover { filter: brightness(1.12); }
+/* Arriving in Settings for one integration: its row glows blue. */
+.sconnectors li.spotlit { animation: row-spotlight 2.6s cubic-bezier(0.2, 0.8, 0.2, 1); border-radius: 8px; }
+@keyframes row-spotlight {
+  0%, 25% { box-shadow: 0 0 0 1px #3f7bd6, 0 0 34px rgba(63, 123, 214, 0.6); background-color: rgba(63, 123, 214, 0.1); }
+  55% { box-shadow: 0 0 0 1px #3f7bd6, 0 0 24px rgba(63, 123, 214, 0.4); }
+}
 .rt-ref { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
 /* A request's number, tiny, bottom left. */
 .request-wrap { scroll-margin-top: 16px; }

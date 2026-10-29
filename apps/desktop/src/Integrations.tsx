@@ -25,7 +25,7 @@ import {
 // agents' tools run on. Web search is one service among several (agents use
 // whichever is connected); anything else is added as an MCP server by its
 // address, or later by the Agency Engineer. Keys go here, never in a chat.
-export function Integrations({ onOpenApproval }: { onOpenApproval: (id: string) => void }) {
+export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenApproval: (id: string) => void; focus?: string | null; onFocused?: () => void }) {
   const [view, setView] = useState<IntegrationsView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -40,6 +40,16 @@ export function Integrations({ onOpenApproval }: { onOpenApproval: (id: string) 
     const t = window.setInterval(refresh, 5000);
     return () => window.clearInterval(t);
   }, []);
+  // Arriving for one integration (a request's "Open ... in Settings"): scrolled to, glowing blue.
+  useEffect(() => {
+    if (!focus || !view) return;
+    const row = document.querySelector<HTMLElement>(`[data-integration="${CSS.escape(focus)}"]`);
+    onFocused?.();
+    if (!row) return;
+    row.scrollIntoView({ block: 'center' });
+    row.classList.add('spotlit');
+    window.setTimeout(() => row.classList.remove('spotlit'), 2600);
+  }, [focus, !!view]);
   if (error && !view) return <p className="custom-error">{error}</p>;
   if (!view) return null;
   const search = view.integrations.filter(i => i.tools.some(t => t.id === 'web.web_search'));
@@ -118,7 +128,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
       ? i.test.message
       : '';
   return (
-    <li className={open || error ? 'with-form' : undefined}>
+    <li className={open || error ? 'with-form' : undefined} data-integration={i.id}>
       <span className="sconn-name">
         {i.name}
         {i.kind === 'mcp' && <span className="sint-kind">MCP</span>}
@@ -272,7 +282,7 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
         : '';
   const bad = !waiting && !!i.test && !i.test.ok;
   return (
-    <li className={open || error ? 'with-form' : undefined}>
+    <li className={open || error ? 'with-form' : undefined} data-integration={i.id}>
       <span className="sconn-name">
         {i.name}
       </span>

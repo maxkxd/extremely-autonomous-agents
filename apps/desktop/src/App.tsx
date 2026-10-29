@@ -9,7 +9,7 @@ import { LiveDM } from './LiveDM';
 import { NewAgent } from './NewAgent';
 import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
-import { NEW_SESSION, agentStatuses, getAgency, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
+import { NEW_SESSION, agentStatuses, getAgency, getIntegrations, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
 import {
   ACCOUNT,
@@ -286,6 +286,17 @@ export function App() {
   // Settings (a pop-up over the app), and signing out. There's no real sign-in
   // yet, so signing out just shows the signed-out screen.
   const [settings, setSettings] = useState<SettingsSection | null>(null);
+  // "Open Sentry Errors in Settings" (a request's message): Connectors, that integration glowing.
+  const [settingsFocus, setSettingsFocus] = useState<string | null>(null);
+  const openIntegration = (name: string | null) => {
+    setSettings('connectors');
+    if (!name) return;
+    const want = name.trim().toLowerCase();
+    getIntegrations().then(
+      v => setSettingsFocus(v.integrations.find(i => i.id === want || i.name.toLowerCase() === want)?.id ?? null),
+      () => {},
+    );
+  };
   const openApproval = (id?: string | null) => {
     const ap = id ? pending.find(a => a.id === id) : undefined;
     if (ap) {
@@ -514,7 +525,7 @@ export function App() {
               }}
               onGone={id => setRequestGone(prev => ({ ...prev, [id]: true }))}
               onOpenApprovals={openApproval}
-              refs={{ onRequest: openRequest, canOpen: id => openRequests.some(r => r.live === id) }}
+              refs={{ onRequest: openRequest, canOpen: id => openRequests.some(r => r.live === id), onSettings: openIntegration }}
               focus={focusRequest}
               onFocused={() => setFocusRequest(null)}
             />
@@ -538,6 +549,8 @@ export function App() {
           onSection={setSettings}
           onClose={() => setSettings(null)}
           onOpenApproval={openApproval}
+          focusIntegration={settingsFocus}
+          onFocused={() => setSettingsFocus(null)}
           onOrgChange={() => setOrgTick(t => t + 1)}
           onLogOut={() => {
             setSettings(null);

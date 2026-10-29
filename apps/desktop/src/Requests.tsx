@@ -357,7 +357,7 @@ function RequestRow({
 
 // Other requests named in a request's text ("request #41"): which can be opened
 // (they're on this page), and how.
-export type RequestRefs = { onRequest: (id: number) => void; canOpen: (id: number) => boolean };
+export type RequestRefs = { onRequest: (id: number) => void; canOpen: (id: number) => boolean; onSettings: (integration: string | null) => void };
 
 export function Requests({
   pending,
