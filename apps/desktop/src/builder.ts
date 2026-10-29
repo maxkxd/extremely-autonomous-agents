@@ -252,6 +252,7 @@ export type LiveRequest = {
   created_at: number;
   thread: { from: 'you' | 'engineer'; text: string; at: number }[];
   engineerBusy: boolean;
+  needsYou: boolean; // shown on the Requests page only once it needs the person
   approvalId: string | null;
 };
 export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
