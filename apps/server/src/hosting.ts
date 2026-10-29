@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './paths.js';
 import { getSetting, setSetting } from './runner/db.js';
 import { getSecret, setSecret } from './vault.js';
+import { HERE_HEADER } from './access.js';
 
 // Hosting an organisation (docs/architecture.md, "Accounts and organisations").
 // The person's own agency is this server. The organisation they own runs as a
@@ -40,7 +41,8 @@ async function hostKey(orgId: string) {
   return publicKey;
 }
 
-function launch(h: Hosting) {
+async function launch(h: Hosting) {
+  const hostSecret = (await getSecret<string>(`hosting:${h.orgId}:secret`)) ?? '';
   const server = fileURLToPath(new URL('./index.ts', import.meta.url));
   child = spawn(process.execPath, ['--import', 'tsx', server], {
     env: {
@@ -52,6 +54,7 @@ function launch(h: Hosting) {
       EAA_TOKEN_ISSUER: h.issuer,
       EAA_HOST_PERSON: getSetting<string | null>('host_person', null) ?? '',
       EAA_PARENT_PID: String(process.pid),
+      EAA_HOST_SECRET: hostSecret,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -68,7 +71,7 @@ function launch(h: Hosting) {
     // It fell over: start it again, waiting longer each time.
     const wait = Math.min(60_000, 1000 * 2 ** restarts++);
     console.error(`[${h.orgName}] stopped (${code}); starting again in ${wait / 1000}s.`);
-    setTimeout(() => hosting() && !child && launch(hosting()!), wait);
+    setTimeout(() => hosting() && !child && void launch(hosting()!), wait);
   });
 }
 
@@ -80,13 +83,19 @@ export async function startHosting(h: Hosting) {
   const publicKey = await hostKey(h.orgId);
   if (!child) {
     stopping = false;
-    launch(h);
+    await launch(h);
   }
   return { publicKey };
 }
 
 // The secret the host signs in to the relay with (phase 4), from registering it.
-export const keepHostSecret = (orgId: string, secret: string) => setSecret(`hosting:${orgId}:secret`, secret);
+export async function keepHostSecret(orgId: string, secret: string) {
+  await setSecret(`hosting:${orgId}:secret`, secret);
+  // The organisation's agency asks our backend about members with it (agency MCP addresses).
+  const out = request({ host: '127.0.0.1', port: HOSTED_PORT, method: 'POST', path: '/api/settings/host-secret', headers: { 'content-type': 'application/json' } });
+  out.on('error', () => {}); // not up yet: it gets it when it starts
+  out.end(JSON.stringify({ secret }));
+}
 
 // The organisation was deleted, or moved to another computer: its agency stops.
 // Its folder stays, in case.
@@ -104,7 +113,7 @@ export const hostingStatus = () => {
 // On start: carry on hosting.
 export function resumeHosting() {
   const h = hosting();
-  if (h && !HOSTED_ORG && !child) launch(h);
+  if (h && !HOSTED_ORG && !child) void launch(h);
 }
 process.on('exit', () => child?.kill());
 
@@ -124,7 +133,11 @@ if (HOSTED_ORG && parent)
 // agency checks them itself: a token, or this computer.
 export function forwardToHosted(req: IncomingMessage, res: ServerResponse, path: string) {
   if (!up) return res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The organisation’s agency is starting.' }));
-  const out = request({ host: '127.0.0.1', port: HOSTED_PORT, method: req.method, path, headers: { ...req.headers, host: `127.0.0.1:${HOSTED_PORT}` } }, r => {
+  // Whether it came from this computer: only we say so, never the request itself.
+  const headers: Record<string, string | string[] | undefined> = { ...req.headers, host: `127.0.0.1:${HOSTED_PORT}` };
+  delete headers[HERE_HEADER];
+  if (/^(127\.\d+\.\d+\.\d+|::1|::ffff:127\.\d+\.\d+\.\d+)$/.test(req.socket.remoteAddress ?? '')) headers[HERE_HEADER] = '1';
+  const out = request({ host: '127.0.0.1', port: HOSTED_PORT, method: req.method, path, headers }, r => {
     res.writeHead(r.statusCode ?? 502, r.headers);
     r.pipe(res);
   });

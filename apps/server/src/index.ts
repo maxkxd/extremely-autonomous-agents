@@ -17,7 +17,7 @@ import { finishIntegrationSignIn, integrationToolIds, liveEventIds } from './int
 import { handleMcp } from './runner/mcp.js';
 import { book, startScheduler } from './runner/scheduler.js';
 import { FLEET_ENGINEER } from './runner/agent.js';
-import { startAgencyMcp } from './runner/agency-mcp.js';
+import { openPeopleMcp, startAgencyMcp } from './runner/agency-mcp.js';
 import { startHooks } from './runner/hooks.js';
 import { agencyStopped } from './runner/run.js';
 import { fileRequest } from './runner/tools.js';
@@ -166,6 +166,12 @@ const routes: Record<string, Route> = {
     return { ok: true };
   },
   'POST /api/hosting/stop': async () => (await stopHosting(), { ok: true }),
+  // In an organisation's agency: the secret it asks our backend about members with (from the person's own agency).
+  'POST /api/settings/host-secret': async req => {
+    const { secret } = await body<{ secret: string }>(req);
+    if (typeof secret === 'string' && secret) process.env.EAA_HOST_SECRET = secret;
+    return { ok: true };
+  },
 
   // --- Settings: connectors and the server's own state ---
   'GET /api/catalog': async () => CATALOG.map(s => ({ server: s.server, what: s.what, tools: s.tools.length })),
@@ -355,5 +361,6 @@ createServer(async (req, res) => {
   void conn.recheckCapabilities();
   startScheduler();
   startAgencyMcp(); // the agency's own MCP server, for the person's AI IDE
+  openPeopleMcp(); // and everyone's own address in an organisation
   startHooks(book); // where services post events (and the tunnel, if it's on)
 });

@@ -219,3 +219,19 @@ test('development sign-in: only when asked for, and a session like any other', a
     dev.close();
   }
 });
+
+test("hosts check a member's role with their own secret, never a person's session", async () => {
+  const org = (await call('ana', 'POST', '/orgs', { name: 'Host Check' })).body.id ?? (await call('ana', 'GET', '/me')).body.orgs.find((o: any) => o.kind === 'team').id;
+  const { hostSecret } = (await call('ana', 'POST', `/orgs/${org}/host`, { publicKey: 'h'.repeat(43) })).body;
+  const inv = await call('ana', 'POST', `/orgs/${org}/invites`, {});
+  await call('ben', 'POST', `/invites/${inv.body.code}/accept`);
+  const ask = (who: string, auth?: string) => fetch(`${base}/host/members/${who}`, { headers: auth ? { authorization: auth } : {} }).then(async r => [r.status, await r.json()]);
+  assert.deepEqual(await ask('ben', `Host ${hostSecret}`), [200, { role: 'member', name: 'Ben' }]);
+  assert.deepEqual(await ask('ana', `Host ${hostSecret}`), [200, { role: 'owner', name: 'Ana' }]);
+  assert.equal((await ask('cat', `Host ${hostSecret}`))[0], 404);
+  assert.equal((await ask('ben', 'Host wrong'))[0], 401);
+  assert.equal((await ask('ben', `Bearer ${await session('ana')}`))[0], 401);
+  assert.equal((await ask('ben'))[0], 401);
+  await call('ana', 'DELETE', `/orgs/${org}/members/ben`);
+  assert.equal((await ask('ben', `Host ${hostSecret}`))[0], 404); // removed: no longer
+});
