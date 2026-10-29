@@ -160,6 +160,9 @@ export const teamOrgs = () => (state.me?.orgs ?? []).filter(o => o.kind === 'tea
 export const currentOrg = () => teamOrgs().find(o => o.id === state.agency) ?? null;
 // The organisation runs here: this computer hosts it.
 export const hostedHere = (o: OrgView | null) => !!o && state.hosting?.orgId === o.id;
+// The owner or an admin, or your own agency: everything. A member: what the
+// host lets members do (apps/server/src/access.ts); the app shows them nothing else.
+export const isAdmin = () => currentOrg()?.role !== 'member';
 export const ownOrg = () => teamOrgs().find(o => o.role === 'owner') ?? null;
 
 // Startup, before the app draws: everything above, from wherever it can be had.
@@ -181,6 +184,9 @@ export async function initAccount() {
   state.issuer = config?.issuer ?? BACKEND;
   state.hosting = hosting.hosting;
   if (state.signIn) await refreshMe().catch(() => {});
+  // Hosted here but never registered (starting it was cut short): finish now.
+  const unregistered = ownOrg();
+  if (unregistered && state.hosting?.orgId === unregistered.id && !unregistered.host.registered) void hostHere(unregistered).then(refreshMe).catch(() => {});
   if (state.agency !== 'personal' && !currentOrg()) state.agency = 'personal';
   const org = currentOrg();
   if (org) state.members = await backend<Member[]>(`/orgs/${org.id}/members`).catch(() => []);

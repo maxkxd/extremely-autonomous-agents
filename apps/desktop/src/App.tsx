@@ -12,7 +12,7 @@ import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
 import { NEW_SESSION, agentStatuses, getAgency, getIntegrations, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
-import { currentOrg, hostedHere, signOut, state } from './account';
+import { currentOrg, hostedHere, isAdmin, signOut, state } from './account';
 import { SignIn } from './SignIn';
 import { Elsewhere } from './Elsewhere';
 import {
@@ -97,7 +97,7 @@ function Agency() {
     if (!currentOrg() || currentOrg()?.role === 'owner') void setHostPerson(ACCOUNT.name, ACCOUNT.org?.name ?? null).catch(() => {});
     getHostZone().then(
       h => {
-        if (!h.set) void setHostZone(Intl.DateTimeFormat().resolvedOptions().timeZone).catch(() => {});
+        if (!h.set && isAdmin()) void setHostZone(Intl.DateTimeFormat().resolvedOptions().timeZone).catch(() => {});
       },
       () => {},
     );
@@ -326,7 +326,7 @@ function Agency() {
   const openApproval = (id?: string | null) => {
     const ap = id ? pending.find(a => a.id === id) : undefined;
     if (ap) {
-      if (!visibleApprovals([ap], scope).length) setScope('all');
+      if (!visibleApprovals([ap], scope).length && isAdmin()) setScope('all');
       setAgentFilter(null);
       setFocusApproval(ap.id);
     }
@@ -338,7 +338,7 @@ function Agency() {
   const openRequest = (live: number) => {
     const r = openRequests.find(x => x.live === live);
     if (!r) return;
-    if (!visibleApprovals([r], requestScope).length) setRequestScope('all');
+    if (!visibleApprovals([r], requestScope).length && isAdmin()) setRequestScope('all');
     setRequestFilter(null);
     setFocusRequest(live);
     setView('requests');
@@ -489,7 +489,7 @@ function Agency() {
           </div>
           {view === 'dashboard' && (
             <div className="header-tools">
-              <AgencyControls state={agency} onChange={changeAgency} />
+              {isAdmin() && <AgencyControls state={agency} onChange={changeAgency} />}
               <RangePicker value={range} onChange={setRange} />
             </div>
           )}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Globe, Plus } from 'lucide-react';
 import { SpinButton } from './ModelConnectors';
+import { isAdmin } from './account';
 import {
   addMcpIntegration,
   connectIntegration,
@@ -69,9 +70,10 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
         <h3>Integrations</h3>
         <p className="slead">Other services agents can use. Add any service that has an MCP server by its address.</p>
         <ul className="sconnectors">
-          <CodePlugins />
-          <AgencyMcp />
-          {view.integrations.some(i => i.events.some(e => e.webhook)) && <WebhookTunnel tunnel={events.tunnel} onChange={t => setEvents(v => ({ ...v, tunnel: t }))} />}
+          {/* What acts on the host's computer is the owner's and admins' (access.ts). */}
+          {isAdmin() && <CodePlugins />}
+          {isAdmin() && <AgencyMcp />}
+          {isAdmin() && view.integrations.some(i => i.events.some(e => e.webhook)) && <WebhookTunnel tunnel={events.tunnel} onChange={t => setEvents(v => ({ ...v, tunnel: t }))} />}
           {others.map(i => (
             <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} events={events.events} />
           ))}
@@ -83,7 +85,7 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
           </p>
         ))}
       </div>
-      <AgentBrowser status={view.profile} />
+      {isAdmin() && <AgentBrowser status={view.profile} />}
     </>
   );
 }
@@ -593,7 +595,9 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
         />
         {onThisComputer(url) && (
           <p className="sint-help sint-bad">
-            This one runs on this computer, with your permissions - agents using it can do what it can. Only add servers you trust.
+            {isAdmin()
+              ? 'This one runs on this computer, with your permissions - agents using it can do what it can. Only add servers you trust.'
+              : 'This one would run on the host’s computer. Only the owner or an admin can add those.'}
           </p>
         )}
         <input className="srow2-input mwide" value={name} placeholder="Name (optional)" onChange={e => setName(e.target.value)} />
@@ -615,7 +619,7 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
           <button className="sbtn" onClick={() => setOpen(false)} disabled={busy}>
             Cancel
           </button>
-          <SpinButton className="sbtn primary" spinning={busy} onClick={add} disabled={!url.trim() || (auth === 'bearer' && !key.trim())}>
+          <SpinButton className="sbtn primary" spinning={busy} onClick={add} disabled={!url.trim() || (auth === 'bearer' && !key.trim()) || (!isAdmin() && onThisComputer(url))}>
             Add
           </SpinButton>
         </div>
