@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { devSignIn, emailCode, signInWith, state } from './account';
 
 // Anywhere in the app can ask for it; App shows it.
-export const openSignIn = () => window.dispatchEvent(new Event('eaa:sign-in'));
+// 'up' only changes the title: the same email code signs you in or makes your account.
+export const openSignIn = (mode: 'in' | 'up' = 'in') => window.dispatchEvent(new CustomEvent('eaa:sign-in', { detail: mode }));
 
 // Signing in, for organisations (account.ts): Google, GitHub, or a code by
 // email - the same code makes an account the first time. Development without
 // Clerk: an email and a name, no code.
-export function SignIn({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+export function SignIn({ onDone, onCancel, mode = 'in' }: { onDone: () => void; onCancel: () => void; mode?: 'in' | 'up' }) {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
@@ -68,7 +69,7 @@ export function SignIn({ onDone, onCancel }: { onDone: () => void; onCancel: () 
           if (!busy) submit();
         }}
       >
-        <h2 id="signin-title">{finish ? 'Check your email' : 'Sign in'}</h2>
+        <h2 id="signin-title">{finish ? 'Check your email' : mode === 'up' ? 'Sign up' : 'Sign in'}</h2>
         {finish ? (
           <>
             <p>A code went to {email.trim()}.</p>
@@ -97,7 +98,7 @@ export function SignIn({ onDone, onCancel }: { onDone: () => void; onCancel: () 
             Cancel
           </button>
           <button type="submit" className="sbtn primary" disabled={busy || (finish ? !code.trim() : !email.trim())}>
-            {busy ? 'One moment...' : finish ? 'Sign in' : dev ? 'Sign in' : 'Continue'}
+            {busy ? 'One moment...' : finish || dev ? (mode === 'up' ? 'Sign up' : 'Sign in') : 'Continue'}
           </button>
         </div>
       </form>

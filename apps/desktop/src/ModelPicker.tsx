@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type RefObject } from 'react';
 import { AlertTriangle, ChevronRight, Cpu, Search, X } from 'lucide-react';
 import { checkModel, EFFORTS, getModelChecks, type AvailableModels, type Effort, type ModelCheck, type ModelChoice } from './builder';
+import { ConnectModel } from './NoModels';
 
 // An agent's models on its dashboard card (docs/model-connections.md): up to
 // three in order - #1 runs, #2 and #3 take over if it fails. The card shows #1
@@ -153,6 +154,14 @@ export function ModelPanel({
       return next;
     });
 
+  // Nothing connected: nothing to pick, just the way to connect one.
+  if (!available.some(a => a.models.length))
+    return (
+      <div className="model-panel" onPointerDown={e => e.stopPropagation()}>
+        <ConnectModel title="No models found" />
+      </div>
+    );
+
   return (
     <div className="model-panel" onPointerDown={e => e.stopPropagation()}>
       <div className="model-slots">
@@ -217,8 +226,7 @@ export function ModelPanel({
       </label>
 
       <div className="model-groups">
-        {!available.length && <p className="model-empty">No models connected. Add one in Settings → Connectors.</p>}
-        {available.length > 0 && !groups.length && <p className="model-empty">No models match "{query}".</p>}
+        {!groups.length && <p className="model-empty">No models match "{query}".</p>}
         {groups.map(g => {
           const expanded = !!q || openGroups.has(g.connection);
           return (

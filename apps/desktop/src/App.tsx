@@ -15,6 +15,7 @@ import { subscribeToDecisions } from './live';
 import { currentOrg, hostedHere, isAdmin, signOut, state } from './account';
 import { SignIn } from './SignIn';
 import { Elsewhere } from './Elsewhere';
+import { Onboarding, onboarded } from './Onboarding';
 import {
   ACCOUNT,
   AGENTS,
@@ -66,8 +67,11 @@ const clamp = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
 
 // An organisation hosted on someone else's computer can't be reached yet (the
 // relay, phase 4): it gets a page saying so instead of the agency.
+// A new install opens on the first-run screen (connect an AI model) in your own agency.
 export function App() {
   const org = currentOrg();
+  const [firstRun, setFirstRun] = useState(() => !org && !onboarded());
+  if (firstRun) return <Onboarding onDone={() => setFirstRun(false)} />;
   return org && !hostedHere(org) ? <Elsewhere org={org} /> : <Agency />;
 }
 
@@ -344,13 +348,19 @@ function Agency() {
     setView('requests');
   };
   // Signing in (for organisations) from anywhere: Settings, the account menu.
-  const [signingIn, setSigningIn] = useState(false);
+  const [signingIn, setSigningIn] = useState<'in' | 'up' | null>(null);
   useEffect(() => {
-    const open = () => setSigningIn(true);
+    const open = (e: Event) => setSigningIn((e as CustomEvent<'in' | 'up'>).detail ?? 'in');
     window.addEventListener('eaa:sign-in', open);
     return () => window.removeEventListener('eaa:sign-in', open);
   }, []);
-  const logInOut = () => (state.me ? void signOut() : setSigningIn(true));
+  const logInOut = () => (state.me ? void signOut() : setSigningIn('in'));
+  // Settings at a section, from anywhere (NoModels.tsx: "Connect a model").
+  useEffect(() => {
+    const open = (e: Event) => setSettings((e as CustomEvent<SettingsSection>).detail);
+    window.addEventListener('eaa:settings', open);
+    return () => window.removeEventListener('eaa:settings', open);
+  }, []);
   const [, setOrgTick] = useState(0);
 
   // Creating an agent (docs/agent-creation.md). The conversation lives here so
@@ -600,7 +610,7 @@ function Agency() {
         />
       )}
       {/* Signed in: the app starts again, with your organisations. */}
-      {signingIn && <SignIn onCancel={() => setSigningIn(false)} onDone={() => location.reload()} />}
+      {signingIn && <SignIn mode={signingIn} onCancel={() => setSigningIn(null)} onDone={() => location.reload()} />}
       {reveal && (
         <AgentReveal
           agents={reveal.built.map(b => b.agent)}
