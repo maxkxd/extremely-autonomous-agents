@@ -9,7 +9,7 @@ import type { Permissions } from './sandbox.js';
 // can do on this computer - goes on the approval card for a person who may not
 // read code. One call to a fast model: about as long as a page load or two.
 
-export type Review = { verdict: 'approve' | 'fix'; canDo: string[]; concerns: { severity: 'high' | 'medium' | 'low'; what: string }[]; fix: string };
+export type Review = { verdict: 'approve' | 'fix'; canDo: string[]; warn: string; concerns: { severity: 'high' | 'medium' | 'low'; what: string }[]; fix: string };
 
 const SYSTEM = `You are a security reviewer for code plugins in an AI agency app. A plugin runs on a person's own computer. AI agents call its tools with inputs the agents choose - treat every input as attacker-controlled (an agent may have read a malicious web page or email).
 
@@ -24,17 +24,19 @@ Look for:
 - Programs started with agent-controlled arguments, or downloading and running anything.
 
 Answer with JSON only, no prose around it:
-{"verdict":"approve"|"fix","can_do":["..."],"concerns":[{"severity":"high"|"medium"|"low","what":"..."}],"fix":"..."}
-- can_do: 2-6 short plain-English lines for someone who can't read code, saying concretely what this can do on their computer (e.g. "Changes your desktop wallpaper", "Saves images in Pictures\\Morning Wallpaper", "Downloads images from public websites"). Include the scary parts plainly.
+{"verdict":"approve"|"fix","can_do":["..."],"warn":"","concerns":[{"severity":"high"|"medium"|"low","what":"..."}],"fix":"..."}
+- can_do: 2-4 short plain-English lines for someone who can't read code, saying concretely what this can do on their computer (e.g. "Changes your desktop wallpaper", "Saves images in Pictures\\Morning Wallpaper", "Downloads images from public websites"). Include the scary parts plainly.
+- warn: usually "". One short plain sentence only when there's something obvious and significant a non-technical person would clearly want to know before approving and that can_do doesn't already say - it can spend money, email people outside the organisation, delete or overwrite their files, post publicly in their name. Never technical or hypothetical risks (networks, hosting, edge cases, what wasn't tested): those go in concerns, which the person doesn't see.
 - verdict "fix" if any concern is high; "fix" names what to change. Otherwise "approve" and fix "".`;
 
 export function parseReview(text: string): Review {
   const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
-  const r = JSON.parse(json) as Partial<{ verdict: string; can_do: string[]; concerns: { severity: string; what: string }[]; fix: string }>;
+  const r = JSON.parse(json) as Partial<{ verdict: string; can_do: string[]; warn: string; concerns: { severity: string; what: string }[]; fix: string }>;
   const concerns = (r.concerns ?? []).filter(c => c?.what).map(c => ({ severity: (['high', 'medium', 'low'].includes(c.severity) ? c.severity : 'medium') as Review['concerns'][number]['severity'], what: String(c.what) }));
   return {
     verdict: r.verdict === 'approve' && !concerns.some(c => c.severity === 'high') ? 'approve' : 'fix',
     canDo: (r.can_do ?? []).map(String).filter(Boolean).slice(0, 8),
+    warn: String(r.warn ?? '').trim(),
     concerns,
     fix: String(r.fix ?? ''),
   };
@@ -60,6 +62,6 @@ export async function reviewPlugin(p: { name: string; yaml: string; code: string
   try {
     return parseReview(text);
   } catch {
-    return { verdict: 'fix', canDo: [], concerns: [{ severity: 'high', what: "The review couldn't be read, so the plugin wasn't checked." }], fix: 'Propose it again.' };
+    return { verdict: 'fix', canDo: [], warn: '', concerns: [{ severity: 'high', what: "The review couldn't be read, so the plugin wasn't checked." }], fix: 'Propose it again.' };
   }
 }

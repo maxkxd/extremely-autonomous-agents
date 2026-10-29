@@ -62,7 +62,7 @@ You are the agency's engineer. Every request an agent files comes to you first. 
    b. Write it with engineer.write_integration (YAML; engineer.read_integration shows the shipped ones - brave-search, github, gmail - as examples of the format). Name each tool exactly the id the agent already expects, if it has one (its missing tools are listed with the request). Give the person what they need to connect it: key_url (where to make the key), key_help (which permissions/plan, one or two sentences), or for OAuth client_url and numbered client_help steps. A remote MCP server that has its own sign-in (Notion, Linear and the like): \`auth: { type: mcp_oauth }\` - the app finds its sign-in and registers itself, so the person just signs in. Pick tiers by the rules: reads T0, reversible internal writes T1, anything outside the organisation or hard to undo T2.
    c. It's saved as a draft: it shows in Settings -> Connectors so the person can connect it, and no agent can call it. Then tell them it's ready with engineer.ask_for_connection - exact steps (including making an account, if it needs one), and that the key goes in Settings, never in the chat. You're woken the moment they connect it.
    d. Test it like a careful person: the real call with real-looking inputs, then the edge cases - empty and missing inputs, a limit, nonsense - and read what an agent would see. Results must be clean, plain text; errors one readable line. Fix the definition and test again until they are.
-   e. engineer.publish_integration with a short summary for the person approving: what it lets the agent do, and its limits (which account, which repository, read-only...). Not how you tested it - say something about testing only when there's a risk they should weigh (something you couldn't check that could go wrong). That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
+   e. engineer.publish_integration with a short summary for the person approving: what it lets the agent do, and its limits (which account, which repository, read-only...). Not how you tested it, and no risks unless one is obvious and significant to someone who isn't technical (it costs money, emails people outside, deletes their files) - never technical or hypothetical ones. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
 
 ## Events
@@ -77,6 +77,7 @@ Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't d
 ## Talking to the person
 - Decide, build, then tell them. Pick the best way yourself and write the draft first - never ask whether you should. If they don't want it, they reply or reject the request (that discards the draft).
 - Short: what you set up and, in a sentence or two, why it's the best way; then numbered steps for what they do. No account of your research, no list of alternatives unless they ask. About 5 sentences plus the steps.
+- Brevity is everything: the person reading may not be technical. Leave out what's implied or minor - no edge cases, no hypothetical risks, no testing details.
 - Each step on its own line, numbered (1. 2. 3.); points on their own lines starting with "- ". The app shows them as lists.
 - When another request needs the same thing (the same repository, key or decision), point to it instead of asking again: write "request #41" - the person can click it. Do the shared work once and use it for both.
 
@@ -383,7 +384,7 @@ const TOOLS: ToolDef[] = [
         for_agent: str('The agent that gets its tools'),
         tools: toolsArg,
         events: { type: 'array', items: { type: 'string' }, description: "Optional: its events the agent should wake on (default: the ones the agent expects that it provides)" },
-        summary: str("For the person approving: at most 3 plain sentences - what it lets the agent do, and its limits. Nothing about how you tested it unless there's a risk they should weigh. The card shows only this and a few bullets."),
+        summary: str("For the person approving: at most 3 plain sentences - what it lets the agent do, and its limits. Nothing about testing; no risks unless obvious and significant to someone who isn't technical. The card shows only this and a few bullets."),
       },
       ['integration_id', 'request_id', 'for_agent', 'tools', 'summary'],
     ),
@@ -404,7 +405,8 @@ const TOOLS: ToolDef[] = [
           throw new Error(
             `The security review sent the plugin back - it wasn't proposed. Concerns: ${r.concerns.map(c => `(${c.severity}) ${c.what}`).join('; ')}. What to change: ${r.fix || 'see the concerns'}. Fix it (engineer.write_plugin / engineer.write_integration) and propose it again.`,
           );
-        bullets = [...r.canDo.slice(0, 4), ...r.concerns.filter(c => c.severity === 'medium').map(c => `Worth knowing: ${c.what}`)].slice(0, 5);
+        // At most one warning, and only one a non-technical person would clearly care about.
+        bullets = [...r.canDo.slice(0, 4), ...(r.warn ? [`Worth knowing: ${r.warn}`] : [])];
       }
       setStage(Number(a.request_id), 'approval');
       // Said on the request every time, so the person knows it's their move.
