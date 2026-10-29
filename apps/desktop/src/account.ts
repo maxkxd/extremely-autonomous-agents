@@ -177,6 +177,7 @@ const local = async <T>(path: string, body?: unknown): Promise<T> => {
 //
 // The one you go by everywhere: signed in, the one on your account with us
 // (your organisations see it); otherwise the one in your own agency.
+const accountEmail = () => state.me?.user.email ?? null;
 export const myName = () => state.me?.user.name || state.localFullName || state.localName || 'You';
 const nameListeners = new Set<() => void>();
 export const onMyName = (l: () => void) => (nameListeners.add(l), () => void nameListeners.delete(l));
@@ -297,13 +298,17 @@ export async function initAccount() {
     local<{ you: { name: string } }>('/api/access').catch(() => null),
   ]);
   state.localName = access && access.you.name !== 'The host' ? access.you.name : null;
-  if (state.localName)
-    state.localFullName =
-      (await local<{ person: { full_name?: string } | null }>(`/api/person?name=${encodeURIComponent(state.localName)}`).catch(() => null))?.person?.full_name?.trim() || null;
+  const person = state.localName
+    ? ((await local<{ person: ({ full_name?: string; email?: string } & Record<string, unknown>) | null }>(`/api/person?name=${encodeURIComponent(state.localName)}`).catch(() => null))?.person ?? null)
+    : null;
+  state.localFullName = person?.full_name?.trim() || null;
   state.signIn = config?.signIn ?? null;
   state.issuer = config?.issuer ?? BACKEND;
   state.hosting = hosting.hosting;
   if (state.signIn) await refreshMe().catch(() => {});
+  // Signed in: the email you sign in with is the one your agents reach you at.
+  const email = accountEmail();
+  if (person && email && person.email !== email) void local('/api/person', { profile: { ...person, email } }).catch(() => {});
   // Hosted here but never registered (starting it was cut short): finish now.
   const unregistered = ownOrg();
   if (unregistered && state.hosting?.orgId === unregistered.id && !unregistered.host.registered) void hostHere(unregistered).then(refreshMe).catch(() => {});
