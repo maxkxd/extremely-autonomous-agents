@@ -3,6 +3,13 @@ import { Building2, Check, ChevronDown, Gauge, LogOut, Plug, Plus, Trash2, User,
 import { ACCOUNT, AGENTS } from './data';
 import {
   createInvite,
+  joinSelf,
+  previewSelfInvite,
+  selfAddress,
+  selfHost,
+  selfMe,
+  setSelfAddress,
+  signInSelf,
   createOrganisation,
   deleteOrganisation,
   invites as listInvites,
@@ -516,18 +523,6 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
   const [error, setError] = useState<string | null>(null);
 
   if (org) return <OrganizationProfile name={org.name} />;
-  if (!state.me)
-    return (
-      <section className="ssection">
-        <h2>Organization</h2>
-        <div className="sorg-center">
-          <p className="sorg-convert">Sign up to create or join an organization</p>
-          <button className="sbtn primary" onClick={() => openSignIn('up')}>
-            Sign up
-          </button>
-        </div>
-      </section>
-    );
 
   // Made, hosted on this computer, and opened.
   const start = async () => {
@@ -547,7 +542,14 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
   return (
     <section className="ssection">
       <h2>Organization</h2>
-      {mine ? (
+      {!state.me ? (
+        <div className="sorg-row">
+          <span>Sign up to create or join one with us</span>
+          <button className="sbtn primary" onClick={() => openSignIn('up')}>
+            Sign up
+          </button>
+        </div>
+      ) : mine ? (
         <div className="sorg-row">
           <span>
             You host <strong>{mine.name}</strong>
@@ -580,8 +582,130 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
           </button>
         </div>
       ))}
-      <JoinWithCode />
+      {state.me && <JoinWithCode />}
+      <SelfHosted />
     </section>
+  );
+}
+
+// Self-hosted organisations (selfhost.ts on their host): their own accounts, no
+// account with us. Self-host one on this computer, or join one at its address.
+function SelfHosted() {
+  const [open, setOpen] = useState<'host' | 'join' | null>(null);
+  const [f, setF] = useState({ orgName: '', name: '', email: '', password: '', address: '', code: '' });
+  const [haveAccount, setHaveAccount] = useState(false);
+  const [preview, setPreview] = useState<{ org: string; role: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF(v => ({ ...v, [k]: e.target.value }));
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setBusy(false);
+  };
+  const canHost = !state.hosting;
+  return (
+    <div className="sfield sself">
+      <span className="sfield-label">Self-hosted</span>
+      <span className="sfield-hint">Its own accounts, on its own computer, reached at its own address. No account with us.</span>
+      <div className="sinline">
+        {canHost && (
+          <button className={`sbtn${open === 'host' ? ' primary' : ''}`} onClick={() => setOpen(open === 'host' ? null : 'host')}>
+            Self-host one here
+          </button>
+        )}
+        <button className={`sbtn${open === 'join' ? ' primary' : ''}`} onClick={() => setOpen(open === 'join' ? null : 'join')}>
+          Join one
+        </button>
+      </div>
+      {open === 'host' && (
+        <div className="sself-form">
+          <input value={f.orgName} placeholder="Its name" maxLength={80} onChange={set('orgName')} />
+          <input value={f.name} placeholder="Your name" autoComplete="name" onChange={set('name')} />
+          <input value={f.email} type="email" placeholder="Your email" autoComplete="email" onChange={set('email')} />
+          <input value={f.password} type="password" placeholder="A password (10+ characters)" autoComplete="new-password" onChange={set('password')} />
+          <button
+            className="sbtn primary"
+            disabled={busy || !f.orgName.trim() || !f.email.trim() || f.password.length < 10}
+            onClick={() =>
+              run(async () => {
+                const made = await selfHost(f.orgName.trim(), { email: f.email, name: f.name, password: f.password });
+                switchAgency(made.orgId);
+              })
+            }
+          >
+            {busy ? 'Starting it...' : 'Self-host'}
+          </button>
+        </div>
+      )}
+      {open === 'join' && (
+        <div className="sself-form">
+          <input value={f.address} placeholder="Its address (https://agency.example.com)" onChange={e => (set('address')(e), setPreview(null))} />
+          {!haveAccount && <input value={f.code} placeholder="Invite code" spellCheck={false} onChange={e => (set('code')(e), setPreview(null))} />}
+          {preview && <span className="sfield-hint">Join {preview.org} as {preview.role === 'admin' ? 'an admin' : 'a member'}.</span>}
+          {(preview || haveAccount) && (
+            <>
+              {!haveAccount && <input value={f.name} placeholder="Your name" autoComplete="name" onChange={set('name')} />}
+              <input value={f.email} type="email" placeholder="Your email" autoComplete="email" onChange={set('email')} />
+              <input value={f.password} type="password" placeholder={haveAccount ? 'Your password' : 'A password (10+ characters)'} autoComplete={haveAccount ? 'current-password' : 'new-password'} onChange={set('password')} />
+            </>
+          )}
+          <button
+            className="sbtn primary"
+            disabled={busy || !f.address.trim() || (!haveAccount && !f.code.trim())}
+            onClick={() =>
+              run(async () => {
+                if (haveAccount) return switchAgency((await signInSelf(f.address, f.email, f.password)).id);
+                if (!preview) return setPreview(await previewSelfInvite(f.address, f.code));
+                switchAgency((await joinSelf(f.address, { code: f.code, email: f.email, name: f.name, password: f.password })).id);
+              })
+            }
+          >
+            {haveAccount ? 'Sign in' : preview ? `Join ${preview.org}` : 'Continue'}
+          </button>
+          <button className="slink" onClick={() => (setHaveAccount(h => !h), setPreview(null))}>
+            {haveAccount ? 'I have an invite code' : 'I already have an account there'}
+          </button>
+        </div>
+      )}
+      {error && <span className="custom-error">{error}</span>}
+    </div>
+  );
+}
+
+// A self-hosted organisation: the address its members reach it at (its owner's tunnel or proxy).
+function SelfAddress({ manage }: { manage: boolean }) {
+  const [address, setAddress] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => void selfAddress().then(a => (setAddress(a), setDraft(a ?? '')), () => {}), []);
+  if (!manage) return null;
+  return (
+    <div className="sfield">
+      <span className="sfield-label">Address members use</span>
+      <span className="sfield-hint">Where this computer can be reached from theirs: an https tunnel or reverse proxy to it, or its address on your network.</span>
+      <div className="sinline">
+        <input value={draft} placeholder="https://agency.example.com" onChange={e => setDraft(e.target.value)} />
+        <button
+          className="sbtn"
+          disabled={draft.trim() === (address ?? '')}
+          onClick={() =>
+            setSelfAddress(draft).then(
+              a => (setAddress(a), setError(null)),
+              e => setError((e as Error).message),
+            )
+          }
+        >
+          Save
+        </button>
+      </div>
+      {error && <span className="custom-error">{error}</span>}
+    </div>
   );
 }
 
@@ -640,9 +764,12 @@ function OrgPeople() {
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const manage = org.role !== 'member';
+  // Self-hosted: the address invites go with.
+  const [address, setAddressShown] = useState<string | null>(null);
   const load = () => {
     listMembers(org.id).then(setPeople, () => {});
     if (manage) listInvites(org.id).then(setPending, () => {});
+    if (org.self) selfAddress().then(setAddressShown, () => {});
   };
   useEffect(load, [org.id, manage]);
   const act = async (fn: () => Promise<unknown>) => {
@@ -654,10 +781,12 @@ function OrgPeople() {
       setError((e as Error).message);
     }
   };
-  const me = state.me?.user.id;
+  // You, in this organisation's list: your account with us, or with its host when self-hosted.
+  const me = org.self ? selfMe(org) : state.me?.user.id;
   const label = (r: string) => (r === 'owner' ? 'Owner' : r === 'admin' ? 'Admin' : 'Member');
   return (
     <>
+      {org.self && <SelfAddress manage={manage} />}
       <h3>Members</h3>
       <ul className="smembers">
         {people.map(m => (
@@ -708,6 +837,11 @@ function OrgPeople() {
           </div>
           {made && (
             <span className="sfield-hint">
+              {org.self && address && (
+                <>
+                  Address: <code className="scode">{address}</code>{' '}
+                </>
+              )}
               Their code: <code className="scode">{made.code}</code>
               {made.email ? ` Only ${made.email} can use it.` : ''} It lasts 14 days.
             </span>

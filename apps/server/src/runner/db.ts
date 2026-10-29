@@ -197,6 +197,33 @@ CREATE TABLE IF NOT EXISTS mcp_people (
   created_at INTEGER NOT NULL
 );
 
+-- A self-hosted organisation's own directory (selfhost.ts): its accounts,
+-- sign-in sessions (hashed) and invites. Empty everywhere else.
+CREATE TABLE IF NOT EXISTS self_accounts (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,               -- owner | admin | member
+  pw TEXT NOT NULL,                 -- scrypt$salt$hash
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS self_sessions (
+  hash TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS self_invites (
+  code TEXT PRIMARY KEY,
+  email TEXT,
+  role TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_by TEXT,
+  used_at INTEGER
+);
+
 -- Who did what (access.ts): every change a person made through the app, and
 -- what it was about (ids and choices, never keys or what they wrote).
 CREATE TABLE IF NOT EXISTS person_actions (
