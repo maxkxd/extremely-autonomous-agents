@@ -1,4 +1,5 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { access } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { promisify } from 'node:util';
 import { getSetting, setSetting } from './db.js';
@@ -52,20 +53,28 @@ export type TunnelState = { status: 'off' | 'starting' | 'on' | 'missing' | 'err
 let tunnel: TunnelState = { status: 'off', url: null, error: null };
 let child: ChildProcess | null = null;
 
-const installed = () =>
-  promisify(execFile)(process.platform === 'win32' ? 'where' : 'which', ['cloudflared']).then(
-    () => true,
-    () => false,
+// Where cloudflared is: on the PATH, or where its installer puts it (a server
+// started before it was installed doesn't see the new PATH).
+const KNOWN = ['C:/Program Files (x86)/cloudflared/cloudflared.exe', 'C:/Program Files/cloudflared/cloudflared.exe', '/opt/homebrew/bin/cloudflared', '/usr/local/bin/cloudflared'];
+async function cloudflared(): Promise<string | null> {
+  const onPath = await promisify(execFile)(process.platform === 'win32' ? 'where' : 'which', ['cloudflared']).then(
+    r => String(r.stdout).split(/\r?\n/)[0].trim() || null,
+    () => null,
   );
+  if (onPath) return onPath;
+  for (const p of KNOWN) if (await access(p).then(() => true, () => false)) return p;
+  return null;
+}
 
 async function startTunnel() {
   if (child) return;
-  if (!(await installed())) {
+  const bin = await cloudflared();
+  if (!bin) {
     tunnel = { status: 'missing', url: null, error: null };
     return;
   }
   tunnel = { status: 'starting', url: null, error: null };
-  const proc = spawn('cloudflared', ['tunnel', '--no-autoupdate', '--url', LOCAL], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const proc = spawn(bin, ['tunnel', '--no-autoupdate', '--url', LOCAL], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   child = proc;
   let log = '';
   const read = (d: Buffer) => {

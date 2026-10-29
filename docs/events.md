@@ -98,5 +98,11 @@ MCP server. A real poll found GitHub's latest issues; a webhook woke a test
 agent (on Claude Code), which named the alarm, with its DM post marked
 `event`. A repeat post was ignored. A redraft kept the live events working.
 A signed event refused posts with no secret saved, a bad signature or none,
-and took a good one. The webhook port answers 404 to the app's API. The
-tunnel reported cloudflared missing (not installed on this computer).
+and took a good one. The webhook port answers 404 to the app's API.
+
+The tunnel, once cloudflared was installed (winget, 2026.10.5): a public
+trycloudflare.com address in about 10 seconds; a webhook posted to it from
+outside went through Cloudflare and was taken; the app's API, the IDE's MCP
+server and its root all answer 404 through it. cloudflared is found on the
+PATH or in its installer's folder, so a server started before installing it
+still finds it.
