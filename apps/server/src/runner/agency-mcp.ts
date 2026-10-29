@@ -28,12 +28,13 @@ import { availableModels } from '../models/connections.js';
 import type { Tier } from '../catalog.js';
 import { loadAgent } from './agent.js';
 import { answerRequest } from './api.js';
-import { all, getSetting, run as exec, setSetting } from './db.js';
+import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { giveEvents, giveTools } from './engineer.js';
 import { checkEvent } from './events.js';
 import { hooksBase } from './hooks.js';
 import { LEVELS } from './ferocity.js';
 import { openBridge } from './mcp.js';
+import { accessConfig, asActor, currentActor, localActor, personFor, requireMakerOrAdmin, type Actor, type Role } from '../access.js';
 import { registeredToolIds } from './tools.js';
 import { stateOf } from './run.js';
 import { abortRun, book } from './scheduler.js';
@@ -129,10 +130,13 @@ const TOOLS: Tool[] = [
     name: 'answer_request',
     description: "Close a request: done (say what was done, so the agent knows) or rejected (anything drafted for it is discarded). The agent hears on its next run.",
     schema: obj({ request_id: num('The request number'), status: { type: 'string', enum: ['done', 'rejected'] }, answer: str('What was done, or why not') }, ['request_id', 'status']),
-    run: async a =>
-      (await answerRequest(Number(a.request_id), a.status as 'done' | 'rejected', a.answer ? String(a.answer) : null))
+    run: async a => {
+      const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', Number(a.request_id));
+      if (r) await requireMakerOrAdmin(r.agent_id);
+      return (await answerRequest(Number(a.request_id), a.status as 'done' | 'rejected', a.answer ? String(a.answer) : null))
         ? `Request #${a.request_id} closed as ${a.status}.`
-        : `Request #${a.request_id} isn't open.`,
+        : `Request #${a.request_id} isn't open.`;
+    },
   },
 
   // --- Agents ---
@@ -307,7 +311,7 @@ const TOOLS: Tool[] = [
       for (let n = 2; taken.has(id); n++) id = `${slug(b.name)}-${n}`;
       const files = compose(b, id, fleetIds, models, eventIds);
       const owners = (await Promise.all([...taken].map(async x => (await readMeta(x))?.owner))).filter((o): o is string => !!o);
-      const person = hostPerson() ?? owners[0] ?? 'The host';
+      const person = personFor(hostPerson() ?? owners[0] ?? 'The host');
       const asked = await createAgent({ person, org: hostOrg(), files });
       const tools = parse(files.tools) as { tool_tiers: Record<string, string>; events?: string[]; new_tools?: { id: string }[]; new_events?: { id: string }[]; ferocity?: { every_hours: number[] } };
       return [
@@ -486,6 +490,119 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
   },
 ];
 
+// --- Who it acts as ---
+//
+// The host computer's own person has the standing address (Settings > Connectors,
+// kept across restarts). Everyone else in an organisation gets an address of their
+// own, which acts as them: the same permissions as in the app (access.ts) - the
+// integration-building tools are the owner's and admins', a request is answered by
+// its agent's maker or an admin. Whether they're still in it, and as what, is
+// asked of our backend with the host's secret (every 5 minutes at most), so
+// someone removed loses their address within 5 minutes.
+
+const ADMIN_TOOLS = new Set([
+  'write_integration',
+  'write_plugin',
+  'test_integration',
+  'publish_integration',
+  'test_event',
+  'give_events',
+  'give_tools',
+  'discard_integration',
+]);
+const toolsFor = (role: Role) => TOOLS.filter(t => role !== 'member' || !ADMIN_TOOLS.has(t.name)).map(t => ({ name: t.name, description: t.description, schema: t.schema }));
+
+async function runAs(actor: Actor, c: { name: string; args?: Record<string, unknown> }) {
+  const tool = TOOLS.find(t => t.name === c.name);
+  if (!tool) return { content: `No tool "${c.name}".`, error: true };
+  if (actor.role === 'member' && ADMIN_TOOLS.has(tool.name)) return { content: `${tool.name} is for the owner or an admin.`, error: true };
+  try {
+    return { content: await asActor(actor, () => tool.run(c.args ?? {})), error: false };
+  } catch (e) {
+    return { content: (e as Error).message, error: true };
+  }
+}
+
+type Seen = { at: number; member: { role: Role; name: string } | null };
+const seen = new Map<string, Seen>();
+const CHECK_EVERY = 5 * 60_000;
+export const forgetMembersForTests = () => seen.clear();
+// Our backend can't be reached: what it last said, for up to an hour.
+const TRUST_LAST = 60 * 60_000;
+async function memberNow(userId: string) {
+  const had = seen.get(userId);
+  if (had && Date.now() - had.at < CHECK_EVERY) return had.member;
+  try {
+    const res = await fetch(new URL(`/host/members/${encodeURIComponent(userId)}`, accessConfig().issuer), {
+      headers: { authorization: `Host ${process.env.EAA_HOST_SECRET ?? ''}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.status !== 200 && res.status !== 404) throw new Error(`answered ${res.status}`);
+    const member = res.status === 200 ? ((await res.json()) as { role: Role; name: string }) : null;
+    seen.set(userId, { at: Date.now(), member });
+    return member;
+  } catch (e) {
+    if (had && Date.now() - had.at < TRUST_LAST) return had.member;
+    throw new Error(`Can't check you're still in the organisation right now (${(e as Error).message}). Try again shortly.`);
+  }
+}
+
+type PersonRow = { token: string; user_id: string; name: string; role: Role };
+const closers = new Map<string, () => void>();
+const urls = new Map<string, string>();
+function openPerson(row: PersonRow) {
+  closers.get(row.token)?.();
+  const bridge = openBridge(
+    {
+      tools: toolsFor(row.role),
+      call: async c => {
+        let m;
+        try {
+          m = await memberNow(row.user_id);
+        } catch (e) {
+          return { content: (e as Error).message, error: true };
+        }
+        if (!m) return { content: "You're no longer in this organisation, so this address doesn't work any more.", error: true };
+        // A new role: the tools it lists follow from the next time it's asked.
+        if (m.role !== row.role) {
+          exec('UPDATE mcp_people SET role = ? WHERE token = ?', m.role, row.token);
+          openPerson({ ...row, role: m.role });
+        }
+        return runAs({ id: row.user_id, name: m.name || row.name, role: m.role, via: 'token' }, c);
+      },
+    },
+    row.token,
+  );
+  closers.set(row.token, bridge.close);
+  urls.set(row.token, bridge.url);
+  return bridge.url;
+}
+
+// On start: everyone's addresses.
+export function openPeopleMcp() {
+  for (const row of all<PersonRow>('SELECT token, user_id, name, role FROM mcp_people')) openPerson(row);
+}
+
+// The address for whoever's asking: the standing one for this computer's own
+// person, everyone else their own (made the first time). regenerate: a new one,
+// the old stops working (shared by mistake).
+export function mcpUrlFor(actor = currentActor(), regenerate = false): string {
+  if (actor.via === 'local') return regenerate ? startAgencyMcp(true) : agencyMcpUrl();
+  let row = one<PersonRow>('SELECT token, user_id, name, role FROM mcp_people WHERE user_id = ?', actor.id);
+  if (row && regenerate) {
+    closers.get(row.token)?.();
+    closers.delete(row.token);
+    exec('DELETE FROM mcp_people WHERE token = ?', row.token);
+    row = undefined;
+  }
+  if (!row) {
+    row = { token: randomBytes(24).toString('hex'), user_id: actor.id, name: actor.name, role: actor.role };
+    exec('INSERT INTO mcp_people (token, user_id, name, role, created_at) VALUES (?, ?, ?, ?, ?)', row.token, row.user_id, row.name, row.role, Date.now());
+    seen.set(actor.id, { at: Date.now(), member: { role: actor.role, name: actor.name } });
+  }
+  return urls.get(row.token) ?? openPerson(row);
+}
+
 const TOKEN_KEY = 'agency_mcp_token';
 let close: (() => void) | null = null;
 let url = '';
@@ -500,16 +617,8 @@ export function startAgencyMcp(regenerate = false) {
   close?.();
   const bridge = openBridge(
     {
-      tools: TOOLS.map(t => ({ name: t.name, description: t.description, schema: t.schema })),
-      call: async c => {
-        const tool = TOOLS.find(t => t.name === c.name);
-        if (!tool) return { content: `No tool "${c.name}".`, error: true };
-        try {
-          return { content: await tool.run(c.args ?? {}), error: false };
-        } catch (e) {
-          return { content: (e as Error).message, error: true };
-        }
-      },
+      tools: toolsFor('owner'),
+      call: c => runAs(localActor(), c),
     },
     token,
   );

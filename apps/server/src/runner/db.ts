@@ -187,6 +187,16 @@ CREATE TABLE IF NOT EXISTS bookings (
 );
 CREATE INDEX IF NOT EXISTS bookings_due ON bookings(agent_id, due_at);
 
+-- Each person's own agency MCP address in an organisation (agency-mcp.ts):
+-- it acts as them. role: as last checked, for the tools it lists.
+CREATE TABLE IF NOT EXISTS mcp_people (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 -- Who did what (access.ts): every change a person made through the app, and
 -- what it was about (ids and choices, never keys or what they wrote).
 CREATE TABLE IF NOT EXISTS person_actions (

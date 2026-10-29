@@ -70,6 +70,13 @@ service than from the user's own machine (docs/model-connections.md).
   or an admin**. Requests from the host computer itself, with no token, are
   its owner. The host records who made each change (`person_actions`), and
   who decided each approval and answered each request.
+- **Everyone has their own agency MCP address**, which acts as them with
+  the same permissions as the app: members get every tool but the
+  integration-building ones. The host asks our backend (signed with its
+  host secret) whether they're still a member and as what, at most every
+  5 minutes, so someone removed loses it within 5 minutes. Send to IDE gives
+  the IDE that address, for requests on agents they made, when they're at
+  the host computer.
 
 - **Signing in is only for organisations** (decided 2026-10-30): the app
   works fully with no account, your own agency being the server on your

@@ -96,14 +96,29 @@ test("the issuer's keys are fetched from its /.well-known/jwks.json", async () =
 
 test('this computer itself is its owner; elsewhere needs a token', async () => {
   exec("INSERT INTO settings (key, value) VALUES ('host_person', '\"Ana\"')");
-  for (const a of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) assert.deepEqual(await actorFor(req(a)), { id: 'local', name: 'Ana', role: 'owner', via: 'local' });
+  for (const a of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) assert.deepEqual(await actorFor(req(a)), { id: 'local', name: 'Ana', role: 'owner', via: 'local', here: true });
   assert.equal(await status(actorFor(req('192.168.1.20'))), 401);
   assert.equal(await status(actorFor(req('::ffff:10.0.0.5'))), 401);
   // A bad token isn't waved through just because it came from here.
   assert.equal(await status(actorFor(req('127.0.0.1', 'Bearer nope'))), 401);
 });
 
-const member: Actor = { id: 'user_ben', name: 'Ben', role: 'member', via: 'token' };
+test("'at the host computer' only when the person's own agency says so, in an organisation's agency", async () => {
+  const t = `Bearer ${await token()}`;
+  const with_ = (address: string, here?: string) => ({ headers: { authorization: t, ...(here ? { 'x-eaa-here': here } : {}) }, socket: { remoteAddress: address } }) as never;
+  assert.equal((await actorFor(with_('127.0.0.1', '1'))).here, false, 'not an organisation’s agency');
+  process.env.EAA_HOSTED_ORG = ORG;
+  try {
+    assert.equal((await actorFor(with_('127.0.0.1', '1'))).here, true);
+    assert.equal((await actorFor(with_('127.0.0.1'))).here, false);
+    assert.equal((await actorFor(with_('203.0.113.9', '1'))).here, false, 'never from elsewhere');
+  } finally {
+    delete process.env.EAA_HOSTED_ORG;
+  }
+  assert.equal((await actorFor(req('127.0.0.1'))).here, true, 'this computer’s own person is here');
+});
+
+const member: Actor ={ id: 'user_ben', name: 'Ben', role: 'member', via: 'token' };
 const admin: Actor = { id: 'user_cat', name: 'Cat', role: 'admin', via: 'token' };
 const owner: Actor = { id: 'user_ana', name: 'Ana', role: 'owner', via: 'token' };
 const local: Actor = { id: 'local', name: 'Ana', role: 'owner', via: 'local' };
@@ -130,6 +145,10 @@ test('members: see everything, build and run agents, connect integrations', () =
     'POST /api/dm',
     'POST /api/integrations/connect',
     'POST /api/runner/approvals/decide',
+    // Their own agency MCP address, acting as them; Send to IDE for their own agents' requests.
+    'GET /api/settings/agency-mcp',
+    'POST /api/settings/agency-mcp',
+    'POST /api/runner/requests/ide',
   ])
     assert.ok(may(member, r), r);
 });
@@ -142,9 +161,7 @@ test('admins: AI connections, the agency, caps, settings; members not', () => {
     'POST /api/usage',
     'POST /api/events/tunnel',
     'POST /api/settings/code-plugins',
-    'POST /api/runner/requests/ide',
     'POST /api/browser/sign-in',
-    'GET /api/settings/agency-mcp',
     'POST /api/something/new', // a write nobody listed needs an admin
   ]) {
     assert.ok(!may(member, r), r);

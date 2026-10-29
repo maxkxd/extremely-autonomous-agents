@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Globe, Plus } from 'lucide-react';
 import { SpinButton } from './ModelConnectors';
 import { isAdmin } from './account';
+import { ACCOUNT } from './data';
 import {
   addMcpIntegration,
   connectIntegration,
@@ -72,7 +73,8 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
         <ul className="sconnectors">
           {/* What acts on the host's computer is the owner's and admins' (access.ts). */}
           {isAdmin() && <CodePlugins />}
-          {isAdmin() && <AgencyMcp />}
+          {/* Everyone's own: it acts as them (agency-mcp.ts on the host). */}
+          <AgencyMcp />
           {isAdmin() && view.integrations.some(i => i.events.some(e => e.webhook)) && <WebhookTunnel tunnel={events.tunnel} onChange={t => setEvents(v => ({ ...v, tunnel: t }))} />}
           {others.map(i => (
             <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} events={events.events} />
@@ -421,7 +423,9 @@ function AgencyMcp() {
   return (
     <li>
       <span className="sconn-name">Your IDE</span>
-      <span className="sconn-what">Run the whole agency from Claude Code, Cursor or any MCP client</span>
+      <span className="sconn-what">
+        {ACCOUNT.org ? 'Your own address for Claude Code, Cursor or any MCP client: it can do what you can here' : 'Run the whole agency from Claude Code, Cursor or any MCP client'}
+      </span>
       <span className="sint-actions">
         <button className="sbtn" onClick={() => copy('claude', `claude mcp add --transport http agency ${url}`)}>
           {copied === 'claude' ? 'Copied' : 'Copy for Claude Code'}

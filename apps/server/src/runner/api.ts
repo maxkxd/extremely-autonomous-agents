@@ -24,14 +24,14 @@ import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
-import { agencyMcpUrl, startAgencyMcp } from './agency-mcp.js';
+import { mcpUrlFor } from './agency-mcp.js';
 import { eventOverview } from './events.js';
 import { hooksBase, setTunnel, tunnelState } from './hooks.js';
 import { resume as resumeJobs } from '../jobs.js';
 import { isPrivateIp } from './net.js';
 import { agencyState, stateOf, type AgencyState, type Trigger } from './run.js';
 import { abortAll, abortRun, book, isRunning } from './scheduler.js';
-import { currentActor, requireAdmin, requireMakerOrAdmin } from '../access.js';
+import { AccessError, currentActor, requireAdmin, requireMakerOrAdmin } from '../access.js';
 
 // The runner's routes for the app: each agent's card (ferocity, Drain/Stop,
 // real stats), its DM channel, requests, and spend caps (Settings -> Usage).
@@ -272,14 +272,19 @@ export const runnerRoutes: Record<string, Route> = {
   // Send to your IDE: the request's folder, the agency's tools, the IDE opened (ide.ts).
   'POST /api/runner/requests/ide': async (_req, _q, body) => {
     const { id, ide } = await body<{ id: number; ide: Ide }>();
+    // It opens on the host computer, so for whoever's at it; for a request on an agent they made, or an admin.
+    if (!currentActor().here) throw new AccessError(403, 'Send to IDE opens on the host computer. Use your own agency MCP address (Settings > Connectors) instead.');
+    const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', Number(id));
+    if (r) await requireMakerOrAdmin(r.agent_id);
     return sendToIde(Number(id), ide);
   },
 
   // Whether the Agency Engineer may write code plugins (docs/integrations.md).
   // The agency's own MCP server, for the person's AI IDE (agency-mcp.ts): its
   // address, and a new one (the old stops working) if it was shared by mistake.
-  'GET /api/settings/agency-mcp': async () => ({ url: agencyMcpUrl() }),
-  'POST /api/settings/agency-mcp': async () => ({ url: startAgencyMcp(true) }),
+  // Yours: the host computer's own person has the standing one; everyone else their own, acting as them.
+  'GET /api/settings/agency-mcp': async () => ({ url: mcpUrlFor() }),
+  'POST /api/settings/agency-mcp': async () => ({ url: mcpUrlFor(currentActor(), true) }),
   // Who the host is (until orgs exist, whoever runs the app): agents made from the IDE are theirs.
   'POST /api/settings/host-person': async (_req, _q, body) => {
     const { name, org } = await body<{ name: string; org?: string | null }>();

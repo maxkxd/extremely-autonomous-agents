@@ -7,6 +7,7 @@ import {
   createOrg,
   deleteOrg,
   ensureUser,
+  hostBySecret,
   hostOf,
   leave,
   members,
@@ -27,7 +28,7 @@ import type { Auth } from './tokens.js';
 // session token as "Authorization: Bearer ...". It knows who's in which
 // organisation and where each host is; it never sees an agency's contents.
 
-type Ctx = { db: Db; auth: Auth; userId: string; params: string[]; body: Record<string, unknown> };
+type Ctx = { db: Db; auth: Auth; userId: string; params: string[]; body: Record<string, unknown>; authorization?: string };
 type Route = { method: string; path: RegExp; open?: boolean; run: (c: Ctx) => Promise<unknown> };
 
 const user = async (c: Ctx) => {
@@ -90,6 +91,26 @@ const ROUTES: Route[] = [
     },
   },
 
+  // A host asking whether someone's still in its organisation, and as what: for
+  // connections that act as a person without a fresh org token (their own agency
+  // MCP address). Signed with the host's secret, not a person's session.
+  {
+    method: 'GET',
+    path: /^\/host\/members\/([^/]+)$/,
+    open: true,
+    run: async c => {
+      const secret = /^Host\s+(.+)$/i.exec(c.authorization ?? '')?.[1];
+      const orgId = secret ? await hostBySecret(c.db, secret) : null;
+      if (!orgId) throw new ApiError(401, 'Not a registered host.');
+      const userId = decodeURIComponent(c.params[0]);
+      const m = await roleIn(c.db, orgId, userId).catch(() => null);
+      if (!m) throw new ApiError(404, 'Not a member.');
+      const u = (await c.db.query<{ name: string }>('SELECT name FROM users WHERE id = $1', [userId])).rows[0];
+      await c.db.query('UPDATE hosts SET last_seen = $1 WHERE org_id = $2', [Date.now(), orgId]);
+      return { role: m.role, name: u?.name ?? '' };
+    },
+  },
+
   // The machine hosting it: its owner registers it; members get its public key.
   { method: 'POST', path: /^\/orgs\/([\w-]+)\/host$/, run: async c => registerHost(c.db, c.params[0], c.userId, c.body.publicKey) },
   { method: 'GET', path: /^\/orgs\/([\w-]+)\/host$/, run: async c => ({ host: await hostOf(c.db, c.params[0], c.userId) }) },
@@ -133,7 +154,7 @@ export function createApp(db: Db, auth: Auth) {
         if (!userId) return send(401, { error: 'Sign in first.' });
       }
       const body = req.method === 'GET' || req.method === 'DELETE' ? {} : await readBody(req);
-      send(200, await route.run({ db, auth, userId, params, body }));
+      send(200, await route.run({ db, auth, userId, params, body, authorization: req.headers.authorization }));
     } catch (e) {
       if (e instanceof ApiError) return send(e.status, { error: e.message });
       console.error(e);

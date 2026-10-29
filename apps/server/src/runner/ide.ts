@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { readMeta } from '../files.js';
 import { loadAgent } from './agent.js';
-import { agencyMcpUrl } from './agency-mcp.js';
+import { mcpUrlFor } from './agency-mcp.js';
 import { all, one } from './db.js';
 import { DATA_DIR } from '../paths.js';
 
@@ -68,7 +68,8 @@ export async function sendToIde(requestId: number, ide: Ide): Promise<{ opened: 
   if (!r || r.status !== 'open') throw new Error('That request is closed.');
   const which = IDES[ide];
   if (!which) throw new Error('Unknown IDE.');
-  const url = agencyMcpUrl();
+  // The IDE acts as whoever sent it (their own agency MCP address).
+  const url = mcpUrlFor();
 
   const folder = join(ROOT, `request-${requestId}`);
   await mkdir(folder, { recursive: true });

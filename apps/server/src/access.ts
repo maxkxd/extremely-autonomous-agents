@@ -21,7 +21,8 @@ import { getSetting, one, run as exec, setSetting } from './runner/db.js';
 //   owner  - the same as admin; it's also the machine's own person.
 
 export type Role = 'owner' | 'admin' | 'member';
-export type Actor = { id: string; name: string; role: Role; via: 'local' | 'token' };
+// here: they're at the host computer itself (what opens there, like an IDE, is in front of them).
+export type Actor = { id: string; name: string; role: Role; via: 'local' | 'token'; here?: boolean };
 
 export class AccessError extends Error {
   constructor(
@@ -79,11 +80,15 @@ export async function checkToken(token: string): Promise<Actor> {
 const LOOPBACK = /^(127\.\d+\.\d+\.\d+|::1|::ffff:127\.\d+\.\d+\.\d+)$/;
 
 // The machine's own person: whoever runs the app on it.
-export const localActor = (): Actor => ({ id: 'local', name: getSetting<string | null>('host_person', null) ?? 'The host', role: 'owner', via: 'local' });
+export const localActor = (): Actor => ({ id: 'local', name: getSetting<string | null>('host_person', null) ?? 'The host', role: 'owner', via: 'local', here: true });
+
+// Set by the person's own agency when it passes on a request from this computer
+// (index.ts); an organisation's agency listens only on this computer, so only it can.
+export const HERE_HEADER = 'x-eaa-here';
 
 export async function actorFor(req: Pick<IncomingMessage, 'headers' | 'socket'>): Promise<Actor> {
   const token = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
-  if (token) return checkToken(token);
+  if (token) return { ...(await checkToken(token)), here: !!process.env.EAA_HOSTED_ORG && req.headers[HERE_HEADER] === '1' && LOOPBACK.test(req.socket.remoteAddress ?? '') };
   if (LOOPBACK.test(req.socket.remoteAddress ?? '')) return localActor();
   throw new AccessError(401, 'Sign in first.');
 }
@@ -108,7 +113,13 @@ const isAdmin = (a: Actor) => a.role === 'owner' || a.role === 'admin';
 // listed as a member's. "local": only from this computer (where it lands, or what it sets, is the machine itself).
 const NEEDS: Record<string, Level> = {
   // The agency MCP address is a key to the whole agency.
-  'GET /api/settings/agency-mcp': 'admin',
+  // Everyone's own agency MCP address, acting as them (agency-mcp.ts).
+  'GET /api/settings/agency-mcp': 'member',
+  'POST /api/settings/agency-mcp': 'member',
+  // On the host computer, for a request on an agent they made (runner/api.ts).
+  'POST /api/runner/requests/ide': 'member',
+  // The secret this organisation's agency asks our backend about members with (hosting.ts).
+  'POST /api/settings/host-secret': 'local',
   // Browser sign-ins land on the host's own address.
   'GET /': 'local',
   'GET /api/oauth/openrouter/callback': 'local',
