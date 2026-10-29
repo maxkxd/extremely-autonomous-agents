@@ -229,6 +229,7 @@ export function AgentCard({
   onLevel,
   onRunNow,
   agencyHeld = false,
+  agencyStopped = false,
 }: {
   agent: Agent;
   range: TimeRange;
@@ -250,6 +251,7 @@ export function AgentCard({
   onLevel?: (level: number) => void; // a real agent: save its ferocity
   onRunNow?: () => void; // a real agent: start a run now
   agencyHeld?: boolean; // the whole agency is on standby or stopped: its own controls wait
+  agencyStopped?: boolean; // the whole agency is stopped: the card says so
 }) {
   // The model picker: the right column slides over the pies to make room.
   const cardRef = useRef<HTMLElement>(null);
@@ -316,10 +318,16 @@ export function AgentCard({
             <div className="card-title">
             <h2>{agent.name}</h2>
             <span className="head-tags">
-            {agent.settingUp && (
-              <span className="state-pill setting-up" title="Being tailored to your organisation. It won't run until it's done.">
-                Setting up
-              </span>
+            {/* The whole agency stopped: every card says so (set-up waits too), and
+                goes back to Setting up when it's resumed. */}
+            {agencyStopped ? (
+              <span className="state-pill stopped">Stopped</span>
+            ) : (
+              agent.settingUp && (
+                <span className="state-pill setting-up" title="Being tailored to your organisation. It won't run until it's done.">
+                  Setting up
+                </span>
+              )
             )}
             <span className="head-counts">
               <a
@@ -720,6 +728,7 @@ export function Dashboard({
               range={range}
               state={stateFor(a.id, l)}
               agencyHeld={agency !== 'active'}
+              agencyStopped={agency === 'stopped'}
               setState={s => {
                 setStates(prev => ({ ...prev, [a.id]: { state: s, at: Date.now() } }));
                 if (l) setAgentRunner(a.id, { state: s }).catch(() => {});
