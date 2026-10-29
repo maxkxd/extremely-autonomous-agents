@@ -8,7 +8,7 @@ import { APOCALYPTIC, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './feroc
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
 import { ModelError, type Adapter, type Call } from './providers.js';
 import { runAgent, stateOf, type RunDeps } from './run.js';
-import { nextRun } from './scheduler.js';
+import { dropStaleRequestRuns, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
 import { registerTools, WORKSPACES } from './tools.js';
 
@@ -365,4 +365,14 @@ test('the agency on standby: nothing starts by itself, a person is still answere
   exec("UPDATE agent_state SET state = 'stopped' WHERE agent_id = ?", ID);
   assert.equal(stateOf(ID).state, 'stopped');
   setSetting('agency_state', 'active');
+});
+
+test("the Fleet Engineer's queued runs for closed requests are dropped, not run", () => {
+  const now = Date.now();
+  const open = Number(exec("INSERT INTO requests (agent_id, what, why, created_at) VALUES ('a', 'x', 'y', ?)", now).lastInsertRowid);
+  const closed = Number(exec("INSERT INTO requests (agent_id, what, why, status, created_at) VALUES ('b', 'x', 'y', 'rejected', ?)", now).lastInsertRowid);
+  exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES ('fleet', 'request', ?, ?, ?)", `Request #${open} from a: x`, now, now);
+  exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES ('fleet', 'request', ?, ?, ?)", `Request #${closed} from b: x`, now, now);
+  dropStaleRequestRuns();
+  assert.deepEqual(all<{ task: string }>('SELECT task FROM bookings').map(b => b.task), [`Request #${open} from a: x`]);
 });
