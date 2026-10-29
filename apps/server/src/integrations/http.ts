@@ -1,5 +1,5 @@
 import { safeFetch } from '../runner/net.js';
-import type { AuthDef, HttpIntegration, HttpToolDef } from './schema.js';
+import type { AuthDef, HttpIntegration, HttpToolDef, RequestDef } from './schema.js';
 
 // Calling an HTTP integration's tool (docs/integrations.md): fill the request
 // from the agent's inputs, add the key the way the service wants it, send it
@@ -98,6 +98,36 @@ export function authParts(auth: AuthDef, key: string | undefined): { headers: Re
   if (auth.type === 'bearer' || auth.type === 'oauth2' || auth.type === 'mcp_oauth') return { headers: { authorization: `Bearer ${key}` }, query: {} };
   if (auth.query) return { headers: {}, query: { [auth.query]: key } };
   return { headers: { [auth.header ?? 'x-api-key']: `${auth.prefix ?? ''}${key}` }, query: {} };
+}
+
+export type Fetcher = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+
+// A request's whole answer as JSON (an event's poll): the key added the way
+// the service wants it, through the safe fetcher (or the one given, in tests).
+export async function requestJson(
+  baseUrl: string,
+  request: RequestDef,
+  auth: AuthDef,
+  key: string | undefined,
+  name: string,
+  fetcher: Fetcher = async (url, init) => (await safeFetch(url, init as never)).res,
+): Promise<unknown> {
+  const { headers: authHeaders, query: authQuery } = authParts(auth, key);
+  const url = new URL(baseUrl.replace(/\/+$/, '') + (request.path.startsWith('/') ? request.path : `/${request.path}`));
+  for (const [k, v] of Object.entries({ ...(request.query ?? {}), ...authQuery })) url.searchParams.set(k, typeof v === 'string' ? v : JSON.stringify(v));
+  const body = request.body === undefined ? undefined : JSON.stringify(request.body);
+  const res = await fetcher(url.toString(), {
+    method: request.method,
+    headers: { accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}), ...(request.headers ?? {}), ...authHeaders },
+    body,
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`${name} answered ${res.status}: ${errorText(key ? text.split(key).join('[key]') : text).slice(0, 300)}`);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${name} didn't answer with JSON.`);
+  }
 }
 
 export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, args: Record<string, unknown>, key: string | undefined): Promise<string> {

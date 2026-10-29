@@ -18,7 +18,7 @@ import { execute, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js
 // tool loop on its first working model, the floor and its nudges, then the
 // record and its post in the agent's DM channel.
 
-export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'connected';
+export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'connected' | 'event';
 
 // What a run needs from outside, so tests can stand it up without a network.
 export type RunDeps = {
@@ -220,6 +220,13 @@ Read the request again with engineer.list_requests, then carry it forward.`;
       return `${task}
 
 Test it properly now (engineer.test_integration), then carry its request forward.`;
+    // Something it watches for happened (docs/events.md).
+    case 'event':
+      return `Something you watch for happened:
+
+${task}
+
+Deal with it as your Charter says, then anything else you owe (tasks.list_my_tasks).`;
     case 'run now':
       return `${agent.owner ?? 'A person'} started this run from the app. Start with what you owe (tasks.list_my_tasks), then do your job as your Charter says.`;
   }

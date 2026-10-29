@@ -186,6 +186,16 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Every item an event has seen (docs/events.md), so each wakes its agents once.
+CREATE TABLE IF NOT EXISTS event_items (
+  event_id TEXT NOT NULL,           -- server.event
+  item_id TEXT NOT NULL,            -- the service's id for it
+  source TEXT NOT NULL,             -- poll | webhook | baseline (seen when first polled: not told)
+  summary TEXT NOT NULL,            -- JSON: what the agent was shown
+  at INTEGER NOT NULL,
+  PRIMARY KEY (event_id, item_id)
+);
 `;
 
 // Small helpers so callers don't repeat prepare().

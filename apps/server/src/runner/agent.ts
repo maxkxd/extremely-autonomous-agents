@@ -36,6 +36,9 @@ export type AgentDef = {
   tiers: Record<string, Tier>; // every tool it may call
   approvalHours: Record<string, number>;
   newTools: { id: string; description: string; input_schema: unknown }[];
+  // The events that wake it (docs/events.md), and ones its builder invented that nothing provides yet.
+  events: string[];
+  newEvents: { id: string; description: string; how: string }[];
   output: { action: string; label: string }[]; // KPI
   maxRunsPerDay: number;
   ferocity: FerocityPlan;
@@ -57,6 +60,8 @@ type ToolsYaml = {
   tool_tiers?: Record<string, Tier>;
   approval_windows?: Record<string, { window_seconds?: number }>;
   new_tools?: { id: string; description: string; input_schema: unknown }[];
+  events?: string[];
+  new_events?: { id: string; description: string; how?: string }[];
   limits?: { max_runs_per_day?: number };
   ferocity?: Partial<FerocityPlan>;
   natural_limits?: NaturalLimit[];
@@ -104,6 +109,8 @@ export async function loadAgent(id: string): Promise<AgentDef | null> {
       tiers: tools.tool_tiers ?? {},
       approvalHours,
       newTools: tools.new_tools ?? [],
+      events: (tools.events ?? []).filter(e => typeof e === 'string'),
+      newEvents: (tools.new_events ?? []).filter(e => e && typeof e.id === 'string').map(e => ({ id: e.id, description: String(e.description ?? ''), how: String(e.how ?? '') })),
       output,
       maxRunsPerDay: num(tools.limits?.max_runs_per_day, 24),
       ferocity: planFrom(tools.ferocity, output.map(o => o.action)),

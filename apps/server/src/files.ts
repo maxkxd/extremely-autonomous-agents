@@ -40,6 +40,7 @@ export function compose(
   id: string,
   fleetIds: Set<string> = new Set(),
   available: { connection: string; models: string[]; efforts?: Record<string, Effort[]> }[] = [],
+  eventIds: Set<string> = new Set(), // events a connected service provides now
 ): AgentFiles {
   // Only connected models, each at the nearest effort it actually takes.
   const models = cleanChoices(b.models ?? []).flatMap(m => {
@@ -47,6 +48,7 @@ export function compose(
     return a ? [{ ...m, effort: fitEffort(m.effort, a.efforts?.[m.model] ?? []) }] : [];
   });
   const newIds = new Set(b.new_tools.map(t => toolId(t.server, t.name)));
+  const newEventIds = new Set((b.new_events ?? []).map(e => toolId(e.server, e.name)));
   // Only tools that exist: the fleet's, the catalogue's, or ones this build defines.
   const picked = b.tools.filter(t => fleetIds.has(t.id) || CATALOG_INDEX.has(t.id) || newIds.has(t.id));
   const tiers: Record<string, Tier> = {};
@@ -66,6 +68,9 @@ export function compose(
     tools_allowed: Object.keys(tiers),
     tool_tiers: tiers,
     approval_windows: windows,
+    // What wakes it besides its schedule (docs/events.md): events that exist, and its own new ones.
+    events: [...new Set([...(b.events ?? []).map(e => e.id).filter(e => eventIds.has(e) || newEventIds.has(e)), ...newEventIds])],
+    new_events: (b.new_events ?? []).map(e => ({ id: toolId(e.server, e.name), description: e.description, how: e.how_detected })),
     new_tools: b.new_tools.map(t => ({
       id: toolId(t.server, t.name),
       description: t.description,

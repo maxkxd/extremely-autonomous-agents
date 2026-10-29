@@ -13,11 +13,12 @@ import { CATALOG } from './catalog.js';
 import { addNotes, addPersonNotes, loadPerson, loadProfile, savePerson, saveProfile, type PersonProfile, type Profile } from './org.js';
 import { keepLinks, linkPeople } from './links.js';
 import { runnerRoutes } from './runner/api.js';
-import { finishIntegrationSignIn, integrationToolIds } from './integrations/index.js';
+import { finishIntegrationSignIn, integrationToolIds, liveEventIds } from './integrations/index.js';
 import { handleMcp } from './runner/mcp.js';
 import { book, startScheduler } from './runner/scheduler.js';
 import { FLEET_ENGINEER } from './runner/agent.js';
 import { startAgencyMcp } from './runner/agency-mcp.js';
+import { startHooks } from './runner/hooks.js';
 import { agencyStopped } from './runner/run.js';
 import { fileRequest } from './runner/tools.js';
 import { parse as parseYaml } from 'yaml';
@@ -76,7 +77,7 @@ const context = async (person: string, org: string | null, members: string[] = [
 function forApp(b: Build, takenIds: string[], fleetIds?: Set<string>, available?: conn.Available[]) {
   let id = slug(b.name);
   for (let n = 2; takenIds.includes(id); n++) id = `${slug(b.name)}-${n}`;
-  const files = compose(b, id, fleetIds, available);
+  const files = compose(b, id, fleetIds, available, new Set(liveEventIds()));
   return { agent: { id, name: b.name, department: b.department, output: b.kpi.map(k => k.label) }, files };
 }
 
@@ -290,4 +291,5 @@ createServer(async (req, res) => {
   void conn.recheckCapabilities();
   startScheduler();
   startAgencyMcp(); // the agency's own MCP server, for the person's AI IDE
+  startHooks(book); // where services post events (and the tunnel, if it's on)
 });

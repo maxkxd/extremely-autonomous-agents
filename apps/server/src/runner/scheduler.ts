@@ -5,6 +5,7 @@ import './browser.js'; // registers the browser tools
 import { ensureFleetEngineer, startEngineer } from './engineer.js';
 import './conductor.js'; // routes new requests
 import { BUILT_IN_IDS, ensureHelpers, fillBuiltInModels, HELPER_IDS } from './helpers.js';
+import { pollEvents } from './events.js';
 import { availableModels, nativeEffortSync } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';
@@ -83,6 +84,8 @@ export async function tick(deps: RunDeps = liveDeps) {
     const now = deps.now();
     expireApprovals(now, book);
     dropStaleRequestRuns();
+    // Events due a check (events.ts): in the background, so a slow service never holds up a tick.
+    void pollEvents(book).catch(e => console.error('Polling events failed:', (e as Error).message));
     for (const id of await listIds()) {
       if (running.size >= MAX_PARALLEL) break;
       if (running.has(id)) continue;

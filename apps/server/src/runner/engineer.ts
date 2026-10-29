@@ -5,6 +5,7 @@ import { DATA, readMeta, save, slug } from '../files.js';
 import {
   integrationSource,
   listIntegrations,
+  liveEventIds,
   publishIntegration,
   publishPreview,
   testIntegrationTool,
@@ -12,6 +13,8 @@ import {
   writeDraftIntegration,
 } from '../integrations/index.js';
 import { pluginsAllowed, writePlugin } from '../integrations/plugins.js';
+import { checkEvent } from './events.js';
+import { hooksBase } from './hooks.js';
 import { reviewPlugin } from '../integrations/review.js';
 import { defaultModels } from './defaults.js';
 import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
@@ -38,8 +41,10 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'engineer.write_plugin': 'T0',
   'engineer.ask_for_connection': 'T0',
   'engineer.test_integration': 'T0',
+  'engineer.test_event': 'T0',
   'engineer.publish_integration': 'T2',
   'engineer.give_tools': 'T2',
+  'engineer.give_events': 'T2',
   'web.web_search': 'T0',
   'web.fetch_page': 'T0',
 };
@@ -59,6 +64,12 @@ You are the agency's engineer. Every request an agent files comes to you first. 
    d. Test it like a careful person: the real call with real-looking inputs, then the edge cases - empty and missing inputs, a limit, nonsense - and read what an agent would see. Results must be clean, plain text; errors one readable line. Fix the definition and test again until they are.
    e. engineer.publish_integration with a short summary of what you tested and what you saw. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
+
+## Events
+Some agents are woken by something happening at a service - a new Sentry issue, a support ticket, an alarm - as well as by their schedule. A request to "Set up the event sentry.new_issue" means: add it to an integration (a new one, or the service's existing one) under events:, each with an id (server.event), a description, and how it's detected:
+- poll: a request like a tool's (base_url defaults to the integration's) that lists recent items, items (dot path to the list; empty when the answer is the list), id (dot path to each item's unique id), fields (what the agent sees of each), every_minutes (5 is a good default; slower for things that can wait). Each item is told once; what's there at the first check isn't news. Works from this computer with no setup beyond the key.
+- webhook: the service posts to the agency's address. items/id/fields as for poll, but in the posted body; signature (header, algorithm, prefix, encoding) when the service signs its posts, with secret_help saying where the person finds the signing secret; setup_help: where in the service to paste the address.
+Prefer webhook when the service has one for it, with poll as well when the service's API lists the same things (it catches anything missed). Test with engineer.test_event: a poll for real, and the webhook address to give the person (engineer.ask_for_connection with the steps: the key, the webhook address, the signing secret). The agent that asked is subscribed when the integration goes live; for one that's live already, engineer.give_events.
 
 ## Code plugins
 Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't do - an action on this computer, a file format to build. A plugin is a TypeScript module: \`export default { tools: [{ id, tier, description, input, run: async (args, token, kit) => string }] }\` (token is the key, if the integration takes one; return text the agent reads; throw an Error with a one-line message on failure). Node built-ins only (node:fs, node:child_process...). The network only through \`await kit.fetch(url, { method, headers, body })\`, which returns a Response and refuses this computer and its network - never fetch(), node:http(s), or downloading from a shell; writing the plugin is refused if it does. Pair it with a kind: code definition naming the module, and declare in it exactly what the plugin touches: \`permissions: { write: [folders], read: [folders], commands: true|false }\` (absolute paths or ~/...; a whole drive or the whole home folder is refused). It runs in a sandbox that allows nothing else - no other files, no programs unless commands is true, and no network but kit.fetch. Before you can propose it, an independent security review reads it: inputs agents choose must never reach commands, scripts or paths unchecked (pass them as data, e.g. environment variables, never built into a command line). If the review sends it back, fix what it says. Its code never runs before a person approves it with the code shown, so you can't test it first: write it carefully, and test it as soon as it's live; if it fails, fix it and propose again.
@@ -107,7 +118,7 @@ export async function ensureFleetEngineer() {
     models,
     tools_allowed: Object.keys(ENGINEER_TOOLS),
     tool_tiers: ENGINEER_TOOLS,
-    approval_windows: { 'engineer.publish_integration': { window_seconds: 7 * 86400 }, 'engineer.give_tools': { window_seconds: 7 * 86400 } },
+    approval_windows: { 'engineer.publish_integration': { window_seconds: 7 * 86400 }, 'engineer.give_tools': { window_seconds: 7 * 86400 }, 'engineer.give_events': { window_seconds: 7 * 86400 } },
     new_tools: [],
     // It runs when there's work (requests, connections, replies); a daily look otherwise.
     ferocity: { every_hours: [24, 24, 24, 24], soft_floor: 0, floor: 0, apocalyptic_floor: 0, counts: [], hint: '', extra_effort: '' },
@@ -137,16 +148,22 @@ const openRequest = (raw: unknown): RequestRow => {
 // An agent's tools that nothing provides yet, with what its builder wrote for them.
 async function stillMissing(agentId: string) {
   const agent = await loadAgent(agentId);
-  if (!agent) return { agent: null, missing: [] };
+  if (!agent) return { agent: null, missing: [], missingEvents: [] };
   const live = new Set((await listIntegrations()).filter(i => i.connected && !i.draft).flatMap(i => i.tools.map(t => t.id)));
-  return { agent, missing: agent.newTools.filter(t => !live.has(t.id)) };
+  const events = new Set(liveEventIds());
+  const missingEvents = agent.newEvents.filter(e => !events.has(e.id));
+  return { agent, missing: [...agent.newTools.filter(t => !live.has(t.id)), ...missingEvents.map(e => ({ id: e.id, description: e.description, input_schema: null }))], missingEvents };
 }
 async function missingTools(agentId: string): Promise<string> {
-  const { agent, missing } = await stillMissing(agentId);
+  const { agent, missing, missingEvents } = await stillMissing(agentId);
   if (!agent) return '';
-  return missing.length
-    ? `\n  Tools it expects that nothing provides yet:\n${missing.map(t => `  - ${t.id} [${agent.tiers[t.id] ?? 'T1'}]: ${t.description}\n    input: ${JSON.stringify(t.input_schema)}`).join('\n')}`
-    : '';
+  const tools = missing.filter(t => !missingEvents.some(e => e.id === t.id));
+  return (
+    (tools.length
+      ? `\n  Tools it expects that nothing provides yet:\n${tools.map(t => `  - ${t.id} [${agent.tiers[t.id] ?? 'T1'}]: ${t.description}\n    input: ${JSON.stringify(t.input_schema)}`).join('\n')}`
+      : '') +
+    (missingEvents.length ? `\n  Events it should wake on that nothing provides yet:\n${missingEvents.map(e => `  - ${e.id}: ${e.description}${e.how ? ` (${e.how})` : ''}`).join('\n')}` : '')
+  );
 }
 
 // --- Its tools -----------------------------------------------------------------------
@@ -159,6 +176,15 @@ const toolsArg = {
   description: 'The tools, each with its tier',
   items: obj({ id: str('server.tool'), tier: { type: 'string', enum: ['T0', 'T1', 'T2'] } }, ['id', 'tier']),
 };
+
+// Subscribes an agent to events (docs/events.md), in its TOOLS.yaml.
+export async function giveEvents(agentId: string, events: string[]) {
+  const file = join(DATA, slug(agentId), 'TOOLS.yaml');
+  const doc = parseDocument(await readFile(file, 'utf8'));
+  const have = ((doc.get('events') as { toJSON(): string[] } | undefined)?.toJSON() ?? []) as string[];
+  doc.set('events', [...new Set([...have, ...events])]);
+  await writeFile(file, doc.toString());
+}
 
 // Adds tools to an agent's TOOLS.yaml, keeping the builder's comments.
 export async function giveTools(agentId: string, tools: { id: string; tier: Tier }[]) {
@@ -180,6 +206,16 @@ export async function giveTools(agentId: string, tools: { id: string; tier: Tier
 
 
 const nameOf = async (agentId: string) => (await readMeta(agentId))?.name ?? agentId;
+
+// The events an agent should get from an integration: the ones asked for, else
+// the ones it expects (its builder's) that the integration provides.
+async function eventsFor(agentId: string, integrationId: string, asked: unknown): Promise<string[]> {
+  const provided = ((await listIntegrations()).find(i => i.id === integrationId)?.events ?? []).map(e => e.id);
+  if (Array.isArray(asked)) return asked.map(String).filter(e => provided.includes(e));
+  const agent = await loadAgent(agentId);
+  const wants = new Set([...(agent?.events ?? []), ...(agent?.newEvents ?? []).map(e => e.id)]);
+  return provided.filter(e => wants.has(e));
+}
 
 const TOOLS: ToolDef[] = [
   {
@@ -344,6 +380,7 @@ const TOOLS: ToolDef[] = [
         request_id: int('The request it answers'),
         for_agent: str('The agent that gets its tools'),
         tools: toolsArg,
+        events: { type: 'array', items: { type: 'string' }, description: "Optional: its events the agent should wake on (default: the ones the agent expects that it provides)" },
         summary: str('For the person approving: at most 3 plain sentences - what it gives the agent, and that it tested fine. The card shows only this and a few bullets.'),
       },
       ['integration_id', 'request_id', 'for_agent', 'tools', 'summary'],
@@ -374,6 +411,7 @@ const TOOLS: ToolDef[] = [
         name: p.name,
         for_agent_name: await nameOf(String(a.for_agent)),
         tools_list: ((a.tools as { id: string; tier: string }[]) ?? []).map(t => `${t.id} (${t.tier})`).join(', '),
+        events_list: (await eventsFor(String(a.for_agent), String(a.integration_id), a.events)).join(', '),
         review: [String(a.summary).trim(), bullets.map(x => `- ${x}`).join('\n')].filter(Boolean).join('\n\n'),
         code_view: `${p.yaml}${p.code ? `\n--- Plugin code (runs in a sandbox on this computer) ---\n${p.code}` : ''}`,
         code_hash: p.codeHash,
@@ -386,8 +424,10 @@ const TOOLS: ToolDef[] = [
       const wanted = ((a.tools as { id: string; tier: Tier }[]) ?? []).filter(t => out.tools.some(x => x.id === t.id));
       const given = wanted.length ? wanted : out.tools;
       await giveTools(agentId, given);
+      const events = await eventsFor(agentId, String(a.integration_id), a.events);
+      if (events.length) await giveEvents(agentId, events);
       const tested = out.test ? ` Its test as it went live: ${out.test}` : '';
-      const ids = given.map(t => t.id).join(', ');
+      const ids = [...given.map(t => t.id), ...events.map(e => `${e} (wakes it)`)].join(', ');
       postToRequest(r.id, 'engineer', `${String(a.name ?? a.integration_id)} is live and given to ${await nameOf(agentId)}: ${ids}.${tested}`);
       // The request closes only once nothing the agent needs is missing; otherwise
       // it goes back to the engineer for the rest.
@@ -401,6 +441,40 @@ const TOOLS: ToolDef[] = [
       const answer = `${String(a.summary)}\n\nYou now have: ${ids}.`;
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
       return `Live: ${String(a.name ?? a.integration_id)} for ${agentId}.${tested}`;
+    },
+  },
+  {
+    id: 'engineer.test_event',
+    tier: 'T0',
+    description: "Try one of an integration's events (draft or live) without waking anyone: a real poll showing what it finds, and its webhook address to give the person.",
+    schema: obj({ integration_id: str('The integration'), event_id: str('The event (server.event)') }, ['integration_id', 'event_id']),
+    impl: async a => checkEvent(String(a.integration_id), String(a.event_id), hooksBase()),
+  },
+  {
+    id: 'engineer.give_events',
+    tier: 'T2',
+    description: 'Propose subscribing an agent to events that are already live (a person approves): it wakes when they happen, as well as on its schedule. Approved, the request closes.',
+    schema: obj(
+      { for_agent: str('The agent'), events: { type: 'array', items: { type: 'string' }, description: 'Event ids (server.event)' }, request_id: int('The request it answers'), why: str('Why it should wake on them - the person reads this') },
+      ['for_agent', 'events', 'request_id', 'why'],
+    ),
+    preview: async a => {
+      openRequest(a.request_id);
+      if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
+      const live = new Set(liveEventIds());
+      const bad = ((a.events as string[]) ?? []).filter(e => !live.has(e));
+      if (bad.length) throw new Error(`Not live: ${bad.join(', ')}. Set them up and publish their integration first.`);
+      setStage(Number(a.request_id), 'approval');
+      postToRequest(Number(a.request_id), 'engineer', `${await nameOf(String(a.for_agent))} wakes on these when you approve it on the Approvals page.`);
+      return { for_agent_name: await nameOf(String(a.for_agent)), events_list: ((a.events as string[]) ?? []).join(', ') };
+    },
+    impl: async a => {
+      const r = openRequest(a.request_id);
+      const events = ((a.events as string[]) ?? []).map(String);
+      await giveEvents(String(a.for_agent), events);
+      exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", `${String(a.why)}\n\nYou now wake on: ${events.join(', ')}.`, Date.now(), r.id);
+      postToRequest(r.id, 'engineer', `${await nameOf(String(a.for_agent))} now wakes on ${events.join(', ')}.`);
+      return `${a.for_agent} now wakes on ${events.join(', ')}.`;
     },
   },
   {

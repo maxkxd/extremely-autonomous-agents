@@ -19,7 +19,7 @@ const KIT: Kit = { fetch: async (url, init) => (await safeFetch(url, init)).res 
 import { discoverMcpSignIn } from './mcp-auth.js';
 import { stopStdioServer } from './mcp-stdio.js';
 import { oauthAccessToken, oauthCallback, oauthSecret, oauthSignOut, oauthStart, setOAuthAccount } from './oauth.js';
-import { Integration, type HttpIntegration, type McpIntegration } from './schema.js';
+import { Integration, type EventDefT, type HttpIntegration, type McpIntegration } from './schema.js';
 
 // Integrations (docs/integrations.md): the ones that ship with the app
 // (apps/server/integrations/*.yaml) and the ones added later - by a person,
@@ -309,6 +309,7 @@ export async function removeIntegration(id: string) {
   if (l.shipped) throw new Error("Built-in integrations can't be removed; disconnect it instead.");
   await disconnectIntegration(id);
   await deleteSecret(secretKey(id));
+  await deleteSecret(hookSecretKey(id));
   await rm(join(ADDED, `${id}.yaml`), { force: true });
   await loadIntegrations();
 }
@@ -324,6 +325,9 @@ export async function listIntegrations() {
       Date.now(),
     ).map(a => [a.integration, a.id]),
   );
+  // Which have a webhook signing secret saved (events whose posts are signed).
+  const secrets = new Set<string>();
+  for (const { integration } of loaded) if (await webhookSecret(integration.id)) secrets.add(integration.id);
   // Which signed-in integrations already have the person's OAuth client saved.
   const clients = new Set<string>();
   for (const { integration } of loaded) if (integration.auth.type === 'oauth2' && (await oauthSecret(integration.id))?.clientId) clients.add(integration.id);
@@ -354,7 +358,62 @@ export async function listIntegrations() {
         : integration.kind === 'code'
           ? (moduleOf(integration.module)?.tools ?? []).map(t => ({ id: t.id, tier: t.tier }))
           : (st[integration.id]?.tools ?? []).map(t => ({ id: mcpToolId(integration, t.name), tier: mcpTier(integration, t) })),
+    // Its events (docs/events.md): how each is detected, and whether its webhook posts are signed.
+    events: (integration.events ?? []).map(e => ({
+      id: e.id,
+      description: e.description,
+      poll: e.poll ? e.poll.every_minutes : null,
+      webhook: !!e.webhook,
+      signed: !!e.webhook?.signature,
+      secretHelp: e.webhook?.secret_help ?? null,
+      setupHelp: e.setup_help ?? null,
+    })),
+    webhookSecretSet: secrets.has(integration.id),
   }));
+}
+
+// --- Events (runner/events.ts) -------------------------------------------------------
+
+export type EventSource = { integration: Integration; event: EventDefT; key: () => Promise<string | undefined> };
+
+// Every event agents can subscribe to now: its integration is live (one being
+// redrafted keeps its live version's events meanwhile).
+export function liveEvents(): EventSource[] {
+  const out: EventSource[] = [];
+  for (const { integration: drafted } of loaded) {
+    if (!isLive(drafted.id)) continue;
+    const integration = liveCopies.get(drafted.id) ?? drafted;
+    for (const event of integration.events ?? []) out.push({ integration, event, key: () => keyOf(integration.id) });
+  }
+  return out;
+}
+
+// One event as written, draft or live (the engineer checking it).
+export function anyEvent(integrationId: string, eventId: string): EventSource | null {
+  const integration = find(integrationId);
+  const event = integration?.events?.find(e => e.id === eventId);
+  return integration && event ? { integration, event, key: () => keyOf(integration.id) } : null;
+}
+
+export const liveEventIds = () => liveEvents().map(e => e.event.id);
+
+// Every event written, draft or live (Settings shows a draft's webhook address,
+// so the person can set it up before it goes live).
+export function everyEvent(): (EventSource & { live: boolean })[] {
+  const live = new Set(liveEvents().map(e => e.event.id));
+  const out = liveEvents().map(e => ({ ...e, live: true }));
+  for (const { integration } of loaded)
+    for (const event of integration.events ?? []) if (!live.has(event.id) && !out.some(o => o.event.id === event.id)) out.push({ integration, event, key: () => keyOf(integration.id), live: false });
+  return out;
+}
+
+// The signing secret for an integration's webhook posts, which the person pastes in Settings.
+const hookSecretKey = (id: string) => `integration-webhook:${id}`;
+export const webhookSecret = async (id: string) => (await getSecret<{ secret: string }>(hookSecretKey(id)))?.secret;
+export async function setWebhookSecret(id: string, secret: string) {
+  if (!find(id)) throw new Error('Unknown integration.');
+  if (secret.trim()) await setSecret(hookSecretKey(id), { secret: secret.trim() });
+  else await deleteSecret(hookSecretKey(id));
 }
 
 export const integrationProblems = () => problems;
@@ -365,6 +424,13 @@ export function integrationToolIds(): string[] {
 }
 
 // Tools from connected integrations, for the builder's catalogue.
+// Events from live integrations, for the builder's catalogue.
+export function integrationEventsForPrompt(): string {
+  return liveEvents()
+    .map(({ integration, event }) => `- ${event.id}: ${event.description} (via ${integration.name}${event.webhook ? ', instantly' : `, checked every ${event.poll?.every_minutes} minutes`})`)
+    .join('\n');
+}
+
 export function integrationToolsForPrompt(): string {
   const lines: string[] = [];
   for (const [id, { def, by }] of providers(true)) {

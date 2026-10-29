@@ -47,9 +47,15 @@ export const APPROVAL_TOOLS = {
   // The Fleet Engineer: a draft integration going live, and tools for an agent.
   'engineer.publish_integration': {
     wantsTo: 'make {name} live for {for_agent_name}',
-    headers: [],
+    headers: [{ label: 'Wakes it on', value: '{events_list}', optional: true }],
     body: '{review}',
     details: '{code_view}', // its definition and code, behind Show code
+    expiresAfterHours: 168,
+  },
+  'engineer.give_events': {
+    wantsTo: 'wake {for_agent_name} on events',
+    headers: [{ label: 'Events', value: '{events_list}' }],
+    body: '{why}',
     expiresAfterHours: 168,
   },
   'engineer.give_tools': {

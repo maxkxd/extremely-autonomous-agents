@@ -6,14 +6,19 @@ import {
   connectIntegration,
   disconnectIntegration,
   getAgencyMcp,
+  getEvents,
   getCodePlugins,
   getIntegrations,
   openAgentBrowser,
   setCodePlugins,
   removeIntegration,
+  setTunnel,
+  setWebhookSecret,
   startIntegrationSignIn,
+  type EventInfo,
   type IntegrationsView,
   type IntegrationView,
+  type TunnelState,
 } from './builder';
 
 // Settings -> Connectors -> Integrations (docs/integrations.md): the services
@@ -24,7 +29,12 @@ export function Integrations({ onOpenApproval }: { onOpenApproval: (id: string) 
   const [view, setView] = useState<IntegrationsView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
-  const refresh = () => getIntegrations().then(setView, e => setError((e as Error).message));
+  // Events' webhook addresses and the tunnel (docs/events.md), kept in step with the list.
+  const [events, setEvents] = useState<{ tunnel: TunnelState; events: EventInfo[] }>({ tunnel: { status: 'off', url: null, error: null }, events: [] });
+  const refresh = () => {
+    getEvents().then(setEvents, () => {});
+    return getIntegrations().then(setView, e => setError((e as Error).message));
+  };
   useEffect(() => {
     refresh();
     const t = window.setInterval(refresh, 5000);
@@ -41,7 +51,7 @@ export function Integrations({ onOpenApproval }: { onOpenApproval: (id: string) 
         <p className="slead">Agents search the web through one of these. Connect any one; they all work the same way.</p>
         <ul className="sconnectors">
           {search.map(i => (
-            <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} />
+            <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} events={events.events} />
           ))}
         </ul>
       </div>
@@ -51,8 +61,9 @@ export function Integrations({ onOpenApproval }: { onOpenApproval: (id: string) 
         <ul className="sconnectors">
           <CodePlugins />
           <AgencyMcp />
+          {view.integrations.some(i => i.events.some(e => e.webhook)) && <WebhookTunnel tunnel={events.tunnel} onChange={t => setEvents(v => ({ ...v, tunnel: t }))} />}
           {others.map(i => (
-            <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} />
+            <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} events={events.events} />
           ))}
           <AddMcp refresh={refresh} open={openId === 'add'} setOpen={o => setOpenId(o ? 'add' : null)} />
         </ul>
@@ -67,12 +78,12 @@ export function Integrations({ onOpenApproval }: { onOpenApproval: (id: string) 
   );
 }
 
-type RowProps = { i: IntegrationView; refresh: () => void; open: boolean; setOpen: (o: boolean) => void; onOpenApproval: (id: string) => void };
+type RowProps = { i: IntegrationView; refresh: () => void; open: boolean; setOpen: (o: boolean) => void; onOpenApproval: (id: string) => void; events: EventInfo[] };
 
 // A service you sign in to, or one that takes a key.
 const IntegrationRow = (p: RowProps) => (p.i.signIn ? <SignInRow {...p} /> : <KeyRow {...p} />);
 
-function KeyRow({ i, refresh, open, setOpen, onOpenApproval }: RowProps) {
+function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps) {
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +190,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval }: RowProps) {
           {error && <span className="custom-error">{error}</span>}
         </div>
       )}
+      <EventHooks i={i} events={events} refresh={refresh} />
     </li>
   );
 }
@@ -186,7 +198,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval }: RowProps) {
 // A service you sign in to (OAuth, e.g. Gmail): your own OAuth client (made
 // once in the service's console, steps shown), then its sign-in page in a
 // window. The server tests it the moment it lands; this waits for that.
-function SignInRow({ i, refresh, open, setOpen, onOpenApproval }: RowProps) {
+function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps) {
   const signIn = i.signIn!;
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
@@ -347,6 +359,7 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval }: RowProps) {
           {error && <span className="custom-error">{error}</span>}
         </div>
       )}
+      <EventHooks i={i} events={events} refresh={refresh} />
     </li>
   );
 }
@@ -404,6 +417,97 @@ function AgencyMcp() {
         <button className="sbtn" onClick={() => copy('url', url)}>
           {copied === 'url' ? 'Copied' : 'Copy address'}
         </button>
+      </span>
+    </li>
+  );
+}
+
+// An integration's events that a service posts (docs/events.md): the address to
+// paste into the service for each, and the signing secret it gives, if it signs.
+function EventHooks({ i, events, refresh }: { i: IntegrationView; events: EventInfo[]; refresh: () => void }) {
+  const [secret, setSecret] = useState('');
+  const [copied, setCopied] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const hooks = i.events.filter(e => e.webhook);
+  if (!hooks.length) return null;
+  const signed = hooks.find(e => e.signed);
+  const copy = (id: string, url: string) =>
+    navigator.clipboard?.writeText(url).then(() => {
+      setCopied(id);
+      window.setTimeout(() => setCopied(null), 1600);
+    }, () => {});
+  const save = () =>
+    setWebhookSecret(i.id, secret).then(
+      () => {
+        setSecret('');
+        refresh();
+      },
+      e => setError((e as Error).message),
+    );
+  return (
+    <div className="sint-events">
+      {hooks.map(e => {
+        const url = events.find(x => x.id === e.id)?.webhook;
+        return (
+          <div className="sint-event" key={e.id}>
+            <span className="sint-event-name">{e.description}</span>
+            {url && (
+              <button className="sbtn" onClick={() => copy(e.id, url)} title={url}>
+                {copied === e.id ? 'Copied' : 'Copy webhook address'}
+              </button>
+            )}
+          </div>
+        );
+      })}
+      {signed &&
+        (i.webhookSecretSet ? (
+          <span className="sint-help">Signing secret saved.</span>
+        ) : (
+          <div className="sint-event">
+            <input
+              className="srow2-input mwide"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              value={secret}
+              placeholder={signed.secretHelp ?? 'Signing secret'}
+              onChange={e => {
+                setSecret(e.target.value);
+                setError(null);
+              }}
+              onKeyDown={e => e.key === 'Enter' && secret.trim() && save()}
+            />
+            <button className="sbtn" onClick={save} disabled={!secret.trim()}>
+              Save
+            </button>
+          </div>
+        ))}
+      {error && <span className="custom-error">{error}</span>}
+    </div>
+  );
+}
+
+// The public address services post events to: a tunnel to this computer's
+// webhook server only (never the app itself), while it's on.
+function WebhookTunnel({ tunnel, onChange }: { tunnel: TunnelState; onChange: (t: TunnelState) => void }) {
+  const on = tunnel.status !== 'off';
+  const flip = () => setTunnel(!on).then(r => onChange(r.tunnel), () => {});
+  const what =
+    tunnel.status === 'on'
+      ? tunnel.url
+      : tunnel.status === 'starting'
+        ? 'Starting...'
+        : tunnel.status === 'missing'
+          ? "Needs Cloudflare's cloudflared: winget install Cloudflare.cloudflared"
+          : tunnel.status === 'error'
+            ? tunnel.error
+            : 'Lets services post events to this computer';
+  return (
+    <li>
+      <span className="sconn-name">Public webhook address</span>
+      <span className={`sconn-what${tunnel.status === 'error' || tunnel.status === 'missing' ? ' sint-bad' : ''}`}>{what}</span>
+      <span className="sint-actions">
+        <button className={`switch${on ? ' on' : ''}`} role="switch" aria-checked={on} aria-label="Public webhook address" onClick={flip} />
       </span>
     </li>
   );

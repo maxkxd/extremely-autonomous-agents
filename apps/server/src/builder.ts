@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import * as z from 'zod/v4';
 import { BASELINE, catalogForPrompt } from './catalog.js';
-import { integrationToolsForPrompt } from './integrations/index.js';
+import { integrationEventsForPrompt, integrationToolsForPrompt } from './integrations/index.js';
 import { anthropicKey } from './models/connections.js';
 import { fleetForPrompt, type Fleet } from './fleet.js';
 import type { Available } from './models/connections.js';
@@ -56,14 +56,24 @@ ${catalogForPrompt()}
 Every agent also gets this fleet plumbing automatically - never define tools that duplicate it, and never ask about it:
 ${BASELINE.map(({ server, tool }) => `- ${server}.${tool.name} [${tool.tier}] ${tool.does}`).join('\n')}
 Handing work to another agent is tasks.delegate_task.
-When nothing does a job, you define a new tool yourself and it gets built; the person doesn't have to arrange anything.`;
+When nothing does a job, you define a new tool yourself and it gets built; the person doesn't have to arrange anything.
+
+Events: an agent runs on its schedule, and can also be woken by events - something happening at a service it watches (a new error report, a support ticket, an alarm). When the job is reacting to something ("triage each new bug", "answer tickets as they come in", "act when an alarm fires"), give it the event: an existing one by id, or a new event you define, which gets set up like a new tool. The schedule stays as a slow sweep for anything missed.`;
 
 function contextBlock(ctx: Context): string {
   const me = `You are talking to the person who owns these agents. What you know about them:\n${personForPrompt(ctx.person)}`;
   const org = ctx.profile
     ? `The organisation these agents work for:\n${profileForPrompt(ctx.profile, ctx.person.name)}`
     : "They aren't set up as an organisation: the agents work for them personally. Keep organisation-specific details general rather than inventing them - they get filled in over time.";
-  return `${me}\n\n${org}\n\n${fleetForPrompt(ctx.fleet)}\n\n${integrationsForPrompt()}\n\n${modelsForPrompt(ctx.models)}`;
+  return `${me}\n\n${org}\n\n${fleetForPrompt(ctx.fleet)}\n\n${integrationsForPrompt()}\n\n${eventsForPrompt()}\n\n${modelsForPrompt(ctx.models)}`;
+}
+
+// Events (docs/events.md): things happening at connected services that can wake an agent.
+function eventsForPrompt(): string {
+  const events = integrationEventsForPrompt();
+  return events
+    ? `Events from connected services (give them by id in events; define new_events for ones nothing provides yet):\n${events}`
+    : 'No events are set up yet. An agent that should react to something happening at a service (a new error, a ticket, an alarm) gets new_events: the Fleet Engineer sets them up.';
 }
 
 // Tools from services the person has connected (docs/integrations.md): use
@@ -315,6 +325,21 @@ export const BuildSchema = z.object({
       }),
     )
     .describe('Tools that neither the fleet nor the catalogue has and this agent needs. Empty when existing tools cover it.'),
+  events: z
+    .array(z.object({ id: z.string().describe('An event id from the connected services listed, or the id (server.name) of one of your new_events'), why: z.string() }))
+    .describe(
+      'What wakes this agent besides its schedule: things happening at a service that it reacts to - a new error report, a support ticket, an alarm, a payment failing. Empty for an agent that only works on its schedule. An agent with events still has a schedule: then Chill is a slow sweep for anything missed.',
+    ),
+  new_events: z
+    .array(
+      z.object({
+        server: z.string().describe('The service, lowercase (sentry, zendesk, aws)'),
+        name: z.string().describe('snake_case, what happened: new_issue, ticket_created, alarm_fired'),
+        description: z.string().describe('What happened, in a few words'),
+        how_detected: z.string().describe("How the service tells it: its webhook for this, or the API to poll for new items"),
+      }),
+    )
+    .describe('Events nothing connected provides yet that this agent should wake on. The Fleet Engineer sets each up and the person connects it. Empty when none.'),
   kpi: z
     .array(z.object({ id: z.string().describe('A tool id from tools'), label: z.string().describe('Plural, lowercase, e.g. "invoices chased"') }))
     .describe('1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing.'),

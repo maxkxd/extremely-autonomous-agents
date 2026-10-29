@@ -287,8 +287,17 @@ export type IntegrationView = {
   by: string | null;
   test: { ok: boolean; at: number; message: string } | null;
   tools: { id: string; tier: string }[];
+  // Its events (docs/events.md): checked every N minutes (poll), and/or pushed to a webhook address.
+  events: { id: string; description: string; poll: number | null; webhook: boolean; signed: boolean; secretHelp: string | null; setupHelp: string | null }[];
+  webhookSecretSet: boolean;
 };
 export type IntegrationsView = { integrations: IntegrationView[]; problems: { file: string; error: string }[]; profile: { open: boolean; inUse: boolean } };
+// Events: their webhook addresses, and the tunnel that makes those public.
+export type TunnelState = { status: 'off' | 'starting' | 'on' | 'missing' | 'error'; url: string | null; error: string | null };
+export type EventInfo = { id: string; integration: string; live: boolean; description: string; agents: string[]; webhook: string | null; told: number; poll: { everyMinutes: number; last: number | null; error: string | null } | null };
+export const getEvents = () => request<{ tunnel: TunnelState; base: string; events: EventInfo[] }>('/api/events');
+export const setTunnel = (on: boolean) => post<{ tunnel: TunnelState; base: string }>('/api/events/tunnel', { on });
+export const setWebhookSecret = (id: string, secret: string) => post<{ ok: boolean }>('/api/integrations/webhook-secret', { id, secret });
 export const getIntegrations = () => request<IntegrationsView>('/api/integrations');
 export const connectIntegration = (id: string, key?: string) => post<{ ok: boolean; message: string }>('/api/integrations/connect', { id, key });
 export const disconnectIntegration = (id: string) => post<{ ok: boolean }>('/api/integrations/disconnect', { id });
