@@ -19,7 +19,7 @@ const REQUEST_STANCE = [
   'File a request when a tool or resource would make you clearly more effective at your core job, not just when you are blocked.',
   'Actively look for tools, access and data that would increase your output, and request the ones with a clear payoff.',
   'Treat every limit on your output as something to remove. Request any tool, channel or access that would let you do more or go faster.',
-  'Maximise output by any means available. Think of every possible way to get more of your work done and request whatever it takes - new channels, new tools, more access. You can only ask: everything you request still needs a human or the Fleet Engineer to grant it.',
+  'Maximise output by any means available. Think of every possible way to get more of your work done and request whatever it takes - new channels, new tools, more access. You can only ask: everything you request still needs a human or the Agency Engineer to grant it.',
 ];
 
 // Looking for better ways to do the job: every run, from Driven up.

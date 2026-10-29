@@ -8,11 +8,11 @@ import { pickDefaults, type Want } from './defaults.js';
 
 // The agency's built-in agents, kept together here because they're different:
 // owned by no one, never deleted, no Ferocity, and one day hideable. The
-// Fleet Engineer (engineer.ts) does real runs; the two helpers below
+// Agency Engineer (engineer.ts) does real runs; the two helpers below
 // (docs/requests.md, docs/integrations.md) make one quick judgement when asked
 // and never run on a schedule. Each has a card like any agent - its models (changeable),
 // runs, cost - and a DM channel recording what it decided. While the agency
-// is stopped, requests wait for the Fleet Engineer and plugins can't be proposed.
+// is stopped, requests wait for the Agency Engineer and plugins can't be proposed.
 
 export const CONDUCTOR = 'conductor';
 export const REVIEWER = 'reviewer';
@@ -25,20 +25,20 @@ const WANTS: Record<string, Want> = { [FLEET_ENGINEER]: 'strong', [CONDUCTOR]: '
 const HELPERS = [
   {
     id: CONDUCTOR,
-    name: 'Conductor',
-    charter: `# CHARTER - Conductor (built in)
+    name: 'Agency Conductor',
+    charter: `# CHARTER - Agency Conductor (built in)
 
-The first stop for every request an agent files. It reads the request and the fleet, and either hands the work to an agent that already does it as part of its job (as a task, closing the request) or sends it to the Fleet Engineer - for a new tool, access, a key, a decision, or when it's unsure.
+The first stop for every request an agent files. It reads the request and the fleet, and either hands the work to an agent that already does it as part of its job (as a task, closing the request) or sends it to the Agency Engineer - for a new tool, access, a key, a decision, or when it's unsure.
 
-One quick model call per request, on a cheap model. It never runs on a schedule. Stopped, every request goes straight to the Fleet Engineer.
+One quick model call per request, on a cheap model. It never runs on a schedule. Stopped, every request goes straight to the Agency Engineer.
 `,
   },
   {
     id: REVIEWER,
-    name: 'Security Reviewer',
-    charter: `# CHARTER - Security Reviewer (built in)
+    name: 'Agency Reviewer',
+    charter: `# CHARTER - Agency Reviewer (built in)
 
-Reads every code plugin the Fleet Engineer writes before it can be proposed, as an independent attacker: it didn't write the code. A serious finding sends the plugin back; otherwise what it can do on this computer, in plain words, goes on the approval card.
+Reads every code plugin the Agency Engineer writes before it can be proposed, as an independent attacker: it didn't write the code. A serious finding sends the plugin back; otherwise what it can do on this computer, in plain words, goes on the approval card.
 
 One model call per plugin, on a careful model. It never runs on a schedule. Stopped, plugins can't be proposed.
 `,

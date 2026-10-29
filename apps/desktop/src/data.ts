@@ -2,7 +2,7 @@ import type { ApprovalToolId, ToolArgs } from './approvalTools';
 
 // Placeholder data for the UI only - not the real agency roster.
 
-// 'agency' = the built-in agents every account gets (shown as the Fleet Engineer).
+// 'agency' = the built-in agents every account gets (shown as the Agency Engineer).
 export type Department = 'engineering' | 'marketing' | 'sales' | 'finance' | 'research' | 'operations' | 'agency';
 
 export type Slice = { label: string; value: number };
@@ -13,7 +13,7 @@ export type Agent = {
   department: Department;
   owner: string; // member name; only shown when the user is in an organization
   builtIn?: boolean; // part of the agency itself, owned by no one
-  service?: boolean; // a built-in helper (Conductor, Security Reviewer): runs only when called, so no schedule
+  service?: boolean; // a built-in helper (Agency Conductor, Agency Reviewer): runs only when called, so no schedule
   // Per month (30 days); other time ranges are scaled from this for the placeholder UI.
   // Output is successful actions by type; cost is dollars by source.
   output: Slice[];
@@ -76,12 +76,12 @@ export function createOrganization(name: string) {
 }
 
 // The fleet: what the server has (App.tsx keeps this in step with it). The
-// Fleet Engineer is built in, so it's here from the start; its numbers come
+// Agency Engineer is built in, so it's here from the start; its numbers come
 // from the runner like every other agent's.
 export const AGENTS: Agent[] = [
   {
     id: 'fleet',
-    name: 'Fleet Engineer',
+    name: 'Agency Engineer',
     department: 'agency',
     owner: 'Built-in',
     builtIn: true,
@@ -249,7 +249,7 @@ export const FEROCITY: FerocityLevel[] = [
     selfBook: 'always',
     runsPerDay: 288,
     requestStance:
-      'Maximise output by any means available. Think of every possible way to get more of your work done and request whatever it takes - new channels, new tools, more access. You can only ask: everything you request still needs a human or the Fleet Engineer to grant it.',
+      'Maximise output by any means available. Think of every possible way to get more of your work done and request whatever it takes - new channels, new tools, more access. You can only ask: everything you request still needs a human or the Agency Engineer to grant it.',
   },
 ];
 
@@ -270,7 +270,7 @@ export type Approval = {
   minutesAgo: number; // when the agent made the call
   createdAt?: number; // ms timestamp, for approvals raised while the app is open
   // Whose owner decides it, when that isn't the calling agent - e.g. the
-  // Fleet Engineer (owned by no one) building a tool FOR Lead Finder goes
+  // Agency Engineer (owned by no one) building a tool FOR Lead Finder goes
   // to Lead Finder's owner.
   forAgentId?: string;
 };
@@ -291,7 +291,7 @@ export type ResourceRequest = {
   id: string;
   agentId: string;
   live?: number; // a real agent's request: its id on the server
-  // A real one's conversation with the (real) Fleet Engineer, and where it stands:
+  // A real one's conversation with the (real) Agency Engineer, and where it stands:
   // engineer (it has it), waiting_you, approval (its go-live waits), person (yours).
   liveThread?: { from: 'you' | 'engineer'; text: string }[];
   stage?: 'engineer' | 'waiting_you' | 'approval' | 'person' | null;

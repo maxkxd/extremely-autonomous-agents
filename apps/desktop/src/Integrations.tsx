@@ -24,7 +24,7 @@ import {
 // Settings -> Connectors -> Integrations (docs/integrations.md): the services
 // agents' tools run on. Web search is one service among several (agents use
 // whichever is connected); anything else is added as an MCP server by its
-// address, or later by the Fleet Engineer. Keys go here, never in a chat.
+// address, or later by the Agency Engineer. Keys go here, never in a chat.
 export function Integrations({ onOpenApproval }: { onOpenApproval: (id: string) => void }) {
   const [view, setView] = useState<IntegrationsView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +112,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
   const tools = i.kind !== 'mcp' && i.tools.length && !i.draft ? `${i.tools.length} tool${i.tools.length === 1 ? '' : 's'}` : '';
   const sub = i.connected
     ? i.draft
-      ? i.approvalId ? 'Tested · waiting for your approval' : 'The Fleet Engineer is testing it'
+      ? i.approvalId ? 'Tested · waiting for your approval' : 'The Agency Engineer is testing it'
       : [i.test?.message, tools].filter(Boolean).join(' · ')
     : i.test && !i.test.ok
       ? i.test.message
@@ -265,7 +265,7 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
     ? 'Waiting for you to sign in, in the window that opened'
     : i.connected
       ? i.draft
-        ? i.approvalId ? 'Tested · waiting for your approval' : 'The Fleet Engineer is testing it'
+        ? i.approvalId ? 'Tested · waiting for your approval' : 'The Agency Engineer is testing it'
         : [i.test?.message, tools].filter(Boolean).join(' · ')
       : i.test && !i.test.ok
         ? i.test.message
@@ -364,7 +364,7 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
   );
 }
 
-// A draft the Fleet Engineer has tested: its go-live waits on you. Takes you
+// A draft the Agency Engineer has tested: its go-live waits on you. Takes you
 // to that approval (centred, glowing) - approving it there makes it live.
 const ApproveButton = ({ i, onOpenApproval }: { i: IntegrationView; onOpenApproval: (id: string) => void }) =>
   i.approvalId ? (
@@ -373,7 +373,7 @@ const ApproveButton = ({ i, onOpenApproval }: { i: IntegrationView; onOpenApprov
     </button>
   ) : null;
 
-// Whether the Fleet Engineer may write code plugins: code that runs on this
+// Whether the Agency Engineer may write code plugins: code that runs on this
 // computer, for what an HTTP or MCP integration can't do. Off unless turned on.
 function CodePlugins() {
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -386,7 +386,7 @@ function CodePlugins() {
   return (
     <li>
       <span className="sconn-name">Code plugins</span>
-      <span className="sconn-what">Lets the Fleet Engineer write code that runs on this computer, after your approval</span>
+      <span className="sconn-what">Lets the Agency Engineer write code that runs on this computer, after your approval</span>
       <span className="sint-actions">
         <button className={`switch${allowed ? ' on' : ''}`} role="switch" aria-checked={allowed} aria-label="Code plugins" onClick={flip} />
       </span>

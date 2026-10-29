@@ -1,7 +1,7 @@
 import { z } from 'zod/v4';
 
 // What an integration is (docs/integrations.md): a definition file, so the
-// Fleet Engineer can add one without writing code.
+// Agency Engineer can add one without writing code.
 //
 //   kind: http - its tools are HTTP calls: an address, the inputs, how the
 //                key is sent, and what to keep from the answer

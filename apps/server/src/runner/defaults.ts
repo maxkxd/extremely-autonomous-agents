@@ -1,8 +1,8 @@
 import { availableModels, type Available } from '../models/connections.js';
 import type { ModelChoice } from '../models/choice.js';
 
-// The models a built-in agent starts with (the Fleet Engineer, the Conductor,
-// the Security Reviewer): three, from what's connected. The person's plans
+// The models a built-in agent starts with (the Agency Engineer, the Agency Conductor,
+// the Agency Reviewer): three, from what's connected. The person's plans
 // first - they cost nothing per run - then their preference for the job, then
 // anything at all that's connected (DeepSeek, Mistral, Ollama, a custom one),
 // so a built-in never sits there with no model. Changed on its card like any.

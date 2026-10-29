@@ -369,7 +369,7 @@ test('the agency on standby: nothing starts by itself, a person is still answere
   setSetting('agency_state', 'active');
 });
 
-test("the Fleet Engineer's queued runs for closed requests are dropped, not run", () => {
+test("the Agency Engineer's queued runs for closed requests are dropped, not run", () => {
   const now = Date.now();
   const open = Number(exec("INSERT INTO requests (agent_id, what, why, created_at) VALUES ('a', 'x', 'y', ?)", now).lastInsertRowid);
   const closed = Number(exec("INSERT INTO requests (agent_id, what, why, status, created_at) VALUES ('b', 'x', 'y', 'rejected', ?)", now).lastInsertRowid);
@@ -379,7 +379,7 @@ test("the Fleet Engineer's queued runs for closed requests are dropped, not run"
   assert.deepEqual(all<{ task: string }>('SELECT task FROM bookings').map(b => b.task), [`Request #${open} from a: x`]);
 });
 
-test("quick replies on a request join the Fleet Engineer's waiting run: one run answers them all", async () => {
+test("quick replies on a request join the Agency Engineer's waiting run: one run answers them all", async () => {
   const { replyToEngineer } = await import('./api.js');
   replyToEngineer(4, 'Max', 'use acme/web');
   replyToEngineer(4, 'Max', 'actually acme/app');
@@ -390,7 +390,7 @@ test("quick replies on a request join the Fleet Engineer's waiting run: one run 
   assert.match(queued[1], /request #41: "yes"/);
 });
 
-test('a resumed Fleet Engineer run is told what it already said, so it does not answer twice', async () => {
+test('a resumed Agency Engineer run is told what it already said, so it does not answer twice', async () => {
   const now = Date.now();
   exec("INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at) VALUES ('r_cut2', 'fleet', 'request reply', 'x', 0, 'failed', ?)", now - 60_000);
   exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, at) VALUES ('r_cut2', 'fleet', 'engineer.reply_to_request', '[]', 'T0', 'ok', ?)", now - 30_000);

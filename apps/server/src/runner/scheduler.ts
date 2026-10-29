@@ -52,7 +52,7 @@ export const liveDeps: RunDeps = {
   compact: true,
 };
 
-// The Fleet Engineer's queued runs for requests that have since closed (turned
+// The Agency Engineer's queued runs for requests that have since closed (turned
 // down, handed over, or their agent deleted): dropped, not run - a whole run
 // just to find the request gone.
 // Also a reply already answered: replies sent while it was working on that
@@ -195,11 +195,11 @@ export const abortAll = () => {
 let timer: NodeJS.Timeout | null = null;
 export function startScheduler() {
   void loadIntegrations().catch(e => console.error('Loading integrations failed:', (e as Error).message));
-  // The Fleet Engineer: its files kept current, and woken by requests and connections.
+  // The Agency Engineer: its files kept current, and woken by requests and connections.
   void ensureFleetEngineer()
     .then(() => startEngineer(book))
-    .catch(e => console.error('Starting the Fleet Engineer failed:', (e as Error).message));
-  void ensureHelpers().catch(e => console.error('Setting up the Conductor and Security Reviewer failed:', (e as Error).message));
+    .catch(e => console.error('Starting the Agency Engineer failed:', (e as Error).message));
+  void ensureHelpers().catch(e => console.error('Setting up the Agency Conductor and Agency Reviewer failed:', (e as Error).message));
   // Runs left 'running' by a server that stopped mid-run. One a person or an
   // event set off (a message, a connection, an approval...) is booked again,
   // or it would be lost; scheduled ones simply come round again.

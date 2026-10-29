@@ -23,7 +23,7 @@ import { Integration, type EventDefT, type HttpIntegration, type McpIntegration 
 
 // Integrations (docs/integrations.md): the ones that ship with the app
 // (apps/server/integrations/*.yaml) and the ones added later - by a person,
-// or by the Fleet Engineer behind a person's approval (data/integrations/).
+// or by the Agency Engineer behind a person's approval (data/integrations/).
 // Keys live in the vault; whether each is connected, its last test, and an
 // MCP server's discovered tools live in the runner's store.
 
@@ -33,7 +33,7 @@ const ADDED = join(HERE, '..', '..', 'data', 'integrations');
 // The live definition of one being redrafted, until the draft goes live or is turned down.
 const LIVE = join(ADDED, '.live');
 
-// draft: written by the Fleet Engineer and not live yet - no agent can call it
+// draft: written by the Agency Engineer and not live yet - no agent can call it
 // until a person approves it (it can be connected and tested meanwhile).
 // codeHash: for a code plugin, the code a person approved.
 type State = {
@@ -230,7 +230,7 @@ export async function connectIntegration(id: string, key?: string) {
   });
   register();
   if (!result.ok) throw new Error(result.message);
-  // A draft the Fleet Engineer is waiting on: wake it to test the real thing.
+  // A draft the Agency Engineer is waiting on: wake it to test the real thing.
   const st = states()[id];
   if (st?.draft) onDraftConnected?.(id, st.request);
   return result;
@@ -442,7 +442,7 @@ export function integrationToolsForPrompt(): string {
 
 export type { HttpIntegration, McpIntegration };
 
-// --- The Fleet Engineer's side (runner/engineer.ts) -----------------------------------
+// --- The Agency Engineer's side (runner/engineer.ts) -----------------------------------
 
 // Saves a definition the engineer wrote, as a draft: it shows in Settings to be
 // connected, but no agent can call it until a person approves it going live.

@@ -789,7 +789,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .ap-btn.confirm-diy { background: #e6e6e6; border-color: #e6e6e6; color: #141414; }
 .ap-btn.confirm-diy:hover { background: #fff; }
 
-/* Exits: DIY white right, Fleet Engineer blue right, reject red left. */
+/* Exits: DIY white right, Agency Engineer blue right, reject red left. */
 .request.leaving.diy { animation: diy-out 0.62s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
 @keyframes diy-out {
   0% { transform: none; opacity: 1; }
@@ -811,12 +811,12 @@ ul { list-style: none; margin: 0; padding: 0; }
   .spin { animation: none; }
 }
 
-/* Task Fleet Engineer note box */
+/* Task Agency Engineer note box */
 .ap-btn.confirm-engineer { background: var(--attention); border-color: var(--attention); color: var(--attention-text); }
 .ap-btn.confirm-engineer:hover { filter: brightness(1.12); }
 .drawer-hint { margin-right: auto; align-self: center; font-size: 12px; color: #6a6a6a; }
 
-/* Fleet Engineer conversation inside a request */
+/* Agency Engineer conversation inside a request */
 .eng-chat { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
 .eng-msg { display: flex; flex-direction: column; gap: 4px; max-width: 88%; }
 .eng-msg.you { align-self: flex-end; align-items: flex-end; }
@@ -836,7 +836,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .request-status.waiting { color: #7aa3e4; background: rgba(63, 123, 214, 0.12); }
 .ap-btn.confirm-engineer:disabled { opacity: 0.5; cursor: default; filter: none; }
 
-/* Request waiting on the Fleet Engineer's build approval */
+/* Request waiting on the Agency Engineer's build approval */
 .request-status.approval { color: #f2c46d; background: rgba(242, 196, 109, 0.12); }
 .rq-btn.open-approvals { align-self: flex-start; }
 
@@ -1732,7 +1732,7 @@ a.sbtn { text-decoration: none; color: inherit; }
   55% { border-color: #3f7bd6; box-shadow: 0 0 0 1px #3f7bd6, 0 0 24px rgba(63, 123, 214, 0.4); }
 }
 @media (prefers-reduced-motion: reduce) { .approval.spotlit, .request.spotlit { animation: none; } }
-/* Agents' and the Fleet Engineer's text (RichText.tsx). */
+/* Agents' and the Agency Engineer's text (RichText.tsx). */
 .rt-p { margin: 0; }
 .rt-p + .rt-p, .rt-p + .rt-list, .rt-list + .rt-p, .rt-list + .rt-list { margin-top: 8px; }
 .rt-list { margin: 0; padding-left: 22px; }

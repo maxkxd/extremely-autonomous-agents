@@ -263,7 +263,7 @@ export const sendToIde = (id: number, ide: string) =>
   post<{ opened: boolean; folder: string; prompt: string; ide: string }>('/api/runner/requests/ide', { id, ide });
 export const sendRequestMessage = (id: number, text: string) => post<{ ok: boolean }>('/api/runner/requests/message', { id, text });
 
-// Whether the Fleet Engineer may write code plugins (Settings -> Connectors).
+// Whether the Agency Engineer may write code plugins (Settings -> Connectors).
 // The agency's own MCP server, for the person's AI IDE; and who the host is.
 export const getAgencyMcp = () => request<{ url: string }>('/api/settings/agency-mcp');
 export const setHostPerson = (name: string) => post<{ ok: boolean }>('/api/settings/host-person', { name });
@@ -282,7 +282,7 @@ export type IntegrationView = {
   signIn: { clientUrl: string | null; help: string | null; hasClient: boolean } | null; // OAuth
   shipped: boolean;
   connected: boolean;
-  draft: boolean; // the Fleet Engineer's, not live until approved
+  draft: boolean; // the Agency Engineer's, not live until approved
   approvalId: string | null; // its go-live, waiting on you
   by: string | null;
   test: { ok: boolean; at: number; message: string } | null;

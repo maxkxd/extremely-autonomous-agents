@@ -23,7 +23,7 @@ export function openDb(path = FILE): DatabaseSync {
   for (const sql of [
     'ALTER TABLE approvals ADD COLUMN note TEXT',
     'ALTER TABLE approvals ADD COLUMN result TEXT',
-    // Requests: where each stands (docs/requests.md) - engineer (the Fleet Engineer
+    // Requests: where each stands (docs/requests.md) - engineer (the Agency Engineer
     // has it), waiting_you (it asked you something), approval (its go-live waits on
     // you), person (it handed it to you); null on ones from before routing.
     'ALTER TABLE requests ADD COLUMN stage TEXT',
@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS requests (
 );
 
 -- A request's conversation: the agent's ask is the request itself; then the
--- Fleet Engineer and the person (docs/requests.md).
+-- Agency Engineer and the person (docs/requests.md).
 CREATE TABLE IF NOT EXISTS request_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   request_id INTEGER NOT NULL,

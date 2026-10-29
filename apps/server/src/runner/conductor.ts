@@ -8,12 +8,12 @@ import { stateOf } from './run.js';
 import { ask, HelperStopped, jsonIn } from './quick.js';
 import { setRequestRouter, type Wake } from './tools.js';
 
-// The Conductor (docs/requests.md): the first stop for a request, so the
-// common case doesn't cost a Fleet Engineer run. One cheap model call reads
+// The Agency Conductor (docs/requests.md): the first stop for a request, so the
+// common case doesn't cost a Agency Engineer run. One cheap model call reads
 // the request and the fleet: if an agent that already does this as part of its
 // job (and holds the tools) can take it, it's handed over as a task and the
 // request closes; anything else - a tool, access, a decision - goes to the
-// Fleet Engineer. Unsure, or the call fails: the Fleet Engineer.
+// Agency Engineer. Unsure, or the call fails: the Agency Engineer.
 
 const SYSTEM = `You route requests in an AI agency. An agent filed a request for something it can't do itself. Decide who takes it:
 - "agent": another agent in the fleet ALREADY does exactly this as part of its job and holds the tools for it, so handing the work to it gets it done now. Only a genuinely related agent - not one that merely could, and never one whose job is unrelated (customer support doesn't send outreach emails).
@@ -59,7 +59,7 @@ export async function decideRoute(r: RequestFacts): Promise<Decision> {
     summary: async t => {
       const d = jsonIn<Decision>(t);
       const to = d.route === 'agent' && d.agent_id ? (await readMeta(d.agent_id))?.name : null;
-      return `Request #${r.id} from ${asker}: ${to ? `handed to ${to}` : 'sent to the Fleet Engineer'}.${d.why ? ` ${d.why}` : ''}`;
+      return `Request #${r.id} from ${asker}: ${to ? `handed to ${to}` : 'sent to the Agency Engineer'}.${d.why ? ` ${d.why}` : ''}`;
     },
   });
   return jsonIn<Decision>(text);
@@ -81,8 +81,8 @@ export async function conduct(requestId: number, wake: Wake): Promise<void> {
     exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
     postToRequest(r.id, 'engineer', `Handed to ${target.name}: it already does this. ${d.why ?? ''}`.trim());
   } catch (e) {
-    // Stopped: everything goes to the engineer, as if there were no Conductor.
-    if (!(e instanceof HelperStopped)) console.error(`Conductor couldn't route request #${requestId}:`, (e as Error).message);
+    // Stopped: everything goes to the engineer, as if there were no Agency Conductor.
+    if (!(e instanceof HelperStopped)) console.error(`Agency Conductor couldn't route request #${requestId}:`, (e as Error).message);
     toEngineer();
   }
 }

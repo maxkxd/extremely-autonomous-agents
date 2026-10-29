@@ -44,7 +44,7 @@ export const APPROVAL_TOOLS = {
     body: '{body}',
     expiresAfterHours: 24,
   },
-  // The Fleet Engineer: a draft integration going live, and tools for an agent.
+  // The Agency Engineer: a draft integration going live, and tools for an agent.
   'engineer.publish_integration': {
     wantsTo: 'make {name} live for {for_agent_name}',
     headers: [{ label: 'Wakes it on', value: '{events_list}', optional: true }],
@@ -97,7 +97,7 @@ export const APPROVAL_TOOLS = {
     body: '{note}',
     expiresAfterHours: 4,
   },
-  // The Fleet Engineer asking to build a tool it designed for a request.
+  // The Agency Engineer asking to build a tool it designed for a request.
   'tool.build': {
     wantsTo: 'build a new tool for {forAgent}: {toolName}',
     headers: [
@@ -131,7 +131,7 @@ function fill(template: string, args: ToolArgs, tool: string): string {
 }
 
 // What an approval card shows, built from the tool's definition + the call's args.
-// A tool without its own card (an MCP server's, one the Fleet Engineer added):
+// A tool without its own card (an MCP server's, one the Agency Engineer added):
 // every argument as a line, the longest text as the body.
 function generic(toolId: string, args: ToolArgs): ApprovalTool {
   const long = Object.entries(args).filter(([, v]) => typeof v === 'string' && v.length > 120).sort((a, b) => String(b[1]).length - String(a[1]).length)[0]?.[0];

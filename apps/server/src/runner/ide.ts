@@ -11,7 +11,7 @@ import { all, one } from './db.js';
 // Send to your IDE (docs/requests.md): a request handed to the person's own AI
 // IDE. Its folder gets REQUEST.md (the request, its conversation, what to do)
 // and an MCP config for the agency's own MCP server (agency-mcp.ts): everything
-// the Fleet Engineer and the agent builder can do, approved in the IDE call by
+// the Agency Engineer and the agent builder can do, approved in the IDE call by
 // call. Claude Code and Codex start in a terminal with the task; Cursor and
 // Antigravity open the folder.
 
@@ -45,7 +45,7 @@ ${r.what}
 
 **Why:** ${r.why}${r.evidence ? `\n\n**What it tried / what shows it:** ${r.evidence}` : ''}${r.expected_effect ? `\n\n**What changes once it has it:** ${r.expected_effect}` : ''}
 
-${thread.length ? `## The conversation so far (the Fleet Engineer and ${owner})\n\n${thread.map(m => `**${m.from_who === 'you' ? owner : 'Fleet Engineer'}:** ${m.text}`).join('\n\n')}\n\n` : ''}## How to work on it
+${thread.length ? `## The conversation so far (the Agency Engineer and ${owner})\n\n${thread.map(m => `**${m.from_who === 'you' ? owner : 'Agency Engineer'}:** ${m.text}`).join('\n\n')}\n\n` : ''}## How to work on it
 
 You have the whole agency through its MCP server ("agency", already set up for this folder - approve it when asked). It acts for ${owner}, so changes apply straight away:
 

@@ -29,7 +29,7 @@ export async function createAgent(a: { person: string; org: string | null; files
 }
 
 // Tools and events its builder invented that nothing provides yet go to the
-// Fleet Engineer - each once (a pack agent asks again after its tailoring).
+// Agency Engineer - each once (a pack agent asks again after its tailoring).
 export function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' | 'tools'>) {
   const yaml = parseYaml(files.tools) as {
     new_tools?: { id: string; description: string; input_schema: unknown }[];
@@ -53,7 +53,7 @@ export function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' | 'too
 
 export async function deleteAgent(id: string) {
   const m = await readMeta(id);
-  if (id === FLEET_ENGINEER || m?.builtIn) throw new Error(`The ${m?.name ?? 'Fleet Engineer'} is part of the agency; it can't be deleted.`);
+  if (id === FLEET_ENGINEER || m?.builtIn) throw new Error(`The ${m?.name ?? 'Agency Engineer'} is part of the agency; it can't be deleted.`);
   await remove(id);
   await removeChoices(id);
   await forgetAgentRuns(id);

@@ -115,7 +115,7 @@ export function App() {
               expiresAt: a.expiresAt,
               paused: a.agentStopped,
               owner: a.owner,
-              // The Fleet Engineer is owned by no one: its approvals belong to
+              // The Agency Engineer is owned by no one: its approvals belong to
               // the owner of the agent they're for.
               forAgentId: a.agentId === 'fleet' && typeof a.args.for_agent === 'string' ? a.args.for_agent : undefined,
             })),
@@ -181,7 +181,7 @@ export function App() {
   // Requests: same shape as approvals - decided on click, removed after the exit.
   const [, setRequestResolved] = useState<Record<string, RequestResolution>>({});
   const [requestGone, setRequestGone] = useState<Record<string, true>>({});
-  // Requests agents filed, with their Fleet Engineer conversations. Your DIY
+  // Requests agents filed, with their Agency Engineer conversations. Your DIY
   // note or reason is the agent's answer.
   const [liveRequests, setLiveRequests] = useState<ResourceRequest[]>([]);
   useEffect(() => {
@@ -190,14 +190,14 @@ export function App() {
         list =>
           setLiveRequests(
             list
-              // Only once the Fleet Engineer has worked out it needs you.
+              // Only once the Agency Engineer has worked out it needs you.
               .filter(r => r.status === 'open' && r.needsYou)
               .map(r => ({
                 id: `live-${r.id}`,
                 live: r.id,
                 agentId: r.agent_id,
                 summary: r.what,
-                // A tool's input schema is for the Fleet Engineer, not the person reading.
+                // A tool's input schema is for the Agency Engineer, not the person reading.
                 detail: [r.why, r.evidence && !/^Input it expects:/.test(r.evidence) && `What I tried: ${r.evidence}`, r.expected_effect && `What changes once I have it: ${r.expected_effect}`]
                   .filter(Boolean)
                   .join('\n\n'),
@@ -226,7 +226,7 @@ export function App() {
   // Agents the runner actually runs (they have files on the server): their DM
   // channels are real. Checked on start and whenever agents come or go.
   // The server's agents are the fleet: one made anywhere else (another device,
-  // a pack, later the Fleet Engineer) joins this list when it's next checked.
+  // a pack, later the Agency Engineer) joins this list when it's next checked.
   const [realIds, setRealIds] = useState<Set<string>>(new Set());
   useEffect(() => {
     const sync = () =>
@@ -236,8 +236,8 @@ export function App() {
           const have = AGENTS.find(x => x.id === id);
           if (have) {
             // What only the server knows, kept current on one this browser already has.
-            if (!!have.service !== !!a.service || !!have.builtIn !== !!a.builtIn) {
-              Object.assign(have, { builtIn: a.builtIn || undefined, service: a.service || undefined, ...(a.builtIn ? { owner: 'Built-in' } : {}) });
+            if (!!have.service !== !!a.service || !!have.builtIn !== !!a.builtIn || have.name !== a.name) {
+              Object.assign(have, { name: a.name, builtIn: a.builtIn || undefined, service: a.service || undefined, ...(a.builtIn ? { owner: 'Built-in' } : {}) });
               added = true;
             }
             continue;

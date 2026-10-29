@@ -207,7 +207,7 @@ function opening(agent: AgentDef, trigger: Trigger, task: string | null): string
     }
     case 'approval':
       return task ?? 'An approval you were waiting on was decided. Carry on.';
-    // The Fleet Engineer's (runner/engineer.ts).
+    // The Agency Engineer's (runner/engineer.ts).
     case 'request':
       return `A new request came to you. ${task}
 
@@ -441,7 +441,7 @@ function resumeText(cutRunId: string): string {
   const done = all<{ tool: string; outcome: string }>('SELECT tool, outcome FROM actions WHERE run_id = ? ORDER BY id', cutRunId);
   if (!done.length) return 'You started this before and the app restarted before you did anything. Start it again.';
   const run = one<{ agent_id: string; started_at: number }>('SELECT agent_id, started_at FROM runs WHERE id = ?', cutRunId);
-  // The Fleet Engineer's messages on requests since that run began (it runs one at a time).
+  // The Agency Engineer's messages on requests since that run began (it runs one at a time).
   const said =
     run?.agent_id === FLEET_ENGINEER
       ? all<{ request_id: number; text: string }>("SELECT request_id, text FROM request_messages WHERE from_who = 'engineer' AND at >= ? ORDER BY id", run.started_at)

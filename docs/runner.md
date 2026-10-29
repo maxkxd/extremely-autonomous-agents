@@ -169,12 +169,12 @@ opening says what it already did, so nothing is done twice.
 ## Edge cases settled
 
 - **Handing work over**: never to an agent that's stopped or on standby - it
-  wouldn't start on it. The Conductor leaves them out (the request goes to
-  the Fleet Engineer), and `tasks.delegate_task` refuses with why.
+  wouldn't start on it. The Agency Conductor leaves them out (the request goes to
+  the Agency Engineer), and `tasks.delegate_task` refuses with why.
 - **Built-ins' models**: when none of a built-in's models is connected any
   more (Claude Code disconnected, say), it gets three from what is.
 - **Deleting an agent** (`runner/forget.ts`): its pending approvals and the
-  Fleet Engineer's for it are rejected, its open requests turned down (their
+  Agency Engineer's for it are rejected, its open requests turned down (their
   drafts discarded), its bookings dropped, work handed to it closed as not
   done (so whoever handed it over hears), and its DMs, memory and state
   removed. Its runs stay, so Usage still adds up.
@@ -228,8 +228,8 @@ Not yet:
 Tested live since (2026-10-29): memory compaction on a plan (it had been
 skipping Claude Code and Copilot), spend caps (a paid-only agent over the
 limit doesn't run, and says which limit; one with a plan runs on the plan),
-and prices for DeepSeek, Groq and OpenRouter's aliases. The Conductor and
-the Fleet Engineer run (docs/requests.md).
+and prices for DeepSeek, Groq and OpenRouter's aliases. The Agency Conductor and
+the Agency Engineer run (docs/requests.md).
 
 ## From WAR (what its runner taught us)
 
