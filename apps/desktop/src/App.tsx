@@ -184,14 +184,19 @@ export function App() {
   // Requests agents filed, with their Agency Engineer conversations. Your DIY
   // note or reason is the agent's answer.
   const [liveRequests, setLiveRequests] = useState<ResourceRequest[]>([]);
+  // The ones on the page last time: one of them closed since (the Agency Engineer
+  // finished it) stays for one more look, to play its exit.
+  const shownRequests = useRef<Set<number>>(new Set());
   useEffect(() => {
     const load = () =>
       getLiveRequests().then(
-        list =>
+        list => {
+          const shown = list.filter(r => r.status === 'open' && r.needsYou);
+          const closing = list.filter(r => r.status !== 'open' && shownRequests.current.has(r.id));
+          shownRequests.current = new Set(shown.map(r => r.id));
           setLiveRequests(
-            list
+            [...shown, ...closing]
               // Only once the Agency Engineer has worked out it needs you.
-              .filter(r => r.status === 'open' && r.needsYou)
               .map(r => ({
                 id: `live-${r.id}`,
                 live: r.id,
@@ -206,8 +211,10 @@ export function App() {
                 stage: r.stage,
                 busy: r.engineerBusy,
                 approvalId: r.approvalId,
+                closedAs: r.status === 'open' ? undefined : r.status === 'rejected' ? ('rejected' as const) : ('done' as const),
               })),
-          ),
+          );
+        },
         () => {},
       );
     load();
@@ -215,6 +222,8 @@ export function App() {
     return () => window.clearInterval(t);
   }, []);
   const pendingRequests = liveRequests.filter(r => !requestGone[r.id] && exists(r.agentId));
+  // Still open: what the counts are (one flying off has already gone from them).
+  const openRequests = pendingRequests.filter(r => !r.closedAs);
   const [requestScope, setRequestScope] = useState<ApprovalScope>('mine');
   const [requestFilterRaw, setRequestFilter] = useState<string | null>(null);
   const requestFilter =
@@ -222,7 +231,7 @@ export function App() {
       ? requestFilterRaw
       : null;
   const requestCounts: Record<string, number> = {};
-  for (const r of pendingRequests) requestCounts[r.agentId] = (requestCounts[r.agentId] ?? 0) + 1;
+  for (const r of openRequests) requestCounts[r.agentId] = (requestCounts[r.agentId] ?? 0) + 1;
   // Agents the runner actually runs (they have files on the server): their DM
   // channels are real. Checked on start and whenever agents come or go.
   // The server's agents are the fleet: one made anywhere else (another device,
@@ -290,7 +299,7 @@ export function App() {
   // Another request named in a request's text: there, open, glowing.
   const [focusRequest, setFocusRequest] = useState<number | null>(null);
   const openRequest = (live: number) => {
-    const r = pendingRequests.find(x => x.live === live);
+    const r = openRequests.find(x => x.live === live);
     if (!r) return;
     if (!visibleApprovals([r], requestScope).length) setRequestScope('all');
     setRequestFilter(null);
@@ -408,7 +417,7 @@ export function App() {
           width={width}
           onResizeStart={startDrag}
           approvalsBadge={visibleApprovals(pending, 'mine').length}
-          requestsBadge={visibleApprovals(pendingRequests, 'mine').length}
+          requestsBadge={visibleApprovals(openRequests, 'mine').length}
           onOpenSettings={setSettings}
           onLogOut={() => setSignedOut(true)}
         />
@@ -505,7 +514,7 @@ export function App() {
               }}
               onGone={id => setRequestGone(prev => ({ ...prev, [id]: true }))}
               onOpenApprovals={openApproval}
-              refs={{ onRequest: openRequest, canOpen: id => pendingRequests.some(r => r.live === id) }}
+              refs={{ onRequest: openRequest, canOpen: id => openRequests.some(r => r.live === id) }}
               focus={focusRequest}
               onFocused={() => setFocusRequest(null)}
             />

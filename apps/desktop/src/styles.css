@@ -798,6 +798,8 @@ ul { list-style: none; margin: 0; padding: 0; }
   100% { border-color: #e6e6e6; box-shadow: 0 0 0 1px #e6e6e6, 0 0 30px rgba(230, 230, 230, 0.2); background-color: rgba(230, 230, 230, 0.04); transform: translateX(110%) rotate(1.5deg); opacity: 0; }
 }
 .request.leaving.rejected { animation: reject-out 0.62s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
+/* Done elsewhere (the Agency Engineer closed it): green off to the right, like an approval. */
+.request.leaving.done { animation: approve-out 0.62s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
 .request.leaving.engineered { animation: engineer-out 0.62s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
 @keyframes engineer-out {
   0% { transform: none; opacity: 1; }
