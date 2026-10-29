@@ -2,7 +2,7 @@ import { readMeta } from '../files.js';
 import { discardDraft } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { all, one, run as exec } from './db.js';
-import { stateOf } from './run.js';
+import { agencyStopped, stateOf } from './run.js';
 import { runApproved } from './tools.js';
 
 // Approvals (docs/runner.md): a T2 call is queued with the exact arguments
@@ -43,7 +43,7 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
   const a = one<ApprovalRow>('SELECT * FROM approvals WHERE id = ?', id);
   if (!a) throw new Error('That approval no longer exists.');
   if (a.status !== 'pending') throw new Error(`Already ${a.status}.`);
-  if (stateOf(a.agent_id, now).state === 'stopped') throw new Error('Its agent is stopped. Resume it to decide this.');
+  if (stateOf(a.agent_id, now).state === 'stopped') throw new Error(agencyStopped() ? 'The agency is stopped. Resume it to decide this.' : 'Its agent is stopped. Resume it to decide this.');
   if (a.expires_at <= now) {
     expireApprovals(now, wake);
     throw new Error('It expired before you decided, so it did not happen.');

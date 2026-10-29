@@ -2,6 +2,7 @@ import { stringify } from 'yaml';
 import { readMeta, save } from '../files.js';
 import { allChoices, setChoices } from '../models/choice.js';
 import { FLEET_ENGINEER } from './agent.js';
+import { run as exec } from './db.js';
 import { defaultModels, type Want } from './defaults.js';
 
 // The agency's built-in agents, kept together here because they're different:
@@ -9,9 +10,8 @@ import { defaultModels, type Want } from './defaults.js';
 // Fleet Engineer (engineer.ts) does real runs; the two helpers below
 // (docs/requests.md, docs/integrations.md) make one quick judgement when asked
 // and never run on a schedule. Each has a card like any agent - its models (changeable),
-// runs, cost - and a DM channel recording what it decided. Stopped, the
-// Conductor's requests go straight to the Fleet Engineer and the Security
-// Reviewer's plugins can't be proposed.
+// runs, cost - and a DM channel recording what it decided. While the agency
+// is stopped, requests wait for the Fleet Engineer and plugins can't be proposed.
 
 export const CONDUCTOR = 'conductor';
 export const REVIEWER = 'reviewer';
@@ -52,6 +52,8 @@ export async function ensureHelpers() {
       { name: h.name, department: 'agency', output: [], status: 'ready', builtIn: true, service: true },
     );
   }
+  // No Stop or Standby of their own (the agency's Stop covers them): one set before that is cleared.
+  exec(`UPDATE agent_state SET state = 'active' WHERE agent_id IN (${BUILT_IN_IDS.map(() => '?').join(', ')})`, ...BUILT_IN_IDS);
   await fillBuiltInModels();
 }
 

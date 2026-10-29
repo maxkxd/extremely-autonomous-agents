@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { DEFAULT_PLAN, type AgentDef } from './agent.js';
-import { all, one, resetDbForTests, run as exec } from './db.js';
+import { all, one, resetDbForTests, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './ferocity.js';
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
 import { ModelError, type Adapter, type Call } from './providers.js';
@@ -311,4 +311,27 @@ test('failure backoff grows and caps at an hour', () => {
   assert.equal(backoffMs(1), 60_000);
   assert.equal(backoffMs(3), 4 * 60_000);
   assert.equal(backoffMs(20), 60 * 60_000);
+});
+
+test('the agency stopped: nothing runs, not even a message, until it is resumed', () => {
+  const now = Date.now();
+  const a = agent();
+  stateOf(ID);
+  exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'your message', 'hi', ?, ?)", ID, now, now);
+  setSetting('agency_stopped', true);
+  assert.equal(stateOf(ID).state, 'stopped');
+  assert.equal(nextRun(a, stateOf(ID), now), null);
+  setSetting('agency_stopped', false);
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'your message');
+});
+
+test('a run a restart cut short carries on, told what it already did', async () => {
+  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, at) VALUES ('r_cut', ?, 'files.write_file', '[]', 'T0', 'ok', ?)", ID, Date.now());
+  let opening = '';
+  const adapter: Adapter = async req => {
+    opening ||= req.messages[0].text ?? '';
+    return { text: 'Done.', calls: [], usage: { input: 1, output: 1 } };
+  };
+  await runAgent(agent(), 'run now', null, deps(adapter), undefined, 'r_cut');
+  assert.match(opening, /restarted part-way.*files\.write_file \(ok\)/);
 });

@@ -127,6 +127,15 @@ Standby is `draining` in the runner's store. Both last until someone resumes the
 other. The cards and approvals follow the runner, so a change made by
 someone else (or another device) shows within seconds.
 
+**Stop agency** (next to the time range on the dashboard) is Stop for every
+agent at once, built-ins included - they have no Stop or Standby of their
+own. Each agent keeps its own state underneath, so Resume agency puts every
+one back as it was. While it's stopped, the cards' own controls wait.
+
+**A restart mid-run**: a run the app's restart cut short is booked again
+(except scheduled ones, which simply come round again) and carries on: its
+opening says what it already did, so nothing is done twice.
+
 ## Money and limits
 
 - **Plans run out**: the agent moves on to its 2nd and 3rd models, even onto
@@ -134,6 +143,11 @@ someone else (or another device) shows within seconds.
 - **Spend caps** (Settings -> Usage): an optional daily dollar cap for the
   whole organisation, and an optional daily cap per agent. Hitting one pauses
   that spending until the next day; plans and local models aren't affected.
+- **What a run cost**: OpenRouter's public price list, refreshed daily. A
+  run on a plan (Claude Code, ChatGPT) is priced as the same model on an API
+  would be - more than it really costs, but it shows what the plan is worth,
+  and counts toward spend caps (keeping them on the safe side). Copilot picks
+  its own model, so its runs are unknown; local models are free.
 - **Failure backoff**: an agent whose runs keep failing within seconds (broken
   model, broken tool) backs off instead of spinning, at every level.
 - `max_runs_per_day` is only a runaway backstop, never the pace.

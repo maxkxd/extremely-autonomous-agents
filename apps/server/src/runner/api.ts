@@ -23,8 +23,8 @@ import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { spentToday } from './pricing.js';
 import { isPrivateIp } from './net.js';
-import { stateOf, type Trigger } from './run.js';
-import { abortRun, book, isRunning } from './scheduler.js';
+import { agencyStopped, stateOf, type Trigger } from './run.js';
+import { abortAll, abortRun, book, isRunning } from './scheduler.js';
 
 // The runner's routes for the app: each agent's card (ferocity, Drain/Stop,
 // real stats), its DM channel, requests, and spend caps (Settings -> Usage).
@@ -114,6 +114,15 @@ export const runnerRoutes: Record<string, Route> = {
     return out;
   },
 
+  // Stop the whole agency: every run cut short, nothing starts, approvals wait.
+  'GET /api/runner/agency': async () => ({ stopped: agencyStopped() }),
+  'POST /api/runner/agency': async (_req, _q, body) => {
+    const { stopped } = await body<{ stopped: boolean }>();
+    setSetting('agency_stopped', !!stopped);
+    if (stopped) abortAll();
+    return { stopped: agencyStopped() };
+  },
+
   // Ferocity, Drain/Stop, a per-agent spend cap.
   'POST /api/runner/agent': async (_req, _q, body) => {
     const b = await body<{ id: string; ferocity?: number; state?: 'active' | 'draining' | 'stopped'; spendCapUsd?: number | null }>();
@@ -123,7 +132,8 @@ export const runnerRoutes: Record<string, Route> = {
     // Built-ins keep theirs: they work when there's work, with a daily look otherwise.
     if (typeof b.ferocity === 'number' && b.ferocity >= 0 && b.ferocity < LEVELS.length && !(await readMeta(b.id))?.builtIn)
       exec('UPDATE agent_state SET ferocity = ?, updated_at = ? WHERE agent_id = ?', Math.floor(b.ferocity), now, b.id);
-    if (b.state === 'active' || b.state === 'draining' || b.state === 'stopped') {
+    // Built-ins have no Stop of their own: the agency's Stop covers them.
+    if ((b.state === 'active' || b.state === 'draining' || b.state === 'stopped') && !(await readMeta(b.id))?.builtIn) {
       const state = b.state;
       exec('UPDATE agent_state SET state = ?, updated_at = ? WHERE agent_id = ?', state, now, b.id);
       if (state === 'stopped') abortRun(b.id);

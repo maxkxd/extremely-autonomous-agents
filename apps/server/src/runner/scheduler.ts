@@ -87,12 +87,13 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (!eligible.length && next.trigger !== 'your message') continue;
       const local = eligible[0]?.connection === 'ollama';
       if (local && [...running.values()].some(r => r.connection === 'ollama')) continue;
+      const resumeFrom = next.bookingId ? (one<{ r: string | null }>('SELECT resume_from AS r FROM bookings WHERE id = ?', next.bookingId)?.r ?? null) : null;
       if (next.bookingId) exec('DELETE FROM bookings WHERE id = ?', next.bookingId);
       // A run it booked itself counts as its scheduled run: the schedule's clock
       // restarts, so booking a run never adds one on top of the level's pace.
       if (next.trigger === 'scheduled' || next.trigger === 'self-booked' || next.trigger === 'run now')
         exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now, id);
-      start(agent, next.trigger, next.task, deps, eligible[0]?.connection ?? null);
+      start(agent, next.trigger, next.task, deps, eligible[0]?.connection ?? null, resumeFrom);
     }
   } finally {
     ticking = false;
@@ -138,11 +139,11 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   return scheduled != null && scheduled <= now ? { trigger: 'scheduled', task: null } : null;
 }
 
-function start(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, connection: string | null) {
+function start(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, connection: string | null, resumeFrom: string | null = null) {
   const now = deps.now();
   const controller = new AbortController();
   running.set(agent.id, { controller, connection, startedAt: now });
-  void runAgent(agent, trigger, task, deps, controller.signal)
+  void runAgent(agent, trigger, task, deps, controller.signal, resumeFrom)
     .catch(e => console.error(`Run of ${agent.id} crashed:`, (e as Error).message))
     .finally(() => {
       running.delete(agent.id);
@@ -154,6 +155,9 @@ function start(agent: AgentDef, trigger: Trigger, task: string | null, deps: Run
 export function abortRun(agentId: string) {
   running.get(agentId)?.controller.abort();
 }
+export const abortAll = () => {
+  for (const r of running.values()) r.controller.abort();
+};
 
 let timer: NodeJS.Timeout | null = null;
 export function startScheduler() {
@@ -166,10 +170,13 @@ export function startScheduler() {
   // Runs left 'running' by a server that stopped mid-run. One a person or an
   // event set off (a message, a connection, an approval...) is booked again,
   // or it would be lost; scheduled ones simply come round again.
-  const cut = all<{ agent_id: string; trigger: Trigger; task: string | null }>("SELECT agent_id, trigger, task FROM runs WHERE status = 'running'");
+  const cut = all<{ id: string; agent_id: string; trigger: Trigger; task: string | null }>("SELECT id, agent_id, trigger, task FROM runs WHERE status = 'running'");
   exec("UPDATE runs SET status = 'failed', error = 'The server stopped during this run.', ended_at = started_at WHERE status = 'running'");
   // A helper's call isn't a run to start again: whoever called it already moved on.
-  for (const r of cut) if (!['scheduled', 'apocalyptic'].includes(r.trigger) && !HELPER_IDS.includes(r.agent_id)) book(r.agent_id, r.trigger, r.task);
+  // It picks up where it was: told what it already did, so nothing is done twice.
+  for (const r of cut)
+    if (!['scheduled', 'apocalyptic'].includes(r.trigger) && !HELPER_IDS.includes(r.agent_id))
+      exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at, resume_from) VALUES (?, ?, ?, ?, ?, ?)', r.agent_id, r.trigger, r.task, Date.now(), Date.now(), r.id);
   timer ??= setInterval(() => void tick().catch(e => console.error('Runner tick failed:', (e as Error).message)), TICK_MS);
 }
 export const stopScheduler = () => {
