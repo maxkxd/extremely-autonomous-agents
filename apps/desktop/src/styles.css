@@ -673,10 +673,26 @@ ul { list-style: none; margin: 0; padding: 0; }
 /* ---- Flashing outcome counts (Approvals tally + dashboard cards) ------------- */
 .header-title { display: flex; align-items: center; gap: 20px; }
 .new-agent-btn {
-  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 8px; white-space: nowrap; flex-shrink: 0;
   font-size: 13px; font-weight: 600; color: var(--muted); border: 1px dashed var(--border-strong);
 }
 .new-agent-btn:hover { color: var(--text); border-color: var(--muted); }
+/* No agents of your own yet: the button glows yellow and pings like sonar. */
+.new-agent-btn.first {
+  color: #f5c542; border: 1px solid #f5c542; background: rgba(245, 197, 66, 0.08);
+  animation: first-agent-sonar 1.8s ease-out infinite;
+}
+.new-agent-btn.first:hover { color: #ffd76a; border-color: #ffd76a; background: rgba(245, 197, 66, 0.14); }
+@keyframes first-agent-sonar {
+  0% { box-shadow: 0 0 0 0 rgba(245, 197, 66, 0.6), 0 0 16px rgba(245, 197, 66, 0.35); }
+  70% { box-shadow: 0 0 0 14px rgba(245, 197, 66, 0), 0 0 16px rgba(245, 197, 66, 0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 197, 66, 0), 0 0 16px rgba(245, 197, 66, 0.35); }
+}
+@media (prefers-reduced-motion: reduce) { .new-agent-btn.first { animation: none; box-shadow: 0 0 16px rgba(245, 197, 66, 0.35); } }
+.first-agent-tip { display: inline-flex; align-items: center; gap: 2px; margin-left: -8px; color: #9a9a9a; pointer-events: none; }
+.first-agent-arrow { width: 52px; height: 44px; flex-shrink: 0; }
+.first-agent-tip .mtip-text { max-width: none; white-space: nowrap; font-size: 13.5px; }
+@media (max-width: 760px) { .first-agent-tip .mtip-text { display: none; } }
 .tally { display: flex; align-items: center; gap: 16px; }
 .flash-count { display: inline-flex; color: var(--muted); font-variant-numeric: tabular-nums; }
 .flash-count.lg { font-size: 19px; font-weight: 600; }
