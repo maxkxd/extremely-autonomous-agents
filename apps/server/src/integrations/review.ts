@@ -54,7 +54,7 @@ export async function reviewPlugin(p: { name: string; yaml: string; code: string
       return r.verdict === 'approve' ? `Reviewed "${p.name}": fine to propose.${found ? ` Noted: ${found}` : ''}` : `Sent "${p.name}" back: ${found || r.fix}`;
     },
   }).catch(e => {
-    if (e instanceof HelperStopped) throw new Error("The Security Reviewer is stopped, so plugins can't be proposed. Tell the person on the request: it needs turning back on, on its card on the dashboard.");
+    if (e instanceof HelperStopped) throw new Error("The agency is stopped, so plugins can't be proposed until it's resumed.");
     throw e;
   });
   try {

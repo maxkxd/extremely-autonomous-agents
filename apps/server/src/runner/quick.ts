@@ -40,7 +40,7 @@ async function call(c: ModelChoice, system: string, prompt: string, maxTokens: n
 export async function ask(agentId: string, a: Ask): Promise<string> {
   const name = (await readMeta(agentId))?.name ?? agentId;
   const startedAt = Date.now();
-  if (stateOf(agentId, startedAt).state === 'stopped') throw new HelperStopped(`${name} is stopped.`);
+  if (stateOf(agentId, startedAt).state === 'stopped') throw new HelperStopped('The agency is stopped.');
   const connected = new Set((await availableModels().catch(() => [])).map(m => m.connection));
   const over = overSpend(agentId, startedAt);
   const health = getHealth();

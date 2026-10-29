@@ -27,6 +27,8 @@ export function openDb(path = FILE): DatabaseSync {
     // has it), waiting_you (it asked you something), approval (its go-live waits on
     // you), person (it handed it to you); null on ones from before routing.
     'ALTER TABLE requests ADD COLUMN stage TEXT',
+    // A run booked again after a restart cut it short: the run it carries on.
+    'ALTER TABLE bookings ADD COLUMN resume_from TEXT',
   ])
     try {
       db.exec(sql);

@@ -1,9 +1,11 @@
 import { one } from './db.js';
 
-// What a run cost (docs/runner.md, "Money and limits"). Plans and local
-// models cost nothing per run. For pay-per-use keys, OpenRouter's public model
-// list is the price book: it prices most providers' models under their own
-// names. A price we can't find is recorded as unknown, never as zero.
+// What a run cost (docs/runner.md, "Money and limits"). OpenRouter's public
+// model list is the price book: it prices most providers' models under their
+// own names. A plan's run (Claude Code, ChatGPT) is priced as the same model on
+// an API would be - more than it really costs, but it shows what the plan is
+// worth and keeps spend limits on the safe side. Local models cost nothing. A
+// price we can't find is recorded as unknown, never as zero.
 
 type Price = { input: number; output: number }; // dollars per token
 let book: Map<string, Price> | null = null;
@@ -34,12 +36,15 @@ async function loadBook(): Promise<Map<string, Price>> {
 // The provider prefix OpenRouter files each connection's models under.
 const PREFIX: Record<string, string> = {
   anthropic: 'anthropic',
+  'claude-code': 'anthropic',
   openai: 'openai',
+  chatgpt: 'openai',
   google: 'google',
   xai: 'x-ai',
   mistral: 'mistralai',
   deepseek: 'deepseek',
 };
+// Not paid per call: they run past a spend limit.
 const FREE = new Set(['claude-code', 'chatgpt', 'copilot', 'ollama']);
 
 export const isFree = (connection: string) => FREE.has(connection);
@@ -63,7 +68,7 @@ function candidates(connection: string, model: string): string[] {
 
 // Dollars for one model call; null when the price isn't known.
 export async function costOf(connection: string, model: string, input: number, output: number): Promise<number | null> {
-  if (FREE.has(connection)) return 0;
+  if (connection === 'ollama') return 0;
   const prices = await loadBook();
   for (const id of candidates(connection, model)) {
     const p = prices.get(id);

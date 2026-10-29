@@ -228,6 +228,7 @@ export function AgentCard({
   onCheck,
   onLevel,
   onRunNow,
+  agencyStopped = false,
 }: {
   agent: Agent;
   range: TimeRange;
@@ -248,6 +249,7 @@ export function AgentCard({
   onCheck?: (connection: string, model: string) => void;
   onLevel?: (level: number) => void; // a real agent: save its ferocity
   onRunNow?: () => void; // a real agent: start a run now
+  agencyStopped?: boolean; // the whole agency is stopped: its own controls wait
 }) {
   // The model picker: the right column slides over the pies to make room.
   const cardRef = useRef<HTMLElement>(null);
@@ -387,26 +389,28 @@ export function AgentCard({
             still answer people. Stop = halt now.
             Neutral, not red: Stop is the solid light button, the way a stop control
             reads in a dark UI; Resume takes the attention blue. */}
-        <div className="controls">
-          {/* A helper starts nothing itself anyway, so it has no Standby. */}
-          {!agent.service && <button
+        {/* Built-ins have none of their own: the agency's Stop covers them. While
+            the agency is stopped, every card reads stopped and its own controls wait. */}
+        {!agent.builtIn && <div className="controls">
+          <button
             key={state === 'draining' ? 'drain-resume' : 'drain'}
             className={`ctl-btn${state === 'draining' ? ' resume' : ''}`}
-            disabled={state === 'stopped'}
+            disabled={state === 'stopped' || agencyStopped}
             onClick={() => setState(state === 'draining' ? 'active' : 'draining')}
           >
             {state === 'draining' ? <Play size={15} /> : <Pause size={15} />}
             {state === 'draining' ? 'Resume' : 'Standby'}
-          </button>}
+          </button>
           <button
             key={state === 'stopped' ? 'stop-resume' : 'stop'}
             className={`ctl-btn ${state === 'stopped' ? 'resume' : 'stop'}`}
+            disabled={agencyStopped}
             onClick={() => setState(state === 'stopped' ? 'active' : 'stopped')}
           >
             {state === 'stopped' ? <Play size={15} /> : <Square size={13} fill="currentColor" />}
             {state === 'stopped' ? 'Resume' : 'Stop'}
           </button>
-        </div>
+        </div>}
 
         {/* Built-ins work when there's work: no schedule to set. */}
         {!agent.builtIn && <Tuning agent={agent} range={range} level={level} setLevel={setLevel} />}
@@ -480,6 +484,7 @@ function loadOrder(arriving: string[]): string[] {
 
 export function Dashboard({
   range,
+  agencyStopped,
   onNavigate,
   approvalCounts,
   requestCounts,
@@ -488,6 +493,7 @@ export function Dashboard({
   onDeleteAgent,
 }: {
   range: TimeRange;
+  agencyStopped: boolean;
   onNavigate: (v: View) => void;
   approvalCounts: Record<string, number>;
   requestCounts: Record<string, number>;
@@ -500,6 +506,7 @@ export function Dashboard({
   // another device) reaches this screen.
   const [states, setStates] = useState<Record<string, { state: RunState; at: number }>>({});
   const stateFor = (id: string, l: LiveAgent | undefined): RunState => {
+    if (agencyStopped) return 'stopped';
     const mine = states[id];
     if (mine && (!l || Date.now() - mine.at < 6000)) return mine.state;
     return l?.state ?? 'active';
@@ -710,6 +717,7 @@ export function Dashboard({
               agent={a}
               range={range}
               state={stateFor(a.id, l)}
+              agencyStopped={agencyStopped}
               setState={s => {
                 setStates(prev => ({ ...prev, [a.id]: { state: s, at: Date.now() } }));
                 if (l) setAgentRunner(a.id, { state: s }).catch(() => {});

@@ -3,12 +3,13 @@ import { ChevronRight, Plus } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
+import { AgencyStop } from './AgencyStop';
 import { useElasticScroll } from './useElasticScroll';
 import { LiveDM } from './LiveDM';
 import { NewAgent } from './NewAgent';
 import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
-import { NEW_SESSION, agentStatuses, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
+import { NEW_SESSION, agentStatuses, getAgency, setAgency, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
 import {
   ACCOUNT,
@@ -62,6 +63,20 @@ const clamp = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
 export function App() {
   const [view, setView] = useState<View>('dashboard');
   const [range, setRange] = useState<TimeRange>('week');
+  // The whole agency stopped (the dashboard's Stop), kept in step with the server.
+  const [agencyStopped, setAgencyStopped] = useState(false);
+  const agencySetAt = useRef(0);
+  useEffect(() => {
+    const load = () => getAgency().then(a => Date.now() - agencySetAt.current > 4000 && setAgencyStopped(a.stopped), () => {});
+    load();
+    const t = window.setInterval(load, 5000);
+    return () => window.clearInterval(t);
+  }, []);
+  const changeAgency = (stopped: boolean) => {
+    agencySetAt.current = Date.now();
+    setAgencyStopped(stopped);
+    setAgency(stopped).catch(() => setAgencyStopped(!stopped));
+  };
   // Approvals: resolved ones drop out of every count (sidebar badge, dashboard).
   // `resolved` records a decision the moment it's made (so counters react
   // straight away); `gone` drops the card once its exit animation has played.
@@ -386,7 +401,12 @@ export function App() {
               </button>
             )}
           </div>
-          {view === 'dashboard' && <RangePicker value={range} onChange={setRange} />}
+          {view === 'dashboard' && (
+            <div className="header-tools">
+              <AgencyStop stopped={agencyStopped} onChange={changeAgency} />
+              <RangePicker value={range} onChange={setRange} />
+            </div>
+          )}
           {view === 'requests' && (
             <ApprovalsToolbar
               pending={pendingRequests}
@@ -410,6 +430,7 @@ export function App() {
           {view === 'dashboard' ? (
             <Dashboard
               range={range}
+              agencyStopped={agencyStopped}
               onNavigate={setView}
               approvalCounts={approvalCounts}
               requestCounts={requestCounts}

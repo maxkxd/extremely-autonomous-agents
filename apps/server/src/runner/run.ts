@@ -42,9 +42,13 @@ export const newRunId = () => `r_${randomBytes(4).toString('hex')}`;
 
 export type AgentState = { ferocity: number; state: 'active' | 'draining' | 'stopped'; last_scheduled_at: number | null; fail_streak: number; backoff_until: number | null; spend_cap_usd: number | null };
 
+// The whole agency stopped (the dashboard's Stop): every agent reads as stopped,
+// built-ins included, without touching each one's own state.
+export const agencyStopped = () => getSetting<boolean>('agency_stopped', false);
+
 export function stateOf(agentId: string, now = Date.now()): AgentState {
   const row = one<AgentState>('SELECT * FROM agent_state WHERE agent_id = ?', agentId);
-  if (row) return row;
+  if (row) return agencyStopped() ? { ...row, state: 'stopped' } : row;
   // A new agent starts on Chill, active (docs/agent-creation.md).
   exec('INSERT INTO agent_state (agent_id, updated_at) VALUES (?, ?)', agentId, now);
   return { ferocity: 0, state: 'active', last_scheduled_at: null, fail_streak: 0, backoff_until: null, spend_cap_usd: null };
@@ -218,7 +222,8 @@ export function nowLine(at: number): string {
 
 // --- The run ----------------------------------------------------------------------
 
-export async function runAgent(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, signal?: AbortSignal): Promise<RunResult> {
+// resumeFrom: a run of the same job a restart cut short, carried on from where it got to.
+export async function runAgent(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, signal?: AbortSignal, resumeFrom: string | null = null): Promise<RunResult> {
   const id = newRunId();
   const startedAt = deps.now();
   const level = stateOf(agent.id, startedAt).ferocity;
@@ -238,7 +243,8 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
 
   const { specs, ids, notReady } = toolsFor(agent);
   const ctx: RunCtx = { agent, runId: id, level, now: deps.now, fleet: () => fleetOf(agent.id), wake: (a, t, k) => deps.wake(a, t as Trigger, k) };
-  const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task)}` }];
+  const resume = resumeFrom ? `\n\n${resumeText(resumeFrom)}` : '';
+  const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task)}${resume}` }];
   let acts = 0;
   let nudges = 0;
   let input = 0;
@@ -406,6 +412,14 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
 }
 
 // What this run already did, for a model taking over part-way.
+// For a run carrying on one the app's restart cut short.
+function resumeText(cutRunId: string): string {
+  const done = all<{ tool: string; outcome: string }>('SELECT tool, outcome FROM actions WHERE run_id = ? ORDER BY id', cutRunId);
+  return done.length
+    ? `You started this before and the app restarted part-way. You already did (don't redo these): ${done.map(d => `${d.tool} (${d.outcome})`).join(', ')}. Carry on from there.`
+    : 'You started this before and the app restarted before you did anything. Start it again.';
+}
+
 function doneSoFar(runId: string): string {
   const done = all<{ tool: string; outcome: string }>('SELECT tool, outcome FROM actions WHERE run_id = ? ORDER BY id', runId);
   return done.length

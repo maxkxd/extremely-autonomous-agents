@@ -75,9 +75,9 @@ cost. The two helpers make one quick model call when the agency calls them
 (`runner/quick.ts`), on their own models in order, and never run on a
 schedule, so their cards have no Ferocity or Standby. Each call is a run: on
 the card, in Usage, and as a post in the helper's DMs saying what it decided.
-Those DMs are logs and take no messages. Stopped, the Conductor sends every
-request straight to the Fleet Engineer, and the Security Reviewer's plugins
-can't be proposed.
+Those DMs are logs and take no messages. None of the three has a Stop of its
+own: Stop agency on the dashboard covers them. While the agency is stopped,
+requests wait for the Fleet Engineer and plugins can't be proposed.
 
 Models (`runner/defaults.ts`): a built-in with none gets three from what's
 connected, on every tick, so connecting the first AI model sets them all.
