@@ -3,6 +3,7 @@ import { ChevronRight, Plus } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
+import { Crayon } from './ModelConnectors';
 import { AgencyControls } from './AgencyStop';
 import { useElasticScroll } from './useElasticScroll';
 import { LiveDM } from './LiveDM';
@@ -237,6 +238,8 @@ export function App() {
   // The server's agents are the fleet: one made anywhere else (another device,
   // a pack, later the Agency Engineer) joins this list when it's next checked.
   const [realIds, setRealIds] = useState<Set<string>>(new Set());
+  // Only the built-in agents so far (once the server has said so, so it never flashes on).
+  const firstAgent = realIds.size > 0 && AGENTS.every(a => a.builtIn);
   useEffect(() => {
     const sync = () =>
       agentStatuses().then(s => {
@@ -439,10 +442,19 @@ export function App() {
             <h1>{viewLabel(view)}</h1>
             {view === 'approvals' && <DecisionTally approved={decidedToday.approved} rejected={decidedToday.rejected} />}
             {view === 'dashboard' && (
-              <button className="new-agent-btn" onClick={() => setView('new-agent')}>
-                <Plus size={14} strokeWidth={2} />
-                New agent
-              </button>
+              <>
+                <button className={`new-agent-btn${firstAgent ? ' first' : ''}`} onClick={() => setView('new-agent')}>
+                  <Plus size={14} strokeWidth={2} />
+                  New agent
+                </button>
+                {/* Nothing but the built-ins yet: where to begin, in crayon like the tip in Settings. */}
+                {firstAgent && (
+                  <span className="first-agent-tip">
+                    <Crayon className="first-agent-arrow" viewBox="0 0 60 50" shaft="M57 30 C 44 21, 26 20, 8 28" head="M17 19 C 14 22, 11 25, 6 29 C 11 32, 14 34, 18 38" />
+                    <span className="mtip-text">Start here to build your first agent</span>
+                  </span>
+                )}
+              </>
             )}
           </div>
           {view === 'dashboard' && (

@@ -28,10 +28,10 @@ import {
 // A hand-drawn aside between plans and keys: crayon arrows out of either side
 // of the text, curling out and up to the plans, and out and down to the keys. The wobble and grain come from an SVG filter, and each
 // stroke is drawn twice, slightly offset, the way crayon catches the paper.
-function Crayon({ shaft, head }: { shaft: string; head: string }) {
+export function Crayon({ shaft, head, className = 'mtip-arrow', viewBox = '0 0 60 90' }: { shaft: string; head: string; className?: string; viewBox?: string }) {
   const id = `crayon-${useId().replace(/:/g, '')}`;
   return (
-    <svg className="mtip-arrow" viewBox="0 0 60 90" aria-hidden="true">
+    <svg className={className} viewBox={viewBox} aria-hidden="true">
       <filter id={id} x="-20%" y="-20%" width="140%" height="140%">
         <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" result="grain" />
         <feDisplacementMap in="SourceGraphic" in2="grain" scale="3.4" />

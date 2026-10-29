@@ -592,6 +592,15 @@ export function Dashboard({
     setAgentModels(id, next).catch(() => {});
   };
   const [order, setOrder] = useState(() => loadOrder(arrivingIds));
+  // An agent that arrives while the dashboard is up (made from the IDE, another
+  // device, back after a sync) gets its card too, at the top.
+  const agentIds = AGENTS.map(a => a.id).join(',');
+  useEffect(() => {
+    setOrder(prev => {
+      const missing = AGENTS.map(a => a.id).filter(id => !prev.includes(id));
+      return missing.length ? [...missing.reverse(), ...prev] : prev;
+    });
+  }, [agentIds]);
   const [dragId, setDragId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Agent | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
