@@ -129,7 +129,7 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
         }}
       >
         <Head
-          title={finish ? 'Check your email' : mode === 'up' ? 'Sign up' : 'Sign in'}
+          title={finish ? 'Check your email' : mode === 'up' ? 'SIGN UP' : 'Sign in'}
           sub={!finish && mode === 'up' ? 'to unlock EXTREMELY agentic collaboration' : undefined}
         />
         {finish ? (
