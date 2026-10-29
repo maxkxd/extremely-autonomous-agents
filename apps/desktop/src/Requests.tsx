@@ -5,6 +5,7 @@ import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { visibleApprovals, type ApprovalScope } from './Approvals';
 import { sendRequestMessage, sendToIde } from './builder';
+import { isAdmin } from './account';
 import { RichText } from './RichText';
 
 // How a request left the page: you did it, or you rejected it. (One the Fleet
@@ -280,8 +281,9 @@ function RequestRow({
               </div>
 
               <div className="request-actions">
-                {/* Your AI IDE, with this request and the agency's tools (runner/ide.ts). */}
-                <button
+                {/* Your AI IDE, with this request and the agency's tools (runner/ide.ts). It
+                    opens on the host's computer, so it's the owner's and admins'. */}
+                {isAdmin() && <button
                   className="rq-btn ide"
                   disabled={!!leaving || sending}
                   title={`Opens ${AI_IDES[yourIde()].name} on this request, with the agency's tools`}
@@ -289,7 +291,7 @@ function RequestRow({
                 >
                   <IdeLogo logo={AI_IDES[yourIde()].logo} />
                   Send to {AI_IDES[yourIde()].name}
-                </button>
+                </button>}
 
                 <div className="request-own">
                   <button

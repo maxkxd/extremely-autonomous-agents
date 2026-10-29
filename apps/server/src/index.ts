@@ -154,7 +154,10 @@ const routes: Record<string, Route> = {
     const { orgId, orgName, issuer } = await body<{ orgId: string; orgName: string; issuer: string }>(req);
     if (typeof orgId !== 'string' || !/^[\w-]{1,64}$/.test(orgId) || typeof orgName !== 'string' || typeof issuer !== 'string' || !/^https?:\/\//.test(issuer))
       throw new ConnectError('Which organisation?');
-    return startHosting({ orgId, orgName: orgName.slice(0, 80), issuer });
+    // "Already hosts another" and the like are for the person, not a server error.
+    return startHosting({ orgId, orgName: orgName.slice(0, 80), issuer }).catch(e => {
+      throw new ConnectError((e as Error).message);
+    });
   },
   'POST /api/hosting/secret': async req => {
     const { orgId, hostSecret } = await body<{ orgId: string; hostSecret: string }>(req);

@@ -1820,3 +1820,8 @@ a.sbtn { text-decoration: none; color: inherit; }
 /* The org profile, for members: readable, not editable. */
 .sreadonly { display: contents; }
 .sreadonly:disabled .sbtn, .sreadonly:disabled .speople button { display: none; }
+/* What a member can see but not change (the AI models, spend limits): greyed. */
+.slocked { display: contents; }
+.slocked:disabled > * { opacity: 0.5; pointer-events: none; }
+.slocked:disabled > .slocked-note { opacity: 1; }
+.slocked-note { margin: 0; font-size: 13px; color: var(--muted); }

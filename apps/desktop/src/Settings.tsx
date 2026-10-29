@@ -6,6 +6,7 @@ import {
   createOrganisation,
   deleteOrganisation,
   invites as listInvites,
+  isAdmin,
   joinWithCode,
   leaveOrganisation,
   members as listMembers,
@@ -970,6 +971,8 @@ function SpendLimits() {
       <p className="slead">
         When a limit is reached, agents stop using pay-per-use keys until tomorrow. Plans and local models aren't affected. Leave blank for no limit.
       </p>
+      {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change these.</p>}
+      <fieldset className="slocked" disabled={!isAdmin()}>
       <ul className="slimits">
         <li>
           <span className="slimit-name">Whole organisation</span>
@@ -984,6 +987,7 @@ function SpendLimits() {
           </li>
         ))}
       </ul>
+      </fieldset>
     </div>
   );
 }
@@ -1020,7 +1024,11 @@ function ConnectorsSection({ onOpenApproval, focus, onFocused }: { onOpenApprova
     <section className="ssection">
       <h2>Connectors</h2>
       <p className="slead">Keys and sign-ins go here - never in a chat with an agent.</p>
-      <ModelConnectors />
+      {/* The AI models the host runs everyone's agents on: the owner's and admins' to change. */}
+      {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change the AI models.</p>}
+      <fieldset className="slocked" disabled={!isAdmin()}>
+        <ModelConnectors />
+      </fieldset>
       <Integrations onOpenApproval={onOpenApproval} focus={focus} onFocused={onFocused} />
     </section>
   );
