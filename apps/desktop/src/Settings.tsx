@@ -12,7 +12,6 @@ import {
   setMyName,
   selfAccounts,
   signInSelf,
-  signOut,
   signOutOfSelf,
   createOrganisation,
   deleteOrganisation,
@@ -343,11 +342,8 @@ function AccountSignIn() {
     <div className="sgroup">
       <h3>Sign-in</h3>
       {state.me ? (
-        <Row label={state.me.user.email} sub="Your agents reach you here too. Signed in with an email code, Google or GitHub: there's no password.">
-          <button className="sbtn" onClick={() => void signOut()}>
-            Log out
-          </button>
-        </Row>
+        // Log out is at the foot of Settings.
+        <Row label={state.me.user.email}>{null}</Row>
       ) : (
         <Row label="Not signed in" sub="Your own agency needs no account. One is for organisations.">
           <button className="sbtn primary" onClick={e => openSignIn('up', e.currentTarget)}>
