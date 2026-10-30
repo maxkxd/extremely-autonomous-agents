@@ -10,7 +10,7 @@ import { allChoices, removeChoices, setChoices } from './models/choice.js';
 import * as conn from './models/connections.js';
 import { ConnectError } from './models/providers.js';
 import { CATALOG } from './catalog.js';
-import { addNotes, addPersonNotes, loadPerson, loadProfile, savePerson, saveProfile, type PersonProfile, type Profile } from './org.js';
+import { addNotes, interviewDone, overWritten, addPersonNotes, loadPerson, loadProfile, savePerson, saveProfile, type PersonProfile, type Profile } from './org.js';
 import { keepLinks, linkPeople } from './links.js';
 import { runnerRoutes } from './runner/api.js';
 import { finishIntegrationSignIn, integrationToolIds, liveEventIds } from './integrations/index.js';
@@ -112,7 +112,7 @@ const routes: Record<string, Route> = {
   'POST /api/org/turn': async req => {
     const { person, org, turns } = await body<{ person: string; org: string; turns: Turn[] }>(req);
     const me = personFor(person);
-    const out = await profileInterview(org, await loadPerson(me), turns);
+    const out = await profileInterview(org, await loadPerson(me), turns, await loadProfile(org));
     if (me) await addPersonNotes(me, out.person_notes ?? []);
     return { ...out, confidence: clamp(out.confidence) };
   },
@@ -120,8 +120,11 @@ const routes: Record<string, Route> = {
   // chat); Settings asks for that itself once a person's row is finished.
   'POST /api/org': async req => {
     const { org, profile, members, link } = await body<{ org: string; profile: Profile; members?: string[]; link?: boolean }>(req);
-    if (await loadProfile(org)) requireAdmin(currentActor(), 'Changing the organisation profile');
-    await saveProfile(org, keepLinks(await loadProfile(org), profile));
+    // Members may do its chat (before their first agent there); changing it after needs an admin.
+    const was = await loadProfile(org);
+    const finishingChat = !!profile?.interviewed && !interviewDone(was);
+    if (was && !finishingChat) requireAdmin(currentActor(), 'Changing the organisation profile');
+    await saveProfile(org, keepLinks(was, finishingChat ? overWritten(was, profile) : { ...profile, interviewed: profile.interviewed ?? was?.interviewed }));
     if (link && members) linkPeople(org, members).catch(e => console.error('Linking key people failed:', e));
     return { ok: true };
   },
