@@ -534,6 +534,15 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
   if (!('why' in ((impl.schema as { properties?: Record<string, unknown> }).properties ?? {}))) call = { ...call, args };
   const n = counts ? actsIn(call.args) : 0;
   if (tier === 'T2') {
+    // The same action on the same thing already waiting for a person: one card, not two.
+    const key = ((impl.schema as { required?: string[] }).required ?? [])[0];
+    if (key && call.args[key] !== undefined) {
+      const same = all<{ args: string }>("SELECT args FROM approvals WHERE agent_id = ? AND tool = ? AND status = 'pending'", ctx.agent.id, id).some(
+        q => JSON.stringify((JSON.parse(q.args) as Record<string, unknown>)[key]) === JSON.stringify(call.args[key]),
+      );
+      if (same)
+        return record({ content: `${id} for that ${key.replace(/_/g, ' ')} is already waiting for a person's approval - don't queue it again. Carry on with other work.`, error: true, outcome: 'refused', counted: 0 });
+    }
     const approvalId = `apv_${ctx.now().toString(36)}${(approvalSeq++).toString(36)}`;
     const hours = ctx.agent.approvalHours[id] ?? 24;
     let stored: Record<string, unknown> = typeof why === 'string' && why.trim() ? { ...call.args, _why: why.trim().slice(0, 600) } : call.args;
