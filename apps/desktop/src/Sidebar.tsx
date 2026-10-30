@@ -19,6 +19,7 @@ import {
   Plug,
   Gauge,
   LogOut,
+  UserRound,
 } from 'lucide-react';
 import { ACCOUNT, AGENTS, type Department } from './data';
 import { currentOrg, myName, onMyName, ownOrg, state, switchAgency, teamOrgs } from './account';
@@ -46,10 +47,11 @@ const NAV: { view: View; label: string; Icon: typeof LayoutDashboard; badge?: nu
   { view: 'requests', label: 'Requests', Icon: Wrench }, // badge comes from live pending requests
 ];
 
-function Avatar({ label, size = 28 }: { label: string; size?: number }) {
+// personal: your own agency, shown as a little person rather than a letter.
+function Avatar({ label, size = 28, personal = false }: { label: string; size?: number; personal?: boolean }) {
   return (
     <span className="avatar" style={{ width: size, height: size }}>
-      {label.charAt(0)}
+      {personal ? <UserRound size={Math.round(size * 0.55)} strokeWidth={2} /> : label.charAt(0)}
     </span>
   );
 }
@@ -67,8 +69,8 @@ function OrgPicker({ onNew }: { onNew: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, open, () => setOpen(false));
-  const choices = [{ id: 'personal', name: 'Your agency' }, ...teamOrgs().map(o => ({ id: o.id, name: o.name }))];
-  const current = choices.find(c => c.id === state.agency)?.name ?? 'Your agency';
+  const choices = [{ id: 'personal', name: 'Personal Agency' }, ...teamOrgs().map(o => ({ id: o.id, name: o.name }))];
+  const current = choices.find(c => c.id === state.agency)?.name ?? 'Personal Agency';
 
   return (
     <div className={`org-picker${open ? ' open' : ''}`} ref={ref}>
@@ -79,7 +81,7 @@ function OrgPicker({ onNew }: { onNew: () => void }) {
         aria-expanded={open}
         onClick={() => setOpen(o => !o)}
       >
-        <Avatar label={current} size={34} />
+        <Avatar label={current} size={34} personal={state.agency === 'personal'} />
         <span className="switcher-text">
           <span className="switcher-title">{current}</span>
           <span className="switcher-sub">{state.agency === 'personal' ? 'Personal' : 'Organization'}</span>
@@ -100,7 +102,7 @@ function OrgPicker({ onNew }: { onNew: () => void }) {
                 }}
               >
                 <span className="option-with-avatar">
-                  <Avatar label={c.name} size={22} />
+                  <Avatar label={c.name} size={22} personal={c.id === 'personal'} />
                   {c.name}
                 </span>
                 {c.id === state.agency && <Check size={15} />}
