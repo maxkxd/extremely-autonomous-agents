@@ -29,8 +29,13 @@ const IMPROVE = `Every run, besides the work itself, look for ways to do your jo
 // callable: the tools this run can use. None of what it counts among them (Billing
 // Ops before Stripe and Xero are connected) and there's no target - pushed to one,
 // it made 81 Google Drive documents nobody needed.
-export const canCount = (agent: AgentDef, callable?: Set<string>) =>
-  !callable || agent.ferocity.counts.some(c => callable.has(c) || (c.endsWith('*') && [...callable].some(x => x.startsWith(c.slice(0, -1)))));
+// Workspace files count only beside its real output: alone, they're no target
+// (Tier 1 Support, with no Desk, was nudged four times toward 12 files).
+export const canCount = (agent: AgentDef, callable?: Set<string>) => {
+  if (!callable) return true;
+  const real = agent.ferocity.counts.filter(c => !c.startsWith('files.'));
+  return (real.length ? real : agent.ferocity.counts).some(c => callable.has(c) || (c.endsWith('*') && [...callable].some(x => x.startsWith(c.slice(0, -1)))));
+};
 
 export function floorFor(agent: AgentDef, level: number, callable?: Set<string>): { floor: number; nudges: number; soft: boolean } | null {
   const plan = agent.ferocity;
