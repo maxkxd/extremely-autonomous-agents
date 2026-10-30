@@ -43,7 +43,9 @@ test("a draft is never an agent's; a plugin runs only as approved", async () => 
   const listed = (await listIntegrations()).find(i => i.id === ID)!;
   assert.equal(listed.draft, true);
   assert.equal(integrationToolIds().includes('zztest.echo'), false);
-  await assert.rejects(testIntegrationTool(ID, 'zztest.echo', { x: 1 }), /only after a person approves/);
+  // Its silent tools can be tried before approval (sandboxed, reads only); agents still can't use it.
+  assert.equal(await testIntegrationTool(ID, 'zztest.echo', { x: 1 }), 'hello:1');
+  assert.equal(integrationToolIds().includes('zztest.echo'), false);
 
   const preview = await publishPreview(ID);
   assert.match(preview.code ?? '', /hello/);
@@ -109,9 +111,9 @@ test('a turned-down draft is discarded with its plugin code; a redraft of a live
   // The first test made this one live: a turned-down redraft puts the live version back.
   await writePlugin(MOD, PLUGIN('rewritten'));
   await writeDraftIntegration(DEF.replace('name: ZZ Test', 'name: ZZ Test v2'), 'fleet', 7);
-  // Meanwhile agents keep the live version; the new code can't be tried before approval.
+  // Meanwhile agents keep the live version; the engineer tries the new code's silent tools.
   assert.equal(integrationToolIds().includes('zztest.echo'), true);
-  await assert.rejects(testIntegrationTool(ID, 'zztest.echo', { x: 1 }), /only after a person approves/);
+  assert.equal(await testIntegrationTool(ID, 'zztest.echo', { x: 1 }), 'rewritten:1');
   await loadIntegrations(); // a restart mid-redraft still loads the live code
   assert.equal(integrationToolIds().includes('zztest.echo'), true);
   assert.equal(await discardDraft(ID), true);
@@ -177,4 +179,28 @@ tools:
   const { integration } = await writeDraftIntegration(ext('brave-search'), 'fleet');
   assert.equal(integration.auth.type, 'api_key'); // the parent's, so the key goes the parent's way
   await assert.rejects(writeDraftIntegration(ext('zz-ext', 'zz-ext2'), 'fleet'), /itself an extension/);
+});
+
+test("before approval only a draft plugin's silent tools run, and only reads to its own service", async () => {
+  const id = 'zz-test-try';
+  const mod = 'zz-test-try-plugin';
+  await writePlugin(
+    mod,
+    `export default { tools: [
+  { id: 'zztry.act', tier: 'T2', description: 'Act', input: { type: 'object' }, run: async () => 'acted' },
+  { id: 'zztry.peek', tier: 'T0', description: 'Peek', input: { type: 'object' }, run: async (a, t, kit) => (await kit.fetch('https://example.com/x', { method: 'POST' })).status },
+] };
+`,
+  );
+  await writeDraftIntegration(`kind: code
+id: ${id}
+name: ZZ Try
+what: t
+module: ${mod}
+auth: { type: none }
+test: { tool: zztry.peek, args: {} }
+`, 'fleet');
+  await assert.rejects(testIntegrationTool(id, 'zztry.act', {}), /only silent \(T0\) tools/);
+  await assert.rejects(testIntegrationTool(id, 'zztry.peek', {}), /may only read: POST/);
+  await discardDraft(id);
 });
