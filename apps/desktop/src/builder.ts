@@ -202,7 +202,7 @@ export type Connection = {
   setupNeeded?: string;
   lastError?: string;
   broken?: string; // a saved key that didn't check out, and why
-  claudeCode?: { installed: boolean; version?: string; loggedIn: boolean; authMethod?: string; task?: 'installing' | 'signing-in' };
+  claudeCode?: { installed: boolean; version?: string; loggedIn: boolean; authMethod?: string; task?: 'installing' | 'signing-in' | 'updating'; needsUpdate?: string };
 };
 
 export const getConnections = () => request<Connection[]>('/api/connections');
@@ -214,6 +214,7 @@ export const startCopilot = () => post<{ userCode: string; verificationUri: stri
 export const connectClaudeCode = () => post<{ ok: true }>('/api/connections/claude-code/check', {});
 export const installClaudeCode = () => post<{ ok: true }>('/api/connections/claude-code/install', {});
 export const signInClaudeCode = () => post<{ ok: true }>('/api/connections/claude-code/login', {});
+export const updateClaudeCode = () => post<{ ok: true }>('/api/connections/claude-code/update', {});
 
 // --- Which models each agent runs on (docs/model-connections.md) ---
 
