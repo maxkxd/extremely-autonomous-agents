@@ -31,7 +31,7 @@ export function ConnectModel({ title, onGo }: { title: string; onGo?: () => void
       <p className="no-models-title">{title}</p>
       {isAdmin() ? (
         <button
-          className="sbtn primary"
+          className="sbtn primary no-models-go"
           onClick={() => {
             onGo?.();
             openSettings('connectors');
