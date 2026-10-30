@@ -261,7 +261,8 @@ export async function giveEvents(agentId: string, events: string[]) {
 }
 
 // Adds tools to an agent's TOOLS.yaml, keeping the builder's comments.
-export async function giveTools(agentId: string, tools: { id: string; tier: Tier }[]) {
+// byPerson: the levels a person set on the card replace any the agent had; otherwise the builder's stay.
+export async function giveTools(agentId: string, tools: { id: string; tier: Tier }[], byPerson = false) {
   const file = join(DATA, slug(agentId), 'TOOLS.yaml');
   const doc = parseDocument(await readFile(file, 'utf8'));
   const allowed = new Set(((doc.get('tools_allowed') as { toJSON(): string[] } | undefined)?.toJSON() ?? []) as string[]);
@@ -269,7 +270,10 @@ export async function giveTools(agentId: string, tools: { id: string; tier: Tier
   const servers = new Set(((doc.get('servers') as { toJSON(): string[] } | undefined)?.toJSON() ?? []) as string[]);
   for (const t of tools) {
     allowed.add(t.id);
-    tiers[t.id] ??= t.tier; // the builder's tier for a tool it defined wins
+    if (byPerson) tiers[t.id] = t.tier;
+    else tiers[t.id] ??= t.tier; // the builder's tier for a tool it defined wins
+    // Set to Approval: how long it waits for a person, if it had no window.
+    if (tiers[t.id] === 'T2' && !doc.hasIn(['approval_windows', t.id])) doc.setIn(['approval_windows', t.id], { window_seconds: 24 * 3600 });
     servers.add(t.id.split('.')[0]);
   }
   doc.set('tools_allowed', [...allowed]);
@@ -590,7 +594,7 @@ const TOOLS: ToolDef[] = [
       for (const [i, g] of grants.entries()) {
         const wanted = g.tools.filter(t => out.tools.some(x => x.id === t.id));
         const given = wanted.length ? wanted : out.tools;
-        await giveTools(g.for_agent, given);
+        await giveTools(g.for_agent, given, !!a.levels_by_person);
         // Its events: for the agent the card was made for (the ones grouped with it get tools).
         const events = i === 0 && g.for_agent === String(a.for_agent) ? await eventsFor(g.for_agent, String(a.integration_id), a.events) : [];
         if (events.length) await giveEvents(g.for_agent, events);
@@ -680,7 +684,7 @@ const TOOLS: ToolDef[] = [
     impl: async a => {
       const r = openRequest(a.request_id);
       const tools = (a.tools as { id: string; tier: Tier }[]) ?? [];
-      await giveTools(String(a.for_agent), tools);
+      await giveTools(String(a.for_agent), tools, !!a.levels_by_person);
       const answer = `${String(a.why)}\n\nYou now have: ${tools.map(t => t.id).join(', ')}.`;
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
       postToRequest(r.id, 'engineer', `Given to ${await nameOf(String(a.for_agent))}.`);
