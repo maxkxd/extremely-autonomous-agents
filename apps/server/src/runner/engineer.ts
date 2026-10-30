@@ -12,6 +12,8 @@ import {
   publishPreview,
   testIntegrationTool,
   whenDraftConnected,
+  whenConnected,
+  toolIdsOf,
   writeDraftIntegration,
 } from '../integrations/index.js';
 import { pluginsAllowed, writePlugin } from '../integrations/plugins.js';
@@ -23,7 +25,7 @@ import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { toolTitle, toolsForPeople, type Tier } from '../catalog.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { all, builtInLevels, one, run as exec } from './db.js';
-import { registerTools, type ToolDef } from './tools.js';
+import { heldTools, registerTools, type ToolDef } from './tools.js';
 
 // The Agency Engineer (docs/requests.md, docs/integrations.md): the built-in
 // agent, owned by no one, that every request goes to first. It hands work to an
@@ -778,6 +780,27 @@ export function startEngineer(book: (agentId: string, trigger: 'request' | 'conn
   whenDraftConnected(async (id, request) => {
     const all = [...new Set([...(request ? [request] : []), ...waitingFor(id, await listIntegrations())])];
     book(FLEET_ENGINEER, 'connected', `The person connected the draft integration "${id}"${all.length ? ` (for request #${all.join(', #')})` : ''}.`);
+  });
+  // A live connection (GitHub, built in) connected: nine requests waited on it and
+  // nothing woke. An agent that already holds its tools has them working now -
+  // its request closes and it's woken to use them; the rest go to the engineer.
+  whenConnected(async id => {
+    const list = await listIntegrations();
+    const name = list.find(i => i.id === id)?.name ?? id;
+    const tools = new Set(toolIdsOf(id));
+    const rest: number[] = [];
+    for (const r of waitingFor(id, list)) {
+      const req = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', r);
+      const agent = req ? await loadAgent(req.agent_id) : null;
+      const has = agent ? Object.keys(heldTools(agent)).filter(t => tools.has(t)) : [];
+      if (!agent || !has.length) {
+        rest.push(r);
+        continue;
+      }
+      exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", `${name} is connected - your tools from it work now: ${has.join(', ')}.`, Date.now(), r);
+      book(agent.id, 'connected', `Request #${r} is done: ${name} is connected, so ${has.join(', ')} work now. Use them on your real work.`);
+    }
+    if (rest.length) book(FLEET_ENGINEER, 'connected', `The person connected "${id}" (${name}); request #${rest.join(', #')} waited on it. Give the agents what they need from it, or close what's settled.`);
   });
   // Requests from before it existed come to it once.
   const old = all<{ id: number; agent_id: string; what: string }>("SELECT id, agent_id, what FROM requests WHERE status = 'open' AND stage IS NULL AND agent_id != ?", FLEET_ENGINEER);

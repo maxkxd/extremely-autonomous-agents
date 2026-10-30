@@ -326,6 +326,7 @@ export async function connectIntegration(id: string, key?: string, fields?: Reco
   // A draft the Agency Engineer is waiting on: wake it to test the real thing.
   const st = states()[id];
   if (st?.draft) onDraftConnected?.(id, st.request);
+  else onConnected?.(id);
   return result;
 }
 
@@ -350,6 +351,10 @@ export function recheckStale(now = Date.now()) {
 
 let onDraftConnected: ((id: string, request?: number) => void) | null = null;
 export const whenDraftConnected = (fn: (id: string, request?: number) => void) => void (onDraftConnected = fn);
+// A live one (a built-in like GitHub) connected: requests waiting on it are settled.
+let onConnected: ((id: string) => void) | null = null;
+export const whenConnected = (fn: (id: string) => void) => void (onConnected = fn);
+export const toolIdsOf = (id: string) => toolsOf(id).map(([t]) => t);
 
 // Signing in (OAuth): the person's OAuth client in, the service's sign-in page out.
 export async function startIntegrationSignIn(id: string, client: { clientId?: string; clientSecret?: string }) {
