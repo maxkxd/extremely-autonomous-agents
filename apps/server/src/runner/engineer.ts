@@ -19,7 +19,7 @@ import { hooksBase } from './hooks.js';
 import { reviewPlugin } from '../integrations/review.js';
 import { defaultModels } from './defaults.js';
 import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
-import type { Tier } from '../catalog.js';
+import { toolTitle, toolsForPeople, type Tier } from '../catalog.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { all, one, run as exec } from './db.js';
 import { registerTools, type ToolDef } from './tools.js';
@@ -101,6 +101,7 @@ A no to the way you picked (HubSpot) is rarely a no to what the agent needs (som
 ## Talking to the person
 - Decide, build, then tell them. Pick the best way yourself and write the draft first - never ask whether you should. If they don't want it, they reply or reject the request (that discards the draft).
 - Short: what you set up and, in a sentence or two, why it's the best way; then numbered steps for what they do. No account of your research, no list of alternatives unless they ask. About 5 sentences plus the steps.
+- Name tools by what they do ("Web search"), never their ids (web.web_search), and their levels as silent, logged or approval - never T0, T1 or T2.
 - Brevity is everything: the person reading may not be technical. Leave out what's implied or minor - no edge cases, no hypothetical risks, no testing details.
 - Each step on its own line, numbered (1. 2. 3.); points on their own lines starting with "- ". The app shows them as lists.
 - When another request needs the same thing (the same repository, key or decision), point to it instead of asking again: write "request #41" - the person can click it. Do the shared work once and use it for both.
@@ -510,8 +511,8 @@ const TOOLS: ToolDef[] = [
       return {
         name: p.name,
         for_agent_name: await nameOf(String(a.for_agent)),
-        tools_list: ((a.tools as { id: string; tier: string }[]) ?? []).map(t => `${t.id} (${t.tier})`).join(', '),
-        events_list: (await eventsFor(String(a.for_agent), String(a.integration_id), a.events)).join(', '),
+        tools_list: toolsForPeople((a.tools as { id: string; tier: string }[]) ?? []),
+        events_list: (await eventsFor(String(a.for_agent), String(a.integration_id), a.events)).map(toolTitle).join(', '),
         review: [String(a.summary).trim(), bullets.map(x => `- ${x}`).join('\n')].filter(Boolean).join('\n\n'),
         code_view: `${p.yaml}${p.code ? `\n--- Plugin code (runs in a sandbox on this computer) ---\n${p.code}` : ''}`,
         code_hash: p.codeHash,
@@ -566,7 +567,7 @@ const TOOLS: ToolDef[] = [
       if (bad.length) throw new Error(`Not live: ${bad.join(', ')}. Set them up and publish their integration first.`);
       setStage(Number(a.request_id), 'approval');
       postToRequest(Number(a.request_id), 'engineer', `${await nameOf(String(a.for_agent))} wakes on these when you approve it on the Approvals page.`);
-      return { for_agent_name: await nameOf(String(a.for_agent)), events_list: ((a.events as string[]) ?? []).join(', ') };
+      return { for_agent_name: await nameOf(String(a.for_agent)), events_list: ((a.events as string[]) ?? []).map(toolTitle).join(', ') };
     },
     impl: async a => {
       const r = openRequest(a.request_id);
@@ -592,7 +593,7 @@ const TOOLS: ToolDef[] = [
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
       setStage(Number(a.request_id), 'approval');
       postToRequest(Number(a.request_id), 'engineer', `${await nameOf(String(a.for_agent))} gets these tools when you approve it on the Approvals page.`);
-      return { for_agent_name: await nameOf(String(a.for_agent)), tools_list: ((a.tools as { id: string; tier: string }[]) ?? []).map(t => `${t.id} (${t.tier})`).join(', ') };
+      return { for_agent_name: await nameOf(String(a.for_agent)), tools_list: toolsForPeople((a.tools as { id: string; tier: string }[]) ?? []) };
     },
     impl: async a => {
       const r = openRequest(a.request_id);

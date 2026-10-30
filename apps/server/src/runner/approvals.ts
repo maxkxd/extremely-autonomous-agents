@@ -1,3 +1,4 @@
+import { toolsForPeople } from '../catalog.js';
 import { readMeta } from '../files.js';
 import { discardDraft } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
@@ -30,7 +31,12 @@ export async function pendingApprovals(now = Date.now()) {
   };
   const owners = await Promise.all(rows.map(ownerOf));
   // A stopped agent's approvals stay (their clock keeps running) but wait for it to be turned back on.
-  return rows.map((r, i) => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, owner: owners[i], agentStopped: stateOf(r.agent_id, now).state === 'stopped', tool: r.tool, args: JSON.parse(r.args) as Record<string, unknown>, createdAt: r.created_at, expiresAt: r.expires_at }));
+  // Tools listed by name and plain level, also on cards queued before they were.
+  const argsOf = (r: ApprovalRow) => {
+    const args = JSON.parse(r.args) as Record<string, unknown>;
+    return Array.isArray(args.tools) && typeof args.tools_list === 'string' ? { ...args, tools_list: toolsForPeople(args.tools as { id: string; tier: string }[]) } : args;
+  };
+  return rows.map((r, i) => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, owner: owners[i], agentStopped: stateOf(r.agent_id, now).state === 'stopped', tool: r.tool, args: argsOf(r), createdAt: r.created_at, expiresAt: r.expires_at }));
 }
 
 const argsLine = (args: Record<string, unknown>) =>
