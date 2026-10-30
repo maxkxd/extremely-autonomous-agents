@@ -6,6 +6,7 @@ import { FlashCount } from './FlashCount';
 import { renderApproval } from './approvalTools';
 import { useDismiss } from './useDismiss';
 import { openSettings } from './NoModels';
+import { Loading, Skel, SkelLines } from './Skeleton';
 
 export type ApprovalScope = 'mine' | 'all';
 // 'expired' = nobody answered in time; like a rejection, the action does not happen.
@@ -382,7 +383,9 @@ export function Approvals({
   onFocused = () => {},
   onDecide,
   onGone,
+  loading = false,
 }: {
+  loading?: boolean; // the list isn't in yet: placeholders, not "nothing waiting"
   pending: Approval[];
   scope: ApprovalScope;
   agentFilter: string | null;
@@ -395,6 +398,26 @@ export function Approvals({
     .filter(a => !agentFilter || a.agentId === agentFilter)
     .sort((a, b) => raisedAt(a) - raisedAt(b)); // oldest first; new ones arrive at the bottom
 
+  if (loading && shown.length === 0)
+    return (
+      <div className="approvals" aria-busy>
+        <Loading what="approvals" />
+        {[0, 1].map(i => (
+          <div key={i} className="approval skel-card" aria-hidden>
+            <Skel w={38} h={38} r={19} />
+            <div className="approval-main">
+              <Skel w="45%" h={15} />
+              <SkelLines lines={2} h={12} />
+              <Skel w="100%" h={64} r={6} />
+              <div className="approval-buttons">
+                <Skel w={96} h={32} r={8} />
+                <Skel w={86} h={32} r={8} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   if (shown.length === 0) {
     return (
       <div className="main-empty">

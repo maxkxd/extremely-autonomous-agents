@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Globe, Plus } from 'lucide-react';
 import { SpinButton } from './ModelConnectors';
+import { SkelRows } from './Skeleton';
 import { isAdmin } from './account';
 import { ACCOUNT } from './data';
 import {
@@ -53,7 +54,7 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
     window.setTimeout(() => row.classList.remove('spotlit'), 2600);
   }, [focus, !!view]);
   if (error && !view) return <p className="custom-error">{error}</p>;
-  if (!view) return null;
+  if (!view) return <SkelRows n={4} h={54} what="integrations" />;
   const search = view.integrations.filter(i => i.tools.some(t => t.id === 'web.web_search'));
   const others = view.integrations.filter(i => !search.includes(i));
   return (

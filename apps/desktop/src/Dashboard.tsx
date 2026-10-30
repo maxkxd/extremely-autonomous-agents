@@ -8,6 +8,7 @@ import { FlashCount } from './FlashCount';
 import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
 import { scoped } from './account';
+import { Skel } from './Skeleton';
 
 // Slice colours come from --slice-0..4 on the card (styles.css): blue-to-gray
 // normally, red at Apocalyptic, grays when the agent is stopped.
@@ -153,8 +154,7 @@ function timeAgo(minutes: number): string {
 }
 
 const count = (n: number) => n.toLocaleString();
-// Where a value goes while it loads: a shimmering bar, never a made-up number.
-const Skel = ({ w, h }: { w: number; h?: number }) => <span className="skel" style={{ width: w, height: h }} aria-hidden />;
+
 // Cents only matter for small amounts; from $100 up show whole dollars with commas.
 const dollars = (n: number) =>
   n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n).toLocaleString()}`;

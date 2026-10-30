@@ -41,6 +41,7 @@ import { ModelConnectors } from './ModelConnectors';
 import { Integrations } from './Integrations';
 import { useDismiss } from './useDismiss';
 import { ACCEPT, removePhoto, setPhoto, usePhoto } from './photo';
+import { Skel, SkelFields, SkelRows } from './Skeleton';
 import {
   getCatalog,
   getPerson,
@@ -463,7 +464,7 @@ function AccountSection() {
       <h2>Account</h2>
       {error && <p className="custom-error">{error}</p>}
       {!p ? (
-        !error && <p className="snotes-empty">Loading...</p>
+        !error && <SkelFields n={4} what="your account" />
       ) : (
         <>
           <div className="sgroup">
@@ -862,6 +863,7 @@ function OrgPeople() {
   const org = teamOrgs().find(o => o.id === state.agency)!;
   const [people, setPeople] = useState<Member[]>(state.members);
   const [pending, setPending] = useState<Invite[]>([]);
+  const [invitesIn, setInvitesIn] = useState(false);
   const [email, setEmail] = useState('');
   const [role, setRoleChoice] = useState<'member' | 'admin'>('member');
   const [made, setMade] = useState<Invite | null>(null);
@@ -873,7 +875,11 @@ function OrgPeople() {
   const [address, setAddressShown] = useState<string | null>(null);
   const load = () => {
     listMembers(org.id).then(setPeople, () => {});
-    if (manage) listInvites(org.id).then(setPending, () => {});
+    if (manage)
+      listInvites(org.id).then(list => {
+        setPending(list);
+        setInvitesIn(true);
+      }, () => {});
     if (org.self) selfAddress().then(setAddressShown, () => {});
   };
   useEffect(load, [org.id, manage]);
@@ -962,6 +968,7 @@ function OrgPeople() {
                 <code className="scode">{made.url}</code>
               </span>
             ))}
+          {!invitesIn && <SkelRows n={1} h={20} what="pending invites" />}
           {pending.length > 0 && (
             <ul className="sinvites">
               {pending.map(i => (
@@ -1085,7 +1092,7 @@ function OrganizationProfile({ name }: { name: string }) {
     <section className="ssection">
       <h2>{name}</h2>
       {!p ? (
-        rec.error ? <p className="custom-error">{rec.error}</p> : <p className="snotes-empty">Loading...</p>
+        rec.error ? <p className="custom-error">{rec.error}</p> : <SkelFields n={5} what="the organisation" />
       ) : (
         <fieldset className="sreadonly" disabled={readOnly}>
           <Field label="What it does">
@@ -1164,17 +1171,23 @@ function UsageSection() {
         <div className="stile">
           <span className="stile-label">Spend</span>
           <span className="stile-value">
-            {money(total)}
-            {unknown > 0 && <span title={`${unknown} run${unknown === 1 ? '' : 's'} on a model with no known price aren't in this`}>*</span>}
+            {!usage ? (
+              <Skel w={72} h={24} />
+            ) : (
+              <>
+                {money(total)}
+                {unknown > 0 && <span title={`${unknown} run${unknown === 1 ? '' : 's'} on a model with no known price aren't in this`}>*</span>}
+              </>
+            )}
           </span>
         </div>
         <div className="stile">
           <span className="stile-label">Runs</span>
-          <span className="stile-value">{runs.toLocaleString()}</span>
+          <span className="stile-value">{usage ? runs.toLocaleString() : <Skel w={40} h={24} />}</span>
         </div>
         <div className="stile">
           <span className="stile-label">Agents</span>
-          <span className="stile-value">{rows.length}</span>
+          <span className="stile-value">{usage ? rows.length : <Skel w={24} h={24} />}</span>
         </div>
       </div>
       <h3>By agent</h3>
@@ -1182,6 +1195,15 @@ function UsageSection() {
           (docs/runner.md, "Money and limits"): reached, pay-per-use models pause
           until next month; plans and local models carry on. Blank: no limit. */}
       <ul className={`susage${isAdmin() ? '' : ' locked'}`}>
+        {!usage &&
+          [0, 1, 2].map(i => (
+            <li key={i} className="skel-row" aria-hidden>
+              <Skel w={i ? 110 : 140} h={13} />
+              <Skel w="100%" h={6} r={3} />
+              <Skel w={48} h={12} />
+              <Skel w={44} h={12} />
+            </li>
+          ))}
         {usage && (
           <li className="susage-org" title={`${ACCOUNT.org ? 'The whole organisation' : 'All agents'}: ${money(total)} over ${runs} runs this month`}>
             <span className="susage-name">
@@ -1303,7 +1325,7 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
       {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change these.</p>}
       {error && <p className="custom-error">{error}</p>}
       {!tools ? (
-        !error && <p className="snotes-empty">Loading...</p>
+        !error && <SkelRows n={6} h={46} what="tools" />
       ) : !tools.length ? (
         <p className="snotes-empty">No agent uses any tools yet.</p>
       ) : (

@@ -8,6 +8,7 @@ import type { Resolution } from './Approvals';
 // channel shows it running until that run's reply lands.
 export function LiveDM({ agentId, approvalOutcomes }: { agentId: string; approvalOutcomes: Record<string, Resolution> }) {
   const [entries, setEntries] = useState<StampedEntry[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [waitingSince, setWaitingSince] = useState<number | null>(null);
   const waiting = useRef<number | null>(null);
   waiting.current = waitingSince;
@@ -19,6 +20,7 @@ export function LiveDM({ agentId, approvalOutcomes }: { agentId: string; approva
         const list = await getDm(agentId);
         if (stop) return;
         setEntries(list);
+        setLoaded(true);
         // The answer to your message has landed.
         const since = waiting.current;
         if (since && list.some(e => e.kind === 'run' && e.at >= since)) setWaitingSince(null);
@@ -42,5 +44,5 @@ export function LiveDM({ agentId, approvalOutcomes }: { agentId: string; approva
     sendDm(agentId, text).catch(() => setWaitingSince(null));
   };
 
-  return <AgentDM agentId={agentId} entries={entries} thinking={waitingSince != null} onSend={send} approvalOutcomes={approvalOutcomes} />;
+  return <AgentDM agentId={agentId} entries={entries} loading={!loaded} thinking={waitingSince != null} onSend={send} approvalOutcomes={approvalOutcomes} />;
 }

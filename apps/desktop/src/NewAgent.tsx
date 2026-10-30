@@ -7,6 +7,7 @@ import { ACCOUNT, AGENTS } from './data';
 import { useProfileChat } from './ProfileChat';
 import { addPack, buildAgent, getProfile, interviewDone, matchPack, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
 import { ConnectModel, useHasModels } from './NoModels';
+import { Skel } from './Skeleton';
 
 // "Customize your own agent" always takes the last slot of the top row (the
 // 4th card), or follows the packs straight away if there are fewer than three.
@@ -19,7 +20,9 @@ function PackCard({
   recommended,
   cardRef,
   onAdd,
+  ready,
 }: {
+  ready: boolean; // what's in the fleet, and whether a model is connected, are known
   pack: AgentPack;
   onAdd: () => Promise<void>;
   recommended: string | null; // the builder's reason, when it recommends this pack
@@ -32,7 +35,7 @@ function PackCard({
   // added back; nothing else of the pack is added twice.
   const here = new Set(AGENTS.flatMap(a => (a.pack?.id === pack.id ? [a.pack.member] : [])));
   const missing = pack.agents.filter(a => !here.has(a.name));
-  const allIn = missing.length === 0;
+  const allIn = ready && missing.length === 0;
   const label = allIn
     ? 'Already added'
     : missing.length === pack.agents.length
@@ -70,12 +73,12 @@ function PackCard({
           {pack.agents.map(a => {
             const Icon = DEPARTMENT_ICON[a.department];
             return (
-              <li key={a.name} className={here.has(a.name) && !allIn ? 'in' : undefined}>
+              <li key={a.name} className={ready && here.has(a.name) && !allIn ? 'in' : undefined}>
                 <Icon size={16} strokeWidth={1.75} className="pack-agent-icon" />
                 <div>
                   <div className="pack-agent-name">
                     {a.name}
-                    {here.has(a.name) && !allIn && <span className="pack-agent-in">Added</span>}
+                    {ready && here.has(a.name) && !allIn && <span className="pack-agent-in">Added</span>}
                   </div>
                   <div className="pack-agent-does">{a.does}</div>
                 </div>
@@ -83,10 +86,17 @@ function PackCard({
             );
           })}
         </ul>
-        <button className="pack-add" disabled={adding || allIn} onClick={add}>
-          {allIn ? <Check size={15} strokeWidth={2} /> : <Plus size={15} strokeWidth={2} />}
-          {label}
-        </button>
+        {/* Until it's known what's in, no Add (or Already added) that might not be true. */}
+        {ready ? (
+          <button className="pack-add" disabled={adding || allIn} onClick={add}>
+            {allIn ? <Check size={15} strokeWidth={2} /> : <Plus size={15} strokeWidth={2} />}
+            {label}
+          </button>
+        ) : (
+          <span className="pack-add skel-pack-add" aria-hidden>
+            <Skel w="100%" h={38} r={9} />
+          </span>
+        )}
         {error && <div className="custom-error">{error}</div>}
       </div>
     </article>
@@ -175,11 +185,13 @@ export function NewAgent({
   setSession,
   onBuilt,
   agencyStopped = false,
+  agentsReady = true,
 }: {
   session: BuilderSession;
   setSession: SetSession;
   onBuilt: (b: Built[]) => void;
   agencyStopped?: boolean;
+  agentsReady?: boolean; // the server's list of agents is in (this browser's copy can be out of date)
 }) {
   const packEls = useRef(new Map<string, HTMLElement>());
   const customEl = useRef<HTMLElement>(null);
@@ -269,10 +281,14 @@ export function NewAgent({
   };
 
   const at = Math.min(CUSTOM_SLOT, AGENT_PACKS.length);
+  // Nothing builds or runs without an AI model: until one's connected, the page
+  // is dimmed behind the way to connect one.
+  const hasModels = useHasModels();
   const pack = (p: AgentPack) => (
     <PackCard
       key={p.id}
       pack={p}
+      ready={agentsReady && hasModels !== null}
       recommended={recId === p.id ? (session.recommended?.reason ?? '') : null}
       cardRef={el => (el ? packEls.current.set(p.id, el) : packEls.current.delete(p.id))}
       onAdd={() =>
@@ -298,9 +314,6 @@ export function NewAgent({
     />,
     ...AGENT_PACKS.slice(at).map(pack),
   ];
-  // Nothing builds or runs without an AI model: until one's connected, the page
-  // is dimmed behind the way to connect one.
-  const hasModels = useHasModels();
   return (
     <div className="packs-wrap">
       <div className="packs">{cards}</div>
