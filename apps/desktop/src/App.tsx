@@ -146,7 +146,13 @@ function Agency() {
               owner: a.owner,
               // The Agency Engineer is owned by no one: its approvals belong to
               // the owner of the agent they're for.
-              forAgentId: a.agentId === 'fleet' && typeof a.args.for_agent === 'string' ? a.args.for_agent : undefined,
+              // The Agency Engineer's card is for the agent it gives tools to; the Agency Doctor's for the one it's about.
+              forAgentId:
+                a.agentId === 'fleet' && typeof a.args.for_agent === 'string'
+                  ? a.args.for_agent
+                  : a.agentId === 'doctor' && typeof a.args.agent_id === 'string'
+                    ? a.args.agent_id
+                    : undefined,
             })),
             ...[...decidedLive.current.values()].filter(d => !list.some(a => a.id === d.id)),
           ]);

@@ -30,7 +30,7 @@ async function fleetFor(requester: string): Promise<string> {
     if (id === requester || id === FLEET_ENGINEER) continue;
     const meta = await readMeta(id);
     // Only ones that would start on it now: not stopped, not on standby.
-    const agent = meta?.status === 'ready' && !meta.service && stateOf(id).state === 'active' ? await loadAgent(id) : null;
+    const agent = meta?.status === 'ready' && !meta.service && !meta.builtIn && stateOf(id).state === 'active' ? await loadAgent(id) : null;
     if (!agent) continue;
     const tools = Object.keys(agent.tiers).filter(t => !/^(tasks|requests|memory|files|ops)\./.test(t) && (live.has(t) || /^web\./.test(t)));
     const mission = agent.charter.replace(/^#.*$/m, '').trim().slice(0, 500).replace(/\s+/g, ' ');
@@ -73,7 +73,7 @@ export async function conduct(requestId: number, wake: Wake): Promise<void> {
     const asker = (await readMeta(r.agent_id))?.name ?? r.agent_id;
     const d = await decideRoute(r);
     const target = d.route === 'agent' && d.agent_id ? await readMeta(d.agent_id) : null;
-    if (!target || !d.task?.trim() || d.agent_id === r.agent_id || d.agent_id === FLEET_ENGINEER || target.service || stateOf(d.agent_id!).state !== 'active') return toEngineer();
+    if (!target || !d.task?.trim() || d.agent_id === r.agent_id || target.builtIn || target.service || stateOf(d.agent_id!).state !== 'active') return toEngineer();
     const task = d.task.trim().slice(0, 4000);
     const t = exec('INSERT INTO tasks (agent_id, from_agent, task, created_at) VALUES (?, ?, ?, ?)', d.agent_id!, r.agent_id, task, Date.now());
     wake(d.agent_id!, 'handoff', `Task #${t.lastInsertRowid} from ${asker}: ${task}`);

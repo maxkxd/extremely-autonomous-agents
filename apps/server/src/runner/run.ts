@@ -5,6 +5,7 @@ import { fitEffort } from '../models/caps.js';
 import type { Effort, ModelChoice } from '../models/choice.js';
 import { pickModel, recordFailure, recordSuccess, choiceKey, type Health } from '../models/health.js';
 import { FLEET_ENGINEER, type AgentDef } from './agent.js';
+import { BUILT_IN_IDS } from './helpers.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { backoffMs, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
@@ -182,7 +183,8 @@ async function fleetOf(exceptId: string) {
   for (const id of await listIds()) {
     if (id === exceptId) continue;
     const m = await readMeta(id);
-    if (m && m.status !== 'setting-up' && !m.service) out.push({ id, name: m.name });
+    // Built-ins (the Agency Engineer, the Agency Doctor) take no tasks: requests reach the engineer.
+    if (m && m.status !== 'setting-up' && !m.service && !m.builtIn) out.push({ id, name: m.name });
   }
   return out;
 }
@@ -271,7 +273,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
 
   const { specs, ids, notReady } = toolsFor(agent);
   // What it holds that isn't connected is asked for (or closed, now it is).
-  if (agent.id !== FLEET_ENGINEER) requestConnections(agent.id, agent.name, agent.tiers, startedAt, (a, t, k) => deps.wake(a, t as Trigger, k));
+  if (!BUILT_IN_IDS.includes(agent.id)) requestConnections(agent.id, agent.name, agent.tiers, startedAt, (a, t, k) => deps.wake(a, t as Trigger, k));
   const ctx: RunCtx = { agent, runId: id, level, now: deps.now, fleet: () => fleetOf(agent.id), wake: (a, t, k) => deps.wake(a, t as Trigger, k) };
   const resume = resumeFrom ? `\n\n${resumeText(resumeFrom)}` : '';
   const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task)}${resume}` }];

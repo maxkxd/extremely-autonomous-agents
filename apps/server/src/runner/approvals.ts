@@ -2,6 +2,7 @@ import { toolsForPeople } from '../catalog.js';
 import { readMeta } from '../files.js';
 import { discardDraft } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
+import { DOCTOR } from './doctor.js';
 import { all, one, run as exec } from './db.js';
 import { agencyStopped, stateOf } from './run.js';
 import { runApproved } from './tools.js';
@@ -26,7 +27,9 @@ export async function pendingApprovals(now = Date.now()) {
   // person who built that agent.
   const ownerOf = async (r: ApprovalRow) => {
     const forAgent = (JSON.parse(r.args) as { for_agent?: unknown }).for_agent;
-    const id = r.agent_id === FLEET_ENGINEER && typeof forAgent === 'string' ? forAgent : r.agent_id;
+    // The Agency Doctor's: about one agent (agent_id).
+    const about = (JSON.parse(r.args) as { agent_id?: unknown }).agent_id;
+    const id = r.agent_id === FLEET_ENGINEER && typeof forAgent === 'string' ? forAgent : r.agent_id === DOCTOR && typeof about === 'string' ? about : r.agent_id;
     return (await readMeta(id))?.owner ?? null;
   };
   const owners = await Promise.all(rows.map(ownerOf));

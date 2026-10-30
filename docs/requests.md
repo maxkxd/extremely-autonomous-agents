@@ -65,10 +65,17 @@ instructions. Like the schedules there, the wording is a first draft.
 
 ## Built-in agents
 
-Every organization (and solo account) gets three built-in agents, owned by no
-one and never deleted: the **Agency Engineer**, the **Agency Conductor** and the
-**Agency Reviewer** (`runner/helpers.ts`). The Agency Conductor is separate so cheap
-rerouting decisions don't spend a full engineering run.
+Every organization (and solo account) gets four built-in agents, owned by no
+one and never deleted: the **Agency Engineer**, the **Agency Doctor**
+(`runner/doctor.ts`), the **Agency Conductor** and the **Agency Reviewer**
+(`runner/helpers.ts`). The Agency Conductor is separate so cheap rerouting
+decisions don't spend a full engineering run. The Agency Doctor looks at the
+whole fleet every two hours for what nobody files a request about - loops,
+busywork, the same error again and again, asking what was already answered -
+and gets each fixed through a note to the agent, closing the loop, a request
+for the Agency Engineer, or a rule a person approves. Built-ins take no tasks
+from other agents, and their actions on the fleet have levels in Settings >
+Tools like any tool.
 
 Each has a card on the dashboard with its three models (changeable), runs and
 cost. The two helpers make one quick model call when the agency calls them

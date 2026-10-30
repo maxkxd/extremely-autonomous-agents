@@ -290,7 +290,9 @@ const BUILTIN: ToolDef[] = [
       // One that's stopped or on standby wouldn't start on it: the work would just sit.
       const state = one<{ state: string }>('SELECT state FROM agent_state WHERE agent_id = ?', target)?.state;
       if (state === 'stopped' || state === 'draining')
-        throw new Error(`${who.name} is ${state === 'stopped' ? 'stopped' : 'on standby'}, so it won't pick work up. Do it another way, or file a request (requests.file_request) if only it can.`);
+        throw new Error(
+          `${who.name} is ${state === 'stopped' ? 'stopped' : 'on standby'} - a person's choice - so it won't pick work up now. Do what you can another way, or leave it for when it's back on (note it with memory.remember); don't file a request about it.`,
+        );
       const task = String(a.task ?? '').slice(0, 4000);
       const r = run('INSERT INTO tasks (agent_id, from_agent, task, created_at) VALUES (?, ?, ?, ?)', target, ctx.agent.id, task, ctx.now());
       ctx.wake(target, 'handoff', `Task #${r.lastInsertRowid} from ${ctx.agent.name}: ${task}`);

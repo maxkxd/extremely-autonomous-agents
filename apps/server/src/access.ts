@@ -189,11 +189,12 @@ export function requireAdmin(actor = currentActor(), what = 'That') {
 }
 
 // Approvals and requests go to the person who made the agent, or an admin. The
-// Agency Engineer's own (a go-live for a request) belong to whoever's agent filed the request.
+// Agency Engineer's own (a go-live for a request) belong to whoever's agent filed the request;
+// the Agency Doctor's (a rule for an agent) to whoever made that agent - forAgent.
 // what: the thing being done, for the refusal ("decide this", "see its DMs").
-export async function requireMakerOrAdmin(agentId: string, requestId?: number | null, actor = currentActor(), what = 'decide this') {
+export async function requireMakerOrAdmin(agentId: string, requestId?: number | null, actor = currentActor(), what = 'decide this', forAgent?: string | null) {
   if (isAdmin(actor)) return;
-  let id = agentId;
+  let id = forAgent ?? agentId;
   if (id === FLEET_ENGINEER && requestId != null) id = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', requestId)?.agent_id ?? id;
   const meta = await readMeta(id);
   if (!meta?.ownerId || meta.ownerId !== actor.id) throw new AccessError(403, `Only the person who made ${meta?.name ?? 'this agent'}, or an admin, can ${what}.`);
