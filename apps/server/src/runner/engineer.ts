@@ -437,13 +437,17 @@ const TOOLS: ToolDef[] = [
   {
     id: 'engineer.close_request',
     tier: 'T0',
-    description: 'Close a request that is settled (handed to another agent, or answered). The asking agent reads your answer at the start of its next run.',
+    description: 'Close a request that is settled (handed to another agent, or answered). The asking agent is woken with your answer.',
     schema: obj({ request_id: int('The request number'), answer: str('For the asking agent: what happened and what it can do now') }, ['request_id', 'answer']),
-    impl: async a => {
+    impl: async (a, ctx) => {
       const r = openRequest(a.request_id);
       const answer = String(a.answer).slice(0, 4000);
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
       postToRequest(r.id, 'engineer', answer);
+      // Woken with it: an answer that unblocks it (the playbook's real path) waited a day
+      // for its next scheduled run.
+      const asker = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', r.id)?.agent_id;
+      if (asker && asker !== FLEET_ENGINEER) ctx.wake(asker, 'self-booked', `Request #${r.id} is answered: ${answer.slice(0, 600)}`);
       return `Closed #${r.id}.`;
     },
   },
