@@ -716,6 +716,17 @@ export async function checkKey(id: string, method: string, url: string): Promise
   return [`${m} ${target} -> HTTP ${res.status}`, ...hints, body].filter(Boolean).join('\n');
 }
 
+// A connection's saved settings that aren't secret (a region, an account id), as
+// the person entered them: the engineer guessed Zoho's Australian data centre
+// for a key saved as "com", and two go-lives failed.
+export async function savedSettings(id: string): Promise<Record<string, string>> {
+  const defs = [find(id), liveCopies.get(id)].filter((d): d is Integration => !!d);
+  const open = new Set(defs.flatMap(d => (d.auth.type === 'fields' ? d.auth.fields.filter(f => f.secret === false).map(f => f.name) : [])));
+  if (!open.size) return {};
+  const saved = (await getSecret<{ fields: Record<string, string> }>(secretKey(id)))?.fields ?? {};
+  return Object.fromEntries(Object.entries(saved).filter(([k]) => open.has(k)));
+}
+
 // What a person approves when a draft goes live: the definition, and a plugin's code.
 export async function publishPreview(id: string) {
   const integration = find(id);
