@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseDocument, stringify } from 'yaml';
-import { DATA, readMeta, save, slug } from '../files.js';
+import { DATA, listIds, readMeta, save, slug } from '../files.js';
 import {
   checkKey,
   integrationSource,
@@ -814,6 +814,8 @@ export function startEngineer(book: (agentId: string, trigger: 'request' | 'conn
       book(agent.id, 'connected', `Request #${r} is done: ${name} is connected, so ${has.join(', ')} work now. Use them on your real work.`);
     }
     if (rest.length) book(FLEET_ENGINEER, 'connected', `The person connected "${id}" (${name}); request #${rest.join(', #')} waited on it. Give the agents what they need from it, or close what's settled.`);
+    // GitHub readable now: check the files each agent's instructions name.
+    if (id === 'github') void checkCharterFiles().catch(() => {});
   });
   // Requests from before it existed come to it once.
   const old = all<{ id: number; agent_id: string; what: string }>("SELECT id, agent_id, what FROM requests WHERE status = 'open' AND stage IS NULL AND agent_id != ?", FLEET_ENGINEER);
@@ -821,4 +823,78 @@ export function startEngineer(book: (agentId: string, trigger: 'request' | 'conn
     setStage(r.id, 'engineer');
     book(FLEET_ENGINEER, 'request', `Request #${r.id} from ${r.agent_id}: ${r.what.slice(0, 300)}`);
   }
+}
+
+// --- Files an agent's instructions name ---------------------------------------------------
+// A Charter written from a spec can name repo files that don't exist (Outreach's
+// marketing/outreach/OUTREACH.md): the agent hit "not found" three times, then
+// stopped. Once GitHub can be read, each agent's named files are checked, and the
+// missing ones go to the person in one request - with what is in those folders.
+const PATH = /(?:^|[\s`'"(])((?:[\w.-]+\/)+[\w.-]+\.(?:md|mdx|ya?ml|json|txt|csv))(?=$|[\s`'"),.;:])/gm;
+export async function checkCharterFiles(onlyAgent?: string): Promise<number> {
+  const call = (toolId: string, args: Record<string, unknown>) => testIntegrationTool('github', toolId, args);
+  let reachable: string[];
+  try {
+    reachable = [...(await call('github.list_repos', { max: 100 })).matchAll(/^- ([\w.-]+\/[\w.-]+)/gm)].map(m => m[1]);
+  } catch {
+    return 0; // GitHub isn't connected (or can't be read): nothing to check
+  }
+  let filed = 0;
+  for (const id of onlyAgent ? [onlyAgent] : await listIds()) {
+    const meta = await readMeta(id);
+    if (!meta || meta.builtIn) continue;
+    const charter = await readFile(join(DATA, id, 'CHARTER.md'), 'utf8').catch(() => '');
+    const repo = reachable.find(r => charter.toLowerCase().includes(r.toLowerCase()));
+    if (!repo) continue;
+    // Only files it reads: in a folder the repo has (not its workspace's "support/"),
+    // no placeholder (logs/YYYY-MM-DD.md), and not one it says it writes or keeps.
+    const top = new Set([...(await call('github.read_file', { repo, path: '' }).catch(() => '')).matchAll(/^- ([^/\s]+)\/$/gm)].map(m => m[1]));
+    // "Writes ... `x`" or "replaces the old `x`", just before the path.
+    const writes = (at: number) => /\b(writ|creat|keep|kept|maintain|append|updat|commit|log|sav|own|draft|open|replac|old|former|previous|retir)\w*\b[^.\n]{0,40}$/i.test(charter.slice(Math.max(0, at - 45), at));
+    const paths = [
+      ...new Set(
+        [...charter.matchAll(PATH)]
+          .filter(m => !writes(m.index ?? 0))
+          .map(m => m[1])
+          .filter(p => !p.toLowerCase().startsWith(`${repo.toLowerCase()}/`) && top.has(p.split('/')[0]) && !/YYYY|<|\{/.test(p)),
+      ),
+    ];
+    const missing: string[] = [];
+    for (const path of paths.slice(0, 30)) {
+      try {
+        await call('github.read_file', { repo, path });
+      } catch (e) {
+        if (/not found/i.test((e as Error).message)) missing.push(path);
+      }
+    }
+    if (!missing.length) continue;
+    const what = `Files my instructions name aren't in ${repo}`;
+    if (one("SELECT 1 FROM requests WHERE agent_id = ? AND what = ? AND status = 'open'", id, what)) continue;
+    // What is there instead: each missing file's nearest existing folder.
+    const seen: string[] = [];
+    for (const folder of [...new Set(missing.map(p => p.split('/').slice(0, -1).join('/')))].slice(0, 5)) {
+      for (let f = folder; ; f = f.split('/').slice(0, -1).join('/')) {
+        const listing = await call('github.read_file', { repo, path: f }).catch(() => null);
+        if (listing) {
+          if (!seen.includes(listing.slice(0, 800))) seen.push(listing.slice(0, 800));
+          break;
+        }
+        if (!f) break;
+      }
+    }
+    const now = Date.now();
+    const rid = Number(
+      exec(
+        "INSERT INTO requests (agent_id, run_id, what, why, evidence, created_at, stage) VALUES (?, NULL, ?, ?, ?, ?, 'person')",
+        id,
+        what,
+        `${meta.name}'s instructions point at files that aren't in ${repo}:\n${missing.map(p => `- ${p}`).join('\n')}\n\nReply with where they are, or what to use instead - or add them to the repo.`,
+        seen.length ? `What is there now:\n${seen.join('\n\n')}` : null,
+        now,
+      ).lastInsertRowid,
+    );
+    postToRequest(rid, 'engineer', `I checked the files ${meta.name}'s instructions name in ${repo}: ${missing.length} of them aren't there. Tell me where they are or what to use instead, and I'll pass it on.`);
+    filed++;
+  }
+  return filed;
 }
