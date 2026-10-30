@@ -42,6 +42,20 @@ async function readAll(): Promise<Record<string, Sealed>> {
   }
 }
 
+// Replaces the vault with the new copy. On Windows that's refused while anything
+// has the file open (a read of a key at the same moment): tried again briefly.
+async function swapIn(tmp: string, to: string) {
+  for (let i = 0; ; i++) {
+    try {
+      return await rename(tmp, to);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (i >= 20 || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw e;
+      await new Promise(r => setTimeout(r, 25 + i * 25));
+    }
+  }
+}
+
 // Writes go one at a time, so two saves can't lose each other.
 let writing = Promise.resolve();
 function writeAll(update: (all: Record<string, Sealed>) => void) {
@@ -51,7 +65,7 @@ function writeAll(update: (all: Record<string, Sealed>) => void) {
     await mkdir(DATA, { recursive: true });
     const tmp = `${VAULT}.tmp`;
     await writeFile(tmp, JSON.stringify(all), { mode: 0o600 });
-    await rename(tmp, VAULT);
+    await swapIn(tmp, VAULT);
     await chmod(VAULT, 0o600).catch(() => {});
   });
   return writing;

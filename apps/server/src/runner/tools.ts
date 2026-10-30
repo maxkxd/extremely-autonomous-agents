@@ -84,6 +84,9 @@ export function fileRequest(
   return id;
 }
 
+// What a person calls a tool's service: "a CRM (HubSpot, Zoho, Salesforce)", "Ads".
+export const serviceLabel = (server: string) => CONNECT_LABEL[server] ?? CATALOG.find(s => s.server === server)?.what ?? server.charAt(0).toUpperCase() + server.slice(1);
+
 // Tools it holds that need a service nobody has connected, one request per
 // service, to the Agency Engineer: it walks a person through connecting one
 // that exists (Gmail) and builds one that doesn't (a CRM). So the
@@ -100,7 +103,7 @@ export function requestConnections(agentId: string, agentName: string, tiers: Re
     const known = area?.tools.find(x => x.name === rest.join('.'));
     if (!known && !t) continue; // its builder's own invention: requestWhatsMissing asks for it to be built
     const ready = !!t && (t.ready?.() ?? true);
-    const label = CONNECT_LABEL[server] ?? area?.what ?? server.charAt(0).toUpperCase() + server.slice(1);
+    const label = serviceLabel(server);
     const g = groups.get(server) ?? { label, what: '', names: [], ready: true, exists: true };
     g.names.push(known?.does ?? (t?.description.split(/[.\n]/)[0] || id));
     g.ready &&= ready;

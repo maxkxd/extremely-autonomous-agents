@@ -11,7 +11,7 @@ import { all } from './runner/db.js';
 import { forgetAgentRuns } from './runner/forget.js';
 import { topUpModels } from './runner/defaults.js';
 import { book } from './runner/scheduler.js';
-import { fileRequest, registeredToolIds, requestConnections } from './runner/tools.js';
+import { fileRequest, registeredToolIds, requestConnections, serviceLabel } from './runner/tools.js';
 
 // Adding and removing agents: the app's builder and packs, and the agency's
 // MCP server (runner/agency-mcp.ts) for an AI IDE, all come through here.
@@ -55,26 +55,48 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
     fileRequest(files.id, null, { what, why, evidence }, Date.now(), (agent, trigger, task) => book(agent, trigger as 'request', task), true);
     filed.push(what);
   };
-  const live = new Set(integrationToolIds());
-  const own = new Map((yaml.new_tools ?? []).map(t => [t.id, t]));
-  for (const t of own.values())
-    if (!live.has(t.id)) ask(`Build the tool ${t.id}`, `${files.name}'s builder defined it and nothing provides it yet: ${t.description}`, `Input it expects: ${JSON.stringify(t.input_schema)}`);
-  // Held, but nothing provides it and it isn't its own: another agent's invention, not built.
-  const fleet = await scanFleet(files.id);
-  const registered = registeredToolIds();
-  for (const id of Object.keys(yaml.tool_tiers ?? {})) {
-    if (own.has(id) || registered.has(id) || CATALOG_INDEX.has(id) || BASELINE.some(b => toolId(b.server, b.tool.name) === id)) continue;
-    const t = fleet.tools.find(x => x.id === id);
-    ask(`Build the tool ${id}`, `${files.name} uses it and nothing provides it yet${t?.description ? `: ${t.description}` : '.'}`, t?.usedBy.length ? `Also used by ${t.usedBy.join(', ')}.` : null);
-  }
-  // Services its catalogue tools need that aren't connected.
+  // Services its catalogue tools need that aren't connected, one request each.
   for (const what of requestConnections(files.id, files.name, (yaml.tool_tiers ?? {}) as Record<string, Tier>, Date.now(), (agent, trigger, task) => book(agent, trigger as 'request', task))) {
     asked.add(what);
     filed.push(what);
   }
+  // Tools nothing provides yet - its builder's inventions, and another agent's
+  // nobody has built - one request per service, not per tool: one job for the
+  // Agency Engineer. None when that service already has a request open (it
+  // sees every tool the agent is missing with it).
+  const live = new Set(integrationToolIds());
+  const own = new Map((yaml.new_tools ?? []).map(t => [t.id, t]));
+  const fleet = await scanFleet(files.id);
+  const registered = registeredToolIds();
+  const missing = new Map<string, { id: string; does: string; input?: unknown; usedBy?: string[] }[]>();
+  for (const id of new Set([...own.keys(), ...Object.keys(yaml.tool_tiers ?? {})])) {
+    if (live.has(id)) continue;
+    const mine = own.get(id);
+    if (!mine && (registered.has(id) || CATALOG_INDEX.has(id) || BASELINE.some(b => toolId(b.server, b.tool.name) === id))) continue;
+    const t = fleet.tools.find(x => x.id === id);
+    const server = id.split('.')[0];
+    missing.set(server, [...(missing.get(server) ?? []), { id, does: mine?.description ?? t?.description ?? '', input: mine?.input_schema, usedBy: t?.usedBy }]);
+  }
+  for (const [server, tools] of missing) {
+    const label = serviceLabel(server);
+    if (asked.has(`Set up ${label}`) || asked.has(`Connect ${label}`)) continue;
+    const others = [...new Set(tools.flatMap(t => t.usedBy ?? []))];
+    ask(
+      `Build the ${label} tools`,
+      `${files.name} needs these and nothing provides them yet:\n${tools.map(t => `- ${t.id}${t.does ? `: ${t.does}` : ''}`).join('\n')}`,
+      [...tools.filter(t => t.input).map(t => `${t.id} expects: ${JSON.stringify(t.input)}`), ...(others.length ? [`Also used by ${others.join(', ')}.`] : [])].join('\n') || null,
+    );
+  }
+  // Events nothing provides yet: one request per service too.
   const events = new Set(liveEventIds());
-  for (const e of (yaml.new_events ?? []).filter(e => !events.has(e.id)))
-    ask(`Set up the event ${e.id}`, `${files.name} should wake when this happens: ${e.description}`, e.how ? `How the service tells it: ${e.how}` : null);
+  const wanted = new Map<string, { id: string; description: string; how?: string }[]>();
+  for (const e of (yaml.new_events ?? []).filter(e => !events.has(e.id))) wanted.set(e.id.split('.')[0], [...(wanted.get(e.id.split('.')[0]) ?? []), e]);
+  for (const [server, list] of wanted)
+    ask(
+      `Set up ${serviceLabel(server)} events`,
+      `${files.name} should wake when these happen:\n${list.map(e => `- ${e.id}: ${e.description}`).join('\n')}`,
+      list.filter(e => e.how).map(e => `${e.id} - how the service tells it: ${e.how}`).join('\n') || null,
+    );
   return filed;
 }
 
