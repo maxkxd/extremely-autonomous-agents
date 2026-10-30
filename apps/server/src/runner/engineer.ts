@@ -478,12 +478,17 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.write_integration',
     tier: 'T0',
     description:
-      'Save an integration definition (YAML: kind http | mcp | code, as in the shipped examples) as a DRAFT: it shows in Settings to be connected; no agent can call it until a person approves it going live. Rewriting a live one of yours makes it a draft again.',
+      'Save an integration definition (YAML: kind http | mcp | code, as in the shipped examples) as a DRAFT: it shows in Settings to be connected; no agent can call it until a person approves it going live. Rewriting a live one makes the change a draft; the live version keeps working for the agents that have it until the change is approved, and a connected one stays connected.',
     schema: obj({ definition: str('The whole YAML definition'), request_id: int('The request it answers') }, ['definition']),
     impl: async a => {
       const { integration, wasLive } = await writeDraftIntegration(String(a.definition), FLEET_ENGINEER, a.request_id ? Number(a.request_id) : undefined);
-      const needs = integration.auth.type === 'none' ? 'It needs no key: test it now.' : 'It needs a key or sign-in: ask the person with engineer.ask_for_connection.';
-      return `Saved "${integration.id}" (${integration.name}) as a draft${wasLive ? ' - it was live, so its tools are off until it is approved again' : ''}. It shows in Settings -> Connectors. ${needs}`;
+      // Already connected (its key or sign-in is saved): nothing to ask the person.
+      const connected = (await listIntegrations()).find(i => i.id === integration.id)?.connected;
+      const needs =
+        integration.auth.type === 'none' || connected
+          ? `${connected ? "It's still connected - its key or sign-in carries over" : 'It needs no key'}: test it now (engineer.test_integration). Don't ask the person to connect it again.`
+          : 'It needs a key or sign-in: ask the person with engineer.ask_for_connection.';
+      return `Saved "${integration.id}" (${integration.name}) as a draft${wasLive ? ' - the live version keeps working for the agents that have it until this change is approved' : ''}. It shows in Settings -> Connectors. ${needs}`;
     },
   },
   {
@@ -496,7 +501,7 @@ const TOOLS: ToolDef[] = [
       const module = String(a.module);
       if (!/^[a-z0-9-]+$/.test(module) || ['gmail', 'github'].includes(module)) throw new Error('Pick another module name: lowercase letters, digits and dashes.');
       await writePlugin(module, String(a.code));
-      return `Saved plugin "${module}". It runs only after a person approves it (engineer.publish_integration shows them the code).`;
+      return `Saved plugin "${module}". It runs only once the independent review passes it and a person approves giving it to an agent (engineer.publish_integration).`;
     },
   },
   {
