@@ -1917,3 +1917,7 @@ a.sbtn { text-decoration: none; color: inherit; }
   box-shadow: 0 0 0 1px rgba(63, 123, 214, 0.45), 0 0 18px rgba(63, 123, 214, 0.6), 0 0 44px rgba(63, 123, 214, 0.3);
 }
 .sbtn.no-models-go:hover:not(:disabled) { box-shadow: 0 0 0 1px rgba(63, 123, 214, 0.6), 0 0 24px rgba(63, 123, 214, 0.75), 0 0 56px rgba(63, 123, 214, 0.4); }
+/* The builder's turns are formatted (RichText): its own paragraphs and lists, not typed line breaks. */
+.bmsg.is-builder { white-space: normal; }
+.bmsg.is-builder .rt-p:first-child { margin-top: 0; }
+.bmsg.is-builder .rt-p:last-child, .bmsg.is-builder .rt-list:last-child { margin-bottom: 0; }

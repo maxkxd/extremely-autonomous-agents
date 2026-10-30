@@ -184,7 +184,7 @@ export async function profileInterview(orgName: string, person: PersonProfile, t
 You are talking to the person setting it up. What you already know about them - don't ask for it again, and include them in the profile's people:
 ${personForPrompt(person)}
 ${written ? `\nAlready written for this organisation - start from it: keep it in the profile word for word unless the person changes it, and don't ask for it again. Ask only about what's missing or empty:\n${profileForPrompt(written)}\n` : ''}
- Find out, in plain words: what it does, who its customers are, what it sells, how it sounds when it writes, and the key people agents should report to or write as (names and roles). If you don't know the person's own role in it, ask that alongside the people question. Two to four short rounds at most - one or two questions at a time, and fill in what you can infer. When you have enough, set ready to true and say in a sentence that you'll write every agent for them from now on.`,
+ Find out, in plain words: what it does, who its customers are, what it sells, how it sounds when it writes, and the key people agents should report to or write as (names and roles). If you don't know the person's own role in it, ask that alongside the people question. Two to four short rounds at most - one or two questions at a time, and fill in what you can infer. More than one question: a numbered list, each on its own line ("1. ...", "2. ..."), after a short sentence. When you have enough, set ready to true and say in a sentence that you'll write every agent for them from now on.`,
     // The chat opens with a canned question from the builder; the API needs a
     // person's turn first.
     [{ role: 'user', content: 'Set up our organisation profile.' }, ...transcript(turns)],
@@ -267,7 +267,8 @@ const TurnSchema = z.object({
 
 const INTERVIEW = `- Ask only what you genuinely can't work out or sensibly default yourself: which systems it works in (when it matters which, and the fleet doesn't already tell you), where its work goes, what it must never do, what needs their OK before it happens, what "done well" looks like. Use what you know about the organisation and fleet instead of asking. Make sensible assumptions about the rest and say what you assumed in a few words.
 - One or two short questions at a time, in plain words, no jargon (never say T0/T1/T2, Charter or YAML).
-- Keep it short: a sentence or two plus the question.`;
+- Keep it short: a sentence or two plus the question.
+- More than one question: a numbered list, each on its own line ("1. ...", "2. ..."), after your sentence. Bullet points ("- ...") for anything else that's a list.`;
 
 export async function interview(ctx: Context, turns: Turn[], declinedPack: string | null) {
   const declined = declinedPack

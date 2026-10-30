@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, Hammer, RotateCcw, Sparkles, X } from 'lucide-react';
 import type { BuilderSession } from './builder';
+import { RichText } from './RichText';
 
 // A build takes up to a minute or so: count up so it never looks stuck.
 function BuildingNote({ text }: { text: string }) {
@@ -107,7 +108,8 @@ export function BuilderChat({
         <div className="builder-log" ref={log}>
           {session.turns.map((t, i) => (
             <div key={i} className={`bmsg is-${t.role}`}>
-              {t.text}
+              {/* The builder's turns read like the Agency Engineer's: lists, bold, links. */}
+              {t.role === 'builder' ? <RichText text={t.text} /> : t.text}
             </div>
           ))}
           {session.thinking && (
