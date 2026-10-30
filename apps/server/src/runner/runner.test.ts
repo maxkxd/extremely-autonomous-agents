@@ -10,6 +10,7 @@ import { ModelError, type Adapter, type Call } from './providers.js';
 import { runAgent, stateOf, type RunDeps } from './run.js';
 import { dropStaleRequestRuns, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
+import { decideApproval } from './approvals.js';
 import { fleetReport } from './doctor.js';
 import { answerRequest } from './api.js';
 import { notWaitingAlready, requestNotWaiting, withdrawProposal } from './engineer.js';
@@ -169,6 +170,35 @@ test('T2 actions are queued for approval, never run, the run carries on, and the
   assert.equal(r.acts, 3); // each queued pitch counted toward the floor of 3
   assert.equal(sent, 0); // nothing ran without a person's decision
   assert.equal(all("SELECT id FROM approvals WHERE status = 'pending'").length, 3);
+});
+
+test("an action waiting for a person carries the agent's reason to the card, never to the tool", async () => {
+  setLevel(CHILL);
+  let got: Record<string, unknown> | null = null;
+  registerTools([
+    {
+      id: 'zztest.add_lead',
+      tier: 'T2',
+      description: 'Add a lead',
+      schema: { type: 'object', properties: { company: { type: 'string' } }, required: ['company'] },
+      impl: args => {
+        got = args;
+        return 'added';
+      },
+    },
+  ]);
+  let offered: unknown = null;
+  const model: Adapter = async req => {
+    offered ??= req.tools.find(t => t.name === 'zztest__add_lead')?.schema;
+    if (req.messages[req.messages.length - 1].role === 'tool') return { text: 'Queued.', calls: [], usage: { input: 1, output: 1 } };
+    return { text: '', calls: [{ id: 'l1', name: 'zztest__add_lead', args: { company: 'Acme', why: 'Acme is buying a rival (ACCC, 1 Oct).' } }], usage: { input: 1, output: 1 } };
+  };
+  await runAgent(agent({ tiers: { 'zztest.add_lead': 'T2' } }), 'scheduled', null, deps(model));
+  assert.deepEqual((offered as { required: string[] }).required, ['company', 'why']);
+  const a = one<{ id: string; args: string }>("SELECT id, args FROM approvals WHERE tool = 'zztest.add_lead'")!;
+  assert.equal(JSON.parse(a.args)._why, 'Acme is buying a rival (ACCC, 1 Oct).');
+  await decideApproval(a.id, 'approved', null, () => {}, Date.now(), async () => agent({ tiers: { 'zztest.add_lead': 'T2' } }));
+  assert.deepEqual(got, { company: 'Acme' });
 });
 
 test('a registered tool the agent does not hold is refused', async () => {

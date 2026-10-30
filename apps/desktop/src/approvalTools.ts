@@ -142,10 +142,13 @@ function fill(template: string, args: ToolArgs, tool: string): string {
 // A tool without its own card (an MCP server's, one the Agency Engineer added):
 // every argument as a line, the longest text as the body.
 function generic(toolId: string, args: ToolArgs): ApprovalTool {
-  const long = Object.entries(args).filter(([, v]) => typeof v === 'string' && v.length > 120).sort((a, b) => String(b[1]).length - String(a[1]).length)[0]?.[0];
+  // Keys starting "_" are the app's own (_why, shown apart), not the tool's.
+  const own = Object.entries(args).filter(([k]) => !k.startsWith('_'));
+  const long = own.filter(([, v]) => typeof v === 'string' && v.length > 120).sort((a, b) => String(b[1]).length - String(a[1]).length)[0]?.[0];
   return {
     wantsTo: `use ${toolId}`,
-    headers: Object.keys(args)
+    headers: own
+      .map(([k]) => k)
       .filter(k => k !== long)
       .map(k => ({ label: k.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()), value: `{${k}}` })),
     body: long ? `{${long}}` : null,
@@ -159,7 +162,11 @@ export function renderApproval(toolId: string, args: ToolArgs) {
   const tool: ApprovalTool = (APPROVAL_TOOLS as Record<string, ApprovalTool>)[toolId] ?? generic(toolId, args);
   return {
     action: `wants to ${fill(tool.wantsTo, args, toolId)}`,
-    fields: tool.headers.filter(h => !h.optional || given(h.value, args)).map(h => ({ label: h.label, value: fill(h.value, args, toolId) })),
+    // The agent's own reason first, when it gave one.
+    fields: [
+      ...(typeof args._why === 'string' && args._why.trim() ? [{ label: 'Why', value: args._why.trim() }] : []),
+      ...tool.headers.filter(h => !h.optional || given(h.value, args)).map(h => ({ label: h.label, value: fill(h.value, args, toolId) })),
+    ],
     body: tool.body === null ? null : fill(tool.body, args, toolId),
     expiresAfterHours: tool.expiresAfterHours,
   };

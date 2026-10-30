@@ -69,7 +69,8 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
     id,
   );
   if (!claimed.changes) throw new Error('Already decided.');
-  const args = JSON.parse(a.args) as Record<string, unknown>;
+  // The agent's reason (_why) is for the card, not the tool.
+  const { _why: _reason, ...args } = JSON.parse(a.args) as Record<string, unknown>;
   const what = `${a.tool} (${argsLine(args)})`;
   const why = note?.trim() ? ` Their note: "${note.trim()}"` : '';
   if (decision === 'rejected') {
