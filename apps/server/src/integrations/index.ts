@@ -588,6 +588,8 @@ export async function writeDraftIntegration(definition: string, by: string, requ
   } catch (e) {
     throw new Error(`That isn't valid YAML: ${(e as Error).message.slice(0, 300)}`);
   }
+  // An extension needn't state auth: it's its parent's (set below).
+  if (raw && typeof raw === 'object' && 'key_from' in raw && !('auth' in raw)) (raw as Record<string, unknown>).auth = { type: 'none' };
   const checked = Integration.safeParse(raw);
   if (!checked.success)
     throw new Error(`The definition doesn't fit the format: ${checked.error.issues.slice(0, 6).map(i => `${i.path.join('.') || '(top)'}: ${i.message}`).join('; ')}`);

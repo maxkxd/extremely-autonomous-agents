@@ -165,7 +165,6 @@ id: ${id}
 name: Brave (more tools)
 what: x
 key_from: ${from}
-auth: { type: none }
 base_url: https://api.search.brave.com
 test: { tool: zzext.get, args: {} }
 tools:
