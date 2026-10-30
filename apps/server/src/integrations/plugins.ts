@@ -64,6 +64,26 @@ export async function writePlugin(module: string, code: string) {
   await writeFile(file(module), code);
 }
 
+// One of a draft plugin's silent (read) tools, run before a person approves it -
+// so a wrong address or sign-in shows up before the card, not at go-live. Only
+// T0 tools, only GET, only to its own service's hosts (runSandboxed's limits);
+// nothing is installed.
+export async function tryDraftTool(module: string, permissions: Permissions, toolId: string, args: unknown, token: string | undefined, hosts: Set<string>): Promise<string> {
+  const code = await readPlugin(module);
+  if (code == null) throw new Error(`The plugin "${module}" has no code.`);
+  const bad = networkProblems(code);
+  if (bad.length) throw new Error(`The plugin "${module}" reaches the network other than through kit.fetch (${bad.join('; ')}).`);
+  const built = await buildPlugin(module, code, codeHash(code));
+  const described = await runSandboxed(built, permissions, { op: 'describe' }, { hosts, readOnly: true });
+  if (described.error) throw new Error(`The plugin "${module}" didn't load: ${described.error}`);
+  const tool = described.tools?.find(t => t.id === toolId);
+  if (!tool) throw new Error(`The plugin "${module}" has no tool "${toolId}". Its tools: ${(described.tools ?? []).map(t => t.id).join(', ') || 'none'}.`);
+  if (tool.tier !== 'T0') throw new Error(`Before approval only silent (T0) tools can be tried; ${toolId} is ${tool.tier}. It's tried as it goes live.`);
+  const out = await runSandboxed(built, permissions, { op: 'run', tool: toolId, args, token }, { hosts, readOnly: true });
+  if (out.error) throw new Error(out.error);
+  return out.result ?? '';
+}
+
 const installed = new Map<string, CodeModule>();
 export const pluginModule = (module: string) => installed.get(module);
 

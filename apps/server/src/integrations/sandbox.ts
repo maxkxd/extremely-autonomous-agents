@@ -61,7 +61,16 @@ const sandboxEnv = () => Object.fromEntries(PASS.filter(k => process.env[k] !== 
 
 type Done = { result?: string; error?: string; tools?: { id: string; tier: string; description: string; input: unknown; run: string }[] };
 
-export function runSandboxed(file: string, perms: Permissions, msg: { op: 'describe' } | { op: 'run'; tool: string; args: unknown; token?: string }): Promise<Done> {
+// limits: a draft tried before a person approved it - reads (GET) only, and only
+// to its own service's hosts, so its key can't be sent anywhere else.
+export type FetchLimits = { hosts: Set<string>; readOnly: true };
+
+export function runSandboxed(
+  file: string,
+  perms: Permissions,
+  msg: { op: 'describe' } | { op: 'run'; tool: string; args: unknown; token?: string },
+  limits?: FetchLimits,
+): Promise<Done> {
   for (const d of perms.write) void mkdir(d, { recursive: true }).catch(() => {});
   // One flag per path (Node 24 doesn't take a comma-separated list).
   const execArgv = [
@@ -88,6 +97,11 @@ export function runSandboxed(file: string, perms: Permissions, msg: { op: 'descr
       if (!m.fetch) return;
       const { id, url, init } = m.fetch;
       try {
+        if (limits) {
+          const method = String(init?.method ?? 'GET').toUpperCase();
+          if (method !== 'GET' && method !== 'HEAD') throw new Error(`Before approval a plugin may only read: ${method} isn't allowed.`);
+          if (!limits.hosts.has(new URL(url).host)) throw new Error(`Before approval a plugin may only reach its own service (${[...limits.hosts].join(', ') || 'none found'}), not ${new URL(url).host}.`);
+        }
         const { res } = await safeFetch(url, init as Parameters<typeof safeFetch>[1]);
         const body = Buffer.from(await res.arrayBuffer());
         if (body.length > MAX_BODY) throw new Error('The response is larger than 50 MB.');

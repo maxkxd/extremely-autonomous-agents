@@ -9,7 +9,7 @@ import { deleteSecret, getSecret, setSecret } from '../vault.js';
 import { authParts, callHttp, at, baseFor, errorText, putFields, redact } from './http.js';
 import { callMcpTool, listMcpTools, type McpTool } from './mcp-client.js';
 import { MODULES, type CodeModule } from './modules/index.js';
-import { codeHash, dropPluginBackup, installPlugin, pluginModule, readPlugin, readPluginBackup, removePlugin, restorePlugin } from './plugins.js';
+import { codeHash, dropPluginBackup, installPlugin, pluginModule, readPlugin, readPluginBackup, removePlugin, restorePlugin, tryDraftTool } from './plugins.js';
 import { resolvePermissions } from './sandbox.js';
 import { safeFetch } from '../runner/net.js';
 import type { Kit } from './modules/types.js';
@@ -688,9 +688,10 @@ export async function testIntegrationTool(id: string, toolId: string, args: Reco
   if (!integration) throw new Error(`No integration "${id}".`);
   if (integration.auth.type !== 'none' && !isConnected(id))
     throw new Error(`${integration.name} isn't connected yet: ask the person to add its key (engineer.ask_for_connection).`);
-  // A redrafted plugin's loaded code is still the live version: the draft can't be tried.
-  if (integration.kind === 'code' && (!moduleOf(integration.module) || (liveCopies.has(id) && !MODULES[integration.module])))
-    throw new Error("A code plugin's code runs only after a person approves it. Propose it with engineer.publish_integration; it's tested as it goes live.");
+  // A plugin not yet approved (or a redraft, whose loaded code is still the live
+  // version): its silent tools can be tried, reads only, to its own service.
+  if (integration.kind === 'code' && !MODULES[integration.module] && (!moduleOf(integration.module) || liveCopies.has(id)))
+    return tryDraftTool(integration.module, resolvePermissions(integration.permissions), toolId, args, await keyOf(id, integration), (await targetsOf(integration)).hosts);
   const p = providers().get(toolId)?.by.find(x => x.integration.id === id);
   if (!p) throw new Error(`${integration.name} has no tool "${toolId}". Its tools: ${toolsOf(id).map(([t]) => t).join(', ') || 'none found yet'}.`);
   return p.call(args);
@@ -810,7 +811,7 @@ export async function publishIntegration(id: string, approvedHash: string | null
   const integration = find(id);
   if (!integration) throw new Error(`No integration "${id}".`);
   const before = states()[id] ?? {};
-  // A redraft of one that's working: tried first (a plugin can't be tried before
+  // A redraft of one that's working: tried first (a plugin's other tools can't be tried before
   // it's approved), and if it fails the working version stays live and the
   // redraft stays a draft - agents keep what they had.
   const replacing = !!before.draft && liveCopies.has(id) && isConnected(id);
@@ -834,7 +835,7 @@ export async function publishIntegration(id: string, approvedHash: string | null
   await rm(join(LIVE, `${id}.yaml`), { force: true });
   liveCopies.delete(id);
   if (integration.kind === 'code') await dropPluginBackup(integration.module);
-  // Tested now that it can run (a plugin's first run is after approval).
+  // Tested now that all of it can run (before approval only its silent tools could).
   let tested: string | null = null;
   if (integration.auth.type === 'none' || isConnected(id)) {
     const r = await connectIntegration(id).catch(e => ({ ok: false, message: (e as Error).message }));
