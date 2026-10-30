@@ -551,4 +551,9 @@ test("a tool that keeps failing isn't hammered: after 3 failures in a run it's r
   const outcomes: string[] = [];
   for (let i = 0; i < 5; i++) outcomes.push((await execute(ctx, { id: `s${i}`, name: 'zzbroken__call', args: {} }, ids)).outcome);
   assert.deepEqual(outcomes, ['failed', 'failed', 'failed', 'refused', 'refused']);
+  // ...and the Agency Engineer is asked to fix it, once.
+  const fix = all<{ what: string; stage: string; evidence: string }>("SELECT what, stage, evidence FROM requests WHERE what LIKE 'Fix the tool zzbroken.call%'");
+  assert.equal(fix.length, 1);
+  assert.equal(fix[0].stage, 'engineer');
+  assert.match(fix[0].evidence, /404 Not Found/);
 });
