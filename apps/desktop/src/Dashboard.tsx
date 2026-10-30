@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { CircleCheckBig, Ellipsis, GripVertical, Pause, Play, Square, Trash2, User, Wrench } from 'lucide-react';
+import { CircleCheckBig, Ellipsis, GripVertical, LoaderCircle, Pause, Play, Square, Trash2, User, Wrench } from 'lucide-react';
 import { DeleteAgentDialog } from './DeleteAgentDialog';
 import { ModelPanel, ModelRow, useModelChecks, useModelSlide, type Checks } from './ModelPicker';
 import { getAgentModels, getAvailableModels, getLiveAgents, runNow, setAgentModels, setAgentRunner, type AgencyState, type AvailableModels, type LiveAgent, type ModelChoice } from './builder';
@@ -344,7 +344,7 @@ export function AgentCard({
         <GripVertical size={16} />
       </button>
       )}
-      {onDelete && !preview && <CardMenu onDelete={onDelete} onRunNow={onRunNow} />}
+      {onDelete && !preview && <CardMenu onDelete={onDelete} />}
       <div className="card-main">
         <header className="card-head">
           <div className="card-name">
@@ -382,6 +382,13 @@ export function AgentCard({
                 <CircleCheckBig size={14} strokeWidth={1.75} />
                 {countsLoading ? <Skel w={9} h={12} /> : openApprovals}
               </a>
+              {onRunNow && !preview && (
+                <RunNowButton
+                  running={outcome === 'running'}
+                  why={agencyHeld ? 'The agency is on standby or stopped' : agent.settingUp ? "It's still being set up" : state === 'stopped' ? "It's stopped" : null}
+                  onRun={onRunNow}
+                />
+              )}
             </span>
             </span>
             </div>
@@ -483,7 +490,34 @@ export function AgentCard({
 }
 
 // The card's three-dot menu, top right.
-function CardMenu({ onDelete, onRunNow }: { onDelete: () => void; onRunNow?: () => void }) {
+// Starts a run straight away, beside its requests and approvals. Spins from the
+// click until the run is under way, and while it runs.
+function RunNowButton({ running, why, onRun }: { running: boolean; why: string | null; onRun: () => void }) {
+  const [starting, setStarting] = useState(false);
+  useEffect(() => {
+    if (!starting) return;
+    if (running) return setStarting(false);
+    const t = setTimeout(() => setStarting(false), 10_000);
+    return () => clearTimeout(t);
+  }, [starting, running]);
+  const busy = starting || running;
+  return (
+    <button
+      className={`head-count run-now${busy ? ' busy' : ''}`}
+      title={why ? `Run now: ${why.toLowerCase()}` : busy ? (running ? 'Running' : 'Starting...') : 'Run now'}
+      aria-label="Run now"
+      disabled={!!why || busy}
+      onClick={() => {
+        setStarting(true);
+        onRun();
+      }}
+    >
+      {busy ? <LoaderCircle size={14} strokeWidth={2} className="spin" /> : <Play size={14} strokeWidth={1.75} />}
+    </button>
+  );
+}
+
+function CardMenu({ onDelete }: { onDelete: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
@@ -495,18 +529,6 @@ function CardMenu({ onDelete, onRunNow }: { onDelete: () => void; onRunNow?: () 
       </button>
       {open && (
         <div className="card-menu-list" role="menu">
-          {onRunNow && (
-            <button
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onRunNow();
-              }}
-            >
-              <Play size={14} strokeWidth={2} />
-              Run now
-            </button>
-          )}
           <button
             role="menuitem"
             className="danger"
