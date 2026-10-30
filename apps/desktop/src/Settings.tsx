@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Building2, Check, ChevronDown, ChevronRight, Gauge, LogOut, Plug, Plus, Trash2, User, Wrench, X } from 'lucide-react';
+import { Building2, Check, ChevronDown, ChevronRight, Gauge, LoaderCircle, LogOut, Plug, Plus, Trash2, User, Wrench, X } from 'lucide-react';
 import { ACCOUNT, AGENTS } from './data';
 import {
   createInvite,
@@ -865,6 +865,7 @@ function OrgPeople() {
   const [email, setEmail] = useState('');
   const [role, setRoleChoice] = useState<'member' | 'admin'>('member');
   const [made, setMade] = useState<Invite | null>(null);
+  const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const manage = org.role !== 'member';
@@ -921,17 +922,24 @@ function OrgPeople() {
             {org.role === 'owner' && (
               <RolePicker value={role} onChange={setRoleChoice} />
             )}
+            {/* Sending: a spinner in its place, the button keeping its size. */}
             <button
-              className="sbtn"
-              disabled={!org.self && !email.trim()}
-              onClick={() =>
-                act(async () => {
+              className={`sbtn${inviting ? ' busy' : ''}`}
+              disabled={inviting || (!org.self && !email.trim())}
+              aria-busy={inviting}
+              onClick={async () => {
+                setInviting(true);
+                await act(async () => {
                   setMade(await createInvite(org.id, email.trim(), role));
                   setEmail('');
-                })
-              }
+                });
+                setInviting(false);
+              }}
             >
-              <Plus size={14} /> Invite
+              <span className="sbtn-label">
+                <Plus size={14} /> Invite
+              </span>
+              {inviting && <LoaderCircle size={16} strokeWidth={2} className="spin sbtn-spin" aria-label="Sending" />}
             </button>
           </div>
           {/* Ours: emailed, and waiting in their app. Self-hosted (no mail from us): the address and a code to pass on. */}
