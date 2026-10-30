@@ -545,7 +545,9 @@ export async function writeDraftIntegration(definition: string, by: string, requ
   const existing = loaded.find(l => l.integration.id === integration.id);
   if (existing?.shipped) throw new Error(`"${integration.id}" is a built-in integration's id; pick another.`);
   const prev = states()[integration.id];
-  if (existing && prev?.by !== by && !asPerson) throw new Error(`"${integration.id}" was added by a person; pick another id.`);
+  // One a person added stays theirs (by), but the Agency Engineer may extend it: its change is
+  // a draft a person approves, and the live version keeps working meanwhile.
+  if (existing && prev?.by && prev.by !== by) by = prev.by;
   if (asPerson) by = prev?.by ?? by;
   await mkdir(LIVE, { recursive: true });
   // Redrafting a live one: its live definition is kept, in case the draft is turned down.
