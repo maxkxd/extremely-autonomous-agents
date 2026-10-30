@@ -381,18 +381,25 @@ const TOOLS: ToolDef[] = [
   {
     id: 'engineer.list_requests',
     tier: 'T0',
-    description: 'The open requests, newest last: what the agent asked, the conversation so far, where each stands, and the tools the asking agent expects that nothing provides yet.',
-    schema: obj({}),
-    impl: async () => {
+    description:
+      "The open requests: yours to act on in full (what the agent asked, the conversation, its missing tools), the ones waiting on a person as one line each. request_id: just that one, in full.",
+    schema: obj({ request_id: int('Optional: one request, in full') }),
+    impl: async a => {
       // A tool agents already rely on that's broken comes before anything new: then
       // what's yours to do (not waiting on a person), oldest first.
+      const one_ = Number(a.request_id) || 0;
       const rows = all<RequestRow>(
-        "SELECT * FROM requests WHERE status = 'open' AND agent_id != ? ORDER BY (what LIKE 'Fix the tool %') DESC, (stage = 'engineer') DESC, id",
+        `SELECT * FROM requests WHERE status = 'open' AND agent_id != ?${one_ ? ' AND id = ?' : ''} ORDER BY (what LIKE 'Fix the tool %') DESC, (stage = 'engineer') DESC, id`,
         FLEET_ENGINEER,
+        ...(one_ ? [one_] : []),
       );
-      if (!rows.length) return 'No open requests.';
+      if (!rows.length) return one_ ? `Request #${one_} isn't open.` : 'No open requests.';
       const out: string[] = [];
+      // With fifty open the full list was too big to read: those waiting on a person
+      // are one line each (request_id for the rest of one).
+      const waiting = one_ ? [] : rows.filter(r => r.stage === 'waiting_you' || r.stage === 'person' || r.stage === 'approval');
       for (const r of rows) {
+        if (waiting.includes(r)) continue;
         const thread = all<{ from_who: string; text: string }>('SELECT from_who, text FROM request_messages WHERE request_id = ? ORDER BY id', r.id);
         out.push(
           [
@@ -407,6 +414,8 @@ const TOOLS: ToolDef[] = [
             .join('\n') + (await missingTools(r.agent_id)) + namedToolHistory(r),
         );
       }
+      if (waiting.length)
+        out.push(`Waiting on a person (${waiting.length}) - engineer.list_requests with request_id for one in full:\n${waiting.map(r => `#${r.id} ${r.agent_id} · ${r.stage}: ${r.what.slice(0, 120)}`).join('\n')}`);
       return out.join('\n\n');
     },
   },
