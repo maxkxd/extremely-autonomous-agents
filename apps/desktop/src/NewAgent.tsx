@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUp, Plus, Sparkles, TriangleAlert } from 'lucide-react';
+import { ArrowUp, Check, Plus, Sparkles, TriangleAlert } from 'lucide-react';
 import { AGENT_PACKS, type AgentPack } from './packs';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { BuilderChat } from './BuilderChat';
-import { ACCOUNT } from './data';
+import { ACCOUNT, AGENTS } from './data';
 import { useProfileChat } from './ProfileChat';
 import { addPack, buildAgent, getProfile, interviewDone, matchPack, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
 import { ConnectModel, useHasModels } from './NoModels';
@@ -27,6 +27,19 @@ function PackCard({
 }) {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // What of it is in the fleet: by where each agent came from (its pack and the
+  // pack's name for it), not what it's called now. Delete one and it can be
+  // added back; nothing else of the pack is added twice.
+  const here = new Set(AGENTS.flatMap(a => (a.pack?.id === pack.id ? [a.pack.member] : [])));
+  const missing = pack.agents.filter(a => !here.has(a.name));
+  const allIn = missing.length === 0;
+  const label = allIn
+    ? 'Already added'
+    : missing.length === pack.agents.length
+      ? `Add ${pack.name.toLowerCase()} pack`
+      : missing.length === 1
+        ? `Add ${missing[0].name} back`
+        : `Add the ${missing.length} missing agents`;
   const add = async () => {
     setAdding(true);
     setError(null);
@@ -39,7 +52,7 @@ function PackCard({
     }
   };
   return (
-    <article className={`pack${recommended !== null ? ' recommended' : ''}`} ref={cardRef}>
+    <article className={`pack${recommended !== null ? ' recommended' : ''}${allIn ? ' added' : ''}`} ref={cardRef}>
       <div className="pack-body">
         {recommended !== null && (
           <div className="pack-rec">
@@ -57,19 +70,22 @@ function PackCard({
           {pack.agents.map(a => {
             const Icon = DEPARTMENT_ICON[a.department];
             return (
-              <li key={a.name}>
+              <li key={a.name} className={here.has(a.name) && !allIn ? 'in' : undefined}>
                 <Icon size={16} strokeWidth={1.75} className="pack-agent-icon" />
                 <div>
-                  <div className="pack-agent-name">{a.name}</div>
+                  <div className="pack-agent-name">
+                    {a.name}
+                    {here.has(a.name) && !allIn && <span className="pack-agent-in">Added</span>}
+                  </div>
                   <div className="pack-agent-does">{a.does}</div>
                 </div>
               </li>
             );
           })}
         </ul>
-        <button className="pack-add" disabled={adding} onClick={add}>
-          <Plus size={15} strokeWidth={2} />
-          Add {pack.name.toLowerCase()} pack
+        <button className="pack-add" disabled={adding || allIn} onClick={add}>
+          {allIn ? <Check size={15} strokeWidth={2} /> : <Plus size={15} strokeWidth={2} />}
+          {label}
         </button>
         {error && <div className="custom-error">{error}</div>}
       </div>

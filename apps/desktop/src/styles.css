@@ -1150,6 +1150,17 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .pack-add:disabled { cursor: default; }
 .pack-add:not(:disabled):hover { background: var(--surface-hover); }
+/* Every agent of it is in the fleet: the card greys out, and says so. */
+.pack.added .pack-body > :not(.pack-add) { opacity: 0.45; }
+.pack.added .pack-add { color: var(--muted); border-color: var(--hairline); }
+.pack.added:hover { border-color: var(--hairline); }
+/* Part of it is in: those agents dim, with a small Added tag. */
+.pack-agents li.in { opacity: 0.5; }
+.pack-agent-in {
+  margin-left: 8px; padding: 1px 7px; border-radius: 9px; vertical-align: 1px;
+  font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--muted); background: var(--surface-hover);
+}
 
 .pack.custom { border-style: dashed; border-color: var(--border-strong); background: rgba(255, 255, 255, 0.015); }
 /* Centred a little ABOVE the true middle: dead-centre content reads as low

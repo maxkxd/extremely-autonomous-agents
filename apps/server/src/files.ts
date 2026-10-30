@@ -31,7 +31,11 @@ export type Meta = {
   builtIn?: boolean; // part of the agency itself (the Agency Engineer), owned by no one
   service?: boolean; // a built-in helper (Agency Conductor, Agency Reviewer): runs only when called, never scheduled
   org?: string | null; // their organisation, if any
-  setup?: { packId: string; index: number; person: string; org: string | null; attempts: number };
+  setup?: { packId: string; index: number; member?: string; person: string; org: string | null; attempts: number };
+  // The pack it was added from, and which of its agents (the pack's own name for
+  // it, not the agent's, which can change): kept for good, so the New agent page
+  // knows that part of the pack is in, and can add back only what's missing.
+  pack?: { id: string; member: string };
 };
 
 // fleetIds: tools other agents in this fleet already hold, which can be reused.
@@ -140,7 +144,9 @@ export async function save(files: AgentFiles, meta: Meta) {
     writeFile(join(dir, 'TOOLS.yaml'), files.tools),
     writeFile(join(dir, 'KPI.yaml'), files.kpi),
   ]);
-  await writeMeta(files.id, meta);
+  // Where it came from outlives set-up: every later save keeps it.
+  const pack = meta.pack ?? (await readMeta(files.id))?.pack ?? (meta.setup ? { id: meta.setup.packId, member: meta.setup.member ?? meta.name } : undefined);
+  await writeMeta(files.id, pack ? { ...meta, pack } : meta);
   return dir;
 }
 

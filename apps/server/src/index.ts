@@ -323,19 +323,24 @@ const routes: Record<string, Route> = {
         throw new BuilderError('That pack is not ready yet.');
       }),
     ) as Build[];
+    // Only the ones not here already: a pack is added once, and an agent of it
+    // that was deleted can be added back on its own.
+    const here = new Set((await Promise.all((await listIds()).map(readMeta))).flatMap(m => (m?.pack?.id === packId ? [m.pack.member] : [])));
+    const missing = builds.map((b, index) => ({ b, index })).filter(x => !here.has(x.b.name));
+    if (!missing.length) throw new BuilderError('Every agent in this pack is already added.');
     const taken = [...takenIds];
     return {
-      agents: builds.map((b, index) => {
+      agents: missing.map(({ b, index }) => {
         const a = forApp(b, taken);
         taken.push(a.agent.id);
-        return { ...a, setup: { packId, index } };
+        return { ...a, setup: { packId, index, member: b.name } };
       }),
     };
   },
 
   // --- Agents ---
   'POST /api/agents': async req => {
-    await createAgent(await body<{ person: string; org: string | null; files: AgentFiles; setup?: { packId: string; index: number } }>(req));
+    await createAgent(await body<{ person: string; org: string | null; files: AgentFiles; setup?: { packId: string; index: number; member?: string } }>(req));
     return { ok: true };
   },
   // --- Which models each agent runs on (models/choice.ts) ---
@@ -362,7 +367,7 @@ const routes: Record<string, Route> = {
     const out: Record<string, unknown> = {};
     for (const id of await listIds()) {
       const m = await readMeta(id);
-      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output, owner: m.owner ?? null, ownerId: m.ownerId ?? null, builtIn: !!m.builtIn, service: !!m.service };
+      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output, owner: m.owner ?? null, ownerId: m.ownerId ?? null, builtIn: !!m.builtIn, service: !!m.service, pack: m.pack ?? null };
     }
     return out;
   },

@@ -13,7 +13,7 @@ export type Turn = { role: 'person' | 'builder'; text: string };
 // Hidden files, as the server composed them.
 export type AgentFiles = { id: string; name: string; department: Department; charter: string; tools: string; kpi: string; models?: ModelChoice[] };
 // setup: a pack agent, customized for the organisation in the background once added.
-export type Built = { agent: Agent; files: AgentFiles; setup?: { packId: string; index: number } };
+export type Built = { agent: Agent; files: AgentFiles; setup?: { packId: string; index: number; member?: string } };
 
 // One creation, from the first words typed into the custom card to the build.
 export type BuilderSession = {
@@ -133,7 +133,7 @@ export const nextTurn = (turns: Turn[], declinedPack: string | null) =>
 type ServerAgent = {
   agent: { id: string; name: string; department: Department; output: string[] };
   files: AgentFiles;
-  setup?: { packId: string; index: number };
+  setup?: { packId: string; index: number; member?: string };
 };
 
 export async function buildAgent(turns: Turn[]): Promise<Built> {
@@ -167,6 +167,7 @@ function toBuilt(out: ServerAgent): Built {
       decisions: { approved: 0, rejected: 0, expired: 0 },
       ferocity: 0,
       settingUp: !!out.setup,
+      pack: out.setup ? { id: out.setup.packId, member: out.setup.member ?? out.agent.name } : null,
     },
   };
 }
@@ -174,7 +175,7 @@ function toBuilt(out: ServerAgent): Built {
 export const saveAgent = (b: Built) => post<{ ok: true }>('/api/agents', { files: b.files, setup: b.setup });
 export const deleteAgentFiles = (id: string) => post<{ ok: true }>('/api/agents/delete', { id });
 
-export type AgentStatus = { status: 'ready' | 'setting-up' | 'generic'; name: string; department: Department; output: string[]; owner: string | null; ownerId?: string | null; builtIn?: boolean; service?: boolean };
+export type AgentStatus = { status: 'ready' | 'setting-up' | 'generic'; name: string; department: Department; output: string[]; owner: string | null; ownerId?: string | null; builtIn?: boolean; service?: boolean; pack?: { id: string; member: string } | null };
 export const agentStatuses = () => request<Record<string, AgentStatus>>('/api/agents/status');
 
 // Settings > Tools (server/src/toolSettings.ts): every tool the agents use, and its level.

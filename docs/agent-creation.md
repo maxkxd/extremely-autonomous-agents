@@ -104,6 +104,17 @@ purpose. **Adding a pack then tailors each one to you in the background:**
 While an agent is setting up, its card says so, it can't be run or tuned, and a
 DM sent to it waits and is answered once it's ready.
 
+**A pack is added once** (2026-10-30). Each pack agent's `meta.json` keeps
+`pack: { id, member }` for good: the pack, and the pack's own name for that
+agent (`member`), set when it's added and carried through tailoring and every
+later save (`save()` in `files.ts`). Not its name or id, which change (a
+rename; `-2` when taken). The New agent page greys out a pack whose members
+are all in the fleet ("Already added"); with one deleted, it offers just that
+one ("Add Infrastructure Monitor back", the rest marked Added), and
+`POST /api/packs/add` itself adds only the members not already there, so two
+devices can't add a pack twice. Agents made before this were matched to
+their pack by exact name and department once, by hand.
+
 ## Tiers
 
 Three tiers, the same as the runner minus T3:
