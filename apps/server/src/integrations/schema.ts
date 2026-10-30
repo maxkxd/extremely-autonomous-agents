@@ -39,6 +39,38 @@ export const Auth = z.discriminatedUnion('type', [
   // A remote MCP server's own sign-in (the MCP authorization spec): found and
   // registered with when the person signs in - no OAuth client to make.
   z.object({ type: z.literal('mcp_oauth') }),
+  // Whatever the service takes, as fields the person fills in (a client id,
+  // secret and refresh token; an account id and key; a region): each named, and
+  // put where the service wants it with {{name}} - in headers, the query, or
+  // base_url. token: swapped first for a short-lived token ({{token}}), kept
+  // until it expires - for services like Zoho that hand out refresh tokens.
+  z.object({
+    type: z.literal('fields'),
+    fields: z
+      .array(
+        z.object({
+          name: z.string().regex(/^[a-z][a-z0-9_]*$/),
+          label: z.string(), // what the person sees: "Refresh token"
+          help: z.string().optional(), // where to find it, in a sentence
+          secret: z.boolean().default(true), // masked, and never shown back; false for an id or a region
+          optional: z.boolean().optional(),
+          default: z.string().optional(),
+        }),
+      )
+      .min(1)
+      .max(8),
+    token: z
+      .object({
+        url: z.string().startsWith('https://'), // may hold {{field}}s (a region)
+        form: z.record(z.string(), z.string()).optional(), // sent form-encoded
+        json: z.record(z.string(), z.string()).optional(), // or as JSON
+        pick: z.string().default('access_token'), // dot path to the token in the answer
+        expires_in: z.string().optional(), // dot path to its lifetime in seconds (else 50 minutes)
+      })
+      .optional(),
+    headers: z.record(z.string(), z.string()).optional(), // e.g. { authorization: "Zoho-oauthtoken {{token}}" }
+    query: z.record(z.string(), z.string()).optional(),
+  }),
 ]);
 
 const Request = z.object({
@@ -120,7 +152,8 @@ export const Integration = z.discriminatedUnion('kind', [
     key_help: z.string().optional(), // what the key needs (permissions), shown by its field
     auth: Auth,
     events: z.array(EventDef).optional(),
-    base_url: z.string().url(),
+    // May hold a fields sign-in's non-secret fields: https://www.zohoapis.{{region}}
+    base_url: z.string().refine(u => URL.canParse(u.replace(/\{\{\w+\}\}/g, 'x')), 'base_url must be an address'),
     test: z.object({ tool: z.string(), args: z.record(z.string(), z.unknown()) }),
     tools: z.array(HttpTool).min(1),
   }),

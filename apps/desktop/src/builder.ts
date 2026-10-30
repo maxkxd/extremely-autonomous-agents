@@ -303,7 +303,9 @@ export type IntegrationView = {
   keyUrl?: string;
   keyHelp: string | null;
   needsKey: boolean;
-  signIn: { clientUrl: string | null; help: string | null; hasClient: boolean } | null; // OAuth
+  // A sign-in of fields the service takes (an id and secret, a refresh token, a region).
+  fields: { name: string; label: string; help: string | null; secret: boolean; optional: boolean; saved: boolean; value: string | null }[] | null;
+  signIn: { clientUrl: string | null; help: string | null; hasClient: boolean; redirect: string | null } | null; // OAuth
   shipped: boolean;
   connected: boolean;
   draft: boolean; // the Agency Engineer's, not live until approved
@@ -323,7 +325,8 @@ export const getEvents = () => request<{ tunnel: TunnelState; base: string; even
 export const setTunnel = (on: boolean) => post<{ tunnel: TunnelState; base: string }>('/api/events/tunnel', { on });
 export const setWebhookSecret = (id: string, secret: string) => post<{ ok: boolean }>('/api/integrations/webhook-secret', { id, secret });
 export const getIntegrations = () => request<IntegrationsView>('/api/integrations');
-export const connectIntegration = (id: string, key?: string) => post<{ ok: boolean; message: string }>('/api/integrations/connect', { id, key });
+export const connectIntegration = (id: string, key?: string, fields?: Record<string, string>) =>
+  post<{ ok: boolean; message: string }>('/api/integrations/connect', { id, key, fields });
 export const disconnectIntegration = (id: string) => post<{ ok: boolean }>('/api/integrations/disconnect', { id });
 export const removeIntegration = (id: string) => post<{ ok: boolean }>('/api/integrations/remove', { id });
 export const addMcpIntegration = (b: { url: string; name?: string; auth: 'none' | 'bearer' | 'signin'; key?: string }) =>

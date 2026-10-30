@@ -6,7 +6,7 @@ import type { Tier } from '../catalog.js';
 import { all, getSetting, setSetting } from '../runner/db.js';
 import { registerTools, type ToolDef, unregisterTools } from '../runner/tools.js';
 import { deleteSecret, getSecret, setSecret } from '../vault.js';
-import { authParts, callHttp } from './http.js';
+import { authParts, callHttp, at, baseFor, errorText, putFields, redact } from './http.js';
 import { callMcpTool, listMcpTools, type McpTool } from './mcp-client.js';
 import { MODULES, type CodeModule } from './modules/index.js';
 import { codeHash, dropPluginBackup, installPlugin, pluginModule, readPlugin, readPluginBackup, removePlugin, restorePlugin } from './plugins.js';
@@ -18,8 +18,8 @@ import type { Kit } from './modules/types.js';
 const KIT: Kit = { fetch: async (url, init) => (await safeFetch(url, init)).res as unknown as Response };
 import { discoverMcpSignIn } from './mcp-auth.js';
 import { stopStdioServer } from './mcp-stdio.js';
-import { oauthAccessToken, oauthCallback, oauthSecret, oauthSignOut, oauthStart, setOAuthAccount } from './oauth.js';
-import { Integration, type EventDefT, type HttpIntegration, type McpIntegration } from './schema.js';
+import { oauthAccessToken, oauthCallback, oauthSecret, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
+import { Integration, type EventDefT, type HttpIntegration, type McpIntegration, type AuthDef } from './schema.js';
 import { DATA_DIR } from '../paths.js';
 
 // Integrations (docs/integrations.md): the ones that ship with the app
@@ -57,9 +57,49 @@ const putState = (id: string, s: State | null) => {
   setSetting(STATE_KEY, all);
 };
 const secretKey = (id: string) => `integration:${id}`;
-// The key, or for a signed-in (OAuth) integration its current access token.
+// A fields sign-in's fields, with its defaults, and the token they're swapped
+// for when it has one (kept until it expires).
+type FieldsAuth = Extract<AuthDef, { type: 'fields' }>;
+const tokens = new Map<string, { token: string; until: number }>();
+async function fieldsOf(id: string, auth: FieldsAuth): Promise<Record<string, string> | undefined> {
+  const saved = (await getSecret<{ fields: Record<string, string> }>(secretKey(id)))?.fields;
+  if (!saved) return undefined;
+  const creds: Record<string, string> = {};
+  for (const f of auth.fields) if (saved[f.name] ?? f.default) creds[f.name] = saved[f.name] ?? f.default!;
+  if (!auth.token) return creds;
+  const had = tokens.get(id);
+  if (had && had.until > Date.now()) return { ...creds, token: had.token };
+  const url = putFields(auth.token.url, creds);
+  if (!url.startsWith('https://')) throw new Error('Its token address must be https.');
+  const form = auth.token.form ? new URLSearchParams(Object.entries(auth.token.form).map(([k, v]) => [k, putFields(v, creds)])).toString() : undefined;
+  const json = auth.token.json ? JSON.stringify(Object.fromEntries(Object.entries(auth.token.json).map(([k, v]) => [k, putFields(v, creds)]))) : undefined;
+  const { res } = await safeFetch(url, {
+    method: 'POST',
+    headers: { accept: 'application/json', 'content-type': form ? 'application/x-www-form-urlencoded' : 'application/json' },
+    body: form ?? json,
+  } as never);
+  const text = redact(await res.text(), auth, JSON.stringify(creds));
+  let answer: unknown = null;
+  try {
+    answer = JSON.parse(text);
+  } catch {
+    // not JSON
+  }
+  const token = at(answer, auth.token.pick);
+  if (!res.ok || typeof token !== 'string' || !token) throw new Error(`Getting a token from ${new URL(url).host} failed (${res.status}): ${errorText(text).slice(0, 200)}`);
+  const life = Number(auth.token.expires_in ? at(answer, auth.token.expires_in) : NaN);
+  tokens.set(id, { token, until: Date.now() + (Number.isFinite(life) && life > 120 ? life - 60 : 3000) * 1000 });
+  return { ...creds, token };
+}
+
+// The key, or for a signed-in (OAuth) integration its current access token;
+// for a fields sign-in, its fields (and token) as JSON.
 const keyOf = async (id: string) => {
   const auth = find(id)?.auth;
+  if (auth?.type === 'fields') {
+    const c = await fieldsOf(id, auth);
+    return c ? JSON.stringify(c) : undefined;
+  }
   if (auth?.type === 'oauth2') return oauthAccessToken(id, auth);
   if (auth?.type === 'mcp_oauth') {
     const found = (await oauthSecret(id))?.discovered;
@@ -215,10 +255,25 @@ async function test(integration: Integration): Promise<{ ok: boolean; message: s
   }
 }
 
-export async function connectIntegration(id: string, key?: string) {
+export async function connectIntegration(id: string, key?: string, fields?: Record<string, unknown>) {
   const integration = find(id);
   if (!integration) throw new Error('Unknown integration.');
-  if (integration.auth.type === 'oauth2' || integration.auth.type === 'mcp_oauth') {
+  if (integration.auth.type === 'fields') {
+    const auth = integration.auth;
+    if (fields) {
+      const had = (await getSecret<{ fields: Record<string, string> }>(secretKey(id)))?.fields ?? {};
+      const next: Record<string, string> = {};
+      for (const f of auth.fields) {
+        // A secret left blank keeps the one saved (it's never shown back to fill in).
+        const v = typeof fields[f.name] === 'string' ? (fields[f.name] as string).trim() : '';
+        if (v) next[f.name] = v;
+        else if (had[f.name]) next[f.name] = had[f.name];
+        else if (!f.optional && f.default === undefined) throw new Error(`Fill in ${f.label}.`);
+      }
+      await setSecret(secretKey(id), { fields: next });
+      tokens.delete(id);
+    } else if (!(await getSecret(secretKey(id)))) throw new Error('Fill in the fields first.');
+  } else if (integration.auth.type === 'oauth2' || integration.auth.type === 'mcp_oauth') {
     if (!(await oauthSecret(id))?.accessToken) throw new Error('Sign in first.');
   } else if (integration.auth.type !== 'none') {
     const k = key?.trim().replace(/^bearer\s+/i, '');
@@ -333,6 +388,10 @@ export async function listIntegrations() {
   // Which have a webhook signing secret saved (events whose posts are signed).
   const secrets = new Set<string>();
   for (const { integration } of loaded) if (await webhookSecret(integration.id)) secrets.add(integration.id);
+  // A fields sign-in's saved fields (secrets only as saved-or-not).
+  const savedFields = new Map<string, Record<string, string>>();
+  for (const { integration } of loaded)
+    if (integration.auth.type === 'fields') savedFields.set(integration.id, (await getSecret<{ fields: Record<string, string> }>(secretKey(integration.id)))?.fields ?? {});
   // Which signed-in integrations already have the person's OAuth client saved.
   const clients = new Set<string>();
   for (const { integration } of loaded) if (integration.auth.type === 'oauth2' && (await oauthSecret(integration.id))?.clientId) clients.add(integration.id);
@@ -343,13 +402,21 @@ export async function listIntegrations() {
     kind: integration.kind,
     keyUrl: integration.key_url,
     keyHelp: integration.key_help ?? null,
-    needsKey: integration.auth.type !== 'none' && integration.auth.type !== 'oauth2' && integration.auth.type !== 'mcp_oauth',
+    needsKey: integration.auth.type !== 'none' && integration.auth.type !== 'oauth2' && integration.auth.type !== 'mcp_oauth' && integration.auth.type !== 'fields',
+    // A fields sign-in: what to ask for. Saved secrets are never sent back; non-secret ones are, to edit.
+    fields:
+      integration.auth.type === 'fields'
+        ? integration.auth.fields.map(f => {
+            const saved = savedFields.get(integration.id) ?? {};
+            return { name: f.name, label: f.label, help: f.help ?? null, secret: f.secret, optional: !!f.optional || f.default !== undefined, saved: !!saved[f.name], value: f.secret ? null : (saved[f.name] ?? f.default ?? '') };
+          })
+        : null,
     // An MCP server's sign-in needs no client from the person (it registers itself).
     signIn:
       integration.auth.type === 'oauth2'
-        ? { clientUrl: integration.auth.client_url ?? null, help: integration.auth.client_help ?? null, hasClient: clients.has(integration.id) }
+        ? { clientUrl: integration.auth.client_url ?? null, help: integration.auth.client_help ?? null, hasClient: clients.has(integration.id), redirect: OAUTH_REDIRECT }
         : integration.auth.type === 'mcp_oauth'
-          ? { clientUrl: null, help: null, hasClient: true }
+          ? { clientUrl: null, help: null, hasClient: true, redirect: null }
           : null,
     shipped,
     connected: !!st[integration.id]?.connectedAt,
@@ -570,13 +637,13 @@ function endpoint(url: string, method: string | null): WriteTarget {
   return { method, pattern: new RegExp(`^${source}/?$`), shown: `${method ?? 'POST/PATCH'} ${bare}` };
 }
 
-export function keyTargets(integration: Integration, code = ''): KeyTargets {
+export function keyTargets(integration: Integration, code = '', baseUrl?: string): KeyTargets {
   if (integration.kind === 'http') {
-    const base = integration.base_url.replace(/\/+$/, '');
+    const base = (baseUrl ?? integration.base_url).replace(/\/+$/, '');
     const writes = integration.tools
       .filter(t => t.request.method === 'POST' || t.request.method === 'PATCH')
       .map(t => endpoint(base + (t.request.path.startsWith('/') ? t.request.path : `/${t.request.path}`), t.request.method));
-    return { hosts: new Set([new URL(integration.base_url).host]), writes };
+    return { hosts: new Set([new URL(base).host]), writes };
   }
   if (integration.kind === 'mcp') return { hosts: new Set(integration.url ? [new URL(integration.url).host] : []), writes: [] };
   const urls = [...code.matchAll(/[`'"](https:\/\/[^`'"\s]+)[`'"]/g)].map(m => m[1]);
@@ -585,6 +652,7 @@ export function keyTargets(integration: Integration, code = ''): KeyTargets {
 }
 
 async function targetsOf(integration: Integration): Promise<KeyTargets> {
+  if (integration.kind === 'http') return keyTargets(integration, '', baseFor(integration.base_url, integration.auth, await keyOf(integration.id)));
   if (integration.kind !== 'code') return keyTargets(integration);
   const code = MODULES[integration.module]
     ? await readFile(join(HERE, 'modules', `${integration.module}.ts`), 'utf8').catch(() => '')

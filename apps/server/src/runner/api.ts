@@ -375,8 +375,8 @@ export const runnerRoutes: Record<string, Route> = {
   // --- Integrations (docs/integrations.md) ---
   'GET /api/integrations': async () => (recheckStale(), { integrations: await listIntegrations(), problems: integrationProblems(), profile: profileStatus() }),
   'POST /api/integrations/connect': async (_req, _q, body) => {
-    const { id, key } = await body<{ id: string; key?: string }>();
-    return connectIntegration(id, key);
+    const { id, key, fields } = await body<{ id: string; key?: string; fields?: Record<string, unknown> }>();
+    return connectIntegration(id, key, fields && typeof fields === 'object' ? fields : undefined);
   },
   // Signing in to a service (OAuth): returns its sign-in page, which the app
   // opens; the browser lands back on the server root (index.ts).

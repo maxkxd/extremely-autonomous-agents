@@ -90,10 +90,37 @@ export function shape(answer: unknown, def: HttpToolDef['response']): string {
   return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS)}\n[cut off]` : text;
 }
 
+// A fields sign-in's "key" is its fields (and the token they got) as JSON.
+const credsOf = (auth: AuthDef, key: string | undefined): Record<string, string> | null => {
+  if (auth.type !== 'fields' || !key) return null;
+  try {
+    return JSON.parse(key) as Record<string, string>;
+  } catch {
+    return null;
+  }
+};
+export const putFields = (template: string, creds: Record<string, string>) => template.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => creds[k] ?? '');
+// The base address with the fields it holds filled in (a region).
+export const baseFor = (baseUrl: string, auth: AuthDef, key: string | undefined) => {
+  const c = credsOf(auth, key);
+  return c ? putFields(baseUrl, c) : baseUrl;
+};
+// Never echo a key - or any field of a fields sign-in - back, even if the service quotes it.
+export const redact = (text: string, auth: AuthDef, key: string | undefined) => {
+  const c = credsOf(auth, key);
+  const secrets = c ? Object.values(c).filter(v => typeof v === 'string' && v.length >= 6) : key ? [key] : [];
+  return secrets.reduce((t, v) => t.split(v).join('[key]'), text);
+};
+
 // Headers and query parameters that carry the key.
 export function authParts(auth: AuthDef, key: string | undefined): { headers: Record<string, string>; query: Record<string, string> } {
   if (auth.type === 'none') return { headers: {}, query: {} };
   if (!key) throw new Error('This integration has no key saved. Connect it in Settings -> Connectors.');
+  if (auth.type === 'fields') {
+    const c = credsOf(auth, key) ?? {};
+    const each = (r?: Record<string, string>) => Object.fromEntries(Object.entries(r ?? {}).map(([k, v]) => [k, putFields(v, c)]));
+    return { headers: each(auth.headers), query: each(auth.query) };
+  }
   // A signed-in (OAuth) service gets its current access token the same way.
   if (auth.type === 'bearer' || auth.type === 'oauth2' || auth.type === 'mcp_oauth') return { headers: { authorization: `Bearer ${key}` }, query: {} };
   if (auth.query) return { headers: {}, query: { [auth.query]: key } };
@@ -113,7 +140,7 @@ export async function requestJson(
   fetcher: Fetcher = async (url, init) => (await safeFetch(url, init as never)).res,
 ): Promise<unknown> {
   const { headers: authHeaders, query: authQuery } = authParts(auth, key);
-  const url = new URL(baseUrl.replace(/\/+$/, '') + (request.path.startsWith('/') ? request.path : `/${request.path}`));
+  const url = new URL(baseFor(baseUrl, auth, key).replace(/\/+$/, '') + (request.path.startsWith('/') ? request.path : `/${request.path}`));
   for (const [k, v] of Object.entries({ ...(request.query ?? {}), ...authQuery })) url.searchParams.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   const body = request.body === undefined ? undefined : JSON.stringify(request.body);
   const res = await fetcher(url.toString(), {
@@ -122,7 +149,7 @@ export async function requestJson(
     body,
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`${name} answered ${res.status}: ${errorText(key ? text.split(key).join('[key]') : text).slice(0, 300)}`);
+  if (!res.ok) throw new Error(`${name} answered ${res.status}: ${errorText(redact(text, auth, key)).slice(0, 300)}`);
   try {
     return JSON.parse(text);
   } catch {
@@ -136,7 +163,7 @@ export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, 
   if (required.length) throw new Error(`Missing ${required.join(', ')}: give ${required.length === 1 ? 'it' : 'them'} and call again.`);
   const { headers: authHeaders, query: authQuery } = authParts(integration.auth, key);
   const path = String(fill(tool.request.path, args) ?? tool.request.path);
-  const url = new URL(integration.base_url.replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`));
+  const url = new URL(baseFor(integration.base_url, integration.auth, key).replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`));
   const query = (fill(tool.request.query ?? {}, args) ?? {}) as Record<string, unknown>;
   for (const [k, v] of Object.entries({ ...query, ...authQuery })) url.searchParams.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   const body = tool.request.body === undefined ? undefined : JSON.stringify(fill(tool.request.body, args));
@@ -147,9 +174,7 @@ export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, 
   });
   const text = await res.text();
   if (!res.ok) {
-    // Never echo the key back, even if the service quotes it.
-    const safe = key ? text.split(key).join('[key]') : text;
-    throw new Error(`${integration.name} answered ${res.status}: ${errorText(safe).slice(0, 300)}`);
+    throw new Error(`${integration.name} answered ${res.status}: ${errorText(redact(text, integration.auth, key)).slice(0, 300)}`);
   }
   let answer: unknown = text;
   try {

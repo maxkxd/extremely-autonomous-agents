@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
-import { authParts, callHttp, fill, plainText, shape } from './http.js';
+import { authParts, baseFor, callHttp, fill, plainText, redact, shape } from './http.js';
 import { Integration } from './schema.js';
 
 test('placeholders keep types, take defaults, and drop missing optional inputs', () => {
@@ -55,4 +55,40 @@ test('every shipped integration is a valid definition', async () => {
 
 test('a definition that would break is rejected', () => {
   assert.throws(() => Integration.parse({ kind: 'http', id: 'Bad Id', name: 'x', what: 'x', auth: { type: 'none' }, base_url: 'https://a', test: { tool: 'a.b', args: {} }, tools: [] }));
+});
+
+test("a fields sign-in: whatever the service takes, put where it wants it, and never echoed back", () => {
+  const zoho = Integration.parse(
+    parse(`kind: http
+id: zoho-crm
+name: Zoho CRM
+what: CRM
+auth:
+  type: fields
+  fields:
+    - { name: client_id, label: Client ID, secret: false }
+    - { name: client_secret, label: Client secret }
+    - { name: refresh_token, label: Refresh token }
+    - { name: region, label: Data center, secret: false, default: com }
+  token:
+    url: https://accounts.zoho.{{region}}/oauth/v2/token
+    form: { grant_type: refresh_token, client_id: "{{client_id}}", client_secret: "{{client_secret}}", refresh_token: "{{refresh_token}}" }
+    expires_in: expires_in
+  headers: { authorization: "Zoho-oauthtoken {{token}}" }
+base_url: https://www.zohoapis.{{region}}
+test: { tool: crm.search_records, args: {} }
+tools:
+  - id: crm.search_records
+    tier: T0
+    description: Search
+    input: { type: object, properties: {} }
+    request: { path: /crm/v8/Leads }
+`),
+  );
+  assert.equal(zoho.auth.type, 'fields');
+  const key = JSON.stringify({ client_id: '1000.ABC', client_secret: 'shh-secret-value', refresh_token: '1000.refresh-xyz', region: 'com.au', token: 'tok-123456' });
+  assert.deepEqual(authParts(zoho.auth, key), { headers: { authorization: 'Zoho-oauthtoken tok-123456' }, query: {} });
+  assert.equal(baseFor(zoho.kind === 'http' ? zoho.base_url : '', zoho.auth, key), 'https://www.zohoapis.com.au');
+  assert.equal(redact('bad token tok-123456 for shh-secret-value', zoho.auth, key), 'bad token [key] for [key]');
+  assert.throws(() => authParts(zoho.auth, undefined), /no key saved/);
 });
