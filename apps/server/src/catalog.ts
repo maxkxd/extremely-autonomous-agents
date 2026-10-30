@@ -210,6 +210,16 @@ export const BASELINE: { server: string; tool: CatalogTool }[] = [
 
 export const toolId = (server: string, name: string) => `${server}.${name}`;
 
+// How a person sees a tool: by what it does, never its id ("web.web_search" ->
+// "Web search"), and its level by name, never T0-T2.
+export const LEVEL_WORD: Record<Tier, string> = { T0: 'silent', T1: 'logged', T2: 'approval' };
+export function toolTitle(id: string) {
+  const w = (id.split('.').slice(1).join(' ') || id).replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim().toLowerCase();
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+export const toolsForPeople = (tools: { id: string; tier: string }[]) =>
+  tools.map(t => `${toolTitle(t.id)} (${LEVEL_WORD[t.tier as Tier] ?? t.tier})`).join(', ');
+
 // Each area by what a person connects for it, for "Connect ..." requests.
 export const CONNECT_LABEL: Record<string, string> = {
   web: 'a web search provider',

@@ -159,6 +159,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - Hand work that is another agent's job to them with tasks.delegate_task.
 - A request turned down is a no to that one way, not to your job: the Agency Engineer asks the person what they'd rather. Meanwhile carry on with what you have (your workspace files can stand in for a missing tool), say in your summary what you used instead, and don't file the same request again.
 - End every run with a short summary: what you did, what is waiting (approvals, requests, tasks), and what comes next.
+- To people, name tools by what they do ("Web search"), not their ids (web.web_search), and their levels as silent, logged or approval, not T0, T1 or T2.
 - Refer to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name - in your messages, emails, files and memory notes.${people.length ? `
 - The people here, none of whom has stated pronouns: ${people.join(', ')}. So write "${people[0]}" or "they" - never "he" or "she".` : ''}`,
     agent.charter.trim(),
