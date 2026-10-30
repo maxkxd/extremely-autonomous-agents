@@ -7,7 +7,7 @@ import { integrationToolIds, liveEventIds } from './integrations/index.js';
 import { enqueue } from './jobs.js';
 import { removeChoices, setChoices } from './models/choice.js';
 import { FLEET_ENGINEER } from './runner/agent.js';
-import { all } from './runner/db.js';
+import { all, run as exec } from './runner/db.js';
 import { forgetAgentRuns } from './runner/forget.js';
 import { topUpModels } from './runner/defaults.js';
 import { book } from './runner/scheduler.js';
@@ -97,12 +97,22 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
       [...tools.filter(t => t.input).map(t => `${t.id} expects: ${JSON.stringify(t.input)}`), ...eventHow(evs), ...(others.length ? [`Also used by ${others.join(', ')}.`] : [])].join('\n') || null,
     );
   }
-  for (const [server, list] of wanted)
-    ask(
-      `Set up ${serviceLabel(server, files.id)} events`,
-      `${files.name} should wake when these happen:\n${eventLines(list)}`,
-      eventHow(list).join('\n') || null,
-    );
+  for (const [server, list] of wanted) {
+    const label = serviceLabel(server, files.id);
+    // A connection already asked for (Set up Stripe): its events go on that request.
+    const open = [`Set up ${label}`, `Connect ${label}`].find(w => asked.has(w));
+    if (open) {
+      exec(
+        "UPDATE requests SET why = why || ?, evidence = TRIM(COALESCE(evidence, '') || ?) WHERE agent_id = ? AND what = ? AND status = 'open'",
+        `\n\nAnd should wake when these happen:\n${eventLines(list)}`,
+        eventHow(list).length ? `\n${eventHow(list).join('\n')}` : '',
+        files.id,
+        open,
+      );
+      continue;
+    }
+    ask(`Set up ${label} events`, `${files.name} should wake when these happen:\n${eventLines(list)}`, eventHow(list).join('\n') || null);
+  }
   return filed;
 }
 

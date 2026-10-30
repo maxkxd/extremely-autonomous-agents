@@ -13,7 +13,7 @@ import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
 import type { Harness } from './harness.js';
 import { ModelError, type Adapter, type Msg } from './providers.js';
-import { canStillCount, execute, requestConnections, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js';
+import { canStillCount, execute, fileRequest, requestConnections, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js';
 
 // One run of one agent (docs/runner.md, "One run"): its instructions, the
 // tool loop on its first working model, the floor and its nudges, then the
@@ -164,7 +164,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - End every run with a short summary: what you did, what is waiting (approvals, requests, tasks), and what comes next.
 - Questions for a person: all of them in ONE request, each with the answer you'll go with if they don't reply ("A$40 a day unless you say otherwise") - then carry on with those defaults; don't wait. Only ask what you can't reasonably decide yourself, and nothing your instructions already answer.
 - Reports and alerts for the person you work for go by gmail.send_to_me when you have it (logged, no approval) - not gmail.send_email, which waits for a person.
-- Don't email to say you're still blocked on the same thing: your open requests already show the person what's waiting. Email when there's something new to report - work done, a finding, a change - or a report your instructions schedule.
+- Blocked on the same things as last time? Say so in your summary and stop - no email, document or file just to record it: your open requests already show the person what's waiting. Email when there's something new - work done, a finding, a change.
 - Who approves your queued actions is the app's job (the Approvals page): never ask who approves - queue it.
 - A tool you hold that isn't connected yet is already being asked for: don't file a request for it.
 - When a person must review or confirm something you wrote, put the content itself in the request (evidence) - they can't open your workspace files, and neither can the Agency Engineer.
@@ -453,8 +453,38 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
     exec('UPDATE agent_state SET fail_streak = ?, backoff_until = ?, updated_at = ? WHERE agent_id = ?', streak, streak ? endedAt + backoffMs(streak) : null, endedAt, agent.id);
   }
 
+  if (!stopped) allowance(status, error, endedAt);
+
   if (deps.compact && used) void compactMemory(agent, used, deps).catch(() => {});
   return { id, status, acts, nudges, summary, error };
+}
+
+// The AI itself out of its allowance (Copilot's monthly quota, no credit left):
+// every agent fails until a person sorts it out, and a raw provider error on
+// each run doesn't say so. One request to the person while it lasts, closed
+// when a run works again.
+const OUT_OF_ALLOWANCE = /exceeded your (monthly )?quota|insufficient_quota|credit balance is too low|out of credits?|quota exceeded|usage limit/i;
+const ALLOWANCE_WHAT = 'Your AI has run out of its allowance';
+function allowance(status: string, error: string | undefined, now: number) {
+  const open = one<{ id: number }>("SELECT id FROM requests WHERE what LIKE ? AND status = 'open'", `${ALLOWANCE_WHAT}%`);
+  if (status === 'succeeded' && open) {
+    exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", 'Working again - agents are running.', now, open.id);
+    return;
+  }
+  if (status !== 'failed' || !error || !OUT_OF_ALLOWANCE.test(error) || open) return;
+  const conn = /Last: ([a-z0-9_-]+)\//i.exec(error)?.[1];
+  const name = conn ? (conn === 'copilot' ? 'GitHub Copilot' : conn.charAt(0).toUpperCase() + conn.slice(1)) : 'Your AI connection';
+  fileRequest(
+    FLEET_ENGINEER,
+    null,
+    {
+      what: `${ALLOWANCE_WHAT} (${name})`,
+      why: `${name} says its allowance is used up, so every agent's runs fail until it's sorted. Either add another AI connection in Settings -> AI (agents switch to it on their own), or raise the plan's limit with ${name}. If it's a monthly allowance, agents start again by themselves when it resets.`,
+      evidence: error.replace(/\s*\(Request ID:[^)]*\)/i, '').slice(0, 500),
+    },
+    now,
+    () => {},
+  );
 }
 
 // What this run already did, for a model taking over part-way.
