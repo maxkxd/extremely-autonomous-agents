@@ -69,8 +69,10 @@ function OrgPicker({ onNew }: { onNew: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, open, () => setOpen(false));
-  const choices = [{ id: 'personal', name: 'Personal Agency' }, ...teamOrgs().map(o => ({ id: o.id, name: o.name }))];
-  const current = choices.find(c => c.id === state.agency)?.name ?? 'Personal Agency';
+  // Your own agency goes by your display name (Settings > Account), kept in step as it changes.
+  const personal = `${useSyncExternalStore(onMyName, myName)}'s agency`;
+  const choices = [{ id: 'personal', name: personal }, ...teamOrgs().map(o => ({ id: o.id, name: o.name }))];
+  const current = choices.find(c => c.id === state.agency)?.name ?? personal;
 
   return (
     <div className={`org-picker${open ? ' open' : ''}`} ref={ref}>
