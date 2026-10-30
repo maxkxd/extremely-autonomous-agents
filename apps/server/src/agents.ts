@@ -113,6 +113,8 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
     }
     ask(`Set up ${label} events`, `${files.name} should wake when these happen:\n${eventLines(list)}`, eventHow(list).join('\n') || null);
   }
+  // GitHub connected already: the files its instructions name are checked now.
+  void import('./runner/engineer.js').then(m => m.checkCharterFiles(files.id)).catch(() => {});
   return filed;
 }
 
