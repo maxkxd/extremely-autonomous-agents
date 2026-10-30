@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { parseDocument } from 'yaml';
 import { CATALOG_INDEX, type Tier } from './catalog.js';
 import { DATA, listIds, readMeta } from './files.js';
+import { setBuiltInLevel } from './runner/db.js';
 import { integrationToolInfo } from './integrations/index.js';
 
 // Settings > Tools: every tool the agency's agents use, by a plain name, and how
@@ -11,10 +12,20 @@ import { integrationToolInfo } from './integrations/index.js';
 //   T1 - it runs, and the agent says so in its DM channel;
 //   T2 - it waits for a person's approval.
 // A tool's tier lives in each agent's TOOLS.yaml (tool_tiers); setting it here
-// sets it for every agent that has the tool. Built-in agents' own tools aren't
-// listed: they're the agency's plumbing, not a choice to make.
+// sets it for every agent that has the tool. Of the built-in agents' own tools,
+// only the ones that act on the fleet are listed (giving tools, a rule for an
+// agent); their reading and drafting are plumbing, not a choice to make.
 
 const TIERS: Tier[] = ['T0', 'T1', 'T2'];
+// The built-in agents' actions a person can set the level of, by what they do.
+const BUILT_IN_ACTIONS: Record<string, { name: string; does: string }> = {
+  'engineer.publish_integration': { name: 'Give agents a new connection', does: 'Turn on a connection the person connected, and give it to the agents waiting for it.' },
+  'engineer.give_tools': { name: 'Give an agent tools', does: 'Give an agent tools from a connection that is already on.' },
+  'engineer.give_events': { name: 'Wake an agent on events', does: 'Have an agent woken when something happens at a service.' },
+  'doctor.propose_rule': { name: "Add a rule to an agent's instructions", does: 'A short rule for a pattern that keeps going wrong.' },
+  'doctor.tell_agent': { name: 'Tell an agent something', does: 'Put a note in an agent\'s memory.' },
+  'doctor.close_request': { name: 'Close a repeated request', does: "Close an agent's request that is a repeat or a loop." },
+};
 const DEFAULT_APPROVAL_HOURS = 24;
 
 // "errors.list_issues" -> "List issues"; "send_to_me" -> "Send to me".
@@ -35,13 +46,14 @@ export type ToolView = {
 const toolsFile = (id: string) => join(DATA, id, 'TOOLS.yaml');
 
 async function agentTiers() {
-  const out: { id: string; name: string; tiers: Record<string, Tier> }[] = [];
+  const out: { id: string; name: string; builtIn: boolean; tiers: Record<string, Tier> }[] = [];
   for (const id of await listIds()) {
     const meta = await readMeta(id);
-    if (!meta || meta.builtIn || meta.service) continue;
+    if (!meta || meta.service) continue;
     const doc = parseDocument(await readFile(toolsFile(id), 'utf8').catch(() => ''));
     const tiers = (doc.toJSON() as { tool_tiers?: Record<string, Tier> } | null)?.tool_tiers ?? {};
-    out.push({ id, name: meta.name, tiers });
+    // A built-in: only its actions on the fleet.
+    out.push({ id, name: meta.name, builtIn: !!meta.builtIn, tiers: meta.builtIn ? Object.fromEntries(Object.entries(tiers).filter(([t]) => t in BUILT_IN_ACTIONS)) : tiers });
   }
   return out;
 }
@@ -57,12 +69,13 @@ export async function listTools(): Promise<ToolView[]> {
         const [server, ...rest] = id.split('.');
         const known = CATALOG_INDEX.get(id);
         const via = fromIntegrations.get(id);
+        const builtIn = BUILT_IN_ACTIONS[id];
         t = {
           id,
-          name: words(rest.join(' ') || id),
-          // The catalogue's own tools by their area (Web); others by the service they come through (Gmail).
-          source: known ? words(server) : via?.via || words(server),
-          does: (known?.does ?? via?.description ?? '').split('\n')[0].slice(0, 200),
+          name: builtIn?.name ?? words(rest.join(' ') || id),
+          // The catalogue's own tools by their area (Web); others by the service they come through (Gmail); a built-in's by the agent.
+          source: builtIn ? agent.name : known ? words(server) : via?.via || words(server),
+          does: (builtIn?.does ?? known?.does ?? via?.description ?? '').split('\n')[0].slice(0, 200),
           tier,
           agents: [],
         };
@@ -82,6 +95,8 @@ export async function setToolTier(toolId: string, tier: unknown) {
   let changed = 0;
   for (const agent of await agentTiers()) {
     if (!(toolId in agent.tiers)) continue;
+    // A built-in's files are rewritten on every start: the choice is kept apart too.
+    if (agent.builtIn) setBuiltInLevel(agent.id, toolId, tier as Tier);
     const file = toolsFile(agent.id);
     const text = await readFile(file, 'utf8');
     const doc = parseDocument(text);

@@ -294,8 +294,7 @@ function ApprovalCard({
               <span className="approval-action">{card.action}</span>{' '}
               <span className="approval-time">{timeAgo(Math.floor((Date.now() - raisedAt(approval)) / 60_000))}</span>
             </p>
-            {/* Built-in agents' own steps (an integration going live) aren't a tool setting. */}
-            {!agent.builtIn && <ApprovalMenu tool={approval.tool} />}
+            <ApprovalMenu tool={approval.tool} />
             {showOwner && (
               <span className="approval-owner" title="Owner">
                 <User size={12} strokeWidth={1.75} />

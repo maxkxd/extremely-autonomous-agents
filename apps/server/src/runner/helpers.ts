@@ -5,6 +5,7 @@ import { FLEET_ENGINEER } from './agent.js';
 import { run as exec } from './db.js';
 import { availableModels } from '../models/connections.js';
 import { pickDefaults, type Want } from './defaults.js';
+import { DOCTOR } from './doctor.js';
 
 // The agency's built-in agents, kept together here because they're different:
 // owned by no one, never deleted, no Ferocity, and one day hideable. The
@@ -17,10 +18,10 @@ import { pickDefaults, type Want } from './defaults.js';
 export const CONDUCTOR = 'conductor';
 export const REVIEWER = 'reviewer';
 export const HELPER_IDS = [CONDUCTOR, REVIEWER];
-export const BUILT_IN_IDS = [FLEET_ENGINEER, ...HELPER_IDS];
+export const BUILT_IN_IDS = [FLEET_ENGINEER, DOCTOR, ...HELPER_IDS];
 
 // Every built-in and the kind of model its job wants.
-const WANTS: Record<string, Want> = { [FLEET_ENGINEER]: 'strong', [CONDUCTOR]: 'cheap', [REVIEWER]: 'careful' };
+const WANTS: Record<string, Want> = { [FLEET_ENGINEER]: 'strong', [DOCTOR]: 'careful', [CONDUCTOR]: 'cheap', [REVIEWER]: 'careful' };
 
 const HELPERS = [
   {

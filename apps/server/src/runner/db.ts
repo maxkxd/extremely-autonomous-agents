@@ -265,3 +265,13 @@ export function getSetting<T>(key: string, fallback: T): T {
 }
 export const setSetting = (key: string, value: unknown) =>
   run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value));
+
+// The level a person set for a built-in agent's own action (Settings > Tools):
+// its files are rewritten on every start, so the choice is kept here and laid
+// over its defaults.
+type Levels = Record<string, Record<string, 'T0' | 'T1' | 'T2'>>;
+export const builtInLevels = (agentId: string) => getSetting<Levels>('builtin_tool_levels', {})[agentId] ?? {};
+export function setBuiltInLevel(agentId: string, tool: string, tier: 'T0' | 'T1' | 'T2') {
+  const all = getSetting<Levels>('builtin_tool_levels', {});
+  setSetting('builtin_tool_levels', { ...all, [agentId]: { ...(all[agentId] ?? {}), [tool]: tier } });
+}
