@@ -10,7 +10,7 @@ export type RunPost = {
   kind: 'run';
   id: string; // short run id
   minutesAgo: number;
-  trigger: 'scheduled' | 'self-booked' | 'your message' | 'handoff' | 'approval' | 'run now' | 'request' | 'request reply' | 'connected' | 'event';
+  trigger: 'scheduled' | 'self-booked' | 'your message' | 'handoff' | 'approval' | 'run now' | 'request' | 'request reply' | 'turned down' | 'connected' | 'event';
   outcome: 'succeeded' | 'failed' | 'stopped';
   cost: number; // dollars
   costKnown?: boolean; // false: a model whose price isn't known

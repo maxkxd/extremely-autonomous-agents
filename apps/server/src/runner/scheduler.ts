@@ -137,7 +137,7 @@ type Next = { trigger: Trigger; task: string | null; bookingId?: number };
 // What a person set off, which an agent on standby still runs: their message,
 // Run now, hearing how an approval it queued was decided, and (the Fleet
 // Engineer) their reply on a request or a service they just connected.
-const PERSON_DRIVEN = new Set<Trigger>(['your message', 'run now', 'approval', 'request reply', 'connected']);
+const PERSON_DRIVEN = new Set<Trigger>(['your message', 'run now', 'approval', 'request reply', 'turned down', 'connected']);
 
 // The run an agent should start now, if any.
 //   active   - its schedule, its own bookings, handoffs, and anything a person sets off

@@ -18,7 +18,7 @@ import { execute, requestConnections, runEnded, toolHealth, toolsFor, type RunCt
 // tool loop on its first working model, the floor and its nudges, then the
 // record and its post in the agent's DM channel.
 
-export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'connected' | 'event';
+export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'turned down' | 'connected' | 'event';
 
 // What a run needs from outside, so tests can stand it up without a network.
 export type RunDeps = {
@@ -157,6 +157,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - A run that found nothing to do is not a lesson. Don't remember it, and don't treat past quiet runs as a reason to expect nothing now.
 - Your workspace (files.*) is yours, for work you build up between runs.
 - Hand work that is another agent's job to them with tasks.delegate_task.
+- A request turned down is a no to that one way, not to your job: the Agency Engineer asks the person what they'd rather. Meanwhile carry on with what you have (your workspace files can stand in for a missing tool), say in your summary what you used instead, and don't file the same request again.
 - End every run with a short summary: what you did, what is waiting (approvals, requests, tasks), and what comes next.
 - Refer to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name - in your messages, emails, files and memory notes.${people.length ? `
 - The people here, none of whom has stated pronouns: ${people.join(', ')}. So write "${people[0]}" or "they" - never "he" or "she".` : ''}`,
@@ -216,6 +217,10 @@ Start with engineer.list_requests, then take it as far as you can.`;
       return `${task}
 
 Read the request again with engineer.list_requests, then carry it forward.`;
+    case 'turned down':
+      return `${task}
+
+Follow "When a person turns a request down".`;
     case 'connected':
       return `${task}
 
