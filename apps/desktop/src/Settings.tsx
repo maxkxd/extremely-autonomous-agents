@@ -599,12 +599,10 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
       ) : (
         <div className="sfield">
           <span className="sfield-label">Create an organization, hosted on this computer</span>
-          <div className="sinline">
-            <input value={name} placeholder="Its name" maxLength={80} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && start()} />
-            <button className="sbtn primary" disabled={!name.trim()} onClick={start}>
-              Create
-            </button>
-          </div>
+          <input value={name} placeholder="Name" maxLength={80} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && start()} />
+          <button className="sbtn swhite" disabled={!name.trim()} onClick={start}>
+            Create
+          </button>
         </div>
       )}
       {error && <p className="custom-error">{error}</p>}
