@@ -280,14 +280,14 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .head-count.has { color: var(--attention); }
 .head-count:hover { color: var(--text); }
-/* Runs, with Run now beside it: a small white button. */
+/* Runs, with Run now beside it: a small dark button, like Standby. */
 .stat-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .run-now {
   display: inline-flex; align-items: center; gap: 5px; margin-bottom: 4px; padding: 5px 10px;
-  border: 0; border-radius: 5px; background: #ffffff; color: #111111; cursor: pointer;
-  font: inherit; font-size: 12px; font-weight: 700;
+  border: 1px solid var(--border-strong); border-radius: 6px; background: transparent; color: var(--text); cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 600;
 }
-.run-now:hover:not(:disabled) { background: #e6e6e6; }
+.run-now:hover:not(:disabled) { background: var(--surface-hover); }
 .run-now:disabled { cursor: default; }
 .run-now:disabled:not(.busy) { opacity: 0.35; }
 
