@@ -1995,14 +1995,3 @@ a.sbtn { text-decoration: none; color: inherit; }
 /* A fields sign-in: each field with its label above it. */
 .sint-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .sint-code { user-select: all; font-size: 12px; color: var(--text); }
-
-/* A card giving tools: each tool's level, set before approving. */
-.approval-levels { display: flex; flex-direction: column; gap: 10px; margin: 2px 0 12px; }
-.approval-levels-agent { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
-.approval-levels-who { width: 100%; font-size: 12px; font-weight: 600; color: var(--muted); }
-.approval-level { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
-.approval-level select {
-  background: transparent; color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px;
-  padding: 2px 4px; font: inherit; font-size: 12px;
-}
-.approval-level select:disabled { opacity: 0.5; }

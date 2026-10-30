@@ -202,66 +202,6 @@ function ApprovalBody({ text }: { text: string }) {
   );
 }
 
-// A card giving agents tools (the Agency Engineer's): each tool with its level,
-// which the person sets before approving - the engineer's pick is only a start.
-type Given = { forAgent: string; tools: { id: string; tier: string }[] };
-const LEVEL_NAMES: [string, string][] = [
-  ['T0', 'Silent'],
-  ['T1', 'Logged'],
-  ['T2', 'Approval'],
-];
-// "calendar.find_open_slots" -> "Find open slots"
-const toolName = (id: string) => {
-  const w = (id.split('.').slice(1).join(' ') || id).replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim().toLowerCase();
-  return w.charAt(0).toUpperCase() + w.slice(1);
-};
-// Its lists arrive as JSON text (live approvals' args are flattened to strings).
-const listOf = (v: unknown): unknown[] | null => {
-  if (Array.isArray(v)) return v;
-  if (typeof v !== 'string') return null;
-  try {
-    const parsed: unknown = JSON.parse(v);
-    return Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-};
-function givenTools(approval: Approval): Given[] | null {
-  const args = approval.args as unknown as { tools?: unknown; for_agent?: unknown; also?: unknown };
-  const tools = listOf(args.tools) as Given['tools'] | null;
-  if (!tools || !['engineer.give_tools', 'engineer.publish_integration'].includes(approval.tool)) return null;
-  const also = (listOf(args.also) ?? []) as { for_agent: string; tools: Given['tools'] }[];
-  return [{ forAgent: String(args.for_agent ?? ''), tools }, ...also.map(g => ({ forAgent: String(g.for_agent), tools: g.tools ?? [] }))];
-}
-const levelKey = (forAgent: string, id: string) => `${forAgent}|${id}`;
-
-function ToolLevels({ given, levels, setLevel, disabled }: { given: Given[]; levels: Record<string, string>; setLevel: (key: string, tier: string) => void; disabled: boolean }) {
-  return (
-    <div className="approval-levels">
-      {given.map(g => (
-        <div key={g.forAgent} className="approval-levels-agent">
-          {given.length > 1 && <span className="approval-levels-who">{AGENTS.find(a => a.id === g.forAgent)?.name ?? g.forAgent}</span>}
-          {g.tools.map(t => {
-            const key = levelKey(g.forAgent, t.id);
-            return (
-              <label key={key} className="approval-level">
-                <span>{toolName(t.id)}</span>
-                <select value={levels[key] ?? t.tier} disabled={disabled} onChange={e => setLevel(key, e.target.value)}>
-                  {LEVEL_NAMES.map(([tier, name]) => (
-                    <option key={tier} value={tier}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            );
-          })}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 const EXIT_MS = 620; // glow/tint, then fly off (matches the CSS keyframes)
 const COLLAPSE_MS = 240; // the gap closing behind it
 
@@ -305,15 +245,13 @@ function ApprovalCard({
   onFocused: () => void;
   approval: Approval;
   showOwner: boolean; // the admin Everyone view tags every card, yours included
-  onDecide: (r: Resolution, note: string, levels?: Record<string, string>) => void; // the moment it's decided - counters react now
+  onDecide: (r: Resolution, note: string) => void; // the moment it's decided - counters react now
   onGone: () => void; // after the exit animation - the card leaves the list
 }) {
   const agent = agentOf(approval);
   const ownerAgent = AGENTS.find(x => x.id === (approval.forAgentId ?? approval.agentId))!;
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   const card = renderApproval(approval.tool, approval.args);
-  const given = givenTools(approval);
-  const [levels, setLevels] = useState<Record<string, string>>({});
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const [leaving, setLeaving] = useState<Resolution | null>(null);
@@ -337,7 +275,7 @@ function ApprovalCard({
     if (leaving) return; // already on its way out (e.g. expired while rejecting)
     setRejecting(false);
     setLeaving(r);
-    onDecide(r, r === 'rejected' ? reason.trim() : '', r === 'approved' && Object.keys(levels).length ? levels : undefined);
+    onDecide(r, r === 'rejected' ? reason.trim() : '');
     setTimeout(() => setCollapsing(true), EXIT_MS);
     setTimeout(onGone, EXIT_MS + COLLAPSE_MS);
   };
@@ -366,10 +304,9 @@ function ApprovalCard({
             )}
           </header>
 
-          {given && <ToolLevels given={given} levels={levels} setLevel={(k, t) => setLevels(l => ({ ...l, [k]: t }))} disabled={!!leaving || !!approval.paused} />}
-          {card.fields.filter(f => !(given && f.label === 'Tools')).length > 0 && (
+          {card.fields.length > 0 && (
             <dl className="approval-fields">
-              {card.fields.filter(f => !(given && f.label === 'Tools')).map(f => (
+              {card.fields.map(f => (
                 <div key={f.label} className="approval-field">
                   <dt>{f.label}</dt>
                   <dd>{f.value}</dd>
@@ -454,7 +391,7 @@ export function Approvals({
   agentFilter: string | null;
   focus?: string | null; // the approval to centre and glow
   onFocused?: () => void;
-  onDecide: (id: string, r: Resolution, note: string, levels?: Record<string, string>) => void;
+  onDecide: (id: string, r: Resolution, note: string) => void;
   onGone: (id: string) => void;
 }) {
   const shown = visibleApprovals(pending, scope)
@@ -498,7 +435,7 @@ export function Approvals({
           spotlight={a.id === focus}
           onFocused={onFocused}
           showOwner={!!ACCOUNT.org && scope === 'all'}
-          onDecide={(r, note, levels) => onDecide(a.id, r, note, levels)}
+          onDecide={(r, note) => onDecide(a.id, r, note)}
           onGone={() => onGone(a.id)}
         />
       ))}
