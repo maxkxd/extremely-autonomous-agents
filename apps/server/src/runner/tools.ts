@@ -3,7 +3,9 @@ import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, relative, sep } from 'node:path';
 import { CATALOG, CONNECT_LABEL, type Tier } from '../catalog.js';
 import { FLEET_ENGINEER, type AgentDef } from './agent.js';
-import { all, one, run } from './db.js';
+import { all, getSetting, one, run } from './db.js';
+import { readMeta } from '../files.js';
+import { loadPerson } from '../org.js';
 import { APOCALYPTIC } from './ferocity.js';
 import { remember } from './memory.js';
 import type { Call, ToolSpec } from './providers.js';
@@ -405,6 +407,20 @@ export const toolName = (id: string) => id.replace(/\./g, '__').replace(/[^a-zA-
 
 const WHY = 'For the person approving: one or two plain sentences on why this, with what it rests on (a source, a finding). Shown on their card; not sent to the service.';
 
+// The email of the person an agent works for: its owner, or with none the agency's
+// own person (the host, or its only person). Null: nobody known.
+export async function ownerEmail(agentId: string): Promise<string | null> {
+  const meta = await readMeta(agentId);
+  let name = meta?.owner ?? getSetting<string | null>('host_person', null);
+  if (!name) {
+    const people = (await readdir(join(DATA_DIR, 'people')).catch(() => [] as string[])).filter(f => f.endsWith('.json'));
+    if (people.length === 1) name = people[0].replace(/\.json$/, '');
+  }
+  if (!name) return null;
+  const email = (await loadPerson(name)).email?.trim();
+  return email && /@/.test(email) ? email : null;
+}
+
 // The tools this run can call, and the ones it holds that aren't working yet.
 export function toolsFor(agent: AgentDef): { specs: ToolSpec[]; ids: Map<string, string>; notReady: string[] } {
   const ids = new Map<string, string>(); // provider name -> tool id
@@ -593,6 +609,8 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
       counted: 0,
     });
   try {
+    // A report goes to the person this agent works for, whatever the agent passed.
+    if (id === 'gmail.send_to_me') call = { ...call, args: { ...call.args, _to: (await ownerEmail(ctx.agent.id)) ?? undefined } };
     let content = await impl.impl(call.args, ctx);
     healthOk(ctx.agent.id, id, ctx.now());
     let counted = n;
