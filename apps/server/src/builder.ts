@@ -139,7 +139,8 @@ async function parse<T extends z.ZodType>(
     if (e instanceof Anthropic.AuthenticationError) throw new BuilderError('No valid Anthropic API key. Add ANTHROPIC_API_KEY to apps/server/.env and restart the server.');
     if (e instanceof Anthropic.RateLimitError) throw new BuilderError('Rate limited by the Claude API. Wait a moment and try again.');
     if (e instanceof Anthropic.APIConnectionError) throw new BuilderError('Could not reach the Claude API.');
-    if (e instanceof Anthropic.APIError) throw new BuilderError(`Claude API error (${e.status}).`);
+    // With Claude's own reason, so a rejected request says why (logged, and shown).
+    if (e instanceof Anthropic.APIError) throw new BuilderError(`Claude API error (${e.status}): ${String((e.error as { error?: { message?: string } } | undefined)?.error?.message ?? e.message).slice(0, 300)}`);
     // No credentials at all: the SDK throws before any request.
     if (e instanceof Error && /api ?key|auth/i.test(e.message)) throw new BuilderError('No Anthropic API key. Add ANTHROPIC_API_KEY to apps/server/.env and restart the server.');
     throw e;
@@ -406,13 +407,45 @@ const TIERING = `Tier every tool deliberately: start from its default; anything 
 
 A tier belongs to a whole tool, not to a situation. So when SOME uses of a tool may go ahead without asking and others must wait (e.g. "the first reminder can just go, the rest need my OK"), split it: define a narrower new tool that can only do the unasked part, with the limits built into the tool itself (a fixed recipient, a fixed template, once per thing, a cap), tier that one lower, and keep the general tool at its stricter tier for everything else. Honour what the person said rather than overriding it; only refuse to lower a tier when no narrow tool could make it safe, and say why in the Charter.`;
 
+// What Claude writes for a build: BuildSchema with three rarely-used lists
+// (approval hours, natural limits, new events) as JSON text, the way a new
+// tool's input_schema already is. The whole BuildSchema as a structured-output
+// grammar is just over Claude's size limit ("The compiled grammar is too large"),
+// and each list of entries is what counts; this leaves room for two more. Turned
+// back into a Build, each list checked against its own schema.
+const TEXT_LISTS = ['approval_hours', 'natural_limits', 'new_events'] as const;
+const asJsonText = (k: (typeof TEXT_LISTS)[number]) =>
+  z.string().describe(`${BuildSchema.shape[k].description ?? ''} As JSON text: an array of {${Object.keys((BuildSchema.shape[k].element as z.ZodObject).shape).join(', ')}}, or [] for none.`);
+const BuildOutputSchema = BuildSchema.extend({
+  approval_hours: asJsonText('approval_hours'),
+  natural_limits: asJsonText('natural_limits'),
+  new_events: asJsonText('new_events'),
+});
+const fromText = <T extends z.ZodType>(schema: T, text: string): z.infer<T> | [] => {
+  try {
+    const r = schema.safeParse(JSON.parse(text));
+    return r.success ? r.data : [];
+  } catch {
+    return [];
+  }
+};
+const fromOutput = (o: z.infer<typeof BuildOutputSchema>): Build => ({
+  ...o,
+  approval_hours: fromText(BuildSchema.shape.approval_hours, o.approval_hours),
+  natural_limits: fromText(BuildSchema.shape.natural_limits, o.natural_limits),
+  new_events: fromText(BuildSchema.shape.new_events, o.new_events),
+});
+export const buildOutputForTests = { schema: BuildOutputSchema, fromOutput };
+
 export async function build(ctx: Context, turns: Turn[]): Promise<Build> {
-  return parse(
-    BuildSchema,
-    ctx,
-    `The interview is over. Write this agent's files from the conversation, for this organisation. ${TIERING}`,
-    [...transcript(turns), { role: 'user', content: 'Build it.' }],
-    'high',
+  return fromOutput(
+    await parse(
+      BuildOutputSchema,
+      ctx,
+      `The interview is over. Write this agent's files from the conversation, for this organisation. ${TIERING}`,
+      [...transcript(turns), { role: 'user', content: 'Build it.' }],
+      'high',
+    ),
   );
 }
 
@@ -420,8 +453,9 @@ export async function build(ctx: Context, turns: Turn[]): Promise<Build> {
 
 export async function customize(ctx: Context, template: Build, packName: string): Promise<Build> {
   const { profile_notes: _p, person_notes: _n, ...files } = template;
-  const out = await parse(
-    BuildSchema,
+  const out = fromOutput(
+    await parse(
+    BuildOutputSchema,
     ctx,
     `This agent was just added from the ready-made "${packName}" pack. Its files below were written for a generic small business. Rewrite them for this organisation and this fleet:
 - Charter: keep its structure, rigour and safety rules, but make it theirs: the organisation's name, what it sells and to whom, its voice, the real people it reports to or writes as (starting with the person you know), and its teammates in the fleet by name. Drop generic placeholders. Don't invent facts the profiles don't give - leave those parts general.
@@ -432,6 +466,7 @@ Template files (JSON):
 ${JSON.stringify(files, null, 2)}`,
     [{ role: 'user', content: 'Customize it for us.' }],
     'high',
+    ),
   );
   return { ...out, name: template.name, department: template.department };
 }
