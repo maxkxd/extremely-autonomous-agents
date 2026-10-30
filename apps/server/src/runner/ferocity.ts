@@ -26,9 +26,16 @@ const REQUEST_STANCE = [
 const IMPROVE = `Every run, besides the work itself, look for ways to do your job better: better sources, a tool you don't have yet, a wider scope that still serves your mission, a smarter way to do what you already do. File a request for anything that would help. A run that never looks up from the routine is not doing your job.`;
 
 // The floor for this run, if its level has one, and what counts toward it.
-export function floorFor(agent: AgentDef, level: number): { floor: number; nudges: number; soft: boolean } | null {
+// callable: the tools this run can use. None of what it counts among them (Billing
+// Ops before Stripe and Xero are connected) and there's no target - pushed to one,
+// it made 81 Google Drive documents nobody needed.
+export const canCount = (agent: AgentDef, callable?: Set<string>) =>
+  !callable || agent.ferocity.counts.some(c => callable.has(c) || (c.endsWith('*') && [...callable].some(x => x.startsWith(c.slice(0, -1)))));
+
+export function floorFor(agent: AgentDef, level: number, callable?: Set<string>): { floor: number; nudges: number; soft: boolean } | null {
   const plan = agent.ferocity;
   if (!plan.counts.length) return null; // nothing to count
+  if (!canCount(agent, callable)) return null;
   if (level === DRIVEN) return { floor: plan.soft_floor, nudges: 1, soft: true };
   if (level === RELENTLESS) return { floor: plan.floor, nudges: MAX_NUDGES, soft: false };
   if (level === APOCALYPTIC) return { floor: plan.apocalyptic_floor, nudges: MAX_NUDGES, soft: false };
@@ -36,11 +43,15 @@ export function floorFor(agent: AgentDef, level: number): { floor: number; nudge
 }
 
 // What the agent is told about how hard to work, by level.
-export function ferocityInstructions(agent: AgentDef, level: number): string {
+export function ferocityInstructions(agent: AgentDef, level: number, callable?: Set<string>): string {
   const plan = agent.ferocity;
   const counted = plan.counts.join(', ');
-  const f = floorFor(agent, level);
+  const f = floorFor(agent, level, callable);
   const lines = [`## How hard you work: ${LEVELS[level]}`];
+  if (level > CHILL && plan.counts.length && !canCount(agent, callable))
+    lines.push(
+      `None of the tools your output is counted by (${counted}) is connected yet, so this run has no target. Do the useful work you can with what you have, then stop - don't make work (documents, notes, reports) to fill the run.`,
+    );
   switch (level) {
     case CHILL:
       lines.push(

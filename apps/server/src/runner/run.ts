@@ -120,6 +120,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
     return `failed ${ago(now - h.last_fail!)}: ${h.last_error ?? 'error'}${h.last_ok ? ` (last worked ${ago(now - h.last_ok)})` : ''}`;
   };
   const { specs, ids } = toolsFor(agent);
+  const callable = new Set(ids.values());
   const working = specs.map(s => `- ${ids.get(s.name)}: ${status(ids.get(s.name)!)}`);
 
   // Answers and results it hasn't been told yet.
@@ -170,7 +171,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - Refer to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name - in your messages, emails, files and memory notes.${people.length ? `
 - The people here, none of whom has stated pronouns: ${people.join(', ')}. So write "${people[0]}" or "they" - never "he" or "she".` : ''}`,
     agent.charter.trim(),
-    ferocityInstructions(agent, level),
+    ferocityInstructions(agent, level, callable),
     `## Your tools right now
 ${working.join('\n')}${notReady.length ? `\n\nIn your toolkit but not connected yet - don't try them or ask for them, a request to connect them is already with a person or the Agency Engineer: ${notReady.join(', ')}` : ''}`,
     `## The agency
@@ -269,7 +270,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   // a task handed to it, a person's message or a decision coming back is done when
   // it's done - padding one out to a target was busywork (a one-line answer became
   // 21 files).
-  const floor = ['scheduled', 'apocalyptic', 'self-booked', 'run now'].includes(trigger) ? floorFor(agent, level) : null;
+  const floor = ['scheduled', 'apocalyptic', 'self-booked', 'run now'].includes(trigger) ? floorFor(agent, level, new Set(toolsFor(agent).ids.values())) : null;
   exec(
     'INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at, floor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     id,

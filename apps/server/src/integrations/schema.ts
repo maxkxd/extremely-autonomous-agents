@@ -55,6 +55,9 @@ export const Auth = z.discriminatedUnion('type', [
           secret: z.boolean().default(true), // masked, and never shown back; false for an id or a region
           optional: z.boolean().optional(),
           default: z.string().optional(),
+          // The only values it takes (a region: com, eu, com.au) - picked from a list,
+          // and required for any field that lands in an address's host.
+          options: z.array(z.string().regex(/^[a-z0-9][a-z0-9.-]*$/i)).min(1).optional(),
         }),
       )
       .min(1)

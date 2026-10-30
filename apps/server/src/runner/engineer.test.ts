@@ -127,3 +127,32 @@ test('a turned-down draft is discarded with its plugin code; a redraft of a live
   await publishIntegration(ID, preview.codeHash);
   assert.equal(await testIntegrationTool(ID, 'zztest.echo', { x: 'new' }), 'v2:new');
 });
+
+test("a field that picks the server's host needs a fixed list of values", async () => {
+  const def = (region: string) => `kind: http
+id: zz-region
+name: Z
+what: x
+auth:
+  type: fields
+  fields:
+    - name: key
+      label: Key
+    - name: region
+      label: Region
+      secret: false
+${region}  token:
+    url: https://accounts.example.{{region}}/token
+    form: { k: "{{key}}" }
+base_url: https://api.example.{{region}}
+test: { tool: zz.get, args: {} }
+tools:
+  - id: zz.get
+    tier: T0
+    description: d
+    input: { type: object, properties: {} }
+    request: { method: GET, path: /x }
+`;
+  await assert.rejects(writeDraftIntegration(def(''), 'fleet'), /part of the address's host/);
+  await writeDraftIntegration(def('      options: [com, eu, com.au]\n'), 'fleet');
+});

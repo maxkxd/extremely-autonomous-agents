@@ -93,6 +93,13 @@ test('Relentless: after 4 nudges below the floor the run just ends with what it 
   assert.equal(r.acts, 10);
 });
 
+test("Relentless: no target when nothing it's counted by is connected - it isn't pushed into padding", async () => {
+  setLevel(RELENTLESS);
+  const r = await runAgent(agent({ ferocity: { ...agent().ferocity, counts: ['xero.create_invoice_draft'] } }), 'scheduled', null, deps(fake(2)));
+  assert.equal(r.status, 'succeeded');
+  assert.equal(r.nudges, 0);
+});
+
 test('the nudge says where it stands and where else to look', async () => {
   setLevel(RELENTLESS);
   const prompts: string[] = [];
