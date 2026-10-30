@@ -470,6 +470,16 @@ const workspaceCounted = new Map<string, number>();
 // health), where the Agency Doctor sees them.
 const FAILS_PER_RUN = 3;
 const failedInRun = new Map<string, { n: number; last: string }>();
+// A connection's tool that keeps failing goes straight to the Agency Engineer to
+// diagnose and fix - once per tool while that's open - instead of waiting for
+// an agent to report it or the Agency Doctor's next look. Not the plumbing, and
+// not the web tools (a site answering 404 isn't a broken tool).
+function reportFailing(ctx: RunCtx, id: string, message: string) {
+  if (ctx.agent.id === FLEET_ENGINEER || /^(files|tasks|requests|memory|ops|web|browser|engineer|doctor)\./.test(id)) return;
+  const what = `Fix the tool ${id}: it keeps failing`;
+  if (one("SELECT 1 FROM requests WHERE what = ? AND status = 'open'", what)) return;
+  fileRequest(ctx.agent.id, ctx.runId, { what, why: `${ctx.agent.name} called ${id} and it failed ${FAILS_PER_RUN} times in one run.`, evidence: `Last error: ${message.slice(0, 1500)}` }, ctx.now(), ctx.wake, true);
+}
 
 export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>): Promise<CallOutcome> {
   const id = ids.get(call.name) ?? call.name.replace('__', '.');
@@ -562,6 +572,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     const message = (e as Error).message || 'It failed.';
     healthFail(ctx.agent.id, id, ctx.now(), message);
     failedInRun.set(failKey, { n: (failed?.n ?? 0) + 1, last: message });
+    if ((failed?.n ?? 0) + 1 === FAILS_PER_RUN) reportFailing(ctx, id, message);
     return record({ content: message, error: true, outcome: 'failed', counted: n });
   }
 }
