@@ -13,7 +13,7 @@ import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
 import type { Harness } from './harness.js';
 import { ModelError, type Adapter, type Msg } from './providers.js';
-import { execute, requestConnections, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js';
+import { canStillCount, execute, requestConnections, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js';
 
 // One run of one agent (docs/runner.md, "One run"): its instructions, the
 // tool loop on its first working model, the floor and its nudges, then the
@@ -164,6 +164,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - End every run with a short summary: what you did, what is waiting (approvals, requests, tasks), and what comes next.
 - Questions for a person: all of them in ONE request, each with the answer you'll go with if they don't reply ("A$40 a day unless you say otherwise") - then carry on with those defaults; don't wait. Only ask what you can't reasonably decide yourself, and nothing your instructions already answer.
 - Reports and alerts for the person you work for go by gmail.send_to_me when you have it (logged, no approval) - not gmail.send_email, which waits for a person.
+- Don't email to say you're still blocked on the same thing: your open requests already show the person what's waiting. Email when there's something new to report - work done, a finding, a change - or a report your instructions schedule.
 - Who approves your queued actions is the app's job (the Approvals page): never ask who approves - queue it.
 - A tool you hold that isn't connected yet is already being asked for: don't file a request for it.
 - When a person must review or confirm something you wrote, put the content itself in the request (evidence) - they can't open your workspace files, and neither can the Agency Engineer.
@@ -270,7 +271,8 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   // a task handed to it, a person's message or a decision coming back is done when
   // it's done - padding one out to a target was busywork (a one-line answer became
   // 21 files).
-  const floor = ['scheduled', 'apocalyptic', 'self-booked', 'run now'].includes(trigger) ? floorFor(agent, level, new Set(toolsFor(agent).ids.values())) : null;
+  const callableNow = new Set(toolsFor(agent).ids.values());
+  const floor = ['scheduled', 'apocalyptic', 'self-booked', 'run now'].includes(trigger) ? floorFor(agent, level, callableNow) : null;
   exec(
     'INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at, floor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     id,
@@ -336,7 +338,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
                 return { content: r.content, error: r.error };
               },
               next: () => {
-                if (floor && acts < floor.floor && nudges < floor.nudges) {
+                if (floor && acts < floor.floor && nudges < floor.nudges && canStillCount(agent, id, callableNow)) {
                   nudges++;
                   return nudgeText(agent, acts, floor.floor, nudges, floor.nudges, floor.soft);
                 }
@@ -402,7 +404,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
         continue;
       }
       // The model ended its turn. Below the floor? Nudge it (in the same conversation).
-      if (floor && acts < floor.floor && nudges < floor.nudges) {
+      if (floor && acts < floor.floor && nudges < floor.nudges && canStillCount(agent, id, callableNow)) {
         nudges++;
         messages.push({ role: 'user', text: nudgeText(agent, acts, floor.floor, nudges, floor.nudges, floor.soft) });
         continue;

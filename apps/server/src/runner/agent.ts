@@ -69,6 +69,10 @@ type ToolsYaml = {
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : fallback);
 
+// Telling the person isn't output: counted, a blocked Revenue Ops' only way to
+// its target was to email Max over and over.
+const NOT_OUTPUT = new Set(['gmail.send_to_me']);
+
 export function planFrom(raw: Partial<FerocityPlan> | undefined, output: string[]): FerocityPlan {
   const p = raw ?? {};
   const every = Array.isArray(p.every_hours) && p.every_hours.length === 4 ? p.every_hours : DEFAULT_PLAN.every_hours;
@@ -78,7 +82,7 @@ export function planFrom(raw: Partial<FerocityPlan> | undefined, output: string[
     soft_floor: num(p.soft_floor, Math.max(1, Math.round(floor / 3))),
     floor,
     apocalyptic_floor: num(p.apocalyptic_floor, floor * 3),
-    counts: Array.isArray(p.counts) && p.counts.length ? p.counts.map(String) : output,
+    counts: (Array.isArray(p.counts) && p.counts.length ? p.counts.map(String) : output).filter(c => !NOT_OUTPUT.has(c)),
     hint: typeof p.hint === 'string' && p.hint.trim() ? p.hint : DEFAULT_PLAN.hint,
     extra_effort: typeof p.extra_effort === 'string' && p.extra_effort.trim() ? p.extra_effort : DEFAULT_PLAN.extra_effort,
   };

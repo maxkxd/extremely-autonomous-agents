@@ -77,25 +77,31 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
     const server = id.split('.')[0];
     missing.set(server, [...(missing.get(server) ?? []), { id, does: mine?.description ?? t?.description ?? '', input: mine?.input_schema, usedBy: t?.usedBy }]);
   }
+  // Events nothing provides yet: with that service's tools when it has some to
+  // build (one job, one connection - Infrastructure SRE filed 13 requests), else
+  // one request per service.
+  const events = new Set(liveEventIds());
+  const wanted = new Map<string, { id: string; description: string; how?: string }[]>();
+  for (const e of (yaml.new_events ?? []).filter(e => !events.has(e.id))) wanted.set(e.id.split('.')[0], [...(wanted.get(e.id.split('.')[0]) ?? []), e]);
+  const eventLines = (list: { id: string; description: string }[]) => list.map(e => `- ${e.id}: ${e.description}`).join('\n');
+  const eventHow = (list: { id: string; how?: string }[]) => list.filter(e => e.how).map(e => `${e.id} - how the service tells it: ${e.how}`);
   for (const [server, tools] of missing) {
     const label = serviceLabel(server, files.id);
     if (asked.has(`Set up ${label}`) || asked.has(`Connect ${label}`)) continue;
     const others = [...new Set(tools.flatMap(t => t.usedBy ?? []))];
+    const evs = wanted.get(server) ?? [];
+    wanted.delete(server);
     ask(
-      `Build the ${label} tools`,
-      `${files.name} needs these and nothing provides them yet:\n${tools.map(t => `- ${t.id}${t.does ? `: ${t.does}` : ''}`).join('\n')}`,
-      [...tools.filter(t => t.input).map(t => `${t.id} expects: ${JSON.stringify(t.input)}`), ...(others.length ? [`Also used by ${others.join(', ')}.`] : [])].join('\n') || null,
+      evs.length ? `Build the ${label} tools and events` : `Build the ${label} tools`,
+      `${files.name} needs these and nothing provides them yet:\n${tools.map(t => `- ${t.id}${t.does ? `: ${t.does}` : ''}`).join('\n')}${evs.length ? `\n\nAnd should wake when these happen:\n${eventLines(evs)}` : ''}`,
+      [...tools.filter(t => t.input).map(t => `${t.id} expects: ${JSON.stringify(t.input)}`), ...eventHow(evs), ...(others.length ? [`Also used by ${others.join(', ')}.`] : [])].join('\n') || null,
     );
   }
-  // Events nothing provides yet: one request per service too.
-  const events = new Set(liveEventIds());
-  const wanted = new Map<string, { id: string; description: string; how?: string }[]>();
-  for (const e of (yaml.new_events ?? []).filter(e => !events.has(e.id))) wanted.set(e.id.split('.')[0], [...(wanted.get(e.id.split('.')[0]) ?? []), e]);
   for (const [server, list] of wanted)
     ask(
       `Set up ${serviceLabel(server, files.id)} events`,
-      `${files.name} should wake when these happen:\n${list.map(e => `- ${e.id}: ${e.description}`).join('\n')}`,
-      list.filter(e => e.how).map(e => `${e.id} - how the service tells it: ${e.how}`).join('\n') || null,
+      `${files.name} should wake when these happen:\n${eventLines(list)}`,
+      eventHow(list).join('\n') || null,
     );
   return filed;
 }

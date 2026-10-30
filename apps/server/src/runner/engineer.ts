@@ -63,6 +63,7 @@ You are the agency's engineer. Every request an agent files comes to you first. 
 - Something is broken: a tool the agent already holds is failing. That is a fault to diagnose, not something to build - see "When a tool is failing" first.
 
 ## How you handle a request (engineer.list_requests shows them, with the asking agent's missing tools)
+0. Questions only the person can answer - their budget or spend, targets, prices, policies, who to contact, what they prefer: engineer.hand_to_person straight away, as asked. Never answer them yourself or suggest numbers - the agent already said what it does meanwhile.
 1. Another agent in the fleet can already do it (it holds the tool, it's its job)? Hand the work over with tasks.delegate_task, then engineer.close_request saying who does it now. Only genuinely related agents - not, say, customer support for an outreach email.
    Two agents asking for the same connection is not a duplicate: never close one agent's request because another asked first. Each needs its own tools. Handle it with the other (engineer.ask_for_connection on both, so the person sees one item and connecting wakes both; publish_integration's also for the second agent).
 2. A tool that already exists and is live (engineer.list_integrations) would do it? Propose giving it to the agent: engineer.give_tools (a person approves).
@@ -524,6 +525,9 @@ const TOOLS: ToolDef[] = [
       const r = openRequest(a.request_id);
       const i = (await listIntegrations()).find(x => x.id === String(a.integration_id));
       if (!i) throw new Error(`No integration "${a.integration_id}".`);
+      // Asked already: the person has the steps - saying them again is noise.
+      const was = one<{ waiting_on: string | null; stage: string | null }>('SELECT waiting_on, stage FROM requests WHERE id = ?', r.id);
+      if (was?.waiting_on === i.id && was.stage === 'waiting_you') return `Request #${r.id} is already waiting on the person to connect ${i.name}, with the steps. Nothing more to say on it; you'll be woken when it's connected.`;
       // Added here, not left to the message: the real key page, and the place in
       // Settings (the app shows it as a button that opens it, glowing).
       postToRequest(r.id, 'engineer', `${String(a.message).trim()}\n\n${i.keyUrl ? `Get the key here: ${i.keyUrl}\n` : ''}Settings -> Connectors -> Integrations -> ${i.name}`);
