@@ -1448,6 +1448,12 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .sbtn:hover:not(:disabled) { background: var(--surface-hover); }
 .sbtn:disabled { opacity: 0.45; cursor: default; }
+.sbtn-label { display: inline-flex; align-items: center; gap: 7px; }
+/* Working on it: a spinner where the label was, at the button's own size. */
+.sbtn.busy { position: relative; }
+.sbtn.busy:disabled { opacity: 1; cursor: progress; }
+.sbtn.busy .sbtn-label { visibility: hidden; }
+.sbtn-spin { position: absolute; inset: 0; margin: auto; color: var(--muted); }
 .sbtn.primary { background: var(--attention); border-color: var(--attention); color: var(--attention-text); }
 .sbtn.primary:hover:not(:disabled) { background: var(--attention); filter: brightness(1.1); }
 .ssave { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
