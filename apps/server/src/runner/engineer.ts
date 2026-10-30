@@ -684,6 +684,8 @@ const TOOLS: ToolDef[] = [
           continue;
         }
         exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", `${String(a.summary)}\n\nYou now have: ${ids}.`, Date.now(), g.request_id);
+        // Woken to use them now: an agent that was blocked runs only as Steady (scheduler).
+        ctx.wake(g.for_agent, 'self-booked', `Request #${g.request_id} is done - you now have ${ids}. Use them on your real work now.`);
         said.push(g.for_agent);
       }
       return `Live: ${String(a.name ?? a.integration_id)} for ${said.join(', ') || 'nobody (their requests had closed)'}.${tested}`;
@@ -754,10 +756,11 @@ const TOOLS: ToolDef[] = [
       postToRequest(Number(a.request_id), 'engineer', `${await nameOf(String(a.for_agent))} gets these tools when you approve it on the Approvals page.`);
       return { for_agent_name: await nameOf(String(a.for_agent)), tools_list: toolsForPeople((a.tools as { id: string; tier: string }[]) ?? []) };
     },
-    impl: async a => {
+    impl: async (a, ctx) => {
       const r = openRequest(a.request_id);
       const tools = (a.tools as { id: string; tier: Tier }[]) ?? [];
       await giveTools(String(a.for_agent), tools);
+      ctx.wake(String(a.for_agent), 'self-booked', `Request #${r.id} is done - you now have ${tools.map(t => t.id).join(', ')}. Use them on your real work now.`);
       const answer = `${String(a.why)}\n\nYou now have: ${tools.map(t => t.id).join(', ')}.`;
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
       postToRequest(r.id, 'engineer', `Given to ${await nameOf(String(a.for_agent))}.`);
