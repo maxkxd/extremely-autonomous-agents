@@ -156,3 +156,25 @@ tools:
   await assert.rejects(writeDraftIntegration(def(''), 'fleet'), /part of the address's host/);
   await writeDraftIntegration(def('      options: [com, eu, com.au]\n'), 'fleet');
 });
+
+test("an extension uses an existing connection's key and auth; an unknown or chained one is refused", async () => {
+  const ext = (from: string, id = 'zz-ext') => `kind: http
+id: ${id}
+name: Brave (more tools)
+what: x
+key_from: ${from}
+auth: { type: none }
+base_url: https://api.search.brave.com
+test: { tool: zzext.get, args: {} }
+tools:
+  - id: zzext.get
+    tier: T0
+    description: d
+    input: { type: object, properties: {} }
+    request: { method: GET, path: /x }
+`;
+  await assert.rejects(writeDraftIntegration(ext('no-such'), 'fleet'), /isn't a connection here/);
+  const { integration } = await writeDraftIntegration(ext('brave-search'), 'fleet');
+  assert.equal(integration.auth.type, 'api_key'); // the parent's, so the key goes the parent's way
+  await assert.rejects(writeDraftIntegration(ext('zz-ext', 'zz-ext2'), 'fleet'), /itself an extension/);
+});
