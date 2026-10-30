@@ -1,4 +1,3 @@
-import { discardDraft, draftsForRequest } from '../integrations/index.js';
 import { FLEET_ENGINEER } from './agent.js';
 import { all, run as exec } from './db.js';
 import { abortRun } from './scheduler.js';
@@ -15,13 +14,11 @@ export async function forgetAgentRuns(id: string, now = Date.now()) {
   exec(`UPDATE approvals SET ${gone} WHERE status = 'pending' AND agent_id = ?`, now, id);
   exec(`UPDATE approvals SET ${gone} WHERE status = 'pending' AND agent_id = ? AND json_extract(args, '$.for_agent') = ?`, now, FLEET_ENGINEER, id);
 
-  // Its open requests, with whatever the Agency Engineer drafted for them.
-  // Marked told, so an agent remade under the same id (a pack added again)
-  // doesn't hear its predecessor's were turned down.
-  for (const r of all<{ id: number }>("SELECT id FROM requests WHERE agent_id = ? AND status = 'open'", id)) {
-    for (const d of draftsForRequest(r.id)) await discardDraft(d).catch(() => {});
-    exec("UPDATE requests SET status = 'rejected', answer = 'Its agent was deleted.', answered_at = ?, delivered_at = ?, stage = NULL WHERE id = ?", now, now, r.id);
-  }
+  // Its open requests: withdrawn - nobody turned them down, so the Agency
+  // Engineer doesn't undo its work for them, and what it drafted (a connection
+  // another agent, or this one added back, may need) stays in Settings. Marked
+  // told, so an agent remade under the same id doesn't hear about them.
+  exec("UPDATE requests SET status = 'withdrawn', answer = 'Its agent was deleted.', answered_at = ?, delivered_at = ?, stage = NULL WHERE agent_id = ? AND status = 'open'", now, now, id);
   exec("UPDATE requests SET delivered_at = ? WHERE agent_id = ? AND status != 'open' AND delivered_at IS NULL", now, id);
 
   // Work handed to it: closed, so the agent that handed it over hears it wasn't done.

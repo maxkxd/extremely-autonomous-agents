@@ -92,7 +92,7 @@ export function fileRequest(
 // a week after a person turned one down; closed once the service is connected.
 // Returns what it filed.
 export function requestConnections(agentId: string, agentName: string, tiers: Record<string, Tier>, now: number, wake: Wake): string[] {
-  const groups = new Map<string, { what: string; names: string[]; ready: boolean; exists: boolean }>();
+  const groups = new Map<string, { label: string; what: string; names: string[]; ready: boolean; exists: boolean }>();
   for (const id of Object.keys(tiers)) {
     if (LEGACY.has(id) || FAMILIES[id] || BUILTIN_IDS.has(id)) continue;
     const [server, ...rest] = id.split('.');
@@ -102,7 +102,7 @@ export function requestConnections(agentId: string, agentName: string, tiers: Re
     if (!known && !t) continue; // its builder's own invention: requestWhatsMissing asks for it to be built
     const ready = !!t && (t.ready?.() ?? true);
     const label = CONNECT_LABEL[server] ?? area?.what ?? server.charAt(0).toUpperCase() + server.slice(1);
-    const g = groups.get(server) ?? { what: '', names: [], ready: true, exists: true };
+    const g = groups.get(server) ?? { label, what: '', names: [], ready: true, exists: true };
     g.names.push(known?.does ?? (t?.description.split(/[.\n]/)[0] || id));
     g.ready &&= ready;
     g.exists &&= !!t;
@@ -115,13 +115,14 @@ export function requestConnections(agentId: string, agentName: string, tiers: Re
     agentId,
   );
   for (const g of groups.values()) {
-    const same = mine.filter(r => r.what === g.what);
+    // Set up then Connect: the same ask, once the Agency Engineer has drafted it.
+    const same = mine.filter(r => r.what === `Connect ${g.label}` || r.what === `Set up ${g.label}`);
     if (g.ready) {
       for (const r of same.filter(r => r.status === 'open'))
         run("UPDATE requests SET status = 'done', answer = 'Connected.', answered_at = ?, delivered_at = ?, stage = NULL WHERE id = ?", now, now, r.id);
       continue;
     }
-    if (same.some(r => r.status === 'open' || (r.answered_at ?? 0) > now - 7 * 86_400_000)) continue;
+    if (same.some(r => r.status === 'open' || (r.status === 'rejected' && (r.answered_at ?? 0) > now - 7 * 86_400_000))) continue;
     const uses = g.names.slice(0, 6).join('; ') + (g.names.length > 6 ? `; and ${g.names.length - 6} more` : '');
     fileRequest(
       agentId,
@@ -330,6 +331,10 @@ export const BUILTIN_IDS = new Set(BUILTIN.map(t => t.id));
 const REGISTERED = new Map<string, ToolDef>();
 export function registerTools(defs: ToolDef[]) {
   for (const d of defs) REGISTERED.set(d.id, d);
+}
+// Ones that no longer exist (their integration was discarded), unless something else registered it since.
+export function unregisterTools(defs: ToolDef[]) {
+  for (const d of defs) if (REGISTERED.get(d.id) === d) REGISTERED.delete(d.id);
 }
 export type { ToolDef };
 // Every tool that exists: the plumbing every agent gets, and every registered one

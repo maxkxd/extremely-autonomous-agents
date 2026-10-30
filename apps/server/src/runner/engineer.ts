@@ -101,6 +101,7 @@ Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't d
 
 ## Rules
 - Woken for a request that isn't in engineer.list_requests any more? It was closed (turned down, handed over, or its agent deleted): drop it and move on. Never ask anyone to restore or resend it.
+- A withdrawn request's agent was deleted; nobody turned it down. Never undo or strip back work for it - a connection you drafted stays as it is.
 - Always tell the person what to do next - never just why something can't be done.
 - Never ask for keys, passwords or tokens in a conversation; if someone pastes one, tell them it belongs in Settings -> Connectors and not to share it.
 - Steer people to the right button: replying doesn't approve anything (that's the Approvals page); DIY and Reject are on the request itself; keys and sign-ins are in Settings -> Connectors.
@@ -162,6 +163,8 @@ const setStage = (id: number, stage: string) => exec('UPDATE requests SET stage 
 const openRequest = (raw: unknown): RequestRow => {
   const r = one<RequestRow>('SELECT * FROM requests WHERE id = ?', Number(raw));
   if (!r) throw new Error(`No request #${raw}.`);
+  if (r.status === 'withdrawn')
+    throw new Error(`Request #${r.id} was withdrawn: the agent that asked for it was deleted. Nobody turned it down - keep what you drafted for it as it is (another agent, or the same one added back, may need it) and move on.`);
   if (r.status !== 'open') throw new Error(`Request #${r.id} is already ${r.status}.`);
   return r;
 };
