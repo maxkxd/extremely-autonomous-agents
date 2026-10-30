@@ -9,12 +9,13 @@ import { DATA_DIR } from '../paths.js';
 
 // Code plugins (docs/integrations.md): TypeScript the Agency Engineer writes for
 // what an HTTP or MCP definition can't do (an action on this computer, say).
-// Off unless a person turns them on in Settings. A plugin's code never runs
-// before a person has approved it - with the code shown - and it runs only
-// while its file is byte-for-byte what they approved (checked by hash).
+// On unless a person turns them off in Settings. A plugin's code never runs
+// before an independent review passes it and a person approves giving it to an
+// agent; it runs in a sandbox (sandbox.ts), and only while its file is
+// byte-for-byte what was approved (checked by hash).
 
 const PLUGINS = join(DATA_DIR, 'plugins');
-export const pluginsAllowed = () => getSetting<boolean>('code_plugins', false);
+export const pluginsAllowed = () => getSetting<boolean>('code_plugins', true);
 
 const file = (module: string) => join(PLUGINS, `${module}.ts`);
 export const codeHash = (code: string) => createHash('sha256').update(code).digest('hex');
