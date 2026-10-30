@@ -39,20 +39,6 @@ export async function pendingApprovals(now = Date.now()) {
   return rows.map((r, i) => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, owner: owners[i], agentStopped: stateOf(r.agent_id, now).state === 'stopped', tool: r.tool, args: argsOf(r), createdAt: r.created_at, expiresAt: r.expires_at }));
 }
 
-// The person's levels put on the tools a card gives, marked as theirs so they
-// replace a level the agent already had (giveTools).
-type Given = { id: string; tier: string }[];
-function withLevels(args: Record<string, unknown>, levels?: Record<string, string>): Record<string, unknown> {
-  if (!levels || !Array.isArray(args.tools)) return args;
-  const set = (forAgent: unknown, tools: Given) => tools.map(t => ({ ...t, tier: ['T0', 'T1', 'T2'].includes(levels[`${forAgent}|${t.id}`]) ? levels[`${forAgent}|${t.id}`] : t.tier }));
-  return {
-    ...args,
-    tools: set(args.for_agent, args.tools as Given),
-    ...(Array.isArray(args.also) ? { also: (args.also as { for_agent: string; tools: Given }[]).map(g => ({ ...g, tools: set(g.for_agent, g.tools ?? []) })) } : {}),
-    levels_by_person: true,
-  };
-}
-
 const argsLine = (args: Record<string, unknown>) =>
   Object.entries(args)
     .map(([k, v]) => `${k}: ${typeof v === 'string' ? (v.length > 80 ? `${v.slice(0, 80)}…` : v) : JSON.stringify(v)}`)
@@ -60,17 +46,7 @@ const argsLine = (args: Record<string, unknown>) =>
     .replace(/\s+/g, ' ');
 
 // by: who decided (access.ts); recorded with the decision.
-// levels: on a card giving tools, the level the person set for each ("agent|tool" -> T0-T2).
-export async function decideApproval(
-  id: string,
-  decision: 'approved' | 'rejected',
-  note: string | null,
-  wake: Wake,
-  now = Date.now(),
-  load = loadAgent,
-  by?: { id: string; name: string },
-  levels?: Record<string, string>,
-) {
+export async function decideApproval(id: string, decision: 'approved' | 'rejected', note: string | null, wake: Wake, now = Date.now(), load = loadAgent, by?: { id: string; name: string }) {
   const a = one<ApprovalRow>('SELECT * FROM approvals WHERE id = ?', id);
   if (!a) throw new Error('That approval no longer exists.');
   if (a.status !== 'pending') throw new Error(`Already ${a.status}.`);
@@ -90,7 +66,7 @@ export async function decideApproval(
     id,
   );
   if (!claimed.changes) throw new Error('Already decided.');
-  const args = withLevels(JSON.parse(a.args) as Record<string, unknown>, levels);
+  const args = JSON.parse(a.args) as Record<string, unknown>;
   const what = `${a.tool} (${argsLine(args)})`;
   const why = note?.trim() ? ` Their note: "${note.trim()}"` : '';
   if (decision === 'rejected') {

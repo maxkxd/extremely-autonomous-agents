@@ -337,9 +337,8 @@ export const startIntegrationSignIn = (id: string, client: { clientId?: string; 
 // Approvals: real agents' T2 calls waiting on a person.
 export type LiveApproval = { id: string; agentId: string; agentName: string; owner: string | null; agentStopped: boolean; tool: string; args: Record<string, unknown>; createdAt: number; expiresAt: number };
 export const getLiveApprovals = () => request<{ approvals: LiveApproval[] }>('/api/runner/approvals').then(r => r.approvals);
-// levels: for a card giving tools, the level the person set for each ("agent|tool" -> T0-T2).
-export const decideApproval = (id: string, decision: 'approved' | 'rejected', note?: string, levels?: Record<string, string>) =>
-  post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note, levels });
+export const decideApproval = (id: string, decision: 'approved' | 'rejected', note?: string) =>
+  post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note });
 export const openAgentBrowser = () => post<{ ok: boolean }>('/api/browser/sign-in', {});
 
 // Daily spend caps (Settings -> Usage): the organisation's, and each agent's.
