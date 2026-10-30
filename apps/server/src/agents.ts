@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import { currentActor, personFor } from './access.js';
-import { BASELINE, CATALOG_INDEX, toolId } from './catalog.js';
+import { BASELINE, CATALOG_INDEX, toolId, type Tier } from './catalog.js';
 import { kpiLabels, readMeta, remove, save, type AgentFiles } from './files.js';
 import { scanFleet } from './fleet.js';
 import { integrationToolIds, liveEventIds } from './integrations/index.js';
@@ -9,8 +9,9 @@ import { removeChoices, setChoices } from './models/choice.js';
 import { FLEET_ENGINEER } from './runner/agent.js';
 import { all } from './runner/db.js';
 import { forgetAgentRuns } from './runner/forget.js';
+import { topUpModels } from './runner/defaults.js';
 import { book } from './runner/scheduler.js';
-import { fileRequest, registeredToolIds } from './runner/tools.js';
+import { fileRequest, registeredToolIds, requestConnections } from './runner/tools.js';
 
 // Adding and removing agents: the app's builder and packs, and the agency's
 // MCP server (runner/agency-mcp.ts) for an AI IDE, all come through here.
@@ -30,7 +31,7 @@ export async function createAgent(a: { person: string; org: string | null; files
     org,
     setup: setup && { ...setup, person, org, attempts: 0 },
   });
-  await setChoices(files.id, files.models ?? []);
+  await setChoices(files.id, await topUpModels(files.models ?? []));
   if (setup) enqueue(files.id);
   return requestWhatsMissing(files);
 }
@@ -65,6 +66,11 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
     if (own.has(id) || registered.has(id) || CATALOG_INDEX.has(id) || BASELINE.some(b => toolId(b.server, b.tool.name) === id)) continue;
     const t = fleet.tools.find(x => x.id === id);
     ask(`Build the tool ${id}`, `${files.name} uses it and nothing provides it yet${t?.description ? `: ${t.description}` : '.'}`, t?.usedBy.length ? `Also used by ${t.usedBy.join(', ')}.` : null);
+  }
+  // Services its catalogue tools need that aren't connected.
+  for (const what of requestConnections(files.id, files.name, (yaml.tool_tiers ?? {}) as Record<string, Tier>, Date.now(), (agent, trigger, task) => book(agent, trigger as 'request', task))) {
+    asked.add(what);
+    filed.push(what);
   }
   const events = new Set(liveEventIds());
   for (const e of (yaml.new_events ?? []).filter(e => !events.has(e.id)))

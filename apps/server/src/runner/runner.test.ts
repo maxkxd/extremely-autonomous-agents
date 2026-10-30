@@ -10,7 +10,7 @@ import { ModelError, type Adapter, type Call } from './providers.js';
 import { runAgent, stateOf, type RunDeps } from './run.js';
 import { dropStaleRequestRuns, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
-import { registerTools, WORKSPACES } from './tools.js';
+import { registerTools, requestConnections, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
 
@@ -352,7 +352,30 @@ test('deleting an agent settles everything it left: approvals, requests, booking
   assert.deepEqual(all<{ status: string }>("SELECT status FROM approvals ORDER BY id").map(a => a.status), ['rejected', 'rejected']);
   assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM bookings')!.n, 0);
   assert.equal(one<{ status: string }>('SELECT status FROM requests')!.status, 'rejected');
+  // An agent remade under the same id isn't told its predecessor's were turned down.
+  assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM requests WHERE delivered_at IS NULL')!.n, 0);
   assert.match(one<{ status: string; result: string }>('SELECT status, result FROM tasks')!.result, /deleted/);
+});
+
+test('tools that need a service nobody connected are asked for, once per service, and closed once it is', () => {
+  const now = Date.now();
+  let connected = false;
+  registerTools([
+    { id: 'gmail.list_messages', tier: 'T0', description: 'Search', schema: {}, impl: () => '', ready: () => connected },
+    { id: 'gmail.send_email', tier: 'T2', description: 'Send', schema: {}, impl: () => '', ready: () => connected },
+  ]);
+  const woke: string[] = [];
+  const tiers = { 'gmail.list_messages': 'T0', 'gmail.send_email': 'T2', 'crm.search_records': 'T0', 'crm.create_record': 'T1', 'my.invented': 'T0' } as const;
+  const filed = requestConnections(ID, 'Test Agent', tiers, now, a => woke.push(a));
+  assert.deepEqual(filed.sort(), ['Connect email (Gmail or Outlook)', 'Set up a CRM (HubSpot, Zoho, Salesforce)']);
+  const rows = all<{ what: string; stage: string }>('SELECT what, stage FROM requests ORDER BY what');
+  // Gmail exists and needs connecting: a person's. A CRM doesn't exist yet: the Agency Engineer's.
+  assert.deepEqual(rows.map(r => r.stage), ['person', 'engineer']);
+  assert.deepEqual(woke, ['fleet']);
+  assert.deepEqual(requestConnections(ID, 'Test Agent', tiers, now + 1, () => {}), []); // not again while open
+  connected = true;
+  requestConnections(ID, 'Test Agent', tiers, now + 2, () => {});
+  assert.equal(one<{ status: string }>("SELECT status FROM requests WHERE what LIKE 'Connect %'")!.status, 'done');
 });
 
 test('the agency on standby: nothing starts by itself, a person is still answered, and an agent stopped on its own stays stopped', () => {
