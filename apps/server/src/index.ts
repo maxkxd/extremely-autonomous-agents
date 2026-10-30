@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { serveUi } from './ui.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { BuilderError, build, interview, matchPack, profileInterview, type Build, type Context, type Pack, type Turn } from './builder.js';
 import { compose, kpiLabels, listIds, readMeta, remove, save, slug, type AgentFiles } from './files.js';
@@ -427,6 +428,10 @@ createServer(async (req, res) => {
       return send(res, 500, { error: 'Something went wrong on the server.' });
     }
   }
+  // The packaged app's own files (ui.ts): any GET that isn't the agency's - not
+  // /api, and not a service's sign-in landing on the root (it carries state).
+  if (!HOSTED_ORG && req.method === 'GET' && !url.pathname.startsWith('/api/') && !(url.pathname === '/' && url.searchParams.has('state')) && (await serveUi(res, url.pathname)))
+    return;
   const key = `${req.method} ${url.pathname}`;
   const runnerRoute = runnerRoutes[key];
   const route = routes[key];
