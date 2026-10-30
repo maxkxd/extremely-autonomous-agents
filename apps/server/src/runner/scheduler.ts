@@ -14,7 +14,8 @@ import type { ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals } from './approvals.js';
 import { all, one, run as exec } from './db.js';
-import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, scheduledDue } from './ferocity.js';
+import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, scheduledDue, STEADY } from './ferocity.js';
+import { toolsFor } from './tools.js';
 import { costOf, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
 import { adapterFor } from './providers.js';
@@ -175,13 +176,24 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   // from requests, and failure backoff still stops one that keeps failing.
   if (!BUILT_IN_IDS.includes(agent.id) && runsToday(agent.id, now) >= backstop(agent, st.ferocity)) return null;
   if (due.length) return { trigger: due[0].trigger, task: due[0].task, bookingId: due[0].id };
-  if (st.ferocity === APOCALYPTIC) {
+  // Its real output can't happen yet - nothing it's counted by, besides workspace
+  // files, is connected: it runs as Steady until a connection wakes it (Tier 1
+  // Support, with no Desk, wrote procedures for its procedures every 30 minutes).
+  const blocked = !BUILT_IN_IDS.includes(agent.id) && blockedOnConnections(agent);
+  if (st.ferocity === APOCALYPTIC && !blocked) {
     const last = one<{ ended_at: number | null }>('SELECT ended_at FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1', agent.id);
     if (last?.ended_at && now - last.ended_at < APOCALYPTIC_GAP_MS) return null;
     return { trigger: 'apocalyptic', task: null };
   }
-  const scheduled = scheduledDue(agent, st.ferocity, st.last_scheduled_at, now);
+  const scheduled = scheduledDue(agent, blocked ? Math.min(st.ferocity, STEADY) : st.ferocity, st.last_scheduled_at, now);
   return scheduled != null && scheduled <= now ? { trigger: 'scheduled', task: null } : null;
+}
+
+function blockedOnConnections(agent: AgentDef) {
+  const real = agent.ferocity.counts.filter(c => !c.startsWith('files.'));
+  if (!real.length) return false;
+  const callable = new Set(toolsFor(agent).ids.values());
+  return !real.some(c => callable.has(c));
 }
 
 function start(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, connection: string | null, resumeFrom: string | null = null) {
