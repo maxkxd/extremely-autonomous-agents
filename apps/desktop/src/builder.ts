@@ -307,6 +307,7 @@ export type IntegrationView = {
   // A sign-in of fields the service takes (an id and secret, a refresh token, a region).
   fields: { name: string; label: string; help: string | null; secret: boolean; options: string[] | null; optional: boolean; saved: boolean; value: string | null }[] | null;
   signIn: { clientUrl: string | null; help: string | null; hasClient: boolean; redirect: string | null } | null; // OAuth
+  keyFrom: { id: string; name: string } | null; // an extension: uses this connection's key
   shipped: boolean;
   connected: boolean;
   draft: boolean; // the Agency Engineer's, not live until approved

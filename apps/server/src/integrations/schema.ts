@@ -152,6 +152,9 @@ export const Integration = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('http'),
     id: z.string().regex(/^[a-z0-9-]+$/),
+    // An extension of another connection (a built-in like github): more tools on
+    // its key, nothing new to connect. Its auth is the parent's.
+    key_from: z.string().regex(/^[a-z0-9-]+$/).optional(),
     name: z.string(),
     what: z.string(),
     key_url: z.string().optional(),
@@ -185,6 +188,9 @@ export const Integration = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('code'),
     id: z.string().regex(/^[a-z0-9-]+$/),
+    // An extension of another connection (a built-in like github): more tools on
+    // its key, nothing new to connect. Its auth is the parent's.
+    key_from: z.string().regex(/^[a-z0-9-]+$/).optional(),
     name: z.string(),
     what: z.string(),
     key_url: z.string().optional(),

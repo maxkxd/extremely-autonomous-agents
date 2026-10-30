@@ -125,8 +125,11 @@ async function renewToken(id: string, auth: FieldsAuth, creds: Record<string, st
 // for a fields sign-in, its fields (and token) as JSON.
 // With the definition doing the calling: a live version while its redraft waits
 // reads its own fields (the draft may have dropped one, like a region).
-const keyOf = async (id: string, def?: Integration) => {
-  const auth = (def ?? find(id))?.auth;
+const keyOf = async (id: string, def?: Integration): Promise<string | undefined> => {
+  const d = def ?? find(id);
+  const parent = d && keyFrom(d);
+  if (parent) return keyOf(parent);
+  const auth = d?.auth;
   if (auth?.type === 'fields') {
     const c = await fieldsOf(id, auth);
     return c ? JSON.stringify(c) : undefined;
@@ -182,7 +185,13 @@ export async function loadIntegrations() {
 }
 
 const find = (id: string) => loaded.find(l => l.integration.id === id)?.integration;
-const isConnected = (id: string) => !!states()[id]?.connectedAt;
+// The connection an extension uses the key of (key_from), if it is one.
+const keyFrom = (i: Integration) => (i.kind === 'http' || i.kind === 'code' ? i.key_from : undefined);
+const isConnected = (id: string): boolean => {
+  const d = find(id);
+  const parent = d && keyFrom(d);
+  return parent ? isConnected(parent) : !!states()[id]?.connectedAt;
+};
 // What agents can use: connected, and not a draft - or a draft of one that's
 // live, whose live version they keep using until the draft is approved.
 const isLive = (id: string) => isConnected(id) && (!states()[id]?.draft || liveCopies.has(id));
@@ -289,7 +298,11 @@ async function test(integration: Integration): Promise<{ ok: boolean; message: s
 export async function connectIntegration(id: string, key?: string, fields?: Record<string, unknown>) {
   const integration = find(id);
   if (!integration) throw new Error('Unknown integration.');
-  if (integration.auth.type === 'fields') {
+  const parent = keyFrom(integration);
+  if (parent) {
+    // An extension has nothing of its own to enter: it works once its parent is connected.
+    if (!isConnected(parent)) throw new Error(`Connect ${find(parent)?.name ?? parent} first - this uses its connection.`);
+  } else if (integration.auth.type === 'fields') {
     const auth = integration.auth;
     if (fields) {
       const had = (await getSecret<{ fields: Record<string, string> }>(secretKey(id)))?.fields ?? {};
@@ -440,24 +453,27 @@ export async function listIntegrations() {
     kind: integration.kind,
     keyUrl: integration.key_url,
     keyHelp: integration.key_help ?? null,
-    needsKey: integration.auth.type !== 'none' && integration.auth.type !== 'oauth2' && integration.auth.type !== 'mcp_oauth' && integration.auth.type !== 'fields',
+    needsKey: !keyFrom(integration) && integration.auth.type !== 'none' && integration.auth.type !== 'oauth2' && integration.auth.type !== 'mcp_oauth' && integration.auth.type !== 'fields',
     // A fields sign-in: what to ask for. Saved secrets are never sent back; non-secret ones are, to edit.
     fields:
-      integration.auth.type === 'fields'
+      integration.auth.type === 'fields' && !keyFrom(integration)
         ? integration.auth.fields.map(f => {
             const saved = savedFields.get(integration.id) ?? {};
             return { name: f.name, label: f.label, help: f.help ?? null, secret: f.secret, options: f.options ?? null, optional: !!f.optional || f.default !== undefined, saved: !!saved[f.name], value: f.secret ? null : (saved[f.name] ?? f.default ?? '') };
           })
         : null,
     // An MCP server's sign-in needs no client from the person (it registers itself).
-    signIn:
-      integration.auth.type === 'oauth2'
+    signIn: keyFrom(integration)
+      ? null
+      : integration.auth.type === 'oauth2'
         ? { clientUrl: integration.auth.client_url ?? null, help: integration.auth.client_help ?? null, hasClient: clients.has(integration.id), redirect: OAUTH_REDIRECT }
         : integration.auth.type === 'mcp_oauth'
           ? { clientUrl: null, help: null, hasClient: true, redirect: null }
           : null,
     shipped,
-    connected: !!st[integration.id]?.connectedAt,
+    connected: isConnected(integration.id),
+    // An extension: connected through this one, nothing to enter.
+    keyFrom: keyFrom(integration) ? { id: keyFrom(integration)!, name: find(keyFrom(integration)!)?.name ?? keyFrom(integration)! } : null,
     draft: !!st[integration.id]?.draft,
     approvalId: waiting.get(integration.id) ?? null,
     by: st[integration.id]?.by ?? null,
@@ -576,6 +592,16 @@ export async function writeDraftIntegration(definition: string, by: string, requ
   if (!checked.success)
     throw new Error(`The definition doesn't fit the format: ${checked.error.issues.slice(0, 6).map(i => `${i.path.join('.') || '(top)'}: ${i.message}`).join('; ')}`);
   const integration = checked.data;
+  // An extension uses another connection's key: that one must exist and not be an
+  // extension itself, and its auth is the parent's (so the key is sent its way).
+  const parentId = keyFrom(integration);
+  if (parentId) {
+    const parent = find(parentId);
+    if (!parent || parentId === integration.id) throw new Error(`key_from "${parentId}" isn't a connection here (engineer.list_integrations).`);
+    if (keyFrom(parent)) throw new Error(`"${parentId}" is itself an extension; use the connection it extends, "${keyFrom(parent)}".`);
+    // A signed-in parent hands over its access token: sent as a bearer token.
+    (integration as { auth: Integration['auth'] }).auth = parent.auth.type === 'oauth2' || parent.auth.type === 'mcp_oauth' ? { type: 'bearer' } : parent.auth;
+  }
   // A field that picks the server (accounts.zoho.{{region}}) could send the keys anywhere
   // ("attacker.com"): it must be one of a fixed list.
   if (integration.kind === 'http' && integration.auth.type === 'fields') {
@@ -774,6 +800,8 @@ export async function publishPreview(id: string) {
     code: src?.code ?? null,
     codeHash: src?.code ? codeHash(src.code) : null,
     permissions: plugin && integration.kind === 'code' ? resolvePermissions(integration.permissions) : null,
+    // An extension: the connection whose key it uses.
+    usesKeyOf: keyFrom(integration) ? (find(keyFrom(integration)!)?.name ?? keyFrom(integration)!) : null,
   };
 }
 

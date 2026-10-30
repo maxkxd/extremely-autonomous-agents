@@ -136,7 +136,13 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
   };
   // An MCP server's test already says how many tools it found.
   const tools = i.kind !== 'mcp' && i.tools.length && !i.draft ? `${i.tools.length} tool${i.tools.length === 1 ? '' : 's'}` : '';
-  const sub = i.connected
+  // An extension uses another connection's key: nothing of its own to connect.
+  const ext = i.keyFrom;
+  const sub = ext
+    ? i.connected
+      ? [`Uses your ${ext.name} connection`, i.draft ? (i.approvalId ? 'Waiting for your approval' : 'The Agency Engineer is testing it') : tools].filter(Boolean).join(' · ')
+      : `Uses your ${ext.name} connection - connect ${ext.name} to use it`
+    : i.connected
     ? i.draft
       ? i.approvalId ? 'Tested · waiting for your approval' : 'The Agency Engineer is testing it'
       : [i.test?.message, tools].filter(Boolean).join(' · ')
@@ -151,7 +157,9 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
       </span>
       {sub && <span className={`sconn-what${i.test && !i.test.ok ? ' sint-bad' : ''}`}>{sub}</span>}
       <span className="sint-actions">
-        {i.connected ? (
+        {ext ? (
+          i.connected && <ApproveButton i={i} onOpenApproval={onOpenApproval} />
+        ) : i.connected ? (
           <>
             <ApproveButton i={i} onOpenApproval={onOpenApproval} />
             <SpinButton spinning={false} onClick={() => run(() => disconnectIntegration(i.id))}>
