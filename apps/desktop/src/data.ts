@@ -33,6 +33,9 @@ export type Agent = {
   // A pack agent still being customized for the organisation: it isn't run,
   // and DMs to it wait, until this clears.
   settingUp?: boolean;
+  // The pack it was added from, and which of its agents (the pack's name for it,
+  // whatever the agent is called now): the New agent page shows what's in.
+  pack?: { id: string; member: string } | null;
 };
 
 export type Decisions = { approved: number; rejected: number; expired: number };

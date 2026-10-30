@@ -279,8 +279,8 @@ function Agency() {
           const have = AGENTS.find(x => x.id === id);
           if (have) {
             // What only the server knows, kept current on one this browser already has.
-            if (!!have.service !== !!a.service || !!have.builtIn !== !!a.builtIn || have.name !== a.name || (have.ownerId ?? null) !== (a.ownerId ?? null)) {
-              Object.assign(have, { name: a.name, ownerId: a.ownerId ?? null, builtIn: a.builtIn || undefined, service: a.service || undefined, ...(a.builtIn ? { owner: 'Built-in' } : {}) });
+            if (!!have.service !== !!a.service || !!have.builtIn !== !!a.builtIn || have.name !== a.name || (have.ownerId ?? null) !== (a.ownerId ?? null) || JSON.stringify(have.pack ?? null) !== JSON.stringify(a.pack ?? null)) {
+              Object.assign(have, { name: a.name, ownerId: a.ownerId ?? null, pack: a.pack ?? null, builtIn: a.builtIn || undefined, service: a.service || undefined, ...(a.builtIn ? { owner: 'Built-in' } : {}) });
               added = true;
             }
             continue;
@@ -300,6 +300,7 @@ function Agency() {
             decisions: { approved: 0, rejected: 0, expired: 0 },
             ferocity: 0,
             settingUp: a.status === 'setting-up' || undefined,
+            pack: a.pack ?? null,
           });
           added = true;
         }
