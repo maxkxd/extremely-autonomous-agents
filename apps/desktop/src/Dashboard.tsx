@@ -382,13 +382,6 @@ export function AgentCard({
                 <CircleCheckBig size={14} strokeWidth={1.75} />
                 {countsLoading ? <Skel w={9} h={12} /> : openApprovals}
               </a>
-              {onRunNow && !preview && (
-                <RunNowButton
-                  running={outcome === 'running'}
-                  why={agencyHeld ? 'The agency is on standby or stopped' : agent.settingUp ? "It's still being set up" : state === 'stopped' ? "It's stopped" : null}
-                  onRun={onRunNow}
-                />
-              )}
             </span>
             </span>
             </div>
@@ -422,9 +415,18 @@ export function AgentCard({
 
       <aside className="card-side">
         <div className="stats">
-          <div className="stat">
-            <span className="stat-label">Runs · {rangeLabel(range).toLowerCase()}</span>
-            <span className="stat-value">{loading ? <Skel w={28} h={22} /> : count(agent.live ? agent.runs : scaleTo(range, agent.runs))}</span>
+          <div className="stat-row">
+            <div className="stat">
+              <span className="stat-label">Runs · {rangeLabel(range).toLowerCase()}</span>
+              <span className="stat-value">{loading ? <Skel w={28} h={22} /> : count(agent.live ? agent.runs : scaleTo(range, agent.runs))}</span>
+            </div>
+            {onRunNow && !preview && (
+              <RunNowButton
+                running={outcome === 'running'}
+                why={agencyHeld ? 'The agency is on standby or stopped' : agent.settingUp ? "It's still being set up" : state === 'stopped' ? "It's stopped" : null}
+                onRun={onRunNow}
+              />
+            )}
           </div>
           <div className="stat">
             <span className="stat-label">Last run</span>
@@ -503,7 +505,7 @@ function RunNowButton({ running, why, onRun }: { running: boolean; why: string |
   const busy = starting || running;
   return (
     <button
-      className={`head-count run-now${busy ? ' busy' : ''}`}
+      className={`run-now${busy ? ' busy' : ''}`}
       title={why ? `Run now: ${why.toLowerCase()}` : busy ? (running ? 'Running' : 'Starting...') : 'Run now'}
       disabled={!!why || busy}
       onClick={() => {
