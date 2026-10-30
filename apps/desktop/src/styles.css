@@ -1810,7 +1810,12 @@ a.sbtn { text-decoration: none; color: inherit; }
 .sinline { display: flex; gap: 8px; align-items: center; }
 .sinline input { flex: 1; min-width: 0; }
 .sinline .sbtn { align-self: center; flex-shrink: 0; }
-.srole { height: 30px; padding: 0 8px; border-radius: 8px; font: inherit; font-size: 13px; color: var(--text); background: var(--sidebar); border: 1px solid var(--border); }
+/* Member or admin (Settings > Organization): the app's joined dropdown. */
+.role-picker { position: relative; width: 112px; flex-shrink: 0; --dd-bg: var(--bg); }
+.role-picker .range-btn { height: 32px; }
+.role-picker.open .range-btn { border-color: var(--border-strong); border-bottom-color: transparent; border-radius: 8px 8px 0 0; }
+.role-picker.open .chev { transform: rotate(180deg); }
+.role-picker .dropdown-menu { z-index: 30; }
 .smember-name { flex: 1; min-width: 0; }
 .sicon { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: var(--muted); }
 .sicon:hover { background: var(--surface-hover); color: var(--text); }
