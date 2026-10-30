@@ -76,6 +76,7 @@ export type Profile = {
   // member: the account this person is, if the server matched one (read only here).
   people: KeyPerson[];
   notes: string[];
+  interviewed?: boolean; // its profile chat has been done (server/src/org.ts)
 };
 export type KeyPerson = { name: string; role: string; member?: string | null };
 
@@ -89,8 +90,23 @@ export const saveProfile = (org: string, profile: Profile, link = false) => post
 // Matches any key people not yet checked against the members, and returns every link.
 export const linkKeyPeople = (org: string) => post<{ people: KeyPerson[] }>('/api/org/links', { org }).then(r => r.people);
 // The profile chat opens with this, so it needs no round trip.
-export const profileOpener = (org: string) =>
-  org ? `Before I build anything for ${org}: what does it do, and who for?` : "Let's set up your organization. What's it called, what does it do, and who for?";
+// existing: what's already written for it - the opener asks about what isn't.
+export const profileOpener = (org: string, existing?: Profile | null) => {
+  if (!org) return "Let's set up your organization. What's it called, what does it do, and who for?";
+  const missing = [
+    !existing?.what_it_does?.trim() && 'what it does',
+    !existing?.customers?.trim() && 'who its customers are',
+    !existing?.offering?.trim() && 'what it sells',
+    !existing?.voice?.trim() && 'how it sounds when it writes',
+  ].filter(Boolean) as string[];
+  if (missing.length === 4) return `Before I build anything for ${org}: what does it do, and who for?`;
+  const list = missing.length > 1 ? `${missing.slice(0, -1).join(', ')} and ${missing.at(-1)}` : missing[0];
+  return missing.length
+    ? `Before I build anything for ${org}: I've got what you wrote. Tell me ${list}.`
+    : `Before I build anything for ${org}: I've got what you wrote. Who are the key people agents should report to?`;
+};
+// Whether its chat is still to do (server/src/org.ts interviewDone, the same rule).
+export const interviewDone = (p: Profile | null) => !!p && (!!p.interviewed || [p.what_it_does, p.customers, p.offering, p.voice].every(v => v?.trim()));
 
 // --- The person (every account has one, organization or not) ---
 

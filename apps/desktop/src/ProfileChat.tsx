@@ -15,12 +15,13 @@ export function useProfileChat() {
 
   // orgName: the organization being described, or '' to ask for its name too.
   // onSaved gets the name once its profile is saved.
-  const start = (orgName: string, from: Element | null | undefined, onSaved: (name: string) => void) => {
+  // existing: what's already written for it (Settings): the chat starts from that.
+  const start = (orgName: string, from: Element | null | undefined, onSaved: (name: string) => void, existing: Profile | null = null) => {
     org.current = orgName;
     draft.current = null;
     done.current = onSaved;
     setOrigin(from?.getBoundingClientRect() ?? null);
-    setSession({ ...NEW_SESSION, phase: 'chat', open: true, turns: [{ role: 'builder', text: profileOpener(orgName) }] });
+    setSession({ ...NEW_SESSION, phase: 'chat', open: true, turns: [{ role: 'builder', text: profileOpener(orgName, existing) }] });
   };
 
   const ask = async (turns: Turn[]) => {
@@ -52,7 +53,8 @@ export function useProfileChat() {
     if (!name) return setSession(s => ({ ...s, error: "Tell it what the organization's called first." }));
     setSession(s => ({ ...s, phase: 'building', error: null }));
     try {
-      await saveProfile(name, { ...draft.current, name }, true);
+      // Done: it isn't asked again (the server keeps anything typed that the chat left empty).
+      await saveProfile(name, { ...draft.current, name, interviewed: true }, true);
       setSession(NEW_SESSION);
       const next = done.current;
       done.current = null;

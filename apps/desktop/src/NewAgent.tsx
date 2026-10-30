@@ -5,7 +5,7 @@ import { DEPARTMENT_ICON } from './Sidebar';
 import { BuilderChat } from './BuilderChat';
 import { ACCOUNT } from './data';
 import { useProfileChat } from './ProfileChat';
-import { addPack, buildAgent, getProfile, matchPack, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
+import { addPack, buildAgent, getProfile, interviewDone, matchPack, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
 import { ConnectModel, useHasModels } from './NoModels';
 
 // "Customize your own agent" always takes the last slot of the top row (the
@@ -176,8 +176,11 @@ export function NewAgent({
   const profileChat = useProfileChat();
   const withProfile = async (from: HTMLElement | null | undefined, action: () => void) => {
     const org = ACCOUNT.org?.name;
-    if (!org || (await getProfile(org).catch(() => null))) return action();
-    profileChat.start(org, from, action);
+    if (!org) return action();
+    // Once per organisation: not yet done, it runs - from whatever's already written.
+    const p = await getProfile(org).catch(() => null);
+    if (interviewDone(p)) return action();
+    profileChat.start(org, from, action, p);
   };
 
   // Bring a recommended pack into view.

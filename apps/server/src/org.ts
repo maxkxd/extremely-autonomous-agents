@@ -20,7 +20,30 @@ export type Profile = {
   people: Person[];
   notes: string[];
   members_seen?: string[]; // the members the last check was made against
+  interviewed?: boolean; // its profile chat has been done (before the first agent, once)
 };
+
+// Whether an organisation's profile chat is still to do: never done (anything
+// typed in Settings meanwhile is where it starts from). Profiles the chat filled
+// before this was recorded have every core field.
+export const interviewDone = (p: Profile | null) => !!p && (!!p.interviewed || [p.what_it_does, p.customers, p.offering, p.voice].every(v => v?.trim()));
+
+// A chat's profile over what was already written: nothing typed is lost to a
+// field the chat left empty.
+export function overWritten(was: Profile | null, next: Profile): Profile {
+  if (!was) return next;
+  const keep = (a: string | undefined, b: string | undefined) => (a?.trim() ? a : (b ?? ''));
+  return {
+    ...was,
+    ...next,
+    what_it_does: keep(next.what_it_does, was.what_it_does),
+    customers: keep(next.customers, was.customers),
+    offering: keep(next.offering, was.offering),
+    voice: keep(next.voice, was.voice),
+    people: next.people?.length ? next.people : was.people,
+    notes: [...new Set([...(was.notes ?? []), ...(next.notes ?? [])])],
+  };
+}
 
 const DIR = join(DATA_DIR, 'orgs');
 const file = (org: string) => join(DIR, `${org.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'org'}.json`);

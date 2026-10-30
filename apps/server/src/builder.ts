@@ -173,7 +173,9 @@ const ProfileTurnSchema = z.object({
     .describe(`New facts about the person you're talking to. ${DURABLE}`),
 });
 
-export async function profileInterview(orgName: string, person: PersonProfile, turns: Turn[]) {
+// existing: what's already written for it (typed in Settings before the chat): kept, and not asked again.
+export async function profileInterview(orgName: string, person: PersonProfile, turns: Turn[], existing: Profile | null = null) {
+  const written = existing && [existing.what_it_does, existing.customers, existing.offering, existing.voice].some(v => v?.trim()) ? existing : null;
   return parse(
     ProfileTurnSchema,
     null,
@@ -181,6 +183,7 @@ export async function profileInterview(orgName: string, person: PersonProfile, t
 
 You are talking to the person setting it up. What you already know about them - don't ask for it again, and include them in the profile's people:
 ${personForPrompt(person)}
+${written ? `\nAlready written for this organisation - start from it: keep it in the profile word for word unless the person changes it, and don't ask for it again. Ask only about what's missing or empty:\n${profileForPrompt(written)}\n` : ''}
  Find out, in plain words: what it does, who its customers are, what it sells, how it sounds when it writes, and the key people agents should report to or write as (names and roles). If you don't know the person's own role in it, ask that alongside the people question. Two to four short rounds at most - one or two questions at a time, and fill in what you can infer. When you have enough, set ready to true and say in a sentence that you'll write every agent for them from now on.`,
     // The chat opens with a canned question from the builder; the API needs a
     // person's turn first.
