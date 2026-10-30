@@ -45,8 +45,11 @@ export const APPROVAL_TOOLS = {
   },
   // The Agency Engineer: a draft integration going live, and tools for an agent.
   'engineer.publish_integration': {
-    wantsTo: 'make {name} live for {for_agent_name}',
-    headers: [{ label: 'Wakes it on', value: '{events_list}', optional: true }],
+    wantsTo: 'give {for_agent_name} {name}',
+    headers: [
+      { label: 'Tools', value: '{tools_list}', optional: true },
+      { label: 'Wakes it on', value: '{events_list}', optional: true },
+    ],
     body: '{review}',
     expiresAfterHours: 168,
   },

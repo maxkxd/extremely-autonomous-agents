@@ -70,11 +70,16 @@ runs for every new service:
 Built (2026-10-29): the whole loop. Drafts show in Settings with a Draft
 label and can be connected; connecting one wakes the engineer (the
 `connected` trigger); `engineer.test_integration` calls any tool of a draft
-directly; `engineer.publish_integration` is the one approval (T2), whose card
-shows the definition, a plugin's code and the engineer's test summary, and
-which when approved makes it live, gives the agent its tools (TOOLS.yaml, the
-builder's tiers kept) and closes the request. Its `engineer.give_tools` gives
-an agent tools that already exist, also behind an approval.
+directly; `engineer.publish_integration` is the one approval (T2). Connecting
+a draft is the person's yes to the connection itself, so the card is about
+agents: "give Lead Research and Outreach Google Drive", with the tools each
+gets and the engineer's summary - every agent waiting on that connection on
+one card (`also`). Approved, it goes live, each agent gets its tools
+(TOOLS.yaml, the builder's tiers kept) and their requests close. No code is
+shown: a plugin's safety is the independent review and the sandbox, not a
+person reading it. Its `engineer.give_tools` gives an agent tools that
+already exist, also behind an approval. A request already on a waiting card
+can't be put on another (2026-10-30).
 
 ### When a live tool is failing (2026-10-29)
 
