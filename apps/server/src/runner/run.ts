@@ -241,10 +241,16 @@ Read the request again with engineer.list_requests, then carry it forward.`;
       return `${task}
 
 Follow "When a person turns a request down".`;
+    // The engineer tests what was connected; any other agent (woken because its
+    // tools work now) gets straight on with its job.
     case 'connected':
-      return `${task}
+      return agent.id === FLEET_ENGINEER
+        ? `${task}
 
-Test it properly now (engineer.test_integration), then carry its request forward.`;
+Test it properly now (engineer.test_integration), then carry its request forward.`
+        : `${task}
+
+Get on with the work it unblocks now.`;
     // Something it watches for happened (docs/events.md).
     case 'event':
       return `Something you watch for happened:
