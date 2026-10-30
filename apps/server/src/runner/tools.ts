@@ -604,7 +604,10 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
 // (Content & SEO was nudged four times after its fifth).
 export const canStillCount = (agent: AgentDef, runId: string, callable: Set<string>) => {
   const filesSpent = agent.ferocity.counts.some(c => !c.startsWith('files.')) && (workspaceCounted.get(runId) ?? 0) >= WORKSPACE_COUNTED;
-  return agent.ferocity.counts.some(c => callable.has(c) && !(filesSpent && c.startsWith('files.')) && (failedInRun.get(`${runId}|${c}`)?.n ?? 0) < FAILS_PER_RUN);
+  // A tool whose last call failed and hasn't worked since is broken until fixed
+  // (drive.edit_doc failed once and kept the LinkedIn agent nudged four times).
+  const broken = new Set(toolHealth(agent.id).filter(h => h.last_fail && (!h.last_ok || h.last_fail > h.last_ok)).map(h => h.tool));
+  return agent.ferocity.counts.some(c => callable.has(c) && !broken.has(c) && !(filesSpent && c.startsWith('files.')) && (failedInRun.get(`${runId}|${c}`)?.n ?? 0) < FAILS_PER_RUN);
 };
 
 // --- Live tool status (never from memory) ------------------------------------------
