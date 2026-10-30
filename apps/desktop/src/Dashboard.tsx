@@ -423,7 +423,7 @@ export function AgentCard({
             {onRunNow && !preview && (
               <RunNowButton
                 running={outcome === 'running'}
-                why={agencyHeld ? 'The agency is on standby or stopped' : agent.settingUp ? "It's still being set up" : state === 'stopped' ? "It's stopped" : null}
+                why={agencyStopped ? 'The agency is stopped' : state === 'stopped' ? "It's stopped" : agent.settingUp ? "It's still being set up" : null}
                 onRun={onRunNow}
               />
             )}
@@ -492,8 +492,10 @@ export function AgentCard({
 }
 
 // The card's three-dot menu, top right.
-// Starts a run straight away, beside its requests and approvals. Spins from the
-// click until the run is under way, and while it runs.
+// Starts a run straight away, beside its run count: on standby too (a person
+// setting it off), never while it or the agency is stopped - then it's greyed
+// and can't be clicked. Spins from the click until the run is under way, and
+// while it runs.
 function RunNowButton({ running, why, onRun }: { running: boolean; why: string | null; onRun: () => void }) {
   const [starting, setStarting] = useState(false);
   useEffect(() => {
