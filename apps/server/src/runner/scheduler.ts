@@ -148,7 +148,9 @@ const PERSON_DRIVEN = new Set<Trigger>(['your message', 'run now', 'approval', '
 export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: number): Next | null {
   if (st.state === 'stopped') return null;
   const due = all<{ id: number; trigger: Trigger; task: string | null }>(
-    "SELECT id, trigger, task FROM bookings WHERE agent_id = ? AND due_at <= ? ORDER BY CASE trigger WHEN 'your message' THEN 0 ELSE 1 END, due_at, id",
+    // A person's message first; then a tool agents already rely on that's broken
+    // (it waited an hour behind 23 new builds), then the rest in order.
+    "SELECT id, trigger, task FROM bookings WHERE agent_id = ? AND due_at <= ? ORDER BY CASE WHEN trigger = 'your message' THEN 0 WHEN task LIKE '%: Fix the tool %' THEN 1 ELSE 2 END, due_at, id",
     agent.id,
     now,
   );
