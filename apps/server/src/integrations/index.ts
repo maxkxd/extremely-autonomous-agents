@@ -60,7 +60,24 @@ const secretKey = (id: string) => `integration:${id}`;
 // A fields sign-in's fields, with its defaults, and the token they're swapped
 // for when it has one (kept until it expires).
 type FieldsAuth = Extract<AuthDef, { type: 'fields' }>;
+// Kept in the vault too, so a restart doesn't renew it (Zoho allows 10 renewals in
+// 10 minutes, and a morning of restarts used them up), and one renewal is shared
+// by calls that arrive together.
 const tokens = new Map<string, { token: string; until: number }>();
+const renewing = new Map<string, Promise<{ token: string; until: number }>>();
+const tokenKey = (id: string) => `integration-token:${id}`;
+async function keptToken(id: string, cacheKey: string) {
+  const had = tokens.get(cacheKey) ?? (await getSecret<Record<string, { token: string; until: number }>>(tokenKey(id)))?.[cacheKey];
+  if (!had || had.until <= Date.now()) return null;
+  tokens.set(cacheKey, had);
+  return had;
+}
+async function keepToken(id: string, cacheKey: string, t: { token: string; until: number }) {
+  tokens.set(cacheKey, t);
+  const all = (await getSecret<Record<string, { token: string; until: number }>>(tokenKey(id))) ?? {};
+  for (const [k, v] of Object.entries(all)) if (v.until <= Date.now()) delete all[k];
+  await setSecret(tokenKey(id), { ...all, [cacheKey]: t });
+}
 async function fieldsOf(id: string, auth: FieldsAuth): Promise<Record<string, string> | undefined> {
   const saved = (await getSecret<{ fields: Record<string, string> }>(secretKey(id)))?.fields;
   if (!saved) return undefined;
@@ -68,8 +85,18 @@ async function fieldsOf(id: string, auth: FieldsAuth): Promise<Record<string, st
   for (const f of auth.fields) if (saved[f.name] ?? f.default) creds[f.name] = saved[f.name] ?? f.default!;
   if (!auth.token) return creds;
   const cacheKey = `${id} ${putFields(auth.token.url, creds)}`;
-  const had = tokens.get(cacheKey);
-  if (had && had.until > Date.now()) return { ...creds, token: had.token };
+  const had = await keptToken(id, cacheKey);
+  if (had) return { ...creds, token: had.token };
+  let pending = renewing.get(cacheKey);
+  if (!pending) {
+    pending = renewToken(id, auth, creds, cacheKey).finally(() => renewing.delete(cacheKey));
+    renewing.set(cacheKey, pending);
+  }
+  return { ...creds, token: (await pending).token };
+}
+
+async function renewToken(id: string, auth: FieldsAuth, creds: Record<string, string>, cacheKey: string): Promise<{ token: string; until: number }> {
+  if (!auth.token) throw new Error('No token exchange.');
   const url = putFields(auth.token.url, creds);
   if (!url.startsWith('https://')) throw new Error('Its token address must be https.');
   const form = auth.token.form ? new URLSearchParams(Object.entries(auth.token.form).map(([k, v]) => [k, putFields(v, creds)])).toString() : undefined;
@@ -89,8 +116,9 @@ async function fieldsOf(id: string, auth: FieldsAuth): Promise<Record<string, st
   const token = at(answer, auth.token.pick);
   if (!res.ok || typeof token !== 'string' || !token) throw new Error(`Getting a token from ${new URL(url).host} failed (${res.status}): ${errorText(text).slice(0, 200)}`);
   const life = Number(auth.token.expires_in ? at(answer, auth.token.expires_in) : NaN);
-  tokens.set(cacheKey, { token, until: Date.now() + (Number.isFinite(life) && life > 120 ? life - 60 : 3000) * 1000 });
-  return { ...creds, token };
+  const kept = { token, until: Date.now() + (Number.isFinite(life) && life > 120 ? life - 60 : 3000) * 1000 };
+  await keepToken(id, cacheKey, kept);
+  return kept;
 }
 
 // The key, or for a signed-in (OAuth) integration its current access token;
@@ -276,6 +304,7 @@ export async function connectIntegration(id: string, key?: string, fields?: Reco
       }
       await setSecret(secretKey(id), { fields: next });
       for (const k of tokens.keys()) if (k.startsWith(`${id} `)) tokens.delete(k);
+      await deleteSecret(tokenKey(id));
     } else if (!(await getSecret(secretKey(id)))) throw new Error('Fill in the fields first.');
   } else if (integration.auth.type === 'oauth2' || integration.auth.type === 'mcp_oauth') {
     if (!(await oauthSecret(id))?.accessToken) throw new Error('Sign in first.');
