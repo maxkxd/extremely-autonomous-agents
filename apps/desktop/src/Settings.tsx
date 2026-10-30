@@ -1016,7 +1016,7 @@ function DeleteOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel
     <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && !busy && onCancel()}>
       <div className="confirm" role="alertdialog" aria-labelledby="delorg-title">
         <h2 id="delorg-title">Delete {name}?</h2>
-        <p>Everyone loses access, and its agency stops on this computer. Its files stay here.</p>
+        <p>Everyone loses access, and its agents, their history and its connections are deleted from this computer. This can't be undone.</p>
         <label className="confirm-label">
           <span>
             Type <strong>{name}</strong> to confirm

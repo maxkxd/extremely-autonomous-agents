@@ -26,7 +26,7 @@ import * as selfhost from './selfhost.js';
 import { listTools, setToolTier } from './toolSettings.js';
 import { SELF_HOSTED } from './selfhost.js';
 import { randomUUID } from 'node:crypto';
-import { forwardToHosted, HOSTED_ORG, HOSTED_PORT, hostingStatus, keepHostSecret, resumeHosting, startHosting, stopHosting } from './hosting.js';
+import { forwardToHosted, HOSTED_ORG, HOSTED_PORT, hostingStatus, keepHostSecret, resumeHosting, startHosting, deleteHosting, stopHosting } from './hosting.js';
 import { setSetting } from './runner/db.js';
 import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, personFor, recordAction, requireAdmin, setAccessConfig } from './access.js';
 
@@ -195,6 +195,13 @@ const routes: Record<string, Route> = {
     return { ok: true };
   },
   'POST /api/hosting/stop': async () => (await stopHosting(), { ok: true }),
+  // The organisation was deleted: nothing of it stays here.
+  'POST /api/hosting/delete': async req => {
+    const { orgId } = await body<{ orgId: string }>(req);
+    if (typeof orgId !== 'string' || !/^[\w-]+$/.test(orgId)) throw new ConnectError('Which organisation?');
+    await deleteHosting(orgId);
+    return { ok: true };
+  },
   // In an organisation's agency: the secret it asks our backend about members with (from the person's own agency).
   'POST /api/settings/host-secret': async req => {
     const { secret } = await body<{ secret: string }>(req);
