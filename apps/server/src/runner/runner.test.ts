@@ -212,6 +212,21 @@ test('every model failing fails the run, posts why, and backs the agent off', as
   assert.ok(st.backoff_until! > Date.now());
 });
 
+test('an AI out of its allowance asks the person once, and closes when runs work again', async () => {
+  setLevel(CHILL);
+  const spent: Adapter = async () => {
+    throw new ModelError('You have exceeded your monthly quota (Request ID: X1)', 'rate', 429);
+  };
+  await runAgent(agent(), 'scheduled', null, deps(spent));
+  await runAgent(agent(), 'scheduled', null, deps(spent));
+  const asks = all<{ id: number; stage: string; evidence: string }>("SELECT id, stage, evidence FROM requests WHERE what LIKE 'Your AI has run out%' AND status = 'open'");
+  assert.equal(asks.length, 1);
+  assert.equal(asks[0].stage, 'person');
+  assert.doesNotMatch(asks[0].evidence, /Request ID/);
+  await runAgent(agent(), 'scheduled', null, deps(fake(1)));
+  assert.equal(one<{ status: string }>('SELECT status FROM requests WHERE id = ?', asks[0].id)!.status, 'done');
+});
+
 test('the run posts to its DM channel with argument names only', async () => {
   setLevel(CHILL);
   await runAgent(agent(), 'scheduled', null, deps(fake(1)));
