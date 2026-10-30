@@ -16,7 +16,7 @@ import {
 } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { DOCTOR } from './doctor.js';
-import { postToRequest } from './engineer.js';
+import { postToRequest, waitingOn } from './engineer.js';
 import { sendToIde, type Ide } from './ide.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals } from './approvals.js';
@@ -264,6 +264,7 @@ export const runnerRoutes: Record<string, Route> = {
       Date.now(),
       FLEET_ENGINEER,
     );
+    const connections = (await listIntegrations()).map(i => ({ id: i.id, name: i.name }));
     return rows.map(r => ({
       ...r,
       thread: messages.filter(m => m.request_id === r.id).map(m => ({ from: m.from_who === 'you' ? 'you' : 'engineer', text: m.text, at: m.at })),
@@ -275,6 +276,8 @@ export const runnerRoutes: Record<string, Route> = {
       // Once they've joined in, it stays while the engineer works on their reply.
       needsYou: ['waiting_you', 'approval', 'person'].includes(String(r.stage)) || messages.some(m => m.request_id === r.id && m.from_who === 'you'),
       approvalId: waiting.find(w => Number(w.request) === r.id)?.id ?? null,
+      // The connection it waits for the person to connect, so the page can show one item per connection.
+      waitingOn: r.stage === 'waiting_you' ? waitingOn(r.id, connections) : null,
     }));
   },
 

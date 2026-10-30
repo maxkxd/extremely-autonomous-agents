@@ -67,7 +67,7 @@ You are the agency's engineer. Every request an agent files comes to you first. 
 2. A tool that already exists and is live (engineer.list_integrations) would do it? Propose giving it to the agent: engineer.give_tools (a person approves).
 3. A service with an API would do it? Build an integration:
    a. Read the service's API docs (web.web_search, web.fetch_page). Prefer, in order: an HTTP definition (kind: http), a remote MCP server the service runs (kind: mcp), a code plugin only when neither can do it and plugins are allowed.
-   b. Write it with engineer.write_integration (YAML; engineer.read_integration shows the shipped ones - brave-search, github, gmail - as examples of the format). Name each tool exactly the id the agent already expects, if it has one (its missing tools are listed with the request). Give the person what they need to connect it: key_url (where to make the key), key_help (which permissions/plan, one or two sentences), or for OAuth client_url and numbered client_help steps. A remote MCP server that has its own sign-in (Notion, Linear and the like): \`auth: { type: mcp_oauth }\` - the app finds its sign-in and registers itself, so the person just signs in. Anything else a service takes - an id and a secret, an account and a key, a region, a client id + secret + refresh token the person already has: \`auth: { type: fields }\` with the fields to ask for (name, label, help, secret: false for ids and regions), put where the service wants them with {{name}} in headers, query or base_url, and token: { url, form, pick, expires_in } when they're swapped for a short-lived token ({{token}}). Zoho, say: fields client_id, client_secret, refresh_token, region; token url https://accounts.zoho.{{region}}/oauth/v2/token with form grant_type refresh_token; header authorization: "Zoho-oauthtoken {{token}}"; base_url https://www.zohoapis.{{region}}. When the person says what they have, shape the fields to that - never send them back to a different way of signing in. Pick tiers by the rules: reads T0, reversible internal writes T1, anything outside the organisation or hard to undo T2.
+   b. Write it with engineer.write_integration (YAML; engineer.read_integration shows the shipped ones - brave-search, github, gmail - as examples of the format). One connection per service, named after the service ("DataForSEO", "Google Ads") - never after its tools: adding a tool later extends the same one, under the same name and id. Name each tool exactly the id the agent already expects, if it has one (its missing tools are listed with the request). Give the person what they need to connect it: key_url (where to make the key), key_help (which permissions/plan, one or two sentences), or for OAuth client_url and numbered client_help steps. A remote MCP server that has its own sign-in (Notion, Linear and the like): \`auth: { type: mcp_oauth }\` - the app finds its sign-in and registers itself, so the person just signs in. Anything else a service takes - an id and a secret, an account and a key, a region, a client id + secret + refresh token the person already has: \`auth: { type: fields }\` with the fields to ask for (name, label, help, secret: false for ids and regions), put where the service wants them with {{name}} in headers, query or base_url, and token: { url, form, pick, expires_in } when they're swapped for a short-lived token ({{token}}). Zoho, say: fields client_id, client_secret, refresh_token, region; token url https://accounts.zoho.{{region}}/oauth/v2/token with form grant_type refresh_token; header authorization: "Zoho-oauthtoken {{token}}"; base_url https://www.zohoapis.{{region}}. When the person says what they have, shape the fields to that - never send them back to a different way of signing in. Pick tiers by the rules: reads T0, reversible internal writes T1, anything outside the organisation or hard to undo T2.
    c. It's saved as a draft: it shows in Settings -> Connectors so the person can connect it, and no agent can call it. Then tell them it's ready with engineer.ask_for_connection - exact steps (including making an account, if it needs one), and that the key goes in Settings, never in the chat. You're woken the moment they connect it.
    d. Test it like a careful person: the real call with real-looking inputs, then the edge cases - empty and missing inputs, a limit, nonsense - and read what an agent would see. Results must be clean, plain text; errors one readable line. Fix the definition and test again until they are.
    e. Connecting it was the person's yes to the connection itself; what they approve is which agents get which tools. engineer.publish_integration - and when other agents' open requests need the same connection, put them in also, so it's one card. A short summary for the person approving: what it lets the agent do, and its limits (which account, which repository, read-only...). Not how you tested it, and no risks unless one is obvious and significant to someone who isn't technical (it costs money, emails people outside, deletes their files) - never technical or hypothetical ones. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
@@ -169,6 +169,36 @@ export function postToRequest(id: number, from: 'engineer' | 'you', text: string
   exec('INSERT INTO request_messages (request_id, from_who, text, at) VALUES (?, ?, ?, ?)', id, from, text.slice(0, 6000), now);
 }
 const setStage = (id: number, stage: string) => exec('UPDATE requests SET stage = ? WHERE id = ?', stage, id);
+// The connection a request waits for the person to connect, by id: recorded by
+// engineer.ask_for_connection. Older ones only have its message, ending
+// "Settings -> Connectors -> Integrations -> <name>", and a connection's name can
+// grow as tools are added ("DataForSEO Keyword Research" -> "... and SERP"), so
+// the name is matched to the connection it became.
+const ASKED_TO_CONNECT = /Settings\s*->\s*Connectors\s*->\s*Integrations\s*->\s*(.+?)\s*$/m;
+export function waitingOn(requestId: number, connections: { id: string; name: string }[]): { id: string; name: string } | null {
+  const recorded = one<{ waiting_on: string | null }>('SELECT waiting_on FROM requests WHERE id = ?', requestId)?.waiting_on;
+  const byId = recorded ? connections.find(c => c.id === recorded) : undefined;
+  if (byId) return byId;
+  const said = all<{ text: string }>("SELECT text FROM request_messages WHERE request_id = ? AND from_who = 'engineer' ORDER BY id DESC", requestId);
+  for (const m of said) {
+    const name = ASKED_TO_CONNECT.exec(m.text)?.[1]?.trim();
+    if (!name) continue;
+    // Its name then, or the connection sharing the longest beginning with it (reworded as it grew).
+    const shared = (c: { name: string }) => {
+      let n = 0;
+      while (n < Math.min(c.name.length, name.length) && c.name[n].toLowerCase() === name[n].toLowerCase()) n++;
+      return n;
+    };
+    const best = connections.find(c => c.name === name) ?? [...connections].sort((x, y) => shared(y) - shared(x))[0];
+    return best && (best.name === name || shared(best) >= 12) ? best : { id: name, name };
+  }
+  return null;
+}
+// Every request waiting on the person to connect this one.
+const waitingFor = (id: string, connections: { id: string; name: string }[]) =>
+  all<{ id: number }>("SELECT id FROM requests WHERE status = 'open' AND stage = 'waiting_you'")
+    .map(r => r.id)
+    .filter(r => waitingOn(r, connections)?.id === id);
 // The same proposal already waiting on a person (a later run proposing it
 // again doesn't see it): refused, so a person never approves it twice.
 // A request already on a card waiting for a person - its own, or grouped into
@@ -486,6 +516,7 @@ const TOOLS: ToolDef[] = [
       // Settings (the app shows it as a button that opens it, glowing).
       postToRequest(r.id, 'engineer', `${String(a.message).trim()}\n\n${i.keyUrl ? `Get the key here: ${i.keyUrl}\n` : ''}Settings -> Connectors -> Integrations -> ${i.name}`);
       setStage(r.id, 'waiting_you');
+      exec('UPDATE requests SET waiting_on = ? WHERE id = ?', i.id, r.id);
       return `Asked. Request #${r.id} waits on the person; you'll be woken when ${i.name} is connected.`;
     },
   },
@@ -705,7 +736,10 @@ registerTools(TOOLS);
 
 export function startEngineer(book: (agentId: string, trigger: 'request' | 'connected', task: string) => void) {
   // A draft it's waiting on was connected: it tests it now.
-  whenDraftConnected((id, request) => book(FLEET_ENGINEER, 'connected', `The person connected the draft integration "${id}"${request ? ` (for request #${request})` : ''}.`));
+  whenDraftConnected(async (id, request) => {
+    const all = [...new Set([...(request ? [request] : []), ...waitingFor(id, await listIntegrations())])];
+    book(FLEET_ENGINEER, 'connected', `The person connected the draft integration "${id}"${all.length ? ` (for request #${all.join(', #')})` : ''}.`);
+  });
   // Requests from before it existed come to it once.
   const old = all<{ id: number; agent_id: string; what: string }>("SELECT id, agent_id, what FROM requests WHERE status = 'open' AND stage IS NULL AND agent_id != ?", FLEET_ENGINEER);
   for (const r of old) {

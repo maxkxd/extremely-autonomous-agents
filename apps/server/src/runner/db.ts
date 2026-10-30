@@ -34,6 +34,8 @@ export function openDb(path = FILE): DatabaseSync {
     'ALTER TABLE approvals ADD COLUMN decided_by_id TEXT',
     'ALTER TABLE requests ADD COLUMN answered_by TEXT',
     'ALTER TABLE requests ADD COLUMN answered_by_id TEXT',
+    // The connection a request waits for the person to connect (engineer.ask_for_connection).
+    'ALTER TABLE requests ADD COLUMN waiting_on TEXT',
   ])
     try {
       db.exec(sql);
