@@ -505,14 +505,14 @@ function RunNowButton({ running, why, onRun }: { running: boolean; why: string |
     <button
       className={`head-count run-now${busy ? ' busy' : ''}`}
       title={why ? `Run now: ${why.toLowerCase()}` : busy ? (running ? 'Running' : 'Starting...') : 'Run now'}
-      aria-label="Run now"
       disabled={!!why || busy}
       onClick={() => {
         setStarting(true);
         onRun();
       }}
     >
-      {busy ? <LoaderCircle size={14} strokeWidth={2} className="spin" /> : <Play size={14} strokeWidth={1.75} />}
+      {busy ? <LoaderCircle size={12} strokeWidth={2} className="spin" /> : <Play size={12} strokeWidth={2} />}
+      {running ? 'Running' : 'Run now'}
     </button>
   );
 }
