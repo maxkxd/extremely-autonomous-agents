@@ -1253,9 +1253,9 @@ function CapInput({ value, onSave, label, disabled }: { value: number | null; on
 
 // How much a person is involved when an agent uses a tool (catalog.ts T0-T2).
 const LEVELS: { tier: ToolTier; label: string; says: string }[] = [
-  { tier: 'T0', label: 'Silent', says: 'It just does it. Nothing is logged.' },
-  { tier: 'T1', label: 'Logged', says: 'It does it, and says so in its DMs.' },
-  { tier: 'T2', label: 'Approval', says: 'It waits for a person to approve it first.' },
+  { tier: 'T0', label: 'Silent', says: 'The agent just does it. Nothing is logged.' },
+  { tier: 'T1', label: 'Logged', says: 'The agent does it, and says so in its DMs.' },
+  { tier: 'T2', label: 'Approval', says: 'The agent asks a person to approve it first.' },
 ];
 const levelOf = (t: ToolView['tier']) => (t === 'mixed' ? null : LEVELS.find(l => l.tier === t)!);
 
