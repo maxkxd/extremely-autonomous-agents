@@ -1,4 +1,5 @@
 import { FLEET_ENGINEER } from './agent.js';
+import { DOCTOR } from './doctor.js';
 import { all, run as exec } from './db.js';
 import { abortRun } from './scheduler.js';
 
@@ -13,6 +14,8 @@ export async function forgetAgentRuns(id: string, now = Date.now()) {
   const gone = "status = 'rejected', decided_at = ?, note = 'Its agent was deleted.'";
   exec(`UPDATE approvals SET ${gone} WHERE status = 'pending' AND agent_id = ?`, now, id);
   exec(`UPDATE approvals SET ${gone} WHERE status = 'pending' AND agent_id = ? AND json_extract(args, '$.for_agent') = ?`, now, FLEET_ENGINEER, id);
+  // And the Agency Doctor's rule for it, if one's waiting.
+  exec(`UPDATE approvals SET ${gone} WHERE status = 'pending' AND agent_id = ? AND json_extract(args, '$.agent_id') = ?`, now, DOCTOR, id);
 
   // Its open requests: withdrawn - nobody turned them down, so the Agency
   // Engineer doesn't undo its work for them, and what it drafted (a connection

@@ -15,6 +15,7 @@ import {
   startIntegrationSignIn,
 } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
+import { DOCTOR } from './doctor.js';
 import { postToRequest } from './engineer.js';
 import { sendToIde, type Ide } from './ide.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
@@ -351,8 +352,11 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/runner/approvals/decide': async (_req, _q, body) => {
     const { id, decision, note } = await body<{ id: string; decision: 'approved' | 'rejected'; note?: string }>();
     if (decision !== 'approved' && decision !== 'rejected') throw new Error('Approve or reject.');
-    const a = one<{ agent_id: string; request: number | null }>("SELECT agent_id, json_extract(args, '$.request_id') AS request FROM approvals WHERE id = ?", String(id));
-    if (a) await requireMakerOrAdmin(a.agent_id, a.request == null ? null : Number(a.request));
+    const a = one<{ agent_id: string; request: number | null; about: string | null }>(
+      "SELECT agent_id, json_extract(args, '$.request_id') AS request, json_extract(args, '$.agent_id') AS about FROM approvals WHERE id = ?",
+      String(id),
+    );
+    if (a) await requireMakerOrAdmin(a.agent_id, a.request == null ? null : Number(a.request), undefined, undefined, a.agent_id === DOCTOR ? a.about : null);
     const by = currentActor();
     return decideApproval(id, decision, note ?? null, book, undefined, undefined, by);
   },
