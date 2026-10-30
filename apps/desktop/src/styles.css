@@ -1905,3 +1905,10 @@ a.sbtn { text-decoration: none; color: inherit; }
 /* A white button (Settings > Organization: Create). */
 .sbtn.swhite { background: #e6e6e6; border-color: #e6e6e6; color: #141414; }
 .sbtn.swhite:hover:not(:disabled) { background: #fff; border-color: #fff; }
+
+/* Connect a model (NoModels.tsx): bold, glowing blue - the one thing to do next. */
+.sbtn.no-models-go {
+  font-weight: 700;
+  box-shadow: 0 0 0 1px rgba(63, 123, 214, 0.45), 0 0 18px rgba(63, 123, 214, 0.6), 0 0 44px rgba(63, 123, 214, 0.3);
+}
+.sbtn.no-models-go:hover:not(:disabled) { box-shadow: 0 0 0 1px rgba(63, 123, 214, 0.6), 0 0 24px rgba(63, 123, 214, 0.75), 0 0 56px rgba(63, 123, 214, 0.4); }
