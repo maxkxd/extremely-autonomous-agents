@@ -403,6 +403,8 @@ export async function runApproved(ctx: RunCtx, id: string, args: Record<string, 
 // Names a provider accepts: [a-zA-Z0-9_-], up to 64.
 export const toolName = (id: string) => id.replace(/\./g, '__').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
 
+const WHY = 'For the person approving: one or two plain sentences on why this, with what it rests on (a source, a finding). Shown on their card; not sent to the service.';
+
 // The tools this run can call, and the ones it holds that aren't working yet.
 export function toolsFor(agent: AgentDef): { specs: ToolSpec[]; ids: Map<string, string>; notReady: string[] } {
   const ids = new Map<string, string>(); // provider name -> tool id
@@ -415,7 +417,13 @@ export function toolsFor(agent: AgentDef): { specs: ToolSpec[]; ids: Map<string,
   const held = heldTools(agent);
   for (const id of Object.keys(held)) {
     const t = REGISTERED.get(id);
-    if (t && !BUILTIN_IDS.has(id) && (t.ready?.() ?? true)) add(t);
+    if (!t || BUILTIN_IDS.has(id) || !(t.ready?.() ?? true)) continue;
+    // One that waits for a person says why, for the card: a new Zoho Lead's card
+    // was only its fields. Taken off before the tool runs.
+    if (tierOf(agent, id) === 'T2' && !/^(engineer|doctor)\./.test(id)) {
+      const s = t.schema as { properties?: Record<string, unknown>; required?: string[] };
+      add({ ...t, schema: { ...s, properties: { ...(s.properties ?? {}), why: { type: 'string', description: WHY } }, required: [...(s.required ?? []), 'why'] } });
+    } else add(t);
   }
   const notReady = Object.keys(agent.tiers).filter(id => !LEGACY.has(id) && !FAMILIES[id] && !ids.has(toolName(id)));
   return { specs, ids, notReady };
@@ -522,11 +530,13 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
   });
   if (missing.length) return record({ content: `Missing ${missing.join(', ')}: give ${missing.length === 1 ? 'it' : 'them'} and call again.`, error: true, outcome: 'refused', counted: 0 });
 
+  const { why, ...args } = call.args;
+  if (!('why' in ((impl.schema as { properties?: Record<string, unknown> }).properties ?? {}))) call = { ...call, args };
   const n = counts ? actsIn(call.args) : 0;
   if (tier === 'T2') {
     const approvalId = `apv_${ctx.now().toString(36)}${(approvalSeq++).toString(36)}`;
     const hours = ctx.agent.approvalHours[id] ?? 24;
-    let stored = call.args;
+    let stored: Record<string, unknown> = typeof why === 'string' && why.trim() ? { ...call.args, _why: why.trim().slice(0, 600) } : call.args;
     if (impl.preview)
       try {
         stored = { ...call.args, ...(await impl.preview(call.args, ctx)) };
