@@ -23,6 +23,7 @@ import { agencyStopped } from './runner/run.js';
 import { fileRequest } from './runner/tools.js';
 import { parse as parseYaml } from 'yaml';
 import * as selfhost from './selfhost.js';
+import { listTools, setToolTier } from './toolSettings.js';
 import { SELF_HOSTED } from './selfhost.js';
 import { randomUUID } from 'node:crypto';
 import { forwardToHosted, HOSTED_ORG, HOSTED_PORT, hostingStatus, keepHostSecret, resumeHosting, startHosting, stopHosting } from './hosting.js';
@@ -217,6 +218,15 @@ const routes: Record<string, Route> = {
   'GET /api/self/address': async () => ({ address: selfhost.address() }),
   'POST /api/self/address': async req => selfhost.setAddress((await body<{ address: string }>(req)).address),
 
+  // --- Settings > Tools (toolSettings.ts): every tool, and how much a person is involved ---
+  'GET /api/tools': async () => listTools(),
+  'POST /api/tools/tier': async req => {
+    const { id, tier } = await body<{ id: string; tier: string }>(req);
+    return setToolTier(String(id ?? ''), tier).catch(e => {
+      throw new ConnectError((e as Error).message);
+    });
+  },
+
   // --- Settings: connectors and the server's own state ---
   'GET /api/catalog': async () => CATALOG.map(s => ({ server: s.server, what: s.what, tools: s.tools.length })),
   // Whether a key is set - never the key itself.
@@ -348,7 +358,7 @@ const routes: Record<string, Route> = {
     const out: Record<string, unknown> = {};
     for (const id of await listIds()) {
       const m = await readMeta(id);
-      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output, owner: m.owner ?? null, builtIn: !!m.builtIn, service: !!m.service };
+      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output, owner: m.owner ?? null, ownerId: m.ownerId ?? null, builtIn: !!m.builtIn, service: !!m.service };
     }
     return out;
   },

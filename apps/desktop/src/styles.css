@@ -1921,3 +1921,28 @@ a.sbtn { text-decoration: none; color: inherit; }
 .bmsg.is-builder { white-space: normal; }
 .bmsg.is-builder .rt-p:first-child { margin-top: 0; }
 .bmsg.is-builder .rt-p:last-child, .bmsg.is-builder .rt-list:last-child { margin-bottom: 0; }
+
+/* Settings > Tools: each tool, opening to its level (No log, Logged, Approval). */
+.stools { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.stools > li { border: 1px solid var(--hairline); border-radius: 10px; }
+.stools > li.open { border-color: var(--border); }
+.stools > li.spotlit { animation: row-spotlight 2.6s ease-out; }
+.stool-head { width: 100%; display: flex; align-items: center; gap: 12px; padding: 11px 14px; text-align: left; }
+.stool-head .chev { transition: transform 0.15s; flex-shrink: 0; }
+.stools > li.open .stool-head .chev { transform: rotate(180deg); }
+.stool-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 500; }
+.stool-source { font-size: 12.5px; color: var(--muted); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stool-level { font-size: 12.5px; color: var(--muted); }
+.stool-level.tier-T2 { color: var(--attention); font-weight: 600; }
+.stool-body { display: flex; flex-direction: column; gap: 10px; padding: 0 14px 14px; }
+.stool-does, .stool-used, .stool-says { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.stool-says { color: var(--text); }
+.stool-slider { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 0; padding: 0; border: 0; }
+.stool-slider input[type='range'] { width: 100%; accent-color: var(--attention); }
+.stool-slider:disabled { opacity: 0.5; }
+.stool-stops { display: flex; justify-content: space-between; }
+.stool-stops button { font-size: 12.5px; color: var(--muted); padding: 2px 0; }
+.stool-stops button.on { color: var(--text); font-weight: 600; }
+.stool-stops button:hover:not(:disabled) { color: var(--text); }
+/* An approval's menu sits at the end of its header. */
+.approval-head .approval-menu { margin-left: auto; position: relative; }

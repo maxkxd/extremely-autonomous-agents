@@ -279,8 +279,8 @@ function Agency() {
           const have = AGENTS.find(x => x.id === id);
           if (have) {
             // What only the server knows, kept current on one this browser already has.
-            if (!!have.service !== !!a.service || !!have.builtIn !== !!a.builtIn || have.name !== a.name) {
-              Object.assign(have, { name: a.name, builtIn: a.builtIn || undefined, service: a.service || undefined, ...(a.builtIn ? { owner: 'Built-in' } : {}) });
+            if (!!have.service !== !!a.service || !!have.builtIn !== !!a.builtIn || have.name !== a.name || (have.ownerId ?? null) !== (a.ownerId ?? null)) {
+              Object.assign(have, { name: a.name, ownerId: a.ownerId ?? null, builtIn: a.builtIn || undefined, service: a.service || undefined, ...(a.builtIn ? { owner: 'Built-in' } : {}) });
               added = true;
             }
             continue;
@@ -290,6 +290,7 @@ function Agency() {
             name: a.name,
             department: a.department,
             owner: a.builtIn ? 'Built-in' : (a.owner ?? ACCOUNT.name),
+            ownerId: a.ownerId ?? null,
             builtIn: a.builtIn || undefined,
             service: a.service || undefined,
             output: outputSlices(a.output),
@@ -322,6 +323,8 @@ function Agency() {
   const [settings, setSettings] = useState<SettingsSection | null>(null);
   // "Open Sentry Errors in Settings" (a request's message): Connectors, that integration glowing.
   const [settingsFocus, setSettingsFocus] = useState<string | null>(null);
+  // Settings > Tools: the tool to bring into view (an approval's menu).
+  const [toolFocus, setToolFocus] = useState<string | null>(null);
   const openIntegration = (name: string | null) => {
     setSettings('connectors');
     if (!name) return;
@@ -361,7 +364,11 @@ function Agency() {
   const logInOut = () => (state.me ? void signOut() : setSigningIn({ mode: 'in', from: null }));
   // Settings at a section, from anywhere (NoModels.tsx: "Connect a model").
   useEffect(() => {
-    const open = (e: Event) => setSettings((e as CustomEvent<SettingsSection>).detail);
+    const open = (e: Event) => {
+      const d = (e as CustomEvent<{ section: SettingsSection; focus?: string }>).detail;
+      setToolFocus(d.section === 'tools' ? (d.focus ?? null) : null);
+      setSettings(d.section);
+    };
     window.addEventListener('eaa:settings', open);
     return () => window.removeEventListener('eaa:settings', open);
   }, []);
@@ -614,6 +621,8 @@ function Agency() {
           onOpenApproval={openApproval}
           focusIntegration={settingsFocus}
           onFocused={() => setSettingsFocus(null)}
+          focusTool={toolFocus}
+          onToolFocused={() => setToolFocus(null)}
           onOrgChange={() => setOrgTick(t => t + 1)}
           onLogOut={logInOut}
         />

@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Bot, Check, ChevronDown, Clock, Users, User, X } from 'lucide-react';
+import { Bot, Check, ChevronDown, Clock, Ellipsis, Users, User, Wrench, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, isMine, type Approval } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { FlashCount } from './FlashCount';
 import { renderApproval } from './approvalTools';
 import { useDismiss } from './useDismiss';
+import { openSettings } from './NoModels';
 
 export type ApprovalScope = 'mine' | 'all';
 // 'expired' = nobody answered in time; like a rejection, the action does not happen.
@@ -203,6 +204,34 @@ function ApprovalBody({ text }: { text: string }) {
 const EXIT_MS = 620; // glow/tint, then fly off (matches the CSS keyframes)
 const COLLAPSE_MS = 240; // the gap closing behind it
 
+// The card's three-dot menu: the tool's setting (how much a person is involved with it).
+function ApprovalMenu({ tool }: { tool: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, open, () => setOpen(false));
+  return (
+    <div className={`card-menu approval-menu${open ? ' open' : ''}`} ref={ref}>
+      <button className="card-menu-btn" onClick={() => setOpen(o => !o)} aria-label="Approval options" aria-expanded={open}>
+        <Ellipsis size={18} />
+      </button>
+      {open && (
+        <div className="card-menu-list" role="menu">
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              openSettings('tools', tool);
+            }}
+          >
+            <Wrench size={14} strokeWidth={2} />
+            Tool settings
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ApprovalCard({
   approval,
   showOwner,
@@ -264,6 +293,8 @@ function ApprovalCard({
               <span className="approval-action">{card.action}</span>{' '}
               <span className="approval-time">{timeAgo(Math.floor((Date.now() - raisedAt(approval)) / 60_000))}</span>
             </p>
+            {/* Built-in agents' own steps (an integration going live) aren't a tool setting. */}
+            {!agent.builtIn && <ApprovalMenu tool={approval.tool} />}
             {showOwner && (
               <span className="approval-owner" title="Owner">
                 <User size={12} strokeWidth={1.75} />

@@ -283,6 +283,11 @@ export const hostedHere = (o: OrgView | null) => !!o && state.hosting?.orgId ===
 // The owner or an admin, or your own agency: everything. A member: what the
 // host lets members do (apps/server/src/access.ts); the app shows them nothing else.
 export const isAdmin = () => currentOrg()?.role !== 'member';
+// Your account in the organisation the app is in (with us, or its own when self-hosted).
+export const myAccountId = () => {
+  const o = currentOrg();
+  return o?.self ? selfMe(o) : (state.me?.user.id ?? null);
+};
 export const ownOrg = () => teamOrgs().find(o => o.role === 'owner') ?? null;
 
 // Startup, before the app draws: everything above, from wherever it can be had.
