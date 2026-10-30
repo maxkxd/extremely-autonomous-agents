@@ -251,6 +251,45 @@ function SaveStatus({ status, error }: { status: 'idle' | 'saving' | 'saved'; er
 
 // One setting: what it is on the left, its control on the right.
 // The same joined dropdown as the dashboard's range picker.
+// Member or admin, in the app's own dropdown (as RangePicker and IdePicker).
+const ROLES = [
+  { value: 'member', label: 'Member' },
+  { value: 'admin', label: 'Admin' },
+] as const;
+function RolePicker({ value, onChange }: { value: 'admin' | 'member'; onChange: (r: 'admin' | 'member') => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, open, () => setOpen(false));
+  return (
+    <div className={`role-picker${open ? ' open' : ''}`} ref={ref}>
+      <button className="range-btn" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}>
+        {ROLES.find(r => r.value === value)?.label}
+        <ChevronDown size={15} className="muted chev" />
+      </button>
+      {open && (
+        <ul className="dropdown-menu" role="listbox">
+          {ROLES.map(r => (
+            <li key={r.value}>
+              <button
+                role="option"
+                aria-selected={r.value === value}
+                className="dropdown-option"
+                onClick={() => {
+                  setOpen(false);
+                  if (r.value !== value) onChange(r.value);
+                }}
+              >
+                {r.label}
+                {r.value === value && <Check size={15} />}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function IdePicker({ value, onChange }: { value: IdeId; onChange: (id: IdeId) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -852,10 +891,7 @@ function OrgPeople() {
               {m.userId === me && <span className="muted"> (you)</span>}
             </span>
             {org.role === 'owner' && m.role !== 'owner' ? (
-              <select className="srole" value={m.role} onChange={e => act(() => setRole(org.id, m.userId, e.target.value as 'admin' | 'member'))}>
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-              </select>
+              <RolePicker value={m.role as 'admin' | 'member'} onChange={r => act(() => setRole(org.id, m.userId, r))} />
             ) : (
               <span className="muted">{label(m.role)}</span>
             )}
@@ -873,10 +909,7 @@ function OrgPeople() {
           <div className="sinline">
             <input type="email" value={email} placeholder={org.self ? 'Email (optional)' : 'Their email'} onChange={e => setEmail(e.target.value)} />
             {org.role === 'owner' && (
-              <select className="srole" value={role} onChange={e => setRoleChoice(e.target.value as 'member' | 'admin')}>
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-              </select>
+              <RolePicker value={role} onChange={setRoleChoice} />
             )}
             <button
               className="sbtn"
