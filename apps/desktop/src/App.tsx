@@ -565,14 +565,14 @@ function Agency() {
               agentFilter={agentFilter}
               focus={focusApproval}
               onFocused={() => setFocusApproval(null)}
-              onDecide={(id, r, note) => {
+              onDecide={(id, r, note, levels) => {
                 setResolved(prev => ({ ...prev, [id]: r }));
                 // A real one: the server runs it (approved) and tells the agent.
                 // Expiry is the server's call, so the countdown running out sends nothing.
                 const live = liveApprovals.find(a => a.id === id);
                 if (live) decidedLive.current.set(id, live);
                 if (live && r !== 'expired')
-                  decideApproval(id, r, note || undefined).then(
+                  decideApproval(id, r, note || undefined, levels).then(
                     out => !out.ok && window.alert(out.result ?? 'It was approved, but running it failed.'),
                     e => {
                       window.alert((e as Error).message);

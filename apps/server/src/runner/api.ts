@@ -349,12 +349,12 @@ export const runnerRoutes: Record<string, Route> = {
   // --- Approvals: T2 calls waiting on a person ---
   'GET /api/runner/approvals': async () => ({ approvals: await pendingApprovals() }),
   'POST /api/runner/approvals/decide': async (_req, _q, body) => {
-    const { id, decision, note } = await body<{ id: string; decision: 'approved' | 'rejected'; note?: string }>();
+    const { id, decision, note, levels } = await body<{ id: string; decision: 'approved' | 'rejected'; note?: string; levels?: Record<string, string> }>();
     if (decision !== 'approved' && decision !== 'rejected') throw new Error('Approve or reject.');
     const a = one<{ agent_id: string; request: number | null }>("SELECT agent_id, json_extract(args, '$.request_id') AS request FROM approvals WHERE id = ?", String(id));
     if (a) await requireMakerOrAdmin(a.agent_id, a.request == null ? null : Number(a.request));
     const by = currentActor();
-    return decideApproval(id, decision, note ?? null, book, undefined, undefined, by);
+    return decideApproval(id, decision, note ?? null, book, undefined, undefined, by, levels && typeof levels === 'object' ? levels : undefined);
   },
 
   // --- Events (docs/events.md) ---
