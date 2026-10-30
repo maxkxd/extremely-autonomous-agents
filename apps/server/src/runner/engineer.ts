@@ -21,7 +21,7 @@ import { defaultModels } from './defaults.js';
 import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { toolTitle, toolsForPeople, type Tier } from '../catalog.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
-import { all, one, run as exec } from './db.js';
+import { all, builtInLevels, one, run as exec } from './db.js';
 import { registerTools, type ToolDef } from './tools.js';
 
 // The Agency Engineer (docs/requests.md, docs/integrations.md): the built-in
@@ -148,7 +148,7 @@ export async function ensureFleetEngineer() {
     agent_id: FLEET_ENGINEER,
     models,
     tools_allowed: Object.keys(ENGINEER_TOOLS),
-    tool_tiers: ENGINEER_TOOLS,
+    tool_tiers: { ...ENGINEER_TOOLS, ...builtInLevels(FLEET_ENGINEER) },
     approval_windows: { 'engineer.publish_integration': { window_seconds: 7 * 86400 }, 'engineer.give_tools': { window_seconds: 7 * 86400 }, 'engineer.give_events': { window_seconds: 7 * 86400 } },
     new_tools: [],
     // It runs when there's work (requests, connections, replies); a daily look otherwise.
@@ -582,6 +582,16 @@ const TOOLS: ToolDef[] = [
       };
     },
     impl: async (a, ctx) => {
+      // Run without a card (a person set this below Approval): a plugin is still
+      // reviewed, and pinned to the code that was reviewed.
+      if (a.code_hash === undefined) {
+        const p = await publishPreview(String(a.integration_id));
+        if (p.code && p.permissions) {
+          const r = await reviewPlugin({ name: p.name, yaml: p.yaml, code: p.code, permissions: p.permissions });
+          if (r.verdict === 'fix') throw new Error(`The security review sent the plugin back. Concerns: ${r.concerns.map(c => `(${c.severity}) ${c.what}`).join('; ')}. What to change: ${r.fix || 'see the concerns'}.`);
+        }
+        a = { ...a, name: p.name, code_hash: p.codeHash };
+      }
       // Requests closed since it was queued (answered another way) are left alone.
       const grants = grantsOf(a).filter(g => one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE id = ? AND status = 'open'", g.request_id)?.n);
       const out = await publishIntegration(String(a.integration_id), (a.code_hash as string | null) ?? null);

@@ -3,6 +3,7 @@ import { loadIntegrations } from '../integrations/index.js';
 import './web.js'; // registers the web tools
 import './browser.js'; // registers the browser tools
 import { ensureFleetEngineer, startEngineer } from './engineer.js';
+import { ensureDoctor } from './doctor.js';
 import './conductor.js'; // routes new requests
 import { BUILT_IN_IDS, ensureHelpers, fillBuiltInModels, HELPER_IDS } from './helpers.js';
 import { pollEvents } from './events.js';
@@ -200,6 +201,8 @@ export function startScheduler() {
     .then(() => startEngineer(book))
     .catch(e => console.error('Starting the Agency Engineer failed:', (e as Error).message));
   void ensureHelpers().catch(e => console.error('Setting up the Agency Conductor and Agency Reviewer failed:', (e as Error).message));
+  // The Agency Doctor: a look at the whole fleet every couple of hours (doctor.ts).
+  void ensureDoctor().catch(e => console.error('Setting up the Agency Doctor failed:', (e as Error).message));
   // Runs left 'running' by a server that stopped mid-run. One a person or an
   // event set off (a message, a connection, an approval...) is booked again,
   // or it would be lost; scheduled ones simply come round again.

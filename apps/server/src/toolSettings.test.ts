@@ -17,11 +17,15 @@ const agent = (id: string, name: string, tiers: Record<string, string>, extra = 
 };
 agent('outreach', 'Outreach', { 'gmail.send_message': 'T1', 'web.web_search': 'T0' });
 agent('lead-research', 'Lead Research', { 'web.web_search': 'T0', 'crm.create_lead': 'T1' });
-agent('fleet', 'Agency Engineer', { 'engineer.publish_integration': 'T2' }, { builtIn: true });
+agent('fleet', 'Agency Engineer', { 'engineer.publish_integration': 'T2', 'engineer.list_requests': 'T0' }, { builtIn: true });
 
 test('every tool the agents use, by a plain name, with who uses it', async () => {
   const tools = await listTools();
-  assert.ok(!tools.some(t => t.id.startsWith('engineer.')), "built-ins' own tools aren't a choice to make");
+  // A built-in's actions on the fleet are a choice (giving agents a connection); its reading isn't.
+  const goLive = tools.find(t => t.id === 'engineer.publish_integration');
+  assert.equal(goLive?.name, 'Give agents a new connection');
+  assert.equal(goLive?.source, 'Agency Engineer');
+  assert.ok(!tools.some(t => t.id === 'engineer.list_requests'), "a built-in's plumbing isn't listed");
   const search = tools.find(t => t.id === 'web.web_search')!;
   assert.equal(search.name, 'Web search');
   assert.equal(search.source, 'Web');

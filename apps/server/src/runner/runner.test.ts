@@ -10,6 +10,7 @@ import { ModelError, type Adapter, type Call } from './providers.js';
 import { runAgent, stateOf, type RunDeps } from './run.js';
 import { dropStaleRequestRuns, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
+import { fleetReport } from './doctor.js';
 import { answerRequest } from './api.js';
 import { notWaitingAlready, requestNotWaiting, withdrawProposal } from './engineer.js';
 import { registerTools, requestConnections, WORKSPACES } from './tools.js';
@@ -500,4 +501,15 @@ test('the Agency Engineer withdraws its waiting card to propose an updated one: 
   requestNotWaiting(61); // free to propose the updated card
   requestNotWaiting(62);
   assert.throws(() => withdrawProposal(61, 'again'), /no card waiting/);
+});
+
+test("the Agency Doctor's report shows what nobody asked about: a request filed again and again, and output made of busywork", async () => {
+  const now = Date.now();
+  stateOf(ID);
+  exec("INSERT INTO requests (agent_id, what, why, created_at, status, answer, answered_at) VALUES (?, 'Set up Google Drive', 'docs', ?, 'done', 'You now have: drive.read_doc', ?), (?, 'Set up Google Drive', 'docs', ?, 'open', NULL, NULL)", ID, now - 7200_000, now - 3600_000, ID, now - 60_000);
+  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES ('r9', ?, 'files.write_file', '[]', 'T0', 'ok', 9, ?), ('r9', ?, 'gmail.send_email', '[]', 'T2', 'queued', 1, ?)", ID, now - 1000, ID, now - 1000);
+  const report = await fleetReport(now, now - 24 * 3600_000, [ID]);
+  assert.match(report, /filed 2 times: "Set up Google Drive"/);
+  assert.match(report, /files\.write_file 9 \(90%\)/);
+  assert.match(report, /answered #\d+: "Set up Google Drive" -> You now have/);
 });

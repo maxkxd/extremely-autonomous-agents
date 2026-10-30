@@ -65,6 +65,13 @@ export const APPROVAL_TOOLS = {
     body: '{why}',
     expiresAfterHours: 168,
   },
+  // The Agency Doctor: a rule for an agent that keeps going wrong the same way.
+  'doctor.propose_rule': {
+    wantsTo: "add a rule to {agent_name}'s instructions",
+    headers: [{ label: 'Why', value: '{why}' }],
+    body: '{rule}',
+    expiresAfterHours: 168,
+  },
   'github.merge_pull_request': {
     wantsTo: 'merge pull request #{number} in {repo}',
     headers: [
