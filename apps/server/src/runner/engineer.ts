@@ -69,7 +69,7 @@ You are the agency's engineer. Every request an agent files comes to you first. 
    b. Write it with engineer.write_integration (YAML; engineer.read_integration shows the shipped ones - brave-search, github, gmail - as examples of the format). Name each tool exactly the id the agent already expects, if it has one (its missing tools are listed with the request). Give the person what they need to connect it: key_url (where to make the key), key_help (which permissions/plan, one or two sentences), or for OAuth client_url and numbered client_help steps. A remote MCP server that has its own sign-in (Notion, Linear and the like): \`auth: { type: mcp_oauth }\` - the app finds its sign-in and registers itself, so the person just signs in. Pick tiers by the rules: reads T0, reversible internal writes T1, anything outside the organisation or hard to undo T2.
    c. It's saved as a draft: it shows in Settings -> Connectors so the person can connect it, and no agent can call it. Then tell them it's ready with engineer.ask_for_connection - exact steps (including making an account, if it needs one), and that the key goes in Settings, never in the chat. You're woken the moment they connect it.
    d. Test it like a careful person: the real call with real-looking inputs, then the edge cases - empty and missing inputs, a limit, nonsense - and read what an agent would see. Results must be clean, plain text; errors one readable line. Fix the definition and test again until they are.
-   e. engineer.publish_integration with a short summary for the person approving: what it lets the agent do, and its limits (which account, which repository, read-only...). Not how you tested it, and no risks unless one is obvious and significant to someone who isn't technical (it costs money, emails people outside, deletes their files) - never technical or hypothetical ones. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
+   e. Connecting it was the person's yes to the connection itself; what they approve is which agents get which tools. engineer.publish_integration - and when other agents' open requests need the same connection, put them in also, so it's one card. A short summary for the person approving: what it lets the agent do, and its limits (which account, which repository, read-only...). Not how you tested it, and no risks unless one is obvious and significant to someone who isn't technical (it costs money, emails people outside, deletes their files) - never technical or hypothetical ones. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
 
 ## When a tool is failing
@@ -90,7 +90,7 @@ Some agents are woken by something happening at a service - a new Sentry issue, 
 Prefer webhook when the service has one for it, with poll as well when the service's API lists the same things (it catches anything missed). Test with engineer.test_event: a poll for real, and the webhook address to give the person (engineer.ask_for_connection with the steps: the key, the webhook address, the signing secret). The agent that asked is subscribed when the integration goes live; for one that's live already, engineer.give_events.
 
 ## Code plugins
-Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't do - an action on this computer, a file format to build. A plugin is a TypeScript module: \`export default { tools: [{ id, tier, description, input, run: async (args, token, kit) => string }] }\` (token is the key, if the integration takes one; return text the agent reads; throw an Error with a one-line message on failure). Node built-ins only (node:fs, node:child_process...). The network only through \`await kit.fetch(url, { method, headers, body })\`, which returns a Response and refuses this computer and its network - never fetch(), node:http(s), or downloading from a shell; writing the plugin is refused if it does. Pair it with a kind: code definition naming the module, and declare in it exactly what the plugin touches: \`permissions: { write: [folders], read: [folders], commands: true|false }\` (absolute paths or ~/...; a whole drive or the whole home folder is refused). It runs in a sandbox that allows nothing else - no other files, no programs unless commands is true, and no network but kit.fetch. Before you can propose it, an independent security review reads it: inputs agents choose must never reach commands, scripts or paths unchecked (pass them as data, e.g. environment variables, never built into a command line). If the review sends it back, fix what it says. Its code never runs before a person approves it with the code shown, so you can't test it first: write it carefully, and test it as soon as it's live; if it fails, fix it and propose again.
+Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't do - an action on this computer, a file format to build. A plugin is a TypeScript module: \`export default { tools: [{ id, tier, description, input, run: async (args, token, kit) => string }] }\` (token is the key, if the integration takes one; return text the agent reads; throw an Error with a one-line message on failure). Node built-ins only (node:fs, node:child_process...). The network only through \`await kit.fetch(url, { method, headers, body })\`, which returns a Response and refuses this computer and its network - never fetch(), node:http(s), or downloading from a shell; writing the plugin is refused if it does. Pair it with a kind: code definition naming the module, and declare in it exactly what the plugin touches: \`permissions: { write: [folders], read: [folders], commands: true|false }\` (absolute paths or ~/...; a whole drive or the whole home folder is refused). It runs in a sandbox that allows nothing else - no other files, no programs unless commands is true, and no network but kit.fetch. Before you can propose it, an independent security review reads it: inputs agents choose must never reach commands, scripts or paths unchecked (pass them as data, e.g. environment variables, never built into a command line). If the review sends it back, fix what it says. Its code never runs before a person approves giving it to an agent, so you can't test it first: write it carefully, and test it as soon as it's live; if it fails, fix it and propose again.
 
 ## When a person turns a request down
 A no to the way you picked (HubSpot) is rarely a no to what the agent needs (somewhere to keep its leads). Never let one leave an agent stuck with nothing to do.
@@ -169,6 +169,19 @@ export function postToRequest(id: number, from: 'engineer' | 'you', text: string
 const setStage = (id: number, stage: string) => exec('UPDATE requests SET stage = ? WHERE id = ?', stage, id);
 // The same proposal already waiting on a person (a later run proposing it
 // again doesn't see it): refused, so a person never approves it twice.
+// A request already on a card waiting for a person - its own, or grouped into
+// another agent's (publish_integration's also): refused, one card per agent.
+export const requestNotWaiting = (requestId: unknown) => {
+  const n = Number(requestId);
+  const same = one<{ created_at: number }>(
+    `SELECT created_at FROM approvals WHERE status = 'pending' AND agent_id = ? AND tool IN ('engineer.publish_integration', 'engineer.give_tools', 'engineer.give_events')
+       AND (CAST(json_extract(args, '$.request_id') AS INTEGER) = ? OR EXISTS (SELECT 1 FROM json_each(args, '$.also') WHERE CAST(json_extract(value, '$.request_id') AS INTEGER) = ?))`,
+    FLEET_ENGINEER,
+    n,
+    n,
+  );
+  if (same) throw new Error(`Request #${n} is already on a card waiting for a person's approval (proposed ${Math.max(1, Math.round((Date.now() - same.created_at) / 60_000))} min ago). Don't propose it again - carry on with other work.`);
+};
 export const notWaitingAlready = (tool: string, a: Record<string, unknown>, key: string) => {
   const same = one<{ created_at: number }>(
     `SELECT created_at FROM approvals WHERE status = 'pending' AND agent_id = ? AND tool = ? AND json_extract(args, '$.for_agent') = ? AND CAST(json_extract(args, '$.${key}') AS TEXT) = ?`,
@@ -249,6 +262,13 @@ export async function giveTools(agentId: string, tools: { id: string; tier: Tier
 
 
 const nameOf = async (agentId: string) => (await readMeta(agentId))?.name ?? agentId;
+
+// Who a publish_integration card gives the connection to: the agent it's for, then any grouped with it.
+type Grant = { for_agent: string; request_id: number; tools: { id: string; tier: Tier }[] };
+const grantsOf = (a: Record<string, unknown>): Grant[] => [
+  { for_agent: String(a.for_agent), request_id: Number(a.request_id), tools: (a.tools as Grant['tools']) ?? [] },
+  ...((a.also as Grant[] | undefined) ?? []).map(g => ({ for_agent: String(g.for_agent), request_id: Number(g.request_id), tools: g.tools ?? [] })),
+];
 
 // --- Tool history --------------------------------------------------------------------
 // How tools have actually done for the agents holding them, from the action log
@@ -485,7 +505,7 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.publish_integration',
     tier: 'T2',
     description:
-      "Propose a draft going live: a person approves (they see the definition, a plugin's code, and your summary). Approved, it goes live, the agent gets its tools, and the request closes with your summary as the agent's answer.",
+      "Propose giving agents a connection the person has connected and you've tested: one card, for every agent waiting on it (also). The person approves which agents get which tools, from your summary. Approved, it goes live, each agent gets its tools, and their requests close with your summary as the answer.",
     schema: obj(
       {
         integration_id: str('The draft integration'),
@@ -493,6 +513,11 @@ const TOOLS: ToolDef[] = [
         for_agent: str('The agent that gets its tools'),
         tools: toolsArg,
         events: { type: 'array', items: { type: 'string' }, description: "Optional: its events the agent should wake on (default: the ones the agent expects that it provides)" },
+        also: {
+          type: 'array',
+          description: "Other agents whose open requests need this same connection: given it on the same card, so the person approves once. Each {for_agent, request_id, tools}.",
+          items: obj({ for_agent: str('The agent'), request_id: int('Its request'), tools: toolsArg }, ['for_agent', 'request_id', 'tools']),
+        },
         summary: str("For the person approving: at most 3 plain sentences - what it lets the agent do, and its limits. Nothing about testing; no risks unless obvious and significant to someone who isn't technical. The card shows only this and a few bullets."),
       },
       ['integration_id', 'request_id', 'for_agent', 'tools', 'summary'],
@@ -500,8 +525,12 @@ const TOOLS: ToolDef[] = [
     // What the person sees and approves, fixed when it's queued: the plugin
     // runs only if its code is still exactly this.
     preview: async a => {
-      openRequest(a.request_id);
-      if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
+      const grants = grantsOf(a);
+      for (const g of grants) {
+        openRequest(g.request_id);
+        if (!(await loadAgent(g.for_agent))) throw new Error(`No agent "${g.for_agent}".`);
+        requestNotWaiting(g.request_id);
+      }
       notWaitingAlready('engineer.publish_integration', a, 'integration_id');
       const p = await publishPreview(String(a.integration_id));
       // A plugin is reviewed by a separate model first; a serious finding sends it back.
@@ -518,43 +547,51 @@ const TOOLS: ToolDef[] = [
         // At most one warning, and only one a non-technical person would clearly care about.
         bullets = [...r.canDo.slice(0, 4), ...(r.warn ? [`Worth knowing: ${r.warn}`] : [])];
       }
-      setStage(Number(a.request_id), 'approval');
-      // Said on the request every time, so the person knows it's their move.
-      postToRequest(Number(a.request_id), 'engineer', `${p.name} is tested and ready. It goes live for ${await nameOf(String(a.for_agent))} when you approve it on the Approvals page.`);
+      const names = await Promise.all(grants.map(g => nameOf(g.for_agent)));
+      const who = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+      for (const g of grants) {
+        setStage(g.request_id, 'approval');
+        // Said on the request every time, so the person knows it's their move.
+        postToRequest(g.request_id, 'engineer', `${p.name} is tested and ready. ${who} get${names.length > 1 ? '' : 's'} it when you approve it on the Approvals page.`);
+      }
       return {
         name: p.name,
-        for_agent_name: await nameOf(String(a.for_agent)),
-        tools_list: toolsForPeople((a.tools as { id: string; tier: string }[]) ?? []),
+        for_agent_name: who,
+        tools_list: grants.length > 1 ? grants.map((g, i) => `${names[i]}: ${toolsForPeople(g.tools)}`).join('; ') : toolsForPeople(grants[0].tools),
         events_list: (await eventsFor(String(a.for_agent), String(a.integration_id), a.events)).map(toolTitle).join(', '),
         review: [String(a.summary).trim(), bullets.map(x => `- ${x}`).join('\n')].filter(Boolean).join('\n\n'),
-        code_view: `${p.yaml}${p.code ? `\n--- Plugin code (runs in a sandbox on this computer) ---\n${p.code}` : ''}`,
         code_hash: p.codeHash,
       };
     },
     impl: async (a, ctx) => {
-      const r = openRequest(a.request_id);
-      const agentId = String(a.for_agent);
+      // Requests closed since it was queued (answered another way) are left alone.
+      const grants = grantsOf(a).filter(g => one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE id = ? AND status = 'open'", g.request_id)?.n);
       const out = await publishIntegration(String(a.integration_id), (a.code_hash as string | null) ?? null);
-      const wanted = ((a.tools as { id: string; tier: Tier }[]) ?? []).filter(t => out.tools.some(x => x.id === t.id));
-      const given = wanted.length ? wanted : out.tools;
-      await giveTools(agentId, given);
-      const events = await eventsFor(agentId, String(a.integration_id), a.events);
-      if (events.length) await giveEvents(agentId, events);
       const tested = out.test ? ` Its test as it went live: ${out.test}` : '';
-      const ids = [...given.map(t => t.id), ...events.map(e => `${e} (wakes it)`)].join(', ');
-      postToRequest(r.id, 'engineer', `${String(a.name ?? a.integration_id)} is live and given to ${await nameOf(agentId)}: ${ids}.${tested}`);
-      // The request closes only once nothing the agent needs is missing; otherwise
-      // it goes back to the engineer for the rest.
-      const { missing } = await stillMissing(agentId);
-      if (missing.length) {
-        setStage(r.id, 'engineer');
-        const rest = missing.map(t => t.id).join(', ');
-        ctx.wake(FLEET_ENGINEER, 'request', `${ids} went live for ${agentId}. Request #${r.id} still needs: ${rest}.`);
-        return `Live: ${String(a.name ?? a.integration_id)} for ${agentId}.${tested} Request #${r.id} stays open for: ${rest}.`;
+      const said: string[] = [];
+      for (const [i, g] of grants.entries()) {
+        const wanted = g.tools.filter(t => out.tools.some(x => x.id === t.id));
+        const given = wanted.length ? wanted : out.tools;
+        await giveTools(g.for_agent, given);
+        // Its events: for the agent the card was made for (the ones grouped with it get tools).
+        const events = i === 0 && g.for_agent === String(a.for_agent) ? await eventsFor(g.for_agent, String(a.integration_id), a.events) : [];
+        if (events.length) await giveEvents(g.for_agent, events);
+        const ids = [...given.map(t => t.id), ...events.map(e => `${e} (wakes it)`)].join(', ');
+        postToRequest(g.request_id, 'engineer', `${String(a.name ?? a.integration_id)} is live and given to ${await nameOf(g.for_agent)}.${tested}`);
+        // A request closes only once nothing its agent needs is missing; otherwise
+        // it goes back to the engineer for the rest.
+        const { missing } = await stillMissing(g.for_agent);
+        if (missing.length) {
+          setStage(g.request_id, 'engineer');
+          const rest = missing.map(t => t.id).join(', ');
+          ctx.wake(FLEET_ENGINEER, 'request', `${ids} went live for ${g.for_agent}. Request #${g.request_id} still needs: ${rest}.`);
+          said.push(`${g.for_agent} (request #${g.request_id} stays open for: ${rest})`);
+          continue;
+        }
+        exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", `${String(a.summary)}\n\nYou now have: ${ids}.`, Date.now(), g.request_id);
+        said.push(g.for_agent);
       }
-      const answer = `${String(a.summary)}\n\nYou now have: ${ids}.`;
-      exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
-      return `Live: ${String(a.name ?? a.integration_id)} for ${agentId}.${tested}`;
+      return `Live: ${String(a.name ?? a.integration_id)} for ${said.join(', ') || 'nobody (their requests had closed)'}.${tested}`;
     },
   },
   {
@@ -575,7 +612,7 @@ const TOOLS: ToolDef[] = [
     preview: async a => {
       openRequest(a.request_id);
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
-      notWaitingAlready('engineer.give_events', a, 'request_id');
+      requestNotWaiting(a.request_id);
       const live = new Set(liveEventIds());
       const bad = ((a.events as string[]) ?? []).filter(e => !live.has(e));
       if (bad.length) throw new Error(`Not live: ${bad.join(', ')}. Set them up and publish their integration first.`);
@@ -605,7 +642,7 @@ const TOOLS: ToolDef[] = [
     preview: async a => {
       openRequest(a.request_id);
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
-      notWaitingAlready('engineer.give_tools', a, 'request_id');
+      requestNotWaiting(a.request_id);
       setStage(Number(a.request_id), 'approval');
       postToRequest(Number(a.request_id), 'engineer', `${await nameOf(String(a.for_agent))} gets these tools when you approve it on the Approvals page.`);
       return { for_agent_name: await nameOf(String(a.for_agent)), tools_list: toolsForPeople((a.tools as { id: string; tier: string }[]) ?? []) };
