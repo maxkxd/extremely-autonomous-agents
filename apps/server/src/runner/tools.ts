@@ -90,7 +90,8 @@ export function fileRequest(
 // "Xero", not "accounting (Xero, QuickBooks)" - so the Agency Engineer builds the
 // service the organisation uses, not every example.
 export function serviceLabel(server: string, agentId?: string) {
-  const label = CONNECT_LABEL[server] ?? CATALOG.find(s => s.server === server)?.what ?? server.charAt(0).toUpperCase() + server.slice(1);
+  // A server the builder made up ("search_console") reads as words, not an id.
+  const label = CONNECT_LABEL[server] ?? CATALOG.find(s => s.server === server)?.what ?? server.split(/[_-]+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
   const options = /\(([^)]+)\)\s*$/.exec(label)?.[1].split(/,|\bor\b|\band\b/).map(o => o.trim()).filter(Boolean);
   if (!agentId || !options?.length) return label;
   let charter = '';
@@ -470,7 +471,7 @@ const workspaceCounted = new Map<string, number>();
 // health), where the Agency Doctor sees them.
 const FAILS_PER_RUN = 3;
 const failedInRun = new Map<string, { n: number; last: string }>();
-// A connection's tool that keeps failing goes straight to the Agency Engineer to
+// A connection's tool that keeps failing (3 times in an hour, any agents) goes straight to the Agency Engineer to
 // diagnose and fix - once per tool while that's open - instead of waiting for
 // an agent to report it or the Agency Doctor's next look. Not the plumbing, and
 // not the web tools (a site answering 404 isn't a broken tool).
@@ -478,7 +479,7 @@ function reportFailing(ctx: RunCtx, id: string, message: string) {
   if (ctx.agent.id === FLEET_ENGINEER || /^(files|tasks|requests|memory|ops|web|browser|engineer|doctor)\./.test(id)) return;
   const what = `Fix the tool ${id}: it keeps failing`;
   if (one("SELECT 1 FROM requests WHERE what = ? AND status = 'open'", what)) return;
-  fileRequest(ctx.agent.id, ctx.runId, { what, why: `${ctx.agent.name} called ${id} and it failed ${FAILS_PER_RUN} times in one run.`, evidence: `Last error: ${message.slice(0, 1500)}` }, ctx.now(), ctx.wake, true);
+  fileRequest(ctx.agent.id, ctx.runId, { what, why: `${id} has failed ${FAILS_PER_RUN} or more times in the last hour (most recently for ${ctx.agent.name}).`, evidence: `Last error: ${message.slice(0, 1500)}` }, ctx.now(), ctx.wake, true);
 }
 
 export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>): Promise<CallOutcome> {
@@ -572,7 +573,9 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     const message = (e as Error).message || 'It failed.';
     healthFail(ctx.agent.id, id, ctx.now(), message);
     failedInRun.set(failKey, { n: (failed?.n ?? 0) + 1, last: message });
-    if ((failed?.n ?? 0) + 1 === FAILS_PER_RUN) reportFailing(ctx, id, message);
+    // Three failures of it in the last hour, from any agent (each agent may hit it once a run).
+    const lastHour = (one<{ n: number }>("SELECT COUNT(*) AS n FROM actions WHERE tool = ? AND outcome = 'failed' AND at > ?", id, ctx.now() - 3_600_000)?.n ?? 0) + 1;
+    if (lastHour >= FAILS_PER_RUN) reportFailing(ctx, id, message);
     return record({ content: message, error: true, outcome: 'failed', counted: n });
   }
 }

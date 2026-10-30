@@ -136,6 +136,12 @@ async function parse<T extends z.ZodType>(
     return res.parsed_output;
   } catch (e) {
     if (e instanceof BuilderError) throw e;
+    // A long Charter (Infrastructure SRE's) can run out of room mid-JSON, which the SDK
+    // reports as unparseable: once more with less thinking, so more is left for the files.
+    if (e instanceof Error && /Failed to parse structured output/.test(e.message)) {
+      if (effort !== 'low') return parse(schema, ctx, task, messages, effort === 'high' ? 'medium' : 'low');
+      throw new BuilderError('The reply was cut off. Try again.');
+    }
     if (e instanceof Anthropic.AuthenticationError) throw new BuilderError('No valid Anthropic API key. Add ANTHROPIC_API_KEY to apps/server/.env and restart the server.');
     if (e instanceof Anthropic.RateLimitError) throw new BuilderError('Rate limited by the Claude API. Wait a moment and try again.');
     if (e instanceof Anthropic.APIConnectionError) throw new BuilderError('Could not reach the Claude API.');
