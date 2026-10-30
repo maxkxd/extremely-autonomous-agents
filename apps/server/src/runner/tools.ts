@@ -600,8 +600,12 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
 
 // Whether anything the agent is counted by can still work this run: a counted
 // tool that has failed its limit this run is no way to reach a target.
-export const canStillCount = (agent: AgentDef, runId: string, callable: Set<string>) =>
-  agent.ferocity.counts.some(c => callable.has(c) && (failedInRun.get(`${runId}|${c}`)?.n ?? 0) < FAILS_PER_RUN);
+// Workspace files past their allowance count for nothing, so they're no way either
+// (Content & SEO was nudged four times after its fifth).
+export const canStillCount = (agent: AgentDef, runId: string, callable: Set<string>) => {
+  const filesSpent = agent.ferocity.counts.some(c => !c.startsWith('files.')) && (workspaceCounted.get(runId) ?? 0) >= WORKSPACE_COUNTED;
+  return agent.ferocity.counts.some(c => callable.has(c) && !(filesSpent && c.startsWith('files.')) && (failedInRun.get(`${runId}|${c}`)?.n ?? 0) < FAILS_PER_RUN);
+};
 
 // --- Live tool status (never from memory) ------------------------------------------
 
