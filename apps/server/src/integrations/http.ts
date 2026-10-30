@@ -124,7 +124,8 @@ export function authParts(auth: AuthDef, key: string | undefined): { headers: Re
   if (auth.type === 'fields') {
     const c = credsOf(auth, key) ?? {};
     const each = (r?: Record<string, string>) => Object.fromEntries(Object.entries(r ?? {}).map(([k, v]) => [k, putFields(v, c)]));
-    return { headers: each(auth.headers), query: each(auth.query) };
+    const basic: Record<string, string> = auth.basic ? { authorization: `Basic ${Buffer.from(`${putFields(auth.basic.username, c)}:${putFields(auth.basic.password, c)}`).toString('base64')}` } : {};
+    return { headers: { ...basic, ...each(auth.headers) }, query: each(auth.query) };
   }
   // A signed-in (OAuth) service gets its current access token the same way.
   if (auth.type === 'bearer' || auth.type === 'oauth2' || auth.type === 'mcp_oauth') return { headers: { authorization: `Bearer ${key}` }, query: {} };

@@ -73,6 +73,9 @@ export const Auth = z.discriminatedUnion('type', [
       .optional(),
     headers: z.record(z.string(), z.string()).optional(), // e.g. { authorization: "Zoho-oauthtoken {{token}}" }
     query: z.record(z.string(), z.string()).optional(),
+    // HTTP Basic from the fields (DataForSEO's login and password): encoded here,
+    // so nobody is asked to base64 anything.
+    basic: z.object({ username: z.string(), password: z.string() }).optional(),
   }),
 ]);
 

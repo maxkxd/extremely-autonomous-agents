@@ -39,6 +39,9 @@ test('the key goes where the service wants it', () => {
   assert.deepEqual(authParts({ type: 'api_key', header: 'X-Subscription-Token' }, 'k1'), { headers: { 'X-Subscription-Token': 'k1' }, query: {} });
   assert.deepEqual(authParts({ type: 'bearer' }, 'k2'), { headers: { authorization: 'Bearer k2' }, query: {} });
   assert.deepEqual(authParts({ type: 'api_key', query: 'api_key' }, 'k3'), { headers: {}, query: { api_key: 'k3' } });
+  // HTTP Basic from a login and password, encoded by the app (nobody base64s anything).
+  const basic = { type: 'fields' as const, fields: [{ name: 'login', label: 'Login', secret: false }, { name: 'password', label: 'Password', secret: true }], basic: { username: '{{login}}', password: '{{password}}' } };
+  assert.deepEqual(authParts(basic, JSON.stringify({ login: 'me', password: 'pw' })), { headers: { authorization: `Basic ${Buffer.from('me:pw').toString('base64')}` }, query: {} });
   assert.deepEqual(authParts({ type: 'none' }, undefined), { headers: {}, query: {} });
   assert.throws(() => authParts({ type: 'bearer' }, undefined), /no key saved/);
 });
