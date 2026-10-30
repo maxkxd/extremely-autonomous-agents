@@ -61,7 +61,6 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
     <>
       <div className="sgroup">
         <h3>Web search</h3>
-        <p className="slead">Agents search the web through one of these. Connect any one; they all work the same way.</p>
         <ul className="sconnectors">
           {search.map(i => (
             <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} events={events.events} />
