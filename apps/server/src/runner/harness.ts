@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { approveAll, CopilotClient, defineTool, ToolSet } from '@github/copilot-sdk';
 import { getSecret } from '../vault.js';
+import { noteClaudeCodeTooOld } from '../models/connections.js';
 import { openBridge } from './mcp.js';
 import { ModelError, type Call, type ToolSpec, type Usage } from './providers.js';
 
@@ -63,12 +64,18 @@ function claudeOnce(args: string[], prompt: string, cwd: string, signal?: AbortS
         resolve(JSON.parse(text.slice(text.indexOf('{'))) as ClaudeOut);
       } catch {
         const why = (err || text || `exit ${code}`).slice(0, 300);
-        reject(new ModelError(`Claude Code: ${why}`, LIMIT.test(why) ? 'rate' : 'server'));
+        reject(tooOld(why) ?? new ModelError(`Claude Code: ${why}`, LIMIT.test(why) ? 'rate' : 'server'));
       }
     });
     child.stdin.end(prompt);
   });
 }
+
+// Claude Code too old for the model: said plainly, and the Connectors row offers the update.
+const tooOld = (why: string) => {
+  const v = noteClaudeCodeTooOld(why);
+  return v ? new ModelError(`Claude Code needs updating to ${v} or newer for this model. Update it in Settings > Connectors (Claude).`, 'server') : null;
+};
 
 const claudeCode: Harness = async run => {
   const bridge = openBridge({ tools: run.tools, call: run.call });
@@ -98,7 +105,7 @@ const claudeCode: Harness = async run => {
       const out = await claudeOnce(['-p', ...(session ? ['--resume', session] : []), ...isolate], prompt, cwd, run.signal);
       if (out.is_error) {
         const why = out.result || out.subtype || 'Claude Code failed';
-        throw new ModelError(`Claude Code: ${why}`, LIMIT.test(why) ? 'rate' : 'server');
+        throw tooOld(why) ?? new ModelError(`Claude Code: ${why}`, LIMIT.test(why) ? 'rate' : 'server');
       }
       session = out.session_id ?? session;
       usage.input += (out.usage?.input_tokens ?? 0) + (out.usage?.cache_read_input_tokens ?? 0) + (out.usage?.cache_creation_input_tokens ?? 0);

@@ -279,6 +279,10 @@ const routes: Record<string, Route> = {
     await conn.claudeCodeInstall();
     return { ok: true };
   },
+  'POST /api/connections/claude-code/update': async () => {
+    await conn.claudeCodeUpdate();
+    return { ok: true };
+  },
   'POST /api/connections/claude-code/login': async () => {
     await conn.claudeCodeLogin();
     return { ok: true };

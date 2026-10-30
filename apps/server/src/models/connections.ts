@@ -474,7 +474,29 @@ export type ClaudeCodeStatus = {
   version?: string;
   loggedIn: boolean;
   authMethod?: string;
-  task?: 'installing' | 'signing-in';
+  task?: 'installing' | 'signing-in' | 'updating';
+  // A model needs a newer Claude Code than this one (learnt from a run): that version.
+  needsUpdate?: string;
+};
+
+// "Claude Code 2.1.278 does not support this model; version 2.1.280 or newer is
+// required": the version runs need, until Claude Code is at least that.
+let claudeNeeds: string | null = null;
+const older = (a: string, b: string) => {
+  const x = a.split('.').map(Number);
+  const y = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0);
+  return false;
+};
+// A run's error: if it says Claude Code is too old, remember what's needed. Returns that version.
+export function noteClaudeCodeTooOld(error: string): string | null {
+  const v = /version (\d+(?:\.\d+)+) or newer is required/i.exec(error)?.[1];
+  if (v && (!claudeNeeds || older(claudeNeeds, v))) claudeNeeds = v;
+  return v ?? null;
+}
+const withNeeds = (s: ClaudeCodeStatus): ClaudeCodeStatus => {
+  if (claudeNeeds && s.version && !older(s.version, claudeNeeds)) claudeNeeds = null;
+  return claudeNeeds && s.installed ? { ...s, needsUpdate: claudeNeeds } : s;
 };
 
 // Without the server's own Anthropic key, so Claude Code reports (and signs in
@@ -543,9 +565,9 @@ const recheckClaudeCode = () =>
     .finally(() => (claudeChecking = null)));
 
 export async function claudeCodeStatus(fresh = false): Promise<ClaudeCodeStatus> {
-  if (fresh || !claudeLast) return { ...(await recheckClaudeCode()), task: claudeTask };
+  if (fresh || !claudeLast) return withNeeds({ ...(await recheckClaudeCode()), task: claudeTask });
   if (claudeTask || Date.now() - claudeLast.at > CLAUDE_RECHECK_MS) void recheckClaudeCode().catch(() => {});
-  return { ...claudeLast.facts, task: claudeTask };
+  return withNeeds({ ...claudeLast.facts, task: claudeTask });
 }
 
 const CLAUDE_CODE_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
@@ -603,6 +625,17 @@ export async function claudeCodeInstall() {
     unix: 'curl -fsSL https://claude.ai/install.sh | bash',
   });
   waitFor(async () => !!(await claudeBin()), async () => {});
+}
+
+// Claude Code's own update, in a terminal window like its install and sign-in;
+// the row follows along and the warning goes once it's new enough.
+export async function claudeCodeUpdate() {
+  const bin = await claudeBin();
+  if (!bin) throw new ConnectError("Claude Code isn't installed on this computer.");
+  claudeTask = 'updating';
+  const run = `& ${process.platform === 'win32' ? `'${bin === 'claude' ? 'claude' : bin}'` : bin} update`;
+  openTerminal('Update Claude Code', { win: run, unix: `${quoted(bin)} update` });
+  waitFor(async () => !(await claudeCodeStatus(true)).needsUpdate, async () => {});
 }
 
 // Claude Code's own sign-in, straight to the Claude-subscription login. When

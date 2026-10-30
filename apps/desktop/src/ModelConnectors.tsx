@@ -20,6 +20,7 @@ import {
   getConnections,
   installClaudeCode,
   signInClaudeCode,
+  updateClaudeCode,
   startCopilot,
   startSignIn,
   type Connection,
@@ -486,7 +487,11 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
     // along and connects by itself when the sign-in finishes.
     const cc = c.claudeCode;
     const task = cc?.task;
-    const sub = c.connected
+    const sub = task === 'updating'
+      ? 'Updating Claude Code in the window that opened...'
+      : cc?.needsUpdate
+        ? `Claude Code ${cc.version ?? ''} is too old for the newest Claude models: update it to ${cc.needsUpdate} or newer.`
+        : c.connected
       ? `${c.label} · signed in with your Claude account`
       : task === 'installing'
         ? 'Installing Claude Code in the window that opened...'
@@ -508,6 +513,11 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
         sub={sub}
         below={errorLine}
       >
+        {cc?.needsUpdate && (
+          <SpinButton className="sbtn primary" spinning={busy || task === 'updating'} onClick={() => start(updateClaudeCode)}>
+            Update Claude Code
+          </SpinButton>
+        )}
         {c.connected ? (
           disconnect
         ) : !cc?.installed ? (
