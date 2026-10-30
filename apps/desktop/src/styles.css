@@ -346,6 +346,13 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .range-btn .chev { margin-left: auto; transition: transform 0.15s; }
 .range-btn:hover { border-color: var(--border-strong); }
+/* Dashboard only: hide the built-in agents' cards. */
+.builtins-toggle {
+  display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 8px;
+  font-size: 13px; font-weight: 500; border: 1px solid var(--border); background: var(--bg); color: var(--fg-muted, inherit);
+}
+.builtins-toggle:hover { border-color: var(--border-strong); }
+.builtins-toggle.on { border-color: var(--border-strong); color: var(--fg, inherit); }
 .range-picker.open .range-btn { border-color: var(--border-strong); border-bottom-color: transparent; border-radius: 8px 8px 0 0; }
 .range-picker.open .chev { transform: rotate(180deg); }
 .range-picker { --dd-bg: var(--bg); }

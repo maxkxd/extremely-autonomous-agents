@@ -569,6 +569,7 @@ function loadOrder(arriving: string[]): string[] {
 
 export function Dashboard({
   range,
+  hideBuiltIns = false,
   agency,
   onNavigate,
   approvalCounts,
@@ -580,6 +581,7 @@ export function Dashboard({
   countsReady,
 }: {
   range: TimeRange;
+  hideBuiltIns?: boolean; // the built-ins' cards, off this page only
   agency: AgencyState;
   agencyReady: boolean; // the server has said whether the agency is stopped
   countsReady: boolean; // and what requests and approvals are open
@@ -855,6 +857,7 @@ export function Dashboard({
         // Gone from AGENTS already: its slot just plays its exit.
         const found = AGENTS.find(x => x.id === id) ?? (removing === id ? deletedCard.current : undefined);
         if (!found) return null;
+        if (hideBuiltIns && found.builtIn) return null;
         const a = view(found);
         const l = live[a.id];
         const loading = liveFor !== range || !agencyReady;

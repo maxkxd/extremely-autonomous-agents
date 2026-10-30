@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ChevronRight, Plus } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, Plus } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
@@ -12,7 +12,7 @@ import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
 import { NEW_SESSION, agentStatuses, getAgency, getIntegrations, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
-import { currentOrg, isAdmin, offline, onOffline, signOut, state } from './account';
+import { currentOrg, isAdmin, offline, onOffline, scoped, signOut, state } from './account';
 import { SignIn, type SignInAsk } from './SignIn';
 import { Elsewhere } from './Elsewhere';
 import { Onboarding, onboarded } from './Onboarding';
@@ -91,6 +91,23 @@ function Agency() {
   const offlineSince = useOfflineSince();
   const [view, setView] = useState<View>('dashboard');
   const [range, setRange] = useState<TimeRange>('week');
+  // The built-in agents' cards, hidden on the Dashboard only (off by default; remembered here).
+  const [hideBuiltIns, setHideBuiltIns] = useState(() => {
+    try {
+      return localStorage.getItem(scoped('eaa.hideBuiltIns')) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleBuiltIns = () =>
+    setHideBuiltIns(h => {
+      try {
+        localStorage.setItem(scoped('eaa.hideBuiltIns'), h ? '0' : '1');
+      } catch {
+        // Storage unavailable - it just won't be remembered.
+      }
+      return !h;
+    });
   // The whole agency's Standby and Stop (the dashboard's), kept in step with the server.
   const [agency, setAgencyState] = useState<AgencyState>('active');
   // Whether the server has answered yet: until then the dashboard's cards (and
@@ -533,6 +550,10 @@ function Agency() {
           {view === 'dashboard' && (
             <div className="header-tools">
               {isAdmin() && <AgencyControls state={agency} onChange={changeAgency} />}
+              <button className={`builtins-toggle${hideBuiltIns ? ' on' : ''}`} aria-pressed={hideBuiltIns} onClick={toggleBuiltIns} title="Only changes the Dashboard">
+                {hideBuiltIns ? <EyeOff size={15} strokeWidth={1.75} /> : <Eye size={15} strokeWidth={1.75} />}
+                {hideBuiltIns ? 'Built-ins hidden' : 'Hide built-ins'}
+              </button>
               <RangePicker value={range} onChange={setRange} />
             </div>
           )}
@@ -559,6 +580,7 @@ function Agency() {
           {view === 'dashboard' ? (
             <Dashboard
               range={range}
+              hideBuiltIns={hideBuiltIns}
               agency={agency}
               onNavigate={setView}
               approvalCounts={approvalCounts}
