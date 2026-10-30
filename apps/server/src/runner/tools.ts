@@ -465,6 +465,11 @@ let approvalSeq = 0;
 // real work is blocked would otherwise pad its target with them.
 const WORKSPACE_COUNTED = 5;
 const workspaceCounted = new Map<string, number>();
+// A tool that has failed 3 times in a run isn't called again in it: an agent
+// was calling a broken one ten times a second. The failures are on record (tool
+// health), where the Agency Doctor sees them.
+const FAILS_PER_RUN = 3;
+const failedInRun = new Map<string, { n: number; last: string }>();
 
 export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>): Promise<CallOutcome> {
   const id = ids.get(call.name) ?? call.name.replace('__', '.');
@@ -531,6 +536,15 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
       approvalId,
     });
   }
+  const failKey = `${ctx.runId}|${id}`;
+  const failed = failedInRun.get(failKey);
+  if (failed && failed.n >= FAILS_PER_RUN)
+    return record({
+      content: `${id} has failed ${failed.n} times this run (last: ${failed.last.slice(0, 200)}). Don't call it again this run - it's on record, and if it's broken it gets fixed. Do other work, or end the run.`,
+      error: true,
+      outcome: 'refused',
+      counted: 0,
+    });
   try {
     let content = await impl.impl(call.args, ctx);
     healthOk(ctx.agent.id, id, ctx.now());
@@ -547,6 +561,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
   } catch (e) {
     const message = (e as Error).message || 'It failed.';
     healthFail(ctx.agent.id, id, ctx.now(), message);
+    failedInRun.set(failKey, { n: (failed?.n ?? 0) + 1, last: message });
     return record({ content: message, error: true, outcome: 'failed', counted: n });
   }
 }

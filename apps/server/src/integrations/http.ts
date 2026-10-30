@@ -57,8 +57,13 @@ export const plainText = (s: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-// A service's error, as its own message rather than the whole JSON body.
+// A service's error, as its own message rather than the whole JSON body; an
+// HTML error page (Google's 404) by its title, not its markup.
 export function errorText(text: string): string {
+  if (/^\s*<(!doctype|html)/i.test(text)) {
+    const title = /<title[^>]*>([^<]*)<\/title>/i.exec(text)?.[1]?.replace(/!+$/, '').trim();
+    return title || 'an error page (no details)';
+  }
   try {
     const j = JSON.parse(text) as Record<string, unknown>;
     for (const p of ['error.detail', 'error.message', 'detail', 'message', 'error_description', 'error'])
@@ -157,6 +162,17 @@ export async function requestJson(
   }
 }
 
+// A service saying "too many requests" (429) or "busy" (503) - several agents at
+// once hit Zoho's limit - is waited out (its Retry-After, or a few seconds), twice.
+async function politely<R extends { status: number; headers: { get(name: string): string | null } }>(send: () => Promise<R>): Promise<R> {
+  for (let i = 0; ; i++) {
+    const res = await send();
+    if ((res.status !== 429 && res.status !== 503) || i >= 2) return res;
+    const after = Number(res.headers.get('retry-after'));
+    await new Promise(r => setTimeout(r, Math.min(15_000, Number.isFinite(after) && after > 0 ? after * 1000 : 2000 * (i + 1))));
+  }
+}
+
 export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, args: Record<string, unknown>, key: string | undefined): Promise<string> {
   // A required input left out or empty is the agent's mistake: say so, don't send it.
   const required = ((tool.input as { required?: string[] }).required ?? []).filter(r => args[r] === undefined || args[r] === null || String(args[r]).trim() === '');
@@ -167,11 +183,13 @@ export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, 
   const query = (fill(tool.request.query ?? {}, args) ?? {}) as Record<string, unknown>;
   for (const [k, v] of Object.entries({ ...query, ...authQuery })) url.searchParams.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   const body = tool.request.body === undefined ? undefined : JSON.stringify(fill(tool.request.body, args));
-  const { res } = await safeFetch(url.toString(), {
-    method: tool.request.method,
-    headers: { accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}), ...(tool.request.headers ?? {}), ...authHeaders },
-    body,
-  });
+  const res = await politely(() =>
+    safeFetch(url.toString(), {
+      method: tool.request.method,
+      headers: { accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}), ...(tool.request.headers ?? {}), ...authHeaders },
+      body,
+    }).then(r => r.res),
+  );
   const text = await res.text();
   if (!res.ok) {
     throw new Error(`${integration.name} answered ${res.status}: ${errorText(redact(text, integration.auth, key)).slice(0, 300)}`);

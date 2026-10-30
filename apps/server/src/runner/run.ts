@@ -138,6 +138,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
     ...results.map(t => `- Task #${t.id} you handed to ${t.agent_id} is done: ${t.result ?? '(no result given)'}`),
   ];
   const openTasks = one<{ n: number }>("SELECT COUNT(*) AS n FROM tasks WHERE agent_id = ? AND status = 'open'", agent.id)?.n ?? 0;
+  const myOpen = all<{ id: number; what: string }>("SELECT id, what FROM requests WHERE agent_id = ? AND status = 'open' ORDER BY id", agent.id);
 
   const org = agent.org ? await loadProfile(agent.org) : null;
   const person = agent.owner ? await loadPerson(agent.owner) : null;
@@ -160,6 +161,10 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - Hand work that is another agent's job to them with tasks.delegate_task.
 - A request turned down is a no to that one way, not to your job: the Agency Engineer asks the person what they'd rather. Meanwhile carry on with what you have (your workspace files can stand in for a missing tool), say in your summary what you used instead, and don't file the same request again.
 - End every run with a short summary: what you did, what is waiting (approvals, requests, tasks), and what comes next.
+- Questions for a person: all of them in ONE request, each with the answer you'll go with if they don't reply ("A$40 a day unless you say otherwise") - then carry on with those defaults; don't wait. Only ask what you can't reasonably decide yourself, and nothing your instructions already answer.
+- Reports and alerts for the person you work for go by gmail.send_to_me when you have it (logged, no approval) - not gmail.send_email, which waits for a person.
+- Who approves your queued actions is the app's job (the Approvals page): never ask who approves - queue it.
+- A tool you hold that isn't connected yet is already being asked for: don't file a request for it.
 - When a person must review or confirm something you wrote, put the content itself in the request (evidence) - they can't open your workspace files, and neither can the Agency Engineer.
 - To people, name tools by what they do ("Web search"), not their ids (web.web_search), and their levels as silent, logged or approval, not T0, T1 or T2.
 - Refer to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name - in your messages, emails, files and memory notes.${people.length ? `
@@ -170,7 +175,8 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 ${working.join('\n')}${notReady.length ? `\n\nIn your toolkit but not connected yet - don't try them or ask for them, a request to connect them is already with a person or the Agency Engineer: ${notReady.join(', ')}` : ''}`,
     `## The agency
 Agents you can hand work to: ${fleet.length ? fleet.map(f => `${f.id} (${f.name})`).join(', ') : 'none yet'}.
-Tasks you owe right now: ${openTasks}${openTasks ? ' (tasks.list_my_tasks)' : ''}.`,
+Tasks you owe right now: ${openTasks}${openTasks ? ' (tasks.list_my_tasks)' : ''}.
+Your open requests (already asked - don't ask again): ${myOpen.length ? myOpen.map(r => `#${r.id} ${r.what.slice(0, 120)}`).join('; ') : 'none'}.`,
     `## Your memory (newest first)\n${memoryForPrompt(agent.id, now)}`,
     news.length ? `## Since your last run\n${news.join('\n')}` : '',
     who.length ? `## Who you work for\n${who.join('\n\n')}` : '',
@@ -259,7 +265,11 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   const startedAt = deps.now();
   const level = stateOf(agent.id, startedAt).ferocity;
   // A run answering a person is never pushed past its answer (WAR).
-  const floor = trigger === 'your message' ? null : floorFor(agent, level);
+  // A target is for an agent's own work (its schedule, Apocalyptic, a run it booked, Run now):
+  // a task handed to it, a person's message or a decision coming back is done when
+  // it's done - padding one out to a target was busywork (a one-line answer became
+  // 21 files).
+  const floor = ['scheduled', 'apocalyptic', 'self-booked', 'run now'].includes(trigger) ? floorFor(agent, level) : null;
   exec(
     'INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at, floor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     id,

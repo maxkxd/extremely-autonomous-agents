@@ -543,3 +543,12 @@ test("busywork doesn't meet a target: past 5 workspace files a run, they don't c
   for (let i = 0; i < 7; i++) written += (await execute(writer, { id: `w${i}`, name: 'files__write_file', args: { path: `w/n${i}.md`, content: 'x' } }, ids)).counted;
   assert.equal(written, 7);
 });
+
+test("a tool that keeps failing isn't hammered: after 3 failures in a run it's refused for the rest of it", async () => {
+  registerTools([{ id: 'zzbroken.call', tier: 'T0', description: 'x', schema: { type: 'object' }, impl: () => { throw new Error('404 Not Found'); } }]);
+  const ctx = { agent: agent({ tiers: { 'zzbroken.call': 'T0' } }), runId: 'r_storm', level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} };
+  const ids = new Map([['zzbroken__call', 'zzbroken.call']]);
+  const outcomes: string[] = [];
+  for (let i = 0; i < 5; i++) outcomes.push((await execute(ctx, { id: `s${i}`, name: 'zzbroken__call', args: {} }, ids)).outcome);
+  assert.deepEqual(outcomes, ['failed', 'failed', 'failed', 'refused', 'refused']);
+});
