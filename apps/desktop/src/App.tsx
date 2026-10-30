@@ -28,7 +28,7 @@ import {
   type ResourceRequest,
   type TimeRange,
 } from './data';
-import { Requests, type RequestResolution } from './Requests';
+import { Requests, requestItems, type RequestResolution } from './Requests';
 import {
   Approvals,
   ApprovalsToolbar,
@@ -499,7 +499,7 @@ function Agency() {
           width={width}
           onResizeStart={startDrag}
           approvalsBadge={approvalsReady ? visibleApprovals(pending, 'mine').length : null}
-          requestsBadge={requestsReady ? visibleApprovals(openRequests, 'mine').length : null}
+          requestsBadge={requestsReady ? requestItems(visibleApprovals(openRequests, 'mine')) : null}
           onOpenSettings={setSettings}
           onLogOut={logInOut}
         />

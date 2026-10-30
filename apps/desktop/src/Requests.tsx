@@ -363,6 +363,20 @@ export type RequestRefs = { onRequest: (id: number) => void; canOpen: (id: numbe
 // Several requests waiting on you to connect the same thing are one job, so one
 // item: what to connect, what it unblocks, the Agency Engineer's steps and the
 // button to it. The requests themselves are underneath, folded.
+// Requests waiting on you to connect the same thing, by connection.
+function connectionGroups<T extends Pick<ResourceRequest, 'stage' | 'waitingOn' | 'closedAs'>>(list: T[]) {
+  const by = new Map<string, T[]>();
+  for (const r of list) if (r.stage === 'waiting_you' && r.waitingOn && !r.closedAs) by.set(r.waitingOn.id, [...(by.get(r.waitingOn.id) ?? []), r]);
+  return by;
+}
+
+// How many items the page shows: the same-connection ones count once (the badge
+// said 39 for a page of 16).
+export function requestItems<T extends Pick<ResourceRequest, 'stage' | 'waitingOn' | 'closedAs'>>(list: T[]) {
+  const extra = [...connectionGroups(list).values()].reduce((n, g) => n + Math.max(0, g.length - 1), 0);
+  return list.length - extra;
+}
+
 function ConnectGroup({ name, members, row, refs }: { name: string; members: ResourceRequest[]; row: (r: ResourceRequest) => React.ReactNode; refs: RequestRefs }) {
   const [open, setOpen] = useState(true);
   const [list, setList] = useState(false);
@@ -462,8 +476,7 @@ export function Requests({
     />
   );
   // Two or more waiting on you to connect the same thing: one item, where the first of them was.
-  const byConnection = new Map<string, ResourceRequest[]>();
-  for (const r of shown) if (r.stage === 'waiting_you' && r.waitingOn && !r.closedAs) byConnection.set(r.waitingOn.id, [...(byConnection.get(r.waitingOn.id) ?? []), r]);
+  const byConnection = connectionGroups(shown);
   const grouped = new Set([...byConnection.values()].filter(g => g.length > 1).flat().map(r => r.id));
   const placed = new Set<string>();
   return (
