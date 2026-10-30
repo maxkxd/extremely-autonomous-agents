@@ -148,6 +148,7 @@ const NEEDS: Record<string, Level> = {
   'POST /api/hosting/start': 'local',
   'POST /api/hosting/secret': 'local',
   'POST /api/hosting/stop': 'local',
+  'POST /api/hosting/delete': 'local',
 
   'POST /api/org/turn': 'member',
   'POST /api/org': 'member', // its first save, from a member's first agent; changing it needs an admin (index.ts)

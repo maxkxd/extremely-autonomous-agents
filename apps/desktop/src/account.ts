@@ -527,10 +527,16 @@ export async function leaveOrganisation(orgId: string) {
   forgetSnapshots(orgId);
   await refreshMe();
 }
-// Its agency here stops; its folder is kept.
+// Gone for everyone, and nothing of it stays on this computer: its agency and
+// folder here, and what this app kept for it (offline copy, layout, drafts).
 export async function deleteOrganisation(orgId: string) {
   if (!isSelf(orgId)) await backend(`/orgs/${orgId}`, { method: 'DELETE' });
-  if (state.hosting?.orgId === orgId) await local('/api/hosting/stop', {});
-  forgetSnapshots(orgId);
+  await local('/api/hosting/delete', { orgId });
+  if (isSelf(orgId)) saveSelfOrgs(selfOrgs().filter(x => x.id !== orgId));
+  try {
+    for (const k of Object.keys(localStorage)) if (k.endsWith(`@${orgId}`)) localStorage.removeItem(k);
+  } catch {
+    // Storage unavailable: nothing kept.
+  }
   await refreshMe();
 }

@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { request, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -5,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './paths.js';
 import { getSetting, setSetting } from './runner/db.js';
-import { getSecret, setSecret } from './vault.js';
+import { deleteSecret, getSecret, setSecret } from './vault.js';
 import { HERE_HEADER } from './access.js';
 import { relayState, startRelay, stopRelay } from './relay.js';
 
@@ -105,13 +106,29 @@ export async function keepHostSecret(orgId: string, secret: string) {
   if (h?.orgId === orgId) void startRelay(h);
 }
 
-// The organisation was deleted, or moved to another computer: its agency stops.
-// Its folder stays, in case.
+// Moved to another computer: its agency stops. Its folder stays, in case.
+// Resolves once it has exited (or after 10 seconds).
 export async function stopHosting() {
   setSetting('hosting', null);
   stopping = true;
   stopRelay();
-  child?.kill();
+  const was = child;
+  if (!was) return;
+  await new Promise<void>(done => {
+    const t = setTimeout(done, 10_000);
+    was.once('exit', () => (clearTimeout(t), done()));
+    was.kill();
+  });
+}
+
+// The organisation was deleted: its agency stops, and nothing of it stays on
+// this computer - its folder (agents, runs, messages, memories, connections and
+// their keys) and its host keys.
+export async function deleteHosting(orgId: string) {
+  if (hosting()?.orgId === orgId) await stopHosting();
+  await rm(hostedDir(orgId), { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  await deleteSecret(`hosting:${orgId}:key`);
+  await deleteSecret(`hosting:${orgId}:secret`);
 }
 
 export const hostingStatus = () => {
