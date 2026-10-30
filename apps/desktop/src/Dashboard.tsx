@@ -1,3 +1,4 @@
+import { ConnectFirst } from './ConnectFirst';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CircleCheckBig, Ellipsis, GripVertical, LoaderCircle, Pause, Play, Square, Trash2, User, Wrench } from 'lucide-react';
 import { DeleteAgentDialog } from './DeleteAgentDialog';
@@ -853,6 +854,7 @@ export function Dashboard({
 
   return (
     <div className="dashboard">
+      <ConnectFirst />
       {order.map(id => {
         // Gone from AGENTS already: its slot just plays its exit.
         const found = AGENTS.find(x => x.id === id) ?? (removing === id ? deletedCard.current : undefined);

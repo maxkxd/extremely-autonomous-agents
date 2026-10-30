@@ -401,6 +401,8 @@ function Agency() {
     const open = (e: Event) => {
       const d = (e as CustomEvent<{ section: SettingsSection; focus?: string }>).detail;
       setToolFocus(d.section === 'tools' ? (d.focus ?? null) : null);
+      // A connector to bring into view (Connect these first's Connect buttons).
+      if (d.section === 'connectors' && d.focus) setSettingsFocus(d.focus);
       setSettings(d.section);
     };
     window.addEventListener('eaa:settings', open);
@@ -550,9 +552,9 @@ function Agency() {
           {view === 'dashboard' && (
             <div className="header-tools">
               {isAdmin() && <AgencyControls state={agency} onChange={changeAgency} />}
-              <button className={`builtins-toggle${hideBuiltIns ? ' on' : ''}`} aria-pressed={hideBuiltIns} onClick={toggleBuiltIns} title="Only changes the Dashboard">
+              <button className={`builtins-toggle${hideBuiltIns ? ' on' : ''}`} aria-pressed={hideBuiltIns} onClick={toggleBuiltIns} title={hideBuiltIns ? "Built-in agents hidden on the Dashboard - show them" : "Hide the built-in agents on the Dashboard"}>
                 {hideBuiltIns ? <EyeOff size={15} strokeWidth={1.75} /> : <Eye size={15} strokeWidth={1.75} />}
-                {hideBuiltIns ? 'Built-ins hidden' : 'Hide built-ins'}
+                Built-ins
               </button>
               <RangePicker value={range} onChange={setRange} />
             </div>
