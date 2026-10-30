@@ -12,6 +12,7 @@ import {
   siX,
   type SimpleIcon,
 } from 'simple-icons';
+import { SkelRows } from './Skeleton';
 import {
   connectClaudeCode,
   connectKey,
@@ -141,7 +142,7 @@ export function ModelConnectors() {
   };
   useEffect(() => () => clearInterval(watching.current), []);
 
-  if (!list) return error ? <p className="custom-error">{error}</p> : <p className="snotes-empty">Loading...</p>;
+  if (!list) return error ? <p className="custom-error">{error}</p> : <SkelRows n={5} h={54} what="model connections" />;
   const group = (kind: Connection['kind']) => list.filter(c => c.kind === kind);
   return (
     <>

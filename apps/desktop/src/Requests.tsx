@@ -6,6 +6,7 @@ import { DEPARTMENT_ICON } from './Sidebar';
 import { visibleApprovals, type ApprovalScope } from './Approvals';
 import { sendRequestMessage, sendToIde } from './builder';
 import { RichText } from './RichText';
+import { Loading, Skel } from './Skeleton';
 
 // How a request left the page: you did it, or you rejected it. (One the Fleet
 // Engineer settles is closed on the server.)
@@ -369,6 +370,7 @@ export function Requests({
   refs,
   focus,
   onFocused,
+  loading = false,
 }: {
   pending: ResourceRequest[];
   scope: ApprovalScope;
@@ -379,11 +381,28 @@ export function Requests({
   refs: RequestRefs;
   focus: number | null; // the request to bring into view (its number)
   onFocused: () => void;
+  loading?: boolean; // the list isn't in yet: placeholders, not "nothing waiting"
 }) {
   const shown = visibleApprovals(pending, scope)
     .filter(r => !agentFilter || r.agentId === agentFilter)
     .sort((a, b) => b.minutesAgo - a.minutesAgo); // oldest first
 
+  if (loading && shown.length === 0)
+    return (
+      <div className="requests" aria-busy>
+        <Loading what="requests" />
+        {[0, 1, 2].map(i => (
+          <div key={i} className="request skel-card skel-row" aria-hidden>
+            <Skel w={15} h={15} r={4} />
+            <Skel w={120} h={12} />
+            <Skel w={i === 1 ? '38%' : '52%'} h={13} />
+            <span className="skel-spacer" />
+            <Skel w={92} h={18} r={10} />
+            <Skel w={44} h={11} />
+          </div>
+        ))}
+      </div>
+    );
   if (shown.length === 0) {
     return <div className="main-empty">{scope === 'all' ? 'No requests are waiting.' : 'No requests are waiting on you.'}</div>;
   }

@@ -6,6 +6,7 @@ import { ACCOUNT, AGENTS } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import type { DmEntry, RunPost, ToolLine } from './dms';
 import type { Resolution } from './Approvals';
+import { Loading, Skel, SkelLines } from './Skeleton';
 
 // Placeholder history is "minutes ago"; pin it to the page's load time.
 const loadedAt = Date.now();
@@ -92,8 +93,10 @@ export function AgentDM({
   thinking,
   onSend,
   approvalOutcomes,
+  loading = false,
 }: {
   agentId: string;
+  loading?: boolean; // its history isn't in yet: placeholders, not "No agent activity yet"
   entries: StampedEntry[];
   thinking: boolean;
   onSend: (text: string) => void;
@@ -125,7 +128,21 @@ export function AgentDM({
     <div className="dm">
 
       <div className="dm-log">
-        {entries.length === 0 && !thinking && <div className="dm-empty">No agent activity yet</div>}
+        {loading && entries.length === 0 && (
+          <div className="dm-skel" aria-busy>
+            <Loading what="messages" />
+            {[3, 2, 4].map((lines, i) => (
+              <div key={i} className="dm-skel-post" aria-hidden>
+                <Skel w={36} h={36} r={18} />
+                <div className="dm-skel-body">
+                  <Skel w={i === 1 ? 90 : 130} h={13} />
+                  <SkelLines lines={lines} h={11} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!loading && entries.length === 0 && !thinking && <div className="dm-empty">No agent activity yet</div>}
         {entries.map((e, i) => {
           const day = dayLabel(e.at);
           const divider = day !== lastDay ? <div className="dm-day" key={`d-${i}`}><span>{day}</span></div> : null;

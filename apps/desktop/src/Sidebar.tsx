@@ -146,8 +146,8 @@ export function Sidebar({
   onSelect: (v: View) => void;
   width: number;
   onResizeStart: (e: React.PointerEvent) => void;
-  approvalsBadge: number; // pending approvals waiting on this person
-  requestsBadge: number; // pending requests waiting on this person
+  approvalsBadge: number | null; // pending approvals waiting on this person (null: not known yet)
+  requestsBadge: number | null; // pending requests waiting on this person
   onOpenSettings: (s: SettingsSection) => void;
   onLogOut: () => void;
 }) {
@@ -176,7 +176,7 @@ export function Sidebar({
             >
               <Icon key={replay[v] ?? 0} size={32} strokeWidth={1.75} />
               <span>{label}</span>
-              {badge ? <span className="square-badge">{badge}</span> : null}
+              {badge === null ? <span className="square-badge skel" aria-hidden /> : badge ? <span className="square-badge">{badge}</span> : null}
             </button>
           );
         })}

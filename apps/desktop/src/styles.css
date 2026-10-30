@@ -265,6 +265,22 @@ ul { list-style: none; margin: 0; padding: 0; }
 .donut-track.skel-ring { animation: skel-ring 1.4s ease-in-out infinite; }
 @keyframes skel-ring { 50% { stroke: #1c1c1c; } }
 @media (prefers-reduced-motion: reduce) { .skel, .donut-track.skel-ring { animation: none; } }
+/* The shapes pages wait in (Skeleton.tsx). */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skel-lines { display: flex; flex-direction: column; gap: 7px; width: 100%; }
+.skel-fields { display: flex; flex-direction: column; gap: 18px; max-width: 520px; }
+.skel-field { display: flex; flex-direction: column; gap: 8px; }
+.skel-rows { display: flex; flex-direction: column; gap: 6px; }
+.skel-row { display: flex; align-items: center; gap: 12px; }
+.skel-spacer { flex: 1; }
+.skel-card { pointer-events: none; }
+.approval.skel-card { margin-bottom: 12px; }
+.request.skel-card { height: 46px; padding: 0 14px; margin-bottom: 8px; }
+.square-badge.skel { min-width: 18px; color: transparent; }
+.skel-pack-add { display: block; border: 0; padding: 0; }
+.dm-skel { display: flex; flex-direction: column; gap: 22px; padding: 8px 0; }
+.dm-skel-post { display: flex; gap: 12px; }
+.dm-skel-body { flex: 1; display: flex; flex-direction: column; gap: 9px; max-width: 520px; }
 /* Stop: solid light button - the obvious control without resorting to red. */
 .ctl-btn.stop { background: #e6e6e6; border-color: #e6e6e6; color: #141414; }
 .ctl-btn.stop:hover { background: #ffffff; }

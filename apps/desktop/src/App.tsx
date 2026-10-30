@@ -482,8 +482,8 @@ function Agency() {
           onSelect={setView}
           width={width}
           onResizeStart={startDrag}
-          approvalsBadge={visibleApprovals(pending, 'mine').length}
-          requestsBadge={visibleApprovals(openRequests, 'mine').length}
+          approvalsBadge={approvalsReady ? visibleApprovals(pending, 'mine').length : null}
+          requestsBadge={requestsReady ? visibleApprovals(openRequests, 'mine').length : null}
           onOpenSettings={setSettings}
           onLogOut={logInOut}
         />
@@ -559,6 +559,7 @@ function Agency() {
             />
           ) : view === 'approvals' ? (
             <Approvals
+              loading={!approvalsReady}
               pending={pending}
               scope={scope}
               agentFilter={agentFilter}
@@ -586,6 +587,7 @@ function Agency() {
             />
           ) : view === 'requests' ? (
             <Requests
+              loading={!requestsReady}
               pending={pendingRequests}
               scope={requestScope}
               agentFilter={requestFilter}
@@ -606,6 +608,7 @@ function Agency() {
               setSession={setBuilder}
               onBuilt={built => setReveal({ built, leaving: false, error: null })}
               agencyStopped={agency === 'stopped'}
+              agentsReady={realIds.size > 0}
             />
           ) : view.startsWith('agent:') ? (
             <LiveDM key={view} agentId={view.slice('agent:'.length)} approvalOutcomes={resolved} />
