@@ -8,7 +8,7 @@ import { APOCALYPTIC, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './feroc
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
 import { ModelError, type Adapter, type Call } from './providers.js';
 import { runAgent, stateOf, type RunDeps } from './run.js';
-import { dropStaleRequestRuns, nextRun } from './scheduler.js';
+import { book, dropStaleRequestRuns, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
 import { decideApproval } from './approvals.js';
 import { fleetReport } from './doctor.js';
@@ -199,6 +199,15 @@ test("an action waiting for a person carries the agent's reason to the card, nev
   assert.equal(JSON.parse(a.args)._why, 'Acme is buying a rival (ACCC, 1 Oct).');
   await decideApproval(a.id, 'approved', null, () => {}, Date.now(), async () => agent({ tiers: { 'zztest.add_lead': 'T2' } }));
   assert.deepEqual(got, { company: 'Acme' });
+});
+
+test('approvals decided together wake the agent once, with all of them', () => {
+  exec("DELETE FROM bookings WHERE agent_id = 'zz-coalesce'");
+  book('zz-coalesce', 'approval', 'A person APPROVED one.');
+  book('zz-coalesce', 'approval', 'A person APPROVED two.');
+  const b = all<{ task: string }>("SELECT task FROM bookings WHERE agent_id = 'zz-coalesce'");
+  assert.equal(b.length, 1);
+  assert.match(b[0].task, /one\.[\s\S]*two\./);
 });
 
 test('a registered tool the agent does not hold is refused', async () => {

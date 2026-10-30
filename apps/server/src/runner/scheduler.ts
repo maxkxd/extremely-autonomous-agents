@@ -83,6 +83,15 @@ export function dropStaleRequestRuns() {
 
 // A run to start as soon as it can (handoffs, your messages, Run now).
 export function book(agentId: string, trigger: Trigger, task: string | null, dueAt = Date.now()) {
+  // Decisions made together wake it once, with all of them (six approvals had
+  // made six runs in a row).
+  if (trigger === 'approval' && task) {
+    const waiting = one<{ id: number }>("SELECT id FROM bookings WHERE agent_id = ? AND trigger = 'approval' ORDER BY id LIMIT 1", agentId);
+    if (waiting) {
+      exec("UPDATE bookings SET task = COALESCE(task, '') || ? WHERE id = ?", `\n\n${task}`, waiting.id);
+      return;
+    }
+  }
   exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, ?, ?, ?, ?)', agentId, trigger, task, dueAt, Date.now());
 }
 
