@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parse, stringify } from 'yaml';
 import type { Tier } from '../catalog.js';
 import { all, getSetting, setSetting } from '../runner/db.js';
-import { registerTools, type ToolDef } from '../runner/tools.js';
+import { registerTools, type ToolDef, unregisterTools } from '../runner/tools.js';
 import { deleteSecret, getSecret, setSecret } from '../vault.js';
 import { authParts, callHttp } from './http.js';
 import { callMcpTool, listMcpTools, type McpTool } from './mcp-client.js';
@@ -166,6 +166,7 @@ function providers(forAgents = false): Map<string, { def: Omit<ToolDef, 'impl'>;
 
 // Registers every integration tool with the runner. A tool is ready when an
 // integration that provides it is live; the first live one serves it.
+let registered: ToolDef[] = [];
 function register() {
   const defs: ToolDef[] = [];
   for (const [id, { def, by }] of providers(true))
@@ -178,7 +179,10 @@ function register() {
         return p.call(args);
       },
     });
+  const now = new Set(defs.map(d => d.id));
+  unregisterTools(registered.filter(d => !now.has(d.id)));
   registerTools(defs);
+  registered = defs;
 }
 
 // --- Connecting ------------------------------------------------------------------

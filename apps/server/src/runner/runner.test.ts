@@ -351,7 +351,7 @@ test('deleting an agent settles everything it left: approvals, requests, booking
   await forgetAgentRuns(ID, now);
   assert.deepEqual(all<{ status: string }>("SELECT status FROM approvals ORDER BY id").map(a => a.status), ['rejected', 'rejected']);
   assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM bookings')!.n, 0);
-  assert.equal(one<{ status: string }>('SELECT status FROM requests')!.status, 'rejected');
+  assert.equal(one<{ status: string }>('SELECT status FROM requests')!.status, 'withdrawn'); // nobody turned it down
   // An agent remade under the same id isn't told its predecessor's were turned down.
   assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM requests WHERE delivered_at IS NULL')!.n, 0);
   assert.match(one<{ status: string; result: string }>('SELECT status, result FROM tasks')!.result, /deleted/);
@@ -373,9 +373,15 @@ test('tools that need a service nobody connected are asked for, once per service
   assert.deepEqual(rows.map(r => r.stage), ['person', 'engineer']);
   assert.deepEqual(woke, ['fleet']);
   assert.deepEqual(requestConnections(ID, 'Test Agent', tiers, now + 1, () => {}), []); // not again while open
+  // The engineer drafts a CRM: "Connect" is the same ask as the open "Set up", not another.
+  registerTools([{ id: 'crm.search_records', tier: 'T0', description: 'Find', schema: {}, impl: () => '', ready: () => connected }, { id: 'crm.create_record', tier: 'T1', description: 'Add', schema: {}, impl: () => '', ready: () => connected }]);
+  assert.deepEqual(requestConnections(ID, 'Test Agent', tiers, now + 1, () => {}), []);
+  // Its agent deleted: withdrawn, and the same agent added back asks again straight away.
+  exec("UPDATE requests SET status = 'withdrawn', answered_at = ? WHERE status = 'open'", now + 1);
+  assert.deepEqual(requestConnections(ID, 'Test Agent', tiers, now + 2, () => {}).sort(), ['Connect a CRM (HubSpot, Zoho, Salesforce)', 'Connect email (Gmail or Outlook)']);
   connected = true;
-  requestConnections(ID, 'Test Agent', tiers, now + 2, () => {});
-  assert.equal(one<{ status: string }>("SELECT status FROM requests WHERE what LIKE 'Connect %'")!.status, 'done');
+  requestConnections(ID, 'Test Agent', tiers, now + 3, () => {});
+  assert.deepEqual(all<{ status: string }>("SELECT status FROM requests WHERE status = 'open'"), []); // closed once connected
 });
 
 test('the agency on standby: nothing starts by itself, a person is still answered, and an agent stopped on its own stays stopped', () => {
