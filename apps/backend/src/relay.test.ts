@@ -126,6 +126,24 @@ test('what passes between app and host is passed on untouched, both ways', async
   assert.equal(relay.online(orgId), false);
 });
 
+test('a live connection outlasts the heartbeat: answered pings keep it open', async () => {
+  const s = createServer();
+  const r = attachRelay(s, db, await createAuth({ sessionKeys: createLocalJWKSet({ keys: [] }), sessionIssuer: ISSUER, profile: async id => ({ id, email: '', name: id }) }), { beatMs: 100 });
+  await new Promise<void>(done => s.listen(0, '127.0.0.1', done));
+  const sock = new WebSocket(`ws://127.0.0.1:${(s.address() as { port: number }).port}/relay/host`);
+  let closed = false;
+  let ready = false;
+  sock.onopen = () => sock.send(JSON.stringify({ t: 'auth', secret: hostSecret }));
+  sock.onmessage = e => (ready ||= JSON.parse(String(e.data)).t === 'ready');
+  sock.onclose = () => (closed = true);
+  await new Promise(done => setTimeout(done, 650)); // six beats
+  assert.equal(ready, true);
+  assert.equal(closed, false);
+  sock.close();
+  r.close();
+  s.close();
+});
+
 test('a host that connects again takes over from its old connection', async () => {
   const first = open('/relay/host', { t: 'auth', secret: hostSecret });
   await first.until(() => first.got.some(m => m.t === 'ready'));

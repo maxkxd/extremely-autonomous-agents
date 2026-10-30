@@ -26,7 +26,7 @@ const AUTH_WITHIN = 10_000;
 
 type Host = { ws: WebSocket; orgId: string; channels: Map<number, WebSocket> };
 
-export function attachRelay(server: Server, db: Db, auth: Auth) {
+export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_000 } = {}) {
   const hosts = new Map<string, Host>();
   let nextChannel = 1;
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME });
@@ -34,7 +34,11 @@ export function attachRelay(server: Server, db: Db, auth: Auth) {
   server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const path = new URL(req.url ?? '/', 'http://x').pathname;
     if (path !== '/relay/host' && path !== '/relay/app') return socket.destroy();
-    wss.handleUpgrade(req, socket, head, ws => (path === '/relay/host' ? hostSide(ws) : appSide(ws)));
+    wss.handleUpgrade(req, socket, head, ws => {
+      // noServer doesn't emit it itself; the heartbeat below counts on it.
+      wss.emit('connection', ws, req);
+      void (path === '/relay/host' ? hostSide(ws) : appSide(ws));
+    });
   });
 
   // Signed in within a few seconds, or gone.
@@ -118,7 +122,7 @@ export function attachRelay(server: Server, db: Db, auth: Auth) {
       if (!alive.get(ws)) ws.terminate();
       else (alive.set(ws, false), ws.ping());
     }
-  }, 30_000);
+  }, beatMs);
   beat.unref();
 
   return { online: (orgId: string) => hosts.has(orgId), close: () => (clearInterval(beat), wss.close()) };
