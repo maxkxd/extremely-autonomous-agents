@@ -76,6 +76,23 @@ export function replyToEngineer(requestId: number, who: string, text: string) {
   else book(FLEET_ENGINEER, 'request reply', `${who} replied on request #${requestId}: ${said}`);
 }
 
+// A person turned a request down: the agent still needs what it was for, so
+// the Agency Engineer follows up - what they'd rather, or how the agent does
+// without - instead of the agent being stuck on one no. (Not worded "request
+// #N": that would let dropStaleRequestRuns drop it, the request being closed.)
+function turnedDown(id: number, note?: string | null) {
+  const r = one<{ agent_id: string; what: string }>('SELECT agent_id, what FROM requests WHERE id = ?', id);
+  if (!r) return;
+  const why = note?.trim() ? `, saying: "${note.trim().slice(0, 1000)}"` : ', without saying why';
+  book(
+    FLEET_ENGINEER,
+    'turned down',
+    r.agent_id === FLEET_ENGINEER
+      ? `A person turned down your own ask (#${id}): "${r.what.slice(0, 300)}"${why}.`
+      : `A person turned down ${r.agent_id}'s ask (#${id}): "${r.what.slice(0, 300)}"${why}.`,
+  );
+}
+
 export async function answerRequest(id: number, status: 'done' | 'rejected', answer?: string | null): Promise<boolean> {
   if (status !== 'done' && status !== 'rejected') throw new Error('Answer with done or rejected.');
   const changed = exec(
@@ -87,6 +104,7 @@ export async function answerRequest(id: number, status: 'done' | 'rejected', ans
   ).changes;
   if (!changed) return false;
   if (status === 'rejected') {
+    turnedDown(id, answer);
     for (const d of draftsForRequest(id)) await discardDraft(d).catch(() => {});
     exec(
       "UPDATE approvals SET status = 'rejected', decided_at = ?, note = 'The request was turned down.' WHERE status = 'pending' AND agent_id = ? AND CAST(json_extract(args, '$.request_id') AS INTEGER) = ?",

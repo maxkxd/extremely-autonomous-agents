@@ -10,6 +10,7 @@ import { ModelError, type Adapter, type Call } from './providers.js';
 import { runAgent, stateOf, type RunDeps } from './run.js';
 import { dropStaleRequestRuns, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
+import { answerRequest } from './api.js';
 import { registerTools, requestConnections, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
@@ -456,4 +457,16 @@ test("a queued reply the engineer has since read and answered is dropped; one it
   exec("INSERT INTO request_messages (request_id, from_who, text, at) VALUES (?, 'engineer', 'answer to both', ?)", id, now - 30_000);
   dropStaleRequestRuns();
   assert.equal(all('SELECT id FROM bookings').length, 0);
+});
+
+test("a person's no doesn't strand the agent: the Agency Engineer is woken to follow it up, and that run isn't dropped as stale", async () => {
+  const now = Date.now();
+  exec("INSERT INTO requests (agent_id, what, why, created_at, stage) VALUES (?, 'Set up a CRM (HubSpot)', 'leads', ?, 'waiting_you')", ID, now);
+  const id = one<{ id: number }>('SELECT MAX(id) AS id FROM requests')!.id;
+  assert.equal(await answerRequest(id, 'rejected', null), true);
+  const b = one<{ trigger: string; task: string }>("SELECT trigger, task FROM bookings WHERE agent_id = 'fleet'");
+  assert.equal(b?.trigger, 'turned down');
+  assert.match(b!.task, /without saying why/);
+  dropStaleRequestRuns();
+  assert.equal(one<{ n: number }>("SELECT COUNT(*) AS n FROM bookings WHERE agent_id = 'fleet'")!.n, 1);
 });
