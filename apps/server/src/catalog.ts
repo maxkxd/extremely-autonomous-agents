@@ -239,6 +239,11 @@ export const CONNECT_LABEL: Record<string, string> = {
   social: 'social scheduling (Buffer)',
   ads: 'an ads account (Google Ads, Meta Ads)',
   analytics: 'analytics (PostHog, GA)',
+  dataforseo: 'DataForSEO',
+  search_console: 'Google Search Console',
+  sentry: 'Sentry',
+  posthog: 'PostHog',
+  google_ads: 'Google Ads',
 };
 
 export const CATALOG_INDEX = new Map(
