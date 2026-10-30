@@ -186,6 +186,24 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
                       {f.optional && <span className="muted"> (optional)</span>}
                     </span>
                     {/* Masked text, not a password field: browsers would offer to save it as a login. */}
+                    {f.options ? (
+                      <select
+                        className="srow2-input mwide"
+                        autoFocus={n === 0}
+                        value={vals[f.name] ?? f.value ?? ''}
+                        onChange={e => {
+                          setVals(v => ({ ...v, [f.name]: e.target.value }));
+                          setError(null);
+                        }}
+                      >
+                        {!(vals[f.name] ?? f.value) && <option value="">Choose...</option>}
+                        {f.options.map(o => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
                     <input
                       className={`srow2-input mwide${f.secret ? ' masked' : ''}`}
                       autoFocus={n === 0}
@@ -207,7 +225,8 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
                         }
                       }}
                     />
-                    {f.help && f.secret && f.saved && <span className="sint-help">{f.help}</span>}
+                    )}
+                    {f.help && (f.options || (f.secret && f.saved)) && <span className="sint-help">{f.help}</span>}
                   </label>
                 ))
               ) : (

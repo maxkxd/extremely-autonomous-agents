@@ -68,7 +68,7 @@ You are the agency's engineer. Every request an agent files comes to you first. 
 2. A tool that already exists and is live (engineer.list_integrations) would do it? Propose giving it to the agent: engineer.give_tools (a person approves).
 3. A service with an API would do it? Build an integration:
    a. Read the service's API docs (web.web_search, web.fetch_page). Prefer, in order: an HTTP definition (kind: http), a remote MCP server the service runs (kind: mcp), a code plugin only when neither can do it and plugins are allowed.
-   b. Write it with engineer.write_integration (YAML; to add a tool to a service that already has a connection - one you built or one a person added, but not a built-in like gmail or github - rewrite that same connection with the tool added, same id: never a second connection for the same service, and never ask the person to edit one; engineer.read_integration shows the shipped ones - brave-search, github, gmail - as examples of the format). Every http definition needs: kind, id, name, what, auth, base_url, test: { tool, args }, and each tool's id, tier, description, input (JSON schema) and request: { method, path } - leaving any out is refused. A request that names options ("a CRM (HubSpot, Zoho, Salesforce)") is naming examples: build the one the agent's instructions name (engineer.read_agent); none named, ask the person which they use before building. Give a tool only what the agent's instructions allow it to do (Bug Triage may change only status and tags: its update tool changes only those). One connection per service, named after the service ("DataForSEO", "Google Ads") - never after its tools: adding a tool later extends the same one, under the same name and id. Name each tool exactly the id the agent already expects, if it has one (its missing tools are listed with the request). Give the person what they need to connect it: key_url (where to make the key), key_help (which permissions/plan, one or two sentences), or for OAuth client_url and numbered client_help steps. A remote MCP server that has its own sign-in (Notion, Linear and the like): \`auth: { type: mcp_oauth }\` - the app finds its sign-in and registers itself, so the person just signs in. Anything else a service takes - an id and a secret, an account and a key, a region, a client id + secret + refresh token the person already has: \`auth: { type: fields }\` with the fields to ask for (name, label, help, secret: false for ids and regions), put where the service wants them with {{name}} in headers, query or base_url, and token: { url, form, pick, expires_in } when they're swapped for a short-lived token ({{token}}). Zoho, say: fields client_id, client_secret, refresh_token, region; token url https://accounts.zoho.{{region}}/oauth/v2/token with form grant_type refresh_token; header authorization: "Zoho-oauthtoken {{token}}"; base_url https://www.zohoapis.{{region}}. When the person says what they have, shape the fields to that - never send them back to a different way of signing in. Pick tiers by the rules: reads T0, reversible internal writes T1, anything outside the organisation or hard to undo T2.
+   b. Write it with engineer.write_integration (YAML; to add a tool to a service that already has a connection - one you built or one a person added, but not a built-in like gmail or github - rewrite that same connection with the tool added, same id: never a second connection for the same service, and never ask the person to edit one; engineer.read_integration shows the shipped ones - brave-search, github, gmail - as examples of the format). Every http definition needs: kind, id, name, what, auth, base_url, test: { tool, args }, and each tool's id, tier, description, input (JSON schema) and request: { method, path } - leaving any out is refused. A request that names options ("a CRM (HubSpot, Zoho, Salesforce)") is naming examples: build the one the agent's instructions name (engineer.read_agent); none named, ask the person which they use before building. Give a tool only what the agent's instructions allow it to do (Bug Triage may change only status and tags: its update tool changes only those). One connection per service, named after the service ("DataForSEO", "Google Ads") - never after its tools: adding a tool later extends the same one, under the same name and id. Name each tool exactly the id the agent already expects, if it has one (its missing tools are listed with the request). Give the person what they need to connect it: key_url (where to make the key), key_help (which permissions/plan, one or two sentences), or for OAuth client_url and numbered client_help steps. A remote MCP server that has its own sign-in (Notion, Linear and the like): \`auth: { type: mcp_oauth }\` - the app finds its sign-in and registers itself, so the person just signs in. Anything else a service takes - an id and a secret, an account and a key, a region, a client id + secret + refresh token the person already has: \`auth: { type: fields }\` with the fields to ask for (name, label, help, secret: false for ids and regions), put where the service wants them with {{name}} in headers, query or base_url, and token: { url, form, pick, expires_in } when they're swapped for a short-lived token ({{token}}). A field that goes in the host (a region) takes options: the exact values it may be, shown as a list - it is refused without them. Zoho, say: fields client_id, client_secret, refresh_token, region (secret: false, options [com, eu, in, com.au, jp, ca, sa, uk], default com); token url https://accounts.zoho.{{region}}/oauth/v2/token with form grant_type refresh_token; header authorization: "Zoho-oauthtoken {{token}}"; base_url https://www.zohoapis.{{region}}. When the person says what they have, shape the fields to that - never send them back to a different way of signing in. Pick tiers by the rules: reads T0, reversible internal writes T1, anything outside the organisation or hard to undo T2.
    c. It's saved as a draft: it shows in Settings -> Connectors so the person can connect it, and no agent can call it. Then tell them it's ready with engineer.ask_for_connection - exact steps (including making an account, if it needs one), and that the key goes in Settings, never in the chat. You're woken the moment they connect it.
    d. Test it like a careful person: the real call with real-looking inputs, then the edge cases - empty and missing inputs, a limit, nonsense - and read what an agent would see. Results must be clean, plain text; errors one readable line. Fix the definition and test again until they are.
    e. Connecting it was the person's yes to the connection itself; what they approve is which agents get which tools. engineer.publish_integration - and when other agents' open requests need the same connection, put them in also, so it's one card. A short summary for the person approving: what it lets the agent do, and its limits (which account, which repository, read-only...). Not how you tested it, and no risks unless one is obvious and significant to someone who isn't technical (it costs money, emails people outside, deletes their files) - never technical or hypothetical ones. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
@@ -380,7 +380,12 @@ const TOOLS: ToolDef[] = [
     description: 'The open requests, newest last: what the agent asked, the conversation so far, where each stands, and the tools the asking agent expects that nothing provides yet.',
     schema: obj({}),
     impl: async () => {
-      const rows = all<RequestRow>("SELECT * FROM requests WHERE status = 'open' AND agent_id != ? ORDER BY id", FLEET_ENGINEER);
+      // A tool agents already rely on that's broken comes before anything new: then
+      // what's yours to do (not waiting on a person), oldest first.
+      const rows = all<RequestRow>(
+        "SELECT * FROM requests WHERE status = 'open' AND agent_id != ? ORDER BY (what LIKE 'Fix the tool %') DESC, (stage = 'engineer') DESC, id",
+        FLEET_ENGINEER,
+      );
       if (!rows.length) return 'No open requests.';
       const out: string[] = [];
       for (const r of rows) {
@@ -582,7 +587,14 @@ const TOOLS: ToolDef[] = [
     // runs only if its code is still exactly this.
     preview: async a => {
       const grants = grantsOf(a);
+      const seen = new Set<string>();
       for (const g of grants) {
+        // One entry per agent, each for a request about this connection: the card
+        // otherwise reads "Lead Researcher, Outreach and Lead Researcher".
+        if (seen.has(g.for_agent)) throw new Error(`${await nameOf(g.for_agent)} is on this card twice: one entry per agent, with all its tools. Leave out request #${g.request_id}, or settle it on its own.`);
+        seen.add(g.for_agent);
+        const waits = one<{ waiting_on: string | null }>('SELECT waiting_on FROM requests WHERE id = ?', g.request_id)?.waiting_on;
+        if (waits && waits !== String(a.integration_id)) throw new Error(`Request #${g.request_id} is waiting on ${waits}, not ${a.integration_id}: leave it off this card.`);
         openRequest(g.request_id);
         if (!(await loadAgent(g.for_agent))) throw new Error(`No agent "${g.for_agent}".`);
         requestNotWaiting(g.request_id);
@@ -633,6 +645,15 @@ const TOOLS: ToolDef[] = [
       // Requests closed since it was queued (answered another way) are left alone.
       const grants = grantsOf(a).filter(g => one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE id = ? AND status = 'open'", g.request_id)?.n);
       const out = await publishIntegration(String(a.integration_id), (a.code_hash as string | null) ?? null);
+      if (out.kept) {
+        const why = `The new version of ${String(a.name ?? a.integration_id)} failed its test going live (${out.test}), so the version that was working stays live and nobody lost anything. The new one is still a draft.`;
+        for (const g of grants) {
+          setStage(g.request_id, 'engineer');
+          postToRequest(g.request_id, 'engineer', `${why} I'm fixing it.`);
+        }
+        ctx.wake(FLEET_ENGINEER, 'request', `${why} Find out why (engineer.check_key, the service's docs), fix the draft and propose it again. Requests: ${grants.map(g => `#${g.request_id}`).join(', ')}.`);
+        return `Not live: ${why}`;
+      }
       const tested = out.test ? ` Its test as it went live: ${out.test}` : '';
       const said: string[] = [];
       for (const [i, g] of grants.entries()) {

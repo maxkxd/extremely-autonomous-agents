@@ -67,7 +67,8 @@ async function fieldsOf(id: string, auth: FieldsAuth): Promise<Record<string, st
   const creds: Record<string, string> = {};
   for (const f of auth.fields) if (saved[f.name] ?? f.default) creds[f.name] = saved[f.name] ?? f.default!;
   if (!auth.token) return creds;
-  const had = tokens.get(id);
+  const cacheKey = `${id} ${putFields(auth.token.url, creds)}`;
+  const had = tokens.get(cacheKey);
   if (had && had.until > Date.now()) return { ...creds, token: had.token };
   const url = putFields(auth.token.url, creds);
   if (!url.startsWith('https://')) throw new Error('Its token address must be https.');
@@ -88,14 +89,16 @@ async function fieldsOf(id: string, auth: FieldsAuth): Promise<Record<string, st
   const token = at(answer, auth.token.pick);
   if (!res.ok || typeof token !== 'string' || !token) throw new Error(`Getting a token from ${new URL(url).host} failed (${res.status}): ${errorText(text).slice(0, 200)}`);
   const life = Number(auth.token.expires_in ? at(answer, auth.token.expires_in) : NaN);
-  tokens.set(id, { token, until: Date.now() + (Number.isFinite(life) && life > 120 ? life - 60 : 3000) * 1000 });
+  tokens.set(cacheKey, { token, until: Date.now() + (Number.isFinite(life) && life > 120 ? life - 60 : 3000) * 1000 });
   return { ...creds, token };
 }
 
 // The key, or for a signed-in (OAuth) integration its current access token;
 // for a fields sign-in, its fields (and token) as JSON.
-const keyOf = async (id: string) => {
-  const auth = find(id)?.auth;
+// With the definition doing the calling: a live version while its redraft waits
+// reads its own fields (the draft may have dropped one, like a region).
+const keyOf = async (id: string, def?: Integration) => {
+  const auth = (def ?? find(id))?.auth;
   if (auth?.type === 'fields') {
     const c = await fieldsOf(id, auth);
     return c ? JSON.stringify(c) : undefined;
@@ -183,20 +186,20 @@ function providers(forAgents = false): Map<string, { def: Omit<ToolDef, 'impl'>;
       for (const tool of integration.tools)
         add(tool.id, { id: tool.id, tier: tool.tier, description: tool.description, schema: tool.input }, {
           integration,
-          call: async args => callHttp(integration, tool, args, await keyOf(integration.id)),
+          call: async args => callHttp(integration, tool, args, await keyOf(integration.id, integration)),
         });
     } else if (integration.kind === 'code') {
       for (const tool of moduleOf(integration.module)?.tools ?? [])
         add(tool.id, { id: tool.id, tier: tool.tier, description: tool.description, schema: tool.input }, {
           integration,
-          call: async args => tool.run(args, await keyOf(integration.id), KIT),
+          call: async args => tool.run(args, await keyOf(integration.id, integration), KIT),
         });
     } else {
       for (const t of states()[integration.id]?.tools ?? []) {
         const id = mcpToolId(integration, t.name);
         add(id, { id, tier: mcpTier(integration, t), description: t.description.slice(0, 1000) || t.name, schema: t.inputSchema }, {
           integration,
-          call: async args => callMcpTool(integration, await keyOf(integration.id), t.name, args),
+          call: async args => callMcpTool(integration, await keyOf(integration.id, integration), t.name, args),
         });
       }
     }
@@ -231,7 +234,7 @@ function register() {
 async function test(integration: Integration): Promise<{ ok: boolean; message: string; tools?: McpTool[] }> {
   try {
     if (integration.kind === 'mcp') {
-      const tools = await listMcpTools(integration, await keyOf(integration.id));
+      const tools = await listMcpTools(integration, await keyOf(integration.id, integration));
       return { ok: true, message: `${tools.length} tool${tools.length === 1 ? '' : 's'} found`, tools };
     }
     if (integration.kind === 'code') {
@@ -239,7 +242,7 @@ async function test(integration: Integration): Promise<{ ok: boolean; message: s
       // A plugin's code doesn't run before it's approved: keep the key, test it then.
       if (!mod && states()[integration.id]?.draft) return { ok: true, message: 'Key saved. It is tested once its code is approved.' };
       if (!mod) throw new Error(`Its code ("${integration.module}") isn't loaded.`);
-      const key = await keyOf(integration.id);
+      const key = await keyOf(integration.id, integration);
       if (integration.auth.type === 'oauth2' && !key) throw new Error('Not signed in yet.');
       const tool = mod.tools.find(t => t.id === integration.test.tool) ?? mod.tools[0];
       await tool.run(integration.test.args, key, KIT);
@@ -248,7 +251,7 @@ async function test(integration: Integration): Promise<{ ok: boolean; message: s
       return { ok: true, message: account ? `Connected as ${account}` : 'Connected and working' };
     }
     const tool = integration.tools.find(t => t.id === integration.test.tool) ?? integration.tools[0];
-    const out = await callHttp(integration, tool, integration.test.args, await keyOf(integration.id));
+    const out = await callHttp(integration, tool, integration.test.args, await keyOf(integration.id, integration));
     return { ok: true, message: out === 'No results.' ? 'Connected (the test search found nothing)' : 'Connected and working' };
   } catch (e) {
     return { ok: false, message: (e as Error).message };
@@ -266,12 +269,13 @@ export async function connectIntegration(id: string, key?: string, fields?: Reco
       for (const f of auth.fields) {
         // A secret left blank keeps the one saved (it's never shown back to fill in).
         const v = typeof fields[f.name] === 'string' ? (fields[f.name] as string).trim() : '';
+        if (v && f.options && !f.options.includes(v)) throw new Error(`${f.label} must be one of: ${f.options.join(', ')}.`);
         if (v) next[f.name] = v;
         else if (had[f.name]) next[f.name] = had[f.name];
         else if (!f.optional && f.default === undefined) throw new Error(`Fill in ${f.label}.`);
       }
       await setSecret(secretKey(id), { fields: next });
-      tokens.delete(id);
+      for (const k of tokens.keys()) if (k.startsWith(`${id} `)) tokens.delete(k);
     } else if (!(await getSecret(secretKey(id)))) throw new Error('Fill in the fields first.');
   } else if (integration.auth.type === 'oauth2' || integration.auth.type === 'mcp_oauth') {
     if (!(await oauthSecret(id))?.accessToken) throw new Error('Sign in first.');
@@ -408,7 +412,7 @@ export async function listIntegrations() {
       integration.auth.type === 'fields'
         ? integration.auth.fields.map(f => {
             const saved = savedFields.get(integration.id) ?? {};
-            return { name: f.name, label: f.label, help: f.help ?? null, secret: f.secret, optional: !!f.optional || f.default !== undefined, saved: !!saved[f.name], value: f.secret ? null : (saved[f.name] ?? f.default ?? '') };
+            return { name: f.name, label: f.label, help: f.help ?? null, secret: f.secret, options: f.options ?? null, optional: !!f.optional || f.default !== undefined, saved: !!saved[f.name], value: f.secret ? null : (saved[f.name] ?? f.default ?? '') };
           })
         : null,
     // An MCP server's sign-in needs no client from the person (it registers itself).
@@ -455,7 +459,7 @@ export function liveEvents(): EventSource[] {
   for (const { integration: drafted } of loaded) {
     if (!isLive(drafted.id)) continue;
     const integration = liveCopies.get(drafted.id) ?? drafted;
-    for (const event of integration.events ?? []) out.push({ integration, event, key: () => keyOf(integration.id) });
+    for (const event of integration.events ?? []) out.push({ integration, event, key: () => keyOf(integration.id, integration) });
   }
   return out;
 }
@@ -464,7 +468,7 @@ export function liveEvents(): EventSource[] {
 export function anyEvent(integrationId: string, eventId: string): EventSource | null {
   const integration = find(integrationId);
   const event = integration?.events?.find(e => e.id === eventId);
-  return integration && event ? { integration, event, key: () => keyOf(integration.id) } : null;
+  return integration && event ? { integration, event, key: () => keyOf(integration.id, integration) } : null;
 }
 
 export const liveEventIds = () => liveEvents().map(e => e.event.id);
@@ -475,7 +479,7 @@ export function everyEvent(): (EventSource & { live: boolean })[] {
   const live = new Set(liveEvents().map(e => e.event.id));
   const out = liveEvents().map(e => ({ ...e, live: true }));
   for (const { integration } of loaded)
-    for (const event of integration.events ?? []) if (!live.has(event.id) && !out.some(o => o.event.id === event.id)) out.push({ integration, event, key: () => keyOf(integration.id), live: false });
+    for (const event of integration.events ?? []) if (!live.has(event.id) && !out.some(o => o.event.id === event.id)) out.push({ integration, event, key: () => keyOf(integration.id, integration), live: false });
   return out;
 }
 
@@ -538,6 +542,18 @@ export async function writeDraftIntegration(definition: string, by: string, requ
   if (!checked.success)
     throw new Error(`The definition doesn't fit the format: ${checked.error.issues.slice(0, 6).map(i => `${i.path.join('.') || '(top)'}: ${i.message}`).join('; ')}`);
   const integration = checked.data;
+  // A field that picks the server (accounts.zoho.{{region}}) could send the keys anywhere
+  // ("attacker.com"): it must be one of a fixed list.
+  if (integration.kind === 'http' && integration.auth.type === 'fields') {
+    const auth = integration.auth;
+    for (const url of [integration.base_url, auth.token?.url ?? '']) {
+      const host = /^https?:\/\/([^/?#]*)/.exec(url)?.[1] ?? '';
+      for (const [, name] of host.matchAll(/\{\{(\w+)\}\}/g)) {
+        const f = auth.fields.find(x => x.name === name);
+        if (f && !f.options) throw new Error(`The field "${name}" is part of the address's host (${url}): give it options, the exact values it may take (a region: [com, eu, in, com.au, jp, ca]), so it can't point the keys at another server.`);
+      }
+    }
+  }
   // Programs on this computer, or local addresses, are a person's call alone.
   if (integration.kind === 'mcp' && (integration.command || integration.local))
     throw new Error("MCP servers on this computer (a command, or a local address) can only be added by a person, in Settings -> Connectors. Tell them which one and how, with engineer.reply_to_request.");
@@ -654,7 +670,7 @@ export function keyTargets(integration: Integration, code = '', baseUrl?: string
 }
 
 async function targetsOf(integration: Integration): Promise<KeyTargets> {
-  if (integration.kind === 'http') return keyTargets(integration, '', baseFor(integration.base_url, integration.auth, await keyOf(integration.id)));
+  if (integration.kind === 'http') return keyTargets(integration, '', baseFor(integration.base_url, integration.auth, await keyOf(integration.id, integration)));
   if (integration.kind !== 'code') return keyTargets(integration);
   const code = MODULES[integration.module]
     ? await readFile(join(HERE, 'modules', `${integration.module}.ts`), 'utf8').catch(() => '')
@@ -717,13 +733,28 @@ export async function publishPreview(id: string) {
 }
 
 // Makes a draft live. A plugin is loaded only if its code is what was approved.
-export async function publishIntegration(id: string, approvedHash: string | null): Promise<{ tools: { id: string; tier: Tier }[]; test: string | null }> {
+export async function publishIntegration(id: string, approvedHash: string | null): Promise<{ tools: { id: string; tier: Tier }[]; test: string | null; kept?: boolean }> {
   const integration = find(id);
   if (!integration) throw new Error(`No integration "${id}".`);
+  const before = states()[id] ?? {};
+  // A redraft of one that's working: tried first (a plugin can't be tried before
+  // it's approved), and if it fails the working version stays live and the
+  // redraft stays a draft - agents keep what they had.
+  const replacing = !!before.draft && liveCopies.has(id) && isConnected(id);
   if (integration.kind === 'code' && !MODULES[integration.module]) {
     if (!approvedHash) throw new Error('Approve its code first.');
     await installPlugin(integration.module, approvedHash, resolvePermissions(integration.permissions));
     putState(id, { ...states()[id], codeHash: approvedHash });
+  }
+  if (replacing) {
+    const r = await test(integration);
+    if (!r.ok) {
+      const live = liveCopies.get(id);
+      if (integration.kind === 'code' && live?.kind === 'code' && live.module === integration.module) await restorePlugin(integration.module);
+      putState(id, { ...states()[id], codeHash: before.codeHash });
+      await loadIntegrations();
+      return { tools: [], test: r.message, kept: true };
+    }
   }
   putState(id, { ...states()[id], draft: false, published: true, liveHash: undefined });
   // The new version is the live one now.
@@ -731,13 +762,13 @@ export async function publishIntegration(id: string, approvedHash: string | null
   liveCopies.delete(id);
   if (integration.kind === 'code') await dropPluginBackup(integration.module);
   // Tested now that it can run (a plugin's first run is after approval).
-  let test: string | null = null;
+  let tested: string | null = null;
   if (integration.auth.type === 'none' || isConnected(id)) {
     const r = await connectIntegration(id).catch(e => ({ ok: false, message: (e as Error).message }));
-    test = r.message;
+    tested = r.message;
   }
   register();
-  return { tools: toolsOf(id).map(([t, e]) => ({ id: t, tier: e.def.tier })), test };
+  return { tools: toolsOf(id).map(([t, e]) => ({ id: t, tier: e.def.tier })), test: tested };
 }
 
 // A request's draft integrations (to link a go-live to the request it answers).

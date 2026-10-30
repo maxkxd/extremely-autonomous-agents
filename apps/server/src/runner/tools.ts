@@ -470,6 +470,10 @@ const workspaceCounted = new Map<string, number>();
 // was calling a broken one ten times a second. The failures are on record (tool
 // health), where the Agency Doctor sees them.
 const FAILS_PER_RUN = 3;
+// A write that isn't the agent's counted output, made over and over in one run
+// (81 Drive documents), is padding: refused past this many.
+const REPEATS_PER_RUN = 10;
+const repeatsInRun = new Map<string, number>();
 const failedInRun = new Map<string, { n: number; last: string }>();
 // A connection's tool that keeps failing (3 times in an hour, any agents) goes straight to the Agency Engineer to
 // diagnose and fix - once per tool while that's open - instead of waiting for
@@ -548,6 +552,17 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     });
   }
   const failKey = `${ctx.runId}|${id}`;
+  if (tier !== 'T0' && !n && !BUILTIN_IDS.has(id)) {
+    const made = (repeatsInRun.get(failKey) ?? 0) + 1;
+    repeatsInRun.set(failKey, made);
+    if (made > REPEATS_PER_RUN)
+      return record({
+        content: `That's ${REPEATS_PER_RUN} calls of ${id} this run, and it isn't what your output is counted by. Enough of it: finish your real work, or if that's blocked, say so in your summary and end the run.`,
+        error: true,
+        outcome: 'refused',
+        counted: 0,
+      });
+  }
   const failed = failedInRun.get(failKey);
   if (failed && failed.n >= FAILS_PER_RUN)
     return record({
