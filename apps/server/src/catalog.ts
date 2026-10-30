@@ -210,6 +210,27 @@ export const BASELINE: { server: string; tool: CatalogTool }[] = [
 
 export const toolId = (server: string, name: string) => `${server}.${name}`;
 
+// Each area by what a person connects for it, for "Connect ..." requests.
+export const CONNECT_LABEL: Record<string, string> = {
+  web: 'a web search provider',
+  signed_in_browser: "the agents' signed-in browser",
+  gmail: 'email (Gmail or Outlook)',
+  calendar: 'a calendar',
+  slack: 'Slack',
+  linkedin: 'LinkedIn',
+  enrich: 'a contact enrichment service',
+  crm: 'a CRM (HubSpot, Zoho, Salesforce)',
+  helpdesk: 'a help desk (Zendesk, Zoho Desk, Intercom)',
+  xero: 'accounting (Xero, QuickBooks)',
+  stripe: 'Stripe',
+  github: 'GitHub',
+  docs: 'Google Drive',
+  cms: 'the website CMS (WordPress, Webflow, Sanity)',
+  social: 'social scheduling (Buffer)',
+  ads: 'an ads account (Google Ads, Meta Ads)',
+  analytics: 'analytics (PostHog, GA)',
+};
+
 export const CATALOG_INDEX = new Map(
   CATALOG.flatMap(s => s.tools.map(tool => [toolId(s.server, tool.name), { ...tool, server: s.server }] as const)),
 );

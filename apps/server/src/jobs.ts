@@ -6,6 +6,7 @@ import { compose, kpiLabels, listIds, readMeta, save, writeMeta } from './files.
 import { loadPerson, loadProfile } from './org.js';
 import { availableModels } from './models/connections.js';
 import { setChoices } from './models/choice.js';
+import { pickDefaults } from './runner/defaults.js';
 import { agencyStopped } from './runner/run.js';
 
 // Setting up pack agents (docs/agent-creation.md). Adding a pack saves each
@@ -62,7 +63,7 @@ async function run(id: string) {
     const files = compose(custom, id, new Set([...fleet.tools.map(t => t.id), ...integrationToolIds()]), ctx.models, new Set(liveEventIds()));
     // Deleted while it was being set up: don't bring it back.
     if (!(await readMeta(id))) return;
-    await setChoices(id, files.models);
+    await setChoices(id, pickDefaults(ctx.models, 'strong', files.models));
     // Still theirs: the owner and organisation carry over from set-up.
     await save(files, { name: files.name, department: files.department, output: kpiLabels(files.kpi), status: 'ready', owner: meta.owner ?? person, org: meta.org ?? org });
     // What its tailoring added that nothing provides yet goes to the Agency Engineer.

@@ -12,7 +12,7 @@ import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
 import type { Harness } from './harness.js';
 import { ModelError, type Adapter, type Msg } from './providers.js';
-import { execute, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js';
+import { execute, requestConnections, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js';
 
 // One run of one agent (docs/runner.md, "One run"): its instructions, the
 // tool loop on its first working model, the floor and its nudges, then the
@@ -163,7 +163,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
     agent.charter.trim(),
     ferocityInstructions(agent, level),
     `## Your tools right now
-${working.join('\n')}${notReady.length ? `\n\nIn your toolkit but not connected yet - don't try them or ask for them, they're being connected: ${notReady.join(', ')}` : ''}`,
+${working.join('\n')}${notReady.length ? `\n\nIn your toolkit but not connected yet - don't try them or ask for them, a request to connect them is already with a person or the Agency Engineer: ${notReady.join(', ')}` : ''}`,
     `## The agency
 Agents you can hand work to: ${fleet.length ? fleet.map(f => `${f.id} (${f.name})`).join(', ') : 'none yet'}.
 Tasks you owe right now: ${openTasks}${openTasks ? ' (tasks.list_my_tasks)' : ''}.`,
@@ -264,6 +264,8 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   );
 
   const { specs, ids, notReady } = toolsFor(agent);
+  // What it holds that isn't connected is asked for (or closed, now it is).
+  if (agent.id !== FLEET_ENGINEER) requestConnections(agent.id, agent.name, agent.tiers, startedAt, (a, t, k) => deps.wake(a, t as Trigger, k));
   const ctx: RunCtx = { agent, runId: id, level, now: deps.now, fleet: () => fleetOf(agent.id), wake: (a, t, k) => deps.wake(a, t as Trigger, k) };
   const resume = resumeFrom ? `\n\n${resumeText(resumeFrom)}` : '';
   const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task)}${resume}` }];

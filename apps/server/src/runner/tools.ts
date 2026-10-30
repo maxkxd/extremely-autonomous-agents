@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, relative, sep } from 'node:path';
-import type { Tier } from '../catalog.js';
+import { CATALOG, CONNECT_LABEL, type Tier } from '../catalog.js';
 import { FLEET_ENGINEER, type AgentDef } from './agent.js';
 import { all, one, run } from './db.js';
 import { APOCALYPTIC } from './ferocity.js';
@@ -63,8 +63,9 @@ export function fileRequest(
   now: number,
   wake: Wake,
   direct = false,
+  toPerson = false,
 ): number {
-  const toEngineer = agentId !== FLEET_ENGINEER;
+  const toEngineer = agentId !== FLEET_ENGINEER && !toPerson;
   const id = Number(
     run(
       'INSERT INTO requests (agent_id, run_id, what, why, evidence, expected_effect, created_at, stage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -82,6 +83,60 @@ export function fileRequest(
   if (router && !direct) void router(id, wake);
   else wake(FLEET_ENGINEER, 'request', `Request #${id} from ${agentId}: ${r.what.slice(0, 300)}`);
   return id;
+}
+
+// Tools it holds that need a service nobody has connected, one request per
+// service: to a person when the integration exists and only needs connecting
+// (Gmail), to the Agency Engineer when nothing provides it yet (a CRM). So the
+// run's "they're being connected" is true. Not again while one is open, or for
+// a week after a person turned one down; closed once the service is connected.
+// Returns what it filed.
+export function requestConnections(agentId: string, agentName: string, tiers: Record<string, Tier>, now: number, wake: Wake): string[] {
+  const groups = new Map<string, { what: string; names: string[]; ready: boolean; exists: boolean }>();
+  for (const id of Object.keys(tiers)) {
+    if (LEGACY.has(id) || FAMILIES[id] || BUILTIN_IDS.has(id)) continue;
+    const [server, ...rest] = id.split('.');
+    const area = CATALOG.find(s => s.server === server);
+    const t = REGISTERED.get(id);
+    const known = area?.tools.find(x => x.name === rest.join('.'));
+    if (!known && !t) continue; // its builder's own invention: requestWhatsMissing asks for it to be built
+    const ready = !!t && (t.ready?.() ?? true);
+    const label = CONNECT_LABEL[server] ?? area?.what ?? server.charAt(0).toUpperCase() + server.slice(1);
+    const g = groups.get(server) ?? { what: '', names: [], ready: true, exists: true };
+    g.names.push(known?.does ?? (t?.description.split(/[.\n]/)[0] || id));
+    g.ready &&= ready;
+    g.exists &&= !!t;
+    g.what = g.exists ? `Connect ${label}` : `Set up ${label}`;
+    groups.set(server, g);
+  }
+  const filed: string[] = [];
+  const mine = all<{ id: number; what: string; status: string; answered_at: number | null }>(
+    "SELECT id, what, status, answered_at FROM requests WHERE agent_id = ? AND (what LIKE 'Connect %' OR what LIKE 'Set up %')",
+    agentId,
+  );
+  for (const g of groups.values()) {
+    const same = mine.filter(r => r.what === g.what);
+    if (g.ready) {
+      for (const r of same.filter(r => r.status === 'open'))
+        run("UPDATE requests SET status = 'done', answer = 'Connected.', answered_at = ?, delivered_at = ?, stage = NULL WHERE id = ?", now, now, r.id);
+      continue;
+    }
+    if (same.some(r => r.status === 'open' || (r.answered_at ?? 0) > now - 7 * 86_400_000)) continue;
+    const uses = g.names.slice(0, 6).join('; ') + (g.names.length > 6 ? `; and ${g.names.length - 6} more` : '');
+    fileRequest(
+      agentId,
+      null,
+      g.exists
+        ? { what: g.what, why: `${agentName} can't use these until it's connected in Settings > Connectors: ${uses}.` }
+        : { what: g.what, why: `${agentName} needs these and nothing provides them yet: ${uses}.` },
+      now,
+      wake,
+      true,
+      g.exists,
+    );
+    filed.push(g.what);
+  }
+  return filed;
 }
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required });
