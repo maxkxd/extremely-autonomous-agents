@@ -311,14 +311,17 @@ const sendEmail: CodeTool = {
 const sendToMe: CodeTool = {
   id: 'gmail.send_to_me',
   tier: 'T1',
-  description: "Email the person this Gmail belongs to (digests, reports, reminders). The recipient is always the signed-in account; for anyone else use gmail.send_email.",
+  description: "Email the person you work for (digests, reports, reminders), from the connected Gmail. The recipient is set by the app, never by you; for anyone else use gmail.send_email.",
   input: {
     type: 'object',
     properties: { subject: { type: 'string' }, body: { type: 'string', description: 'Plain text' } },
     required: ['subject', 'body'],
   },
   run: async (args, token) => {
-    const me = (await api<{ emailAddress: string }>(token, '/profile')).emailAddress;
+    // _to: the agent's owner, set by the runner (tools.ts), never by the agent - it
+    // used to go to whoever owned the mailbox (Troy), not the person it works for.
+    const owner = typeof args._to === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args._to) ? args._to : null;
+    const me = owner ?? (await api<{ emailAddress: string }>(token, '/profile')).emailAddress;
     const d = { to: me, cc: '', bcc: '', subject: oneLine(args.subject), body: String(args.body ?? '') };
     const r = await api<{ id: string }>(token, '/messages/send', { method: 'POST', body: { raw: rawEmail(d) } });
     return `Sent to ${me}: "${d.subject}" (message ${r.id}).`;
