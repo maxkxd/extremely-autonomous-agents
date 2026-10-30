@@ -552,12 +552,14 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     });
   }
   const failKey = `${ctx.runId}|${id}`;
-  if (tier !== 'T0' && !n && !BUILTIN_IDS.has(id)) {
+  if (!n && (tier !== 'T0' || id === 'files.write_file') && !/^(tasks|requests|memory|ops|engineer|doctor)\./.test(id)) {
     const made = (repeatsInRun.get(failKey) ?? 0) + 1;
     repeatsInRun.set(failKey, made);
-    if (made > REPEATS_PER_RUN)
+    // A report to the person: a couple a run (Revenue Ops sent Max five).
+    const cap = id === 'gmail.send_to_me' ? 2 : REPEATS_PER_RUN;
+    if (made > cap)
       return record({
-        content: `That's ${REPEATS_PER_RUN} calls of ${id} this run, and it isn't what your output is counted by. Enough of it: finish your real work, or if that's blocked, say so in your summary and end the run.`,
+        content: `That's ${cap} calls of ${id} this run, and it isn't what your output is counted by. Enough of it: finish your real work, or if that's blocked, say so in your summary and end the run.`,
         error: true,
         outcome: 'refused',
         counted: 0,
@@ -591,9 +593,15 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     // Three failures of it in the last hour, from any agent (each agent may hit it once a run).
     const lastHour = (one<{ n: number }>("SELECT COUNT(*) AS n FROM actions WHERE tool = ? AND outcome = 'failed' AND at > ?", id, ctx.now() - 3_600_000)?.n ?? 0) + 1;
     if (lastHour >= FAILS_PER_RUN) reportFailing(ctx, id, message);
-    return record({ content: message, error: true, outcome: 'failed', counted: n });
+    // Not output: a failure counted, a broken drive.append_doc carried Revenue Ops to its target.
+    return record({ content: message, error: true, outcome: 'failed', counted: 0 });
   }
 }
+
+// Whether anything the agent is counted by can still work this run: a counted
+// tool that has failed its limit this run is no way to reach a target.
+export const canStillCount = (agent: AgentDef, runId: string, callable: Set<string>) =>
+  agent.ferocity.counts.some(c => callable.has(c) && (failedInRun.get(`${runId}|${c}`)?.n ?? 0) < FAILS_PER_RUN);
 
 // --- Live tool status (never from memory) ------------------------------------------
 
