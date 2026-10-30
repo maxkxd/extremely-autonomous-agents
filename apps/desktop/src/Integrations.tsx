@@ -99,6 +99,9 @@ const IntegrationRow = (p: RowProps) => (p.i.signIn ? <SignInRow {...p} /> : <Ke
 
 function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps) {
   const [key, setKey] = useState('');
+  // A fields sign-in: what's typed, by field (saved secrets start blank and are kept if left so).
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const fieldsReady = !!i.fields?.every(f => f.optional || f.saved || (vals[f.name] ?? f.value ?? '').trim());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = async (fn: () => Promise<unknown>) => {
@@ -116,6 +119,15 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
     }
   };
   const connect = async () => {
+    if (i.fields) {
+      if (!fieldsReady) return;
+      const sent = Object.fromEntries(i.fields.map(f => [f.name, vals[f.name] ?? f.value ?? '']));
+      if (await run(() => connectIntegration(i.id, undefined, sent))) {
+        setVals({});
+        setOpen(false);
+      }
+      return;
+    }
     if (i.needsKey && !key.trim()) return;
     if (await run(() => connectIntegration(i.id, key))) {
       setKey('');
@@ -146,7 +158,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
               Disconnect
             </SpinButton>
           </>
-        ) : open ? null : i.needsKey ? (
+        ) : open ? null : i.needsKey || i.fields ? (
           <button className="sbtn" onClick={() => setOpen(true)}>
             Connect
           </button>
@@ -166,6 +178,39 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
           {open && (
             <>
               {i.keyHelp && <p className="sint-help">{i.keyHelp}</p>}
+              {i.fields ? (
+                i.fields.map((f, n) => (
+                  <label key={f.name} className="sint-field">
+                    <span>
+                      {f.label}
+                      {f.optional && <span className="muted"> (optional)</span>}
+                    </span>
+                    {/* Masked text, not a password field: browsers would offer to save it as a login. */}
+                    <input
+                      className={`srow2-input mwide${f.secret ? ' masked' : ''}`}
+                      autoFocus={n === 0}
+                      autoComplete="off"
+                      data-1p-ignore
+                      data-lpignore="true"
+                      spellCheck={false}
+                      value={vals[f.name] ?? f.value ?? ''}
+                      placeholder={f.secret && f.saved ? 'Saved - leave blank to keep it' : (f.help ?? '')}
+                      onChange={e => {
+                        setVals(v => ({ ...v, [f.name]: e.target.value }));
+                        setError(null);
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') connect();
+                        if (e.key === 'Escape') {
+                          e.stopPropagation();
+                          setOpen(false);
+                        }
+                      }}
+                    />
+                    {f.help && f.secret && f.saved && <span className="sint-help">{f.help}</span>}
+                  </label>
+                ))
+              ) : (
               <input
                 className="srow2-input mwide"
                 type="password"
@@ -186,6 +231,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
                   }
                 }}
               />
+              )}
               <div className="mform-actions">
                 {i.keyUrl && (
                   <a className="slink" href={i.keyUrl} target="_blank" rel="noreferrer">
@@ -195,7 +241,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
                 <button className="sbtn" onClick={() => setOpen(false)} disabled={busy}>
                   Cancel
                 </button>
-                <SpinButton className="sbtn primary" spinning={busy} onClick={connect} disabled={!key.trim()}>
+                <SpinButton className="sbtn primary" spinning={busy} onClick={connect} disabled={i.fields ? !fieldsReady : !key.trim()}>
                   Connect
                 </SpinButton>
               </div>
@@ -337,6 +383,11 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
                 placeholder={signIn.hasClient ? 'New OAuth client ID' : 'OAuth client ID'}
                 onChange={e => setClientId(e.target.value)}
               />
+              {signIn.redirect && (
+                <p className="sint-help">
+                  Redirect address to add to the client: <code className="sint-code">{signIn.redirect}</code>
+                </p>
+              )}
               {/* Masked text, not a password field: browsers would offer to save the client as a login. */}
               <input
                 className="srow2-input mwide masked"
