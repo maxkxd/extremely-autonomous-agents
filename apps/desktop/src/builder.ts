@@ -174,8 +174,14 @@ function toBuilt(out: ServerAgent): Built {
 export const saveAgent = (b: Built) => post<{ ok: true }>('/api/agents', { files: b.files, setup: b.setup });
 export const deleteAgentFiles = (id: string) => post<{ ok: true }>('/api/agents/delete', { id });
 
-export type AgentStatus = { status: 'ready' | 'setting-up' | 'generic'; name: string; department: Department; output: string[]; owner: string | null; builtIn?: boolean; service?: boolean };
+export type AgentStatus = { status: 'ready' | 'setting-up' | 'generic'; name: string; department: Department; output: string[]; owner: string | null; ownerId?: string | null; builtIn?: boolean; service?: boolean };
 export const agentStatuses = () => request<Record<string, AgentStatus>>('/api/agents/status');
+
+// Settings > Tools (server/src/toolSettings.ts): every tool the agents use, and its level.
+export type ToolTier = 'T0' | 'T1' | 'T2';
+export type ToolView = { id: string; name: string; source: string; does: string; tier: ToolTier | 'mixed'; agents: { id: string; name: string; tier: ToolTier }[] };
+export const getTools = () => request<ToolView[]>('/api/tools');
+export const setToolTier = (id: string, tier: ToolTier) => post<{ changed: number }>('/api/tools/tier', { id, tier });
 
 // --- AI model connections (docs/model-connections.md) ---
 

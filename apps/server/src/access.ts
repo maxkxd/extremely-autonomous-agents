@@ -162,6 +162,7 @@ const NEEDS: Record<string, Level> = {
   'POST /api/models/check': 'member',
   'POST /api/runner/agent': 'member', // a spend cap needs an admin (runner/api.ts)
   'POST /api/runner/run-now': 'member',
+  // Their own agents' DMs only, unless an admin (runner/api.ts).
   'POST /api/dm': 'member',
   // The agent's maker, or an admin (requireMakerOrAdmin).
   'POST /api/runner/requests/message': 'member',
@@ -188,12 +189,13 @@ export function requireAdmin(actor = currentActor(), what = 'That') {
 
 // Approvals and requests go to the person who made the agent, or an admin. The
 // Agency Engineer's own (a go-live for a request) belong to whoever's agent filed the request.
-export async function requireMakerOrAdmin(agentId: string, requestId?: number | null, actor = currentActor()) {
+// what: the thing being done, for the refusal ("decide this", "see its DMs").
+export async function requireMakerOrAdmin(agentId: string, requestId?: number | null, actor = currentActor(), what = 'decide this') {
   if (isAdmin(actor)) return;
   let id = agentId;
   if (id === FLEET_ENGINEER && requestId != null) id = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', requestId)?.agent_id ?? id;
   const meta = await readMeta(id);
-  if (!meta?.ownerId || meta.ownerId !== actor.id) throw new AccessError(403, `Only the person who made ${meta?.name ?? 'this agent'}, or an admin, can decide this.`);
+  if (!meta?.ownerId || meta.ownerId !== actor.id) throw new AccessError(403, `Only the person who made ${meta?.name ?? 'this agent'}, or an admin, can ${what}.`);
 }
 
 // --- Who did what ---

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Building2, Check, ChevronDown, ChevronRight, Gauge, LogOut, Plug, Plus, Trash2, User, X } from 'lucide-react';
+import { Building2, Check, ChevronDown, ChevronRight, Gauge, LogOut, Plug, Plus, Trash2, User, Wrench, X } from 'lucide-react';
 import { ACCOUNT, AGENTS } from './data';
 import {
   createInvite,
@@ -49,21 +49,26 @@ import {
   linkKeyPeople,
   savePerson,
   saveProfile,
+  getTools,
+  setToolTier,
   setAgentRunner,
   setOrgCap,
   type KeyPerson,
   type Person,
   type Profile,
+  type ToolTier,
+  type ToolView,
   type Usage,
 } from './builder';
 
-export type SettingsSection = 'account' | 'organization' | 'usage' | 'connectors';
+export type SettingsSection = 'account' | 'organization' | 'usage' | 'connectors' | 'tools';
 
 const SECTIONS: { id: SettingsSection; label: string; Icon: typeof User }[] = [
   { id: 'account', label: 'Account', Icon: User },
   { id: 'organization', label: 'Organization', Icon: Building2 },
   { id: 'usage', label: 'Usage', Icon: Gauge },
   { id: 'connectors', label: 'Connectors', Icon: Plug },
+  { id: 'tools', label: 'Tools', Icon: Wrench },
 ];
 
 // Settings: a pop-up over the app, sections down the left, Log out at the foot.
@@ -76,6 +81,8 @@ export function Settings({
   onOpenApproval,
   focusIntegration,
   onFocused,
+  focusTool,
+  onToolFocused,
 }: {
   section: SettingsSection;
   onSection: (s: SettingsSection) => void;
@@ -83,6 +90,8 @@ export function Settings({
   onOpenApproval: (id: string) => void; // a draft's Approve: to its approval
   focusIntegration?: string | null; // Connectors: the integration to bring into view and glow
   onFocused?: () => void;
+  focusTool?: string | null; // Tools: the tool to open, bring into view and glow
+  onToolFocused?: () => void;
   onOrgChange: () => void; // the account just became an organization
   onLogOut: () => void;
 }) {
@@ -120,6 +129,7 @@ export function Settings({
           {section === 'organization' && <OrganizationSection onOrgChange={onOrgChange} chatOpen={chatOpen} />}
           {section === 'usage' && <UsageSection />}
           {section === 'connectors' && <ConnectorsSection onOpenApproval={onOpenApproval} focus={focusIntegration} onFocused={onFocused} />}
+          {section === 'tools' && <ToolsSection focus={focusTool} onFocused={onToolFocused} />}
         </div>
       </div>
     </div>
@@ -1236,6 +1246,104 @@ function CapInput({ value, onSave, label, disabled }: { value: number | null; on
         disabled={disabled}
       />
     </label>
+  );
+}
+
+// --- Tools -------------------------------------------------------------------
+
+// How much a person is involved when an agent uses a tool (catalog.ts T0-T2).
+const LEVELS: { tier: ToolTier; label: string; says: string }[] = [
+  { tier: 'T0', label: 'No log', says: 'It just does it. Nothing is logged.' },
+  { tier: 'T1', label: 'Logged', says: 'It does it, and says so in its DMs.' },
+  { tier: 'T2', label: 'Approval', says: 'It waits for a person to approve it first.' },
+];
+const levelOf = (t: ToolView['tier']) => (t === 'mixed' ? null : LEVELS.find(l => l.tier === t)!);
+
+function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?: () => void }) {
+  const [tools, setTools] = useState<ToolView[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = () => getTools().then(setTools, e => setError((e as Error).message));
+  useEffect(() => void load(), []);
+  // Arriving for one tool (an approval's menu): opened, in view, glowing.
+  useEffect(() => {
+    if (!focus || !tools) return;
+    setOpen(focus);
+    onFocused?.();
+    window.setTimeout(() => {
+      const row = document.querySelector<HTMLElement>(`[data-tool="${CSS.escape(focus)}"]`);
+      if (!row) return;
+      row.scrollIntoView({ block: 'center' });
+      row.classList.add('spotlit');
+      window.setTimeout(() => row.classList.remove('spotlit'), 2600);
+    }, 60);
+  }, [focus, !!tools]);
+  const set = async (t: ToolView, tier: ToolTier) => {
+    setError(null);
+    setTools(list => list?.map(x => (x.id === t.id ? { ...x, tier, agents: x.agents.map(a => ({ ...a, tier })) } : x)) ?? list);
+    try {
+      await setToolTier(t.id, tier);
+    } catch (e) {
+      setError((e as Error).message);
+      load();
+    }
+  };
+  return (
+    <section className="ssection">
+      <h2>Tools</h2>
+      <p className="slead">How much you're involved when an agent uses each one.</p>
+      {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change these.</p>}
+      {error && <p className="custom-error">{error}</p>}
+      {!tools ? (
+        !error && <p className="snotes-empty">Loading...</p>
+      ) : !tools.length ? (
+        <p className="snotes-empty">No agent uses any tools yet.</p>
+      ) : (
+        <ul className="stools">
+          {tools.map(t => {
+            const level = levelOf(t.tier);
+            const isOpen = open === t.id;
+            return (
+              <li key={t.id} data-tool={t.id} className={isOpen ? 'open' : ''}>
+                <button className="stool-head" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : t.id)}>
+                  <span className="stool-name">
+                    {t.name}
+                    <span className="stool-source">{t.source}</span>
+                  </span>
+                  <span className={`stool-level tier-${t.tier}`}>{level?.label ?? 'Mixed'}</span>
+                  <ChevronDown size={15} className="muted chev" />
+                </button>
+                {isOpen && (
+                  <div className="stool-body">
+                    {t.does && <p className="stool-does">{t.does}</p>}
+                    <p className="stool-used">Used by {t.agents.map(a => a.name).join(', ')}</p>
+                    <fieldset className="stool-slider" disabled={!isAdmin()}>
+                      <input
+                        type="range"
+                        min={0}
+                        max={2}
+                        step={1}
+                        value={level ? LEVELS.indexOf(level) : 1}
+                        aria-label={`Level for ${t.name}`}
+                        onChange={e => set(t, LEVELS[Number(e.target.value)].tier)}
+                      />
+                      <div className="stool-stops">
+                        {LEVELS.map(l => (
+                          <button key={l.tier} className={t.tier === l.tier ? 'on' : ''} onClick={() => set(t, l.tier)}>
+                            {l.label}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <p className="stool-says">{level ? level.says : 'Its agents have different levels. Pick one to set it for all of them.'}</p>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

@@ -347,6 +347,7 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
       const text = String(a.message ?? '').trim();
       if (text) {
         if (meta.service) throw new Error(`${meta.name} only records what it decides; it takes no messages.`);
+        await requireMakerOrAdmin(agentId, null, currentActor(), 'message it');
         exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", agentId, JSON.stringify({ kind: 'you', text }), Date.now());
         book(agentId, 'your message', text);
         return `Sent to ${meta.name}; its answer goes in its DM channel in the app (read_agent shows its last runs).`;

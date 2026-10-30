@@ -22,7 +22,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { ACCOUNT, AGENTS, type Department } from './data';
-import { currentOrg, myName, onMyName, ownOrg, state, switchAgency, teamOrgs } from './account';
+import { currentOrg, isAdmin, myAccountId, myName, onMyName, ownOrg, state, switchAgency, teamOrgs } from './account';
 import { openSignIn } from './SignIn';
 import { useDismiss } from './useDismiss';
 import { usePhoto } from './photo';
@@ -200,7 +200,8 @@ export function Sidebar({
 
         {dmsOpen && (
           <ul className="dm-list">
-            {AGENTS.map(a => {
+            {/* In an organisation, a member's own agents; the owner and admins see every one (the host checks too). */}
+            {AGENTS.filter(a => !currentOrg() || isAdmin() || (!!a.ownerId && a.ownerId === myAccountId())).map(a => {
               const v: View = `agent:${a.id}`;
               const DeptIcon = DEPARTMENT_ICON[a.department];
               return (

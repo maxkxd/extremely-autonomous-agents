@@ -13,6 +13,7 @@ export type Agent = {
   name: string;
   department: Department;
   owner: string; // member name; only shown when the user is in an organization
+  ownerId?: string | null; // their account, in an organisation (who sees its DMs)
   builtIn?: boolean; // part of the agency itself, owned by no one
   service?: boolean; // a built-in helper (Agency Conductor, Agency Reviewer): runs only when called, so no schedule
   // Per month (30 days); other time ranges are scaled from this for the placeholder UI.

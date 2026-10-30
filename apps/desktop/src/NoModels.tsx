@@ -4,7 +4,8 @@ import { getAvailableModels } from './builder';
 import type { SettingsSection } from './Settings';
 
 // Settings, at a section, from anywhere (App shows it).
-export const openSettings = (section: SettingsSection) => window.dispatchEvent(new CustomEvent('eaa:settings', { detail: section }));
+// focus: something in that section to bring into view (Tools: a tool id).
+export const openSettings = (section: SettingsSection, focus?: string) => window.dispatchEvent(new CustomEvent('eaa:settings', { detail: { section, focus } }));
 
 // Whether any AI model is connected: null until known. Checked again while there
 // are none (a connection made in Settings lifts what was waiting on it).

@@ -210,6 +210,8 @@ export const runnerRoutes: Record<string, Route> = {
   'GET /api/dm': async (_req, q) => {
     const id = q.get('id');
     if (!isId(id)) return [];
+    // In an organisation, an agent's DMs are its maker's and the admins' (access.ts).
+    await requireMakerOrAdmin(id, null, currentActor(), 'see its DMs');
     return all<{ kind: string; body: string; at: number }>('SELECT kind, body, at FROM dm WHERE agent_id = ? ORDER BY at, id', id).map(r => ({
       ...(JSON.parse(r.body) as object),
       kind: r.kind,
@@ -219,6 +221,7 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/dm': async (_req, _q, body) => {
     const { id, text } = await body<{ id: string; text: string }>();
     if (!isId(id) || !text?.trim()) throw new Error('Nothing to send.');
+    await requireMakerOrAdmin(id, null, currentActor(), 'message it');
     if ((await readMeta(id))?.service) throw new Error('This helper only records what it decides; it takes no messages.');
     exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", id, JSON.stringify({ kind: 'you', text: text.trim() }), Date.now());
     book(id, 'your message', text.trim());

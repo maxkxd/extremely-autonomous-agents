@@ -420,6 +420,13 @@ export async function setWebhookSecret(id: string, secret: string) {
 export const integrationProblems = () => problems;
 
 // The ids of tools a connected integration provides, which a build may use.
+// Each integration tool's description and the service it comes through (Settings > Tools).
+export function integrationToolInfo(): Map<string, { description: string; via: string }> {
+  const out = new Map<string, { description: string; via: string }>();
+  for (const [id, { def, by }] of providers(true)) out.set(id, { description: def.description, via: by.map(p => p.integration.name).join(', ') });
+  return out;
+}
+
 export function integrationToolIds(): string[] {
   return [...providers(true)].filter(([, { by }]) => by.some(p => isLive(p.integration.id))).map(([id]) => id);
 }
