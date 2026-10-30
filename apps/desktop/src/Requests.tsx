@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, Code2, Hammer, Hand, Loader2, SendHorizontal, User, X } from 'lucide-react';
+import { Check, ChevronRight, Code2, Hammer, Hand, Loader2, Plug, SendHorizontal, User, X } from 'lucide-react';
 import { siClaude, siCursor, type SimpleIcon } from 'simple-icons';
 import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
@@ -360,6 +360,47 @@ function RequestRow({
 // (they're on this page), and how.
 export type RequestRefs = { onRequest: (id: number) => void; canOpen: (id: number) => boolean; onSettings: (integration: string | null) => void };
 
+// Several requests waiting on you to connect the same thing are one job, so one
+// item: what to connect, what it unblocks, the Agency Engineer's steps and the
+// button to it. The requests themselves are underneath, folded.
+function ConnectGroup({ name, members, row, refs }: { name: string; members: ResourceRequest[]; row: (r: ResourceRequest) => React.ReactNode; refs: RequestRefs }) {
+  const [open, setOpen] = useState(true);
+  const [list, setList] = useState(false);
+  const agents = [...new Set(members.map(m => AGENTS.find(a => a.id === m.agentId)?.name ?? m.agentId))];
+  // The latest steps from the Agency Engineer, on any of them.
+  const steps = members.flatMap(m => (m.liveThread ?? []).filter(t => t.from === 'engineer').slice(-1))[0]?.text ?? '';
+  return (
+    <div className="request-wrap">
+      <article className={`request connect-group${open ? ' open' : ''}`}>
+        <button className="request-row" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+          <ChevronRight size={15} className="request-chevron" />
+          <Plug size={15} strokeWidth={1.75} className="request-dept" />
+          <span className="request-summary">Connect {name}</span>
+          <span className="request-status waiting">Waiting on you</span>
+        </button>
+        <div className="request-expand">
+          <div className="request-clip">
+            <div className="request-body">
+              <p className="request-detail">
+                Unblocks {agents.join(', ')} - {members.length} requests.
+              </p>
+              {steps && (
+                <div className="request-detail">
+                  <RichText text={steps} {...refs} />
+                </div>
+              )}
+              <button className="sbtn connect-group-list" onClick={() => setList(l => !l)}>
+                {list ? 'Hide the requests' : `Show the ${members.length} requests`}
+              </button>
+              {list && <div className="connect-group-members">{members.map(row)}</div>}
+            </div>
+          </div>
+        </div>
+      </article>
+    </div>
+  );
+}
+
 export function Requests({
   pending,
   scope,
@@ -407,21 +448,33 @@ export function Requests({
     return <div className="main-empty">{scope === 'all' ? 'No requests are waiting.' : 'No requests are waiting on you.'}</div>;
   }
 
+  const row = (r: ResourceRequest) => (
+    <RequestRow
+      key={r.id}
+      request={r}
+      showOwner={!!ACCOUNT.org && scope === 'all'}
+      onDecide={(res, note) => onDecide(r.id, res, note)}
+      onGone={() => onGone(r.id)}
+      onOpenApprovals={onOpenApprovals}
+      refs={refs}
+      spotlight={r.live === focus}
+      onFocused={onFocused}
+    />
+  );
+  // Two or more waiting on you to connect the same thing: one item, where the first of them was.
+  const byConnection = new Map<string, ResourceRequest[]>();
+  for (const r of shown) if (r.stage === 'waiting_you' && r.waitingOn && !r.closedAs) byConnection.set(r.waitingOn.id, [...(byConnection.get(r.waitingOn.id) ?? []), r]);
+  const grouped = new Set([...byConnection.values()].filter(g => g.length > 1).flat().map(r => r.id));
+  const placed = new Set<string>();
   return (
     <div className="requests">
-      {shown.map(r => (
-        <RequestRow
-          key={r.id}
-          request={r}
-          showOwner={!!ACCOUNT.org && scope === 'all'}
-          onDecide={(res, note) => onDecide(r.id, res, note)}
-          onGone={() => onGone(r.id)}
-          onOpenApprovals={onOpenApprovals}
-          refs={refs}
-          spotlight={r.live === focus}
-          onFocused={onFocused}
-        />
-      ))}
+      {shown.map(r => {
+        if (!grouped.has(r.id)) return row(r);
+        const { id, name } = r.waitingOn!;
+        if (placed.has(id)) return null;
+        placed.add(id);
+        return <ConnectGroup key={`connect-${id}`} name={name} members={byConnection.get(id)!} row={row} refs={refs} />;
+      })}
     </div>
   );
 }

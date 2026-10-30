@@ -279,6 +279,7 @@ export type LiveRequest = {
   engineerBusy: boolean;
   needsYou: boolean; // shown on the Requests page only once it needs the person
   approvalId: string | null;
+  waitingOn: { id: string; name: string } | null; // the connection it waits for the person to connect
 };
 export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
 export const answerRequest = (id: number, status: 'done' | 'rejected', answer: string) =>

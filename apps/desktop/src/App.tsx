@@ -249,6 +249,7 @@ function Agency() {
                 stage: r.stage,
                 busy: r.engineerBusy,
                 approvalId: r.approvalId,
+                waitingOn: r.waitingOn,
                 closedAs: r.status === 'open' ? undefined : r.status === 'rejected' ? ('rejected' as const) : ('done' as const),
               })),
           );

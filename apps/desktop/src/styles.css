@@ -1995,3 +1995,8 @@ a.sbtn { text-decoration: none; color: inherit; }
 /* A fields sign-in: each field with its label above it. */
 .sint-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .sint-code { user-select: all; font-size: 12px; color: var(--text); }
+
+/* Requests waiting on you to connect the same thing: one item, the requests folded inside. */
+.connect-group .request-summary { font-weight: 600; }
+.connect-group-list { align-self: flex-start; }
+.connect-group-members { display: flex; flex-direction: column; gap: 8px; }
