@@ -113,8 +113,8 @@ checked and what showed it, then what to change. And if they did what it
 asked and it still fails the same way, it assumes its diagnosis was wrong
 and checks again before asking for anything else.
 
-Code plugins (`integrations/plugins.ts`): off until allowed in Settings ->
-Connectors. Three layers, so a person who can't read code is still safe:
+Code plugins (`integrations/plugins.ts`): on unless turned off in Settings ->
+Connectors (on by default since 2026-10-30). Three layers, so a person who can't read code is still safe:
 
 1. **A sandbox** (`sandbox.ts`): each call runs in a separate Node process
    under the permission model. It gets only the folders the plugin declares
