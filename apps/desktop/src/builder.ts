@@ -282,6 +282,14 @@ export type LiveRequest = {
   waitingOn: { id: string; name: string } | null; // the connection it waits for the person to connect
 };
 export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
+
+// "Connect these first" (the Dashboard): services ranked by the agents they unlock.
+export type ConnectFirst = {
+  services: { key: string; name: string; integrationId: string | null; connected: boolean; settingUp: boolean; needs: string | null; agents: { id: string; name: string }[] }[];
+  agents: { unlocked: number; total: number };
+  connections: { done: number; total: number };
+};
+export const getConnectFirst = () => request<ConnectFirst>('/api/runner/connect-first');
 export const answerRequest = (id: number, status: 'done' | 'rejected', answer: string) =>
   post<{ ok: boolean }>('/api/runner/requests/answer', { id, status, answer });
 export const sendToIde = (id: number, ide: string) =>

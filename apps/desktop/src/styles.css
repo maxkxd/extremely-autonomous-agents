@@ -348,6 +348,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .range-btn:hover { border-color: var(--border-strong); }
 /* Dashboard only: hide the built-in agents' cards. */
 .builtins-toggle {
+  white-space: nowrap; flex-shrink: 0;
   display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 8px;
   font-size: 13px; font-weight: 500; border: 1px solid var(--border); background: var(--bg); color: var(--fg-muted, inherit);
 }
@@ -2007,3 +2008,35 @@ a.sbtn { text-decoration: none; color: inherit; }
 .connect-group .request-summary { font-weight: 600; }
 .connect-group-list { align-self: flex-start; }
 .connect-group-members { display: flex; flex-direction: column; gap: 8px; }
+
+/* "Connect these first" (Dashboard): ranked connections, the fleet's progress, stars. */
+.cf { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 14px 16px 12px; margin-bottom: 14px; }
+.cf-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cf-toggle { display: flex; align-items: center; gap: 6px; padding: 0; background: none; border: 0; color: var(--text); cursor: pointer; }
+.cf-title { font-size: 15px; font-weight: 600; }
+.cf.closed .chev { transform: rotate(-90deg); }
+.cf-count { font-size: 13px; color: var(--muted); }
+.cf-count strong { color: var(--text); font-weight: 600; }
+.cf-done { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); margin-left: auto; }
+.cf-cheer { font-size: 12px; font-weight: 600; color: #e8b931; animation: cf-pop 0.5s ease-out; }
+@keyframes cf-pop { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); } }
+.cf-bar { height: 8px; border-radius: 99px; background: var(--hairline); margin: 10px 0 4px; overflow: hidden; }
+.cf-fill { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--attention), #e8b931); transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.cf-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.cf-row { display: grid; grid-template-columns: minmax(110px, 1.1fr) auto minmax(0, 2fr) auto; align-items: center; gap: 12px; padding: 7px 0; border-top: 1px solid var(--hairline); font-size: 13px; }
+.cf-name { font-weight: 600; }
+.cf-stars { display: inline-flex; align-items: center; gap: 1px; min-width: 70px; }
+.cf-star { color: #e8b931; fill: #e8b931; }
+.cf-more { font-size: 11px; color: #e8b931; margin-left: 3px; font-weight: 600; }
+.cf-what { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-connect { height: 28px; padding: 0 14px; border-radius: 7px; border: 0; background: var(--attention); color: var(--attention-text); font-size: 12px; font-weight: 600; cursor: pointer; }
+.cf-connect:hover { filter: brightness(1.1); }
+.cf-wait { font-size: 12px; color: var(--muted); }
+.cf-row.setting-up .cf-name, .cf-row.setting-up .cf-what { color: var(--muted); }
+.cf-all { margin-top: 6px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; cursor: pointer; }
+.cf-all:hover { color: var(--text); }
+@media (max-width: 640px) {
+  .cf-row { grid-template-columns: 1fr auto; }
+  .cf-stars, .cf-what { grid-column: 1; }
+  .cf-connect, .cf-wait { grid-column: 2; grid-row: 1 / span 3; }
+}

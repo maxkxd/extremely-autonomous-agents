@@ -16,6 +16,7 @@ import {
 } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { DOCTOR } from './doctor.js';
+import { connectFirst } from './connectFirst.js';
 import { postToRequest, waitingOn } from './engineer.js';
 import { sendToIde, type Ide } from './ide.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
@@ -184,6 +185,8 @@ export const runnerRoutes: Record<string, Route> = {
   // The whole agency on standby (nothing starts by itself) or stopped (every
   // run cut short, nothing at all: no building or tailoring either), or active.
   'GET /api/runner/agency': async () => ({ state: agencyState() }),
+  // "Connect these first" on the Dashboard: services ranked by the agents they unblock.
+  'GET /api/runner/connect-first': async () => connectFirst(),
   'POST /api/runner/agency': async (_req, _q, body) => {
     const { state } = await body<{ state: AgencyState }>();
     if (!['active', 'standby', 'stopped'].includes(state)) throw new Error('active, standby or stopped.');
