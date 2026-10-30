@@ -13,7 +13,7 @@ import { forgetAgentRuns } from './forget.js';
 import { fleetReport } from './doctor.js';
 import { answerRequest } from './api.js';
 import { notWaitingAlready, requestNotWaiting, withdrawProposal } from './engineer.js';
-import { registerTools, requestConnections, WORKSPACES } from './tools.js';
+import { execute, registerTools, requestConnections, serviceLabel, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
 
@@ -512,4 +512,34 @@ test("the Agency Doctor's report shows what nobody asked about: a request filed 
   assert.match(report, /filed 2 times: "Set up Google Drive"/);
   assert.match(report, /files\.write_file 9 \(90%\)/);
   assert.match(report, /answered #\d+: "Set up Google Drive" -> You now have/);
+});
+
+test("a request names the service the agent's instructions use, not the catalogue's examples", async () => {
+  const { DATA } = await import('../files.js');
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  await mkdir(join(DATA, 'zz-books'), { recursive: true });
+  await writeFile(join(DATA, 'zz-books', 'CHARTER.md'), '# Revenue Ops\nReconcile Stripe against Xero and draft invoices in Xero.');
+  assert.equal(serviceLabel('xero', 'zz-books'), 'Xero'); // not "accounting (Xero, QuickBooks)"
+  assert.equal(serviceLabel('crm', 'zz-books'), 'a CRM (HubSpot, Zoho, Salesforce)'); // names none: the examples stay
+  assert.equal(serviceLabel('xero'), 'accounting (Xero, QuickBooks)');
+});
+
+test("busywork doesn't meet a target: past 5 workspace files a run, they don't count for an agent with real output", async () => {
+  const busy = agent({ ferocity: { ...DEFAULT_PLAN, counts: ['files.write_file', 'gmail.send_email'], floor: 20, soft_floor: 3, apocalyptic_floor: 30 } });
+  const ctx = { agent: busy, runId: 'r_busy', level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} };
+  const ids = new Map([['files__write_file', 'files.write_file']]);
+  let total = 0;
+  let last = '';
+  for (let i = 0; i < 8; i++) {
+    const r = await execute(ctx, { id: `c${i}`, name: 'files__write_file', args: { path: `notes/n${i}.md`, content: 'x' } }, ids);
+    total += r.counted;
+    last = r.content;
+  }
+  assert.equal(total, 5);
+  assert.match(last, /don't count toward your target/);
+  // An agent whose only output is files: every one counts.
+  const writer = { ...ctx, runId: 'r_writer', agent: agent() };
+  let written = 0;
+  for (let i = 0; i < 7; i++) written += (await execute(writer, { id: `w${i}`, name: 'files__write_file', args: { path: `w/n${i}.md`, content: 'x' } }, ids)).counted;
+  assert.equal(written, 7);
 });
