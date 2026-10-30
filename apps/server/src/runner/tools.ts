@@ -63,9 +63,8 @@ export function fileRequest(
   now: number,
   wake: Wake,
   direct = false,
-  toPerson = false,
 ): number {
-  const toEngineer = agentId !== FLEET_ENGINEER && !toPerson;
+  const toEngineer = agentId !== FLEET_ENGINEER;
   const id = Number(
     run(
       'INSERT INTO requests (agent_id, run_id, what, why, evidence, expected_effect, created_at, stage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -86,8 +85,8 @@ export function fileRequest(
 }
 
 // Tools it holds that need a service nobody has connected, one request per
-// service: to a person when the integration exists and only needs connecting
-// (Gmail), to the Agency Engineer when nothing provides it yet (a CRM). So the
+// service, to the Agency Engineer: it walks a person through connecting one
+// that exists (Gmail) and builds one that doesn't (a CRM). So the
 // run's "they're being connected" is true. Not again while one is open, or for
 // a week after a person turned one down; closed once the service is connected.
 // Returns what it filed.
@@ -133,7 +132,6 @@ export function requestConnections(agentId: string, agentName: string, tiers: Re
       now,
       wake,
       true,
-      g.exists,
     );
     filed.push(g.what);
   }

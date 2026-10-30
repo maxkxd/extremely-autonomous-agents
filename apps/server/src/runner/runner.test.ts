@@ -369,9 +369,9 @@ test('tools that need a service nobody connected are asked for, once per service
   const filed = requestConnections(ID, 'Test Agent', tiers, now, a => woke.push(a));
   assert.deepEqual(filed.sort(), ['Connect email (Gmail or Outlook)', 'Set up a CRM (HubSpot, Zoho, Salesforce)']);
   const rows = all<{ what: string; stage: string }>('SELECT what, stage FROM requests ORDER BY what');
-  // Gmail exists and needs connecting: a person's. A CRM doesn't exist yet: the Agency Engineer's.
-  assert.deepEqual(rows.map(r => r.stage), ['person', 'engineer']);
-  assert.deepEqual(woke, ['fleet']);
+  // Both the Agency Engineer's: it walks a person through connecting Gmail, and builds a CRM.
+  assert.deepEqual(rows.map(r => r.stage), ['engineer', 'engineer']);
+  assert.deepEqual(woke, ['fleet', 'fleet']);
   assert.deepEqual(requestConnections(ID, 'Test Agent', tiers, now + 1, () => {}), []); // not again while open
   // The engineer drafts a CRM: "Connect" is the same ask as the open "Set up", not another.
   registerTools([{ id: 'crm.search_records', tier: 'T0', description: 'Find', schema: {}, impl: () => '', ready: () => connected }, { id: 'crm.create_record', tier: 'T1', description: 'Add', schema: {}, impl: () => '', ready: () => connected }]);
