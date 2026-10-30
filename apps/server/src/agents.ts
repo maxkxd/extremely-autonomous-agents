@@ -78,7 +78,7 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
     missing.set(server, [...(missing.get(server) ?? []), { id, does: mine?.description ?? t?.description ?? '', input: mine?.input_schema, usedBy: t?.usedBy }]);
   }
   for (const [server, tools] of missing) {
-    const label = serviceLabel(server);
+    const label = serviceLabel(server, files.id);
     if (asked.has(`Set up ${label}`) || asked.has(`Connect ${label}`)) continue;
     const others = [...new Set(tools.flatMap(t => t.usedBy ?? []))];
     ask(
@@ -93,7 +93,7 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
   for (const e of (yaml.new_events ?? []).filter(e => !events.has(e.id))) wanted.set(e.id.split('.')[0], [...(wanted.get(e.id.split('.')[0]) ?? []), e]);
   for (const [server, list] of wanted)
     ask(
-      `Set up ${serviceLabel(server)} events`,
+      `Set up ${serviceLabel(server, files.id)} events`,
       `${files.name} should wake when these happen:\n${list.map(e => `- ${e.id}: ${e.description}`).join('\n')}`,
       list.filter(e => e.how).map(e => `${e.id} - how the service tells it: ${e.how}`).join('\n') || null,
     );

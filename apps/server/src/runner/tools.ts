@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, relative, sep } from 'node:path';
 import { CATALOG, CONNECT_LABEL, type Tier } from '../catalog.js';
@@ -85,7 +86,22 @@ export function fileRequest(
 }
 
 // What a person calls a tool's service: "a CRM (HubSpot, Zoho, Salesforce)", "Ads".
-export const serviceLabel = (server: string) => CONNECT_LABEL[server] ?? CATALOG.find(s => s.server === server)?.what ?? server.charAt(0).toUpperCase() + server.slice(1);
+// For an agent whose instructions name exactly one of the examples, that one -
+// "Xero", not "accounting (Xero, QuickBooks)" - so the Agency Engineer builds the
+// service the organisation uses, not every example.
+export function serviceLabel(server: string, agentId?: string) {
+  const label = CONNECT_LABEL[server] ?? CATALOG.find(s => s.server === server)?.what ?? server.charAt(0).toUpperCase() + server.slice(1);
+  const options = /\(([^)]+)\)\s*$/.exec(label)?.[1].split(/,|\bor\b|\band\b/).map(o => o.trim()).filter(Boolean);
+  if (!agentId || !options?.length) return label;
+  let charter = '';
+  try {
+    charter = readFileSync(join(DATA_DIR, 'agents', agentId, 'CHARTER.md'), 'utf8').toLowerCase();
+  } catch {
+    return label;
+  }
+  const named = options.filter(o => charter.includes(o.toLowerCase()));
+  return named.length === 1 ? named[0] : label;
+}
 
 // Tools it holds that need a service nobody has connected, one request per
 // service, to the Agency Engineer: it walks a person through connecting one
@@ -103,7 +119,7 @@ export function requestConnections(agentId: string, agentName: string, tiers: Re
     const known = area?.tools.find(x => x.name === rest.join('.'));
     if (!known && !t) continue; // its builder's own invention: requestWhatsMissing asks for it to be built
     const ready = !!t && (t.ready?.() ?? true);
-    const label = serviceLabel(server);
+    const label = serviceLabel(server, agentId);
     const g = groups.get(server) ?? { label, what: '', names: [], ready: true, exists: true };
     g.names.push(known?.does ?? (t?.description.split(/[.\n]/)[0] || id));
     g.ready &&= ready;
@@ -444,6 +460,11 @@ export function limitHit(agent: AgentDef, id: string, now: number): string | nul
 }
 
 let approvalSeq = 0;
+// Workspace files counted toward a run's target, per run: past the first few
+// they don't count - writing notes isn't the agent's output, and an agent whose
+// real work is blocked would otherwise pad its target with them.
+const WORKSPACE_COUNTED = 5;
+const workspaceCounted = new Map<string, number>();
 
 export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>): Promise<CallOutcome> {
   const id = ids.get(call.name) ?? call.name.replace('__', '.');
@@ -511,9 +532,18 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     });
   }
   try {
-    const content = await impl.impl(call.args, ctx);
+    let content = await impl.impl(call.args, ctx);
     healthOk(ctx.agent.id, id, ctx.now());
-    return record({ content, error: false, outcome: 'ok', counted: n });
+    let counted = n;
+    // Only for an agent with real output besides files (Outreach: emails, the CRM);
+    // for one whose job is writing documents, its files are the output.
+    if (n && id.startsWith('files.') && ctx.agent.ferocity.counts.some(c => !c.startsWith('files.'))) {
+      const used = workspaceCounted.get(ctx.runId) ?? 0;
+      counted = Math.max(0, Math.min(n, WORKSPACE_COUNTED - used));
+      workspaceCounted.set(ctx.runId, used + counted);
+      if (counted < n) content += `\n(Saved. Workspace files past the first ${WORKSPACE_COUNTED} in a run don't count toward your target: do your real work, or if it's blocked, say so and stop.)`;
+    }
+    return record({ content, error: false, outcome: 'ok', counted });
   } catch (e) {
     const message = (e as Error).message || 'It failed.';
     healthFail(ctx.agent.id, id, ctx.now(), message);
