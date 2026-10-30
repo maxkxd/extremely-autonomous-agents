@@ -368,7 +368,7 @@ export function AgentCard({
             <span className="head-counts">
               <a
                 className={`head-count${openRequests ? ' has' : ''}`}
-                title={`${openRequests} open request${openRequests === 1 ? '' : 's'}`}
+                title={`${openRequests} request${openRequests === 1 ? '' : 's'} waiting on you`}
                 onClick={() => onNavigate('requests')}
               >
                 <Wrench size={14} strokeWidth={1.75} />

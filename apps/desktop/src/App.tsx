@@ -68,6 +68,15 @@ const clamp = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
 // An organisation that can't be reached right now (its host offline, or not
 // hosted anywhere yet) gets a page saying so instead of the agency.
 // A new install opens on the first-run screen (connect an AI model) in your own agency.
+// What a person reads of a request's evidence: not the tools' input schemas
+// ("crm.add_note expects: {...}"), which are for the Agency Engineer.
+const personEvidence = (evidence: string | null | undefined) =>
+  (evidence ?? '')
+    .split('\n')
+    .filter(l => !/^(Input it expects:|[\w.-]+ expects: [{[])/.test(l.trim()))
+    .join('\n')
+    .trim();
+
 export function App() {
   const org = currentOrg();
   const [firstRun, setFirstRun] = useState(() => !org && !onboarded());
@@ -241,7 +250,7 @@ function Agency() {
                 agentId: r.agent_id,
                 summary: r.what,
                 // A tool's input schema is for the Agency Engineer, not the person reading.
-                detail: [r.why, r.evidence && !/^Input it expects:/.test(r.evidence) && `What I tried: ${r.evidence}`, r.expected_effect && `What changes once I have it: ${r.expected_effect}`]
+                detail: [r.why, personEvidence(r.evidence) && `Details: ${personEvidence(r.evidence)}`, r.expected_effect && `What changes once I have it: ${r.expected_effect}`]
                   .filter(Boolean)
                   .join('\n\n'),
                 minutesAgo: Math.max(0, Math.round((Date.now() - r.created_at) / 60_000)),
