@@ -5,6 +5,7 @@ import { DATA, readMeta, save, slug } from '../files.js';
 import {
   checkKey,
   integrationSource,
+  savedSettings,
   listIntegrations,
   liveEventIds,
   publishIntegration,
@@ -478,7 +479,9 @@ const TOOLS: ToolDef[] = [
     impl: async a => {
       const src = await integrationSource(String(a.id));
       if (!src) throw new Error(`No integration "${a.id}".`);
-      return `${src.yaml}${src.code ? `\n--- plugin code ---\n${src.code}` : ''}`;
+      const saved = await savedSettings(String(a.id));
+      const settings = Object.keys(saved).length ? `\n--- saved settings (what the person entered; secrets not shown) ---\n${Object.entries(saved).map(([k, v]) => `${k}: ${v}`).join('\n')}\nBuild for these values - don't assume another region or account.` : '';
+      return `${src.yaml}${src.code ? `\n--- plugin code ---\n${src.code}` : ''}${settings}`;
     },
   },
   {
