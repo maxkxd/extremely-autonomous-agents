@@ -1166,7 +1166,7 @@ function UsageSection() {
   return (
     <section className="ssection">
       <h2>Usage</h2>
-      <p className="slead">This month. Runs on your AI plans and on this computer cost nothing here.</p>
+      <p className="slead">This month.</p>
       <div className="stiles">
         <div className="stile">
           <span className="stile-label">Spend</span>
