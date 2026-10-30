@@ -469,7 +469,7 @@ export async function createOrganisation(name: string, onStep?: (s: string) => v
   onStep?.('Starting its agency on this computer');
   await hostHere(org);
   // The profile the chat just made (saved in your own agency) belongs to the organisation's.
-  const { profile } = await local<{ profile: unknown }>(`/api/org?name=${encodeURIComponent(org.name)}`);
+  const { profile } = await local<{ profile: unknown }>(`/api/org?name=${encodeURIComponent(org.name)}`).catch(() => ({ profile: null }));
   if (profile) await local('/hosted/api/org', { org: org.name, profile }).catch(() => {});
   await refreshMe();
   return org;
@@ -481,8 +481,10 @@ export async function hostHere(org: { id: string; name: string }) {
   const { publicKey } = await local<{ publicKey: string }>('/api/hosting/start', { orgId: org.id, orgName: org.name, issuer: state.issuer });
   const { hostSecret } = await backend<{ hostSecret: string }>(`/orgs/${org.id}/host`, { body: { publicKey } });
   await local('/api/hosting/secret', { orgId: org.id, hostSecret });
+  // Waits for it to be up, riding out a moment where this computer's agency
+  // isn't answering (it restarting) instead of failing the whole creation.
   for (let i = 0; i < 60; i++) {
-    const h = (await local<{ hosting: Hosting | null }>('/api/hosting')).hosting;
+    const h = await local<{ hosting: Hosting | null }>('/api/hosting').then(r => r.hosting, () => null);
     if (h?.running) break;
     await new Promise(r => setTimeout(r, 500));
   }
