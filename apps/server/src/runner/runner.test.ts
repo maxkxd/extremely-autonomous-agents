@@ -11,6 +11,7 @@ import { runAgent, stateOf, type RunDeps } from './run.js';
 import { dropStaleRequestRuns, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
 import { answerRequest } from './api.js';
+import { notWaitingAlready } from './engineer.js';
 import { registerTools, requestConnections, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
@@ -469,4 +470,13 @@ test("a person's no doesn't strand the agent: the Agency Engineer is woken to fo
   assert.match(b!.task, /without saying why/);
   dropStaleRequestRuns();
   assert.equal(one<{ n: number }>("SELECT COUNT(*) AS n FROM bookings WHERE agent_id = 'fleet'")!.n, 1);
+});
+
+test("the Agency Engineer can't queue the same proposal twice while a person hasn't decided the first", () => {
+  const now = Date.now();
+  exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES ('p1', 'fleet', 'r1', 'engineer.publish_integration', ?, ?, ?)", JSON.stringify({ for_agent: 'lead-research', integration_id: 'google-drive', request_id: 5 }), now, now + 86_400_000);
+  assert.throws(() => notWaitingAlready('engineer.publish_integration', { for_agent: 'lead-research', integration_id: 'google-drive' }, 'integration_id'), /already waiting/);
+  notWaitingAlready('engineer.publish_integration', { for_agent: 'outreach', integration_id: 'google-drive' }, 'integration_id'); // another agent: fine
+  exec("UPDATE approvals SET status = 'approved' WHERE id = 'p1'");
+  notWaitingAlready('engineer.publish_integration', { for_agent: 'lead-research', integration_id: 'google-drive' }, 'integration_id'); // decided: fine
 });

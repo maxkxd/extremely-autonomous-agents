@@ -167,6 +167,18 @@ export function postToRequest(id: number, from: 'engineer' | 'you', text: string
   exec('INSERT INTO request_messages (request_id, from_who, text, at) VALUES (?, ?, ?, ?)', id, from, text.slice(0, 6000), now);
 }
 const setStage = (id: number, stage: string) => exec('UPDATE requests SET stage = ? WHERE id = ?', stage, id);
+// The same proposal already waiting on a person (a later run proposing it
+// again doesn't see it): refused, so a person never approves it twice.
+export const notWaitingAlready = (tool: string, a: Record<string, unknown>, key: string) => {
+  const same = one<{ created_at: number }>(
+    `SELECT created_at FROM approvals WHERE status = 'pending' AND agent_id = ? AND tool = ? AND json_extract(args, '$.for_agent') = ? AND CAST(json_extract(args, '$.${key}') AS TEXT) = ?`,
+    FLEET_ENGINEER,
+    tool,
+    String(a.for_agent),
+    String(a[key]),
+  );
+  if (same) throw new Error(`That's already waiting for a person's approval (proposed ${Math.max(1, Math.round((Date.now() - same.created_at) / 60_000))} min ago). Don't propose it again - carry on with other work.`);
+};
 const openRequest = (raw: unknown): RequestRow => {
   const r = one<RequestRow>('SELECT * FROM requests WHERE id = ?', Number(raw));
   if (!r) throw new Error(`No request #${raw}.`);
@@ -490,6 +502,7 @@ const TOOLS: ToolDef[] = [
     preview: async a => {
       openRequest(a.request_id);
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
+      notWaitingAlready('engineer.publish_integration', a, 'integration_id');
       const p = await publishPreview(String(a.integration_id));
       // A plugin is reviewed by a separate model first; a serious finding sends it back.
       // The card: up to 3 sentences from the engineer, then up to 5 plain bullets.
@@ -562,6 +575,7 @@ const TOOLS: ToolDef[] = [
     preview: async a => {
       openRequest(a.request_id);
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
+      notWaitingAlready('engineer.give_events', a, 'request_id');
       const live = new Set(liveEventIds());
       const bad = ((a.events as string[]) ?? []).filter(e => !live.has(e));
       if (bad.length) throw new Error(`Not live: ${bad.join(', ')}. Set them up and publish their integration first.`);
@@ -591,6 +605,7 @@ const TOOLS: ToolDef[] = [
     preview: async a => {
       openRequest(a.request_id);
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
+      notWaitingAlready('engineer.give_tools', a, 'request_id');
       setStage(Number(a.request_id), 'approval');
       postToRequest(Number(a.request_id), 'engineer', `${await nameOf(String(a.for_agent))} gets these tools when you approve it on the Approvals page.`);
       return { for_agent_name: await nameOf(String(a.for_agent)), tools_list: toolsForPeople((a.tools as { id: string; tier: string }[]) ?? []) };
