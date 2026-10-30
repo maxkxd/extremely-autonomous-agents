@@ -171,7 +171,7 @@ CREATE TABLE IF NOT EXISTS approvals (
   run_id TEXT NOT NULL,
   tool TEXT NOT NULL,
   args TEXT NOT NULL,               -- JSON, exactly as the agent called it
-  status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected | expired
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected | expired | withdrawn (by the agent that proposed it)
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   decided_at INTEGER                -- (+ note: the person's reason; result: what running it returned)

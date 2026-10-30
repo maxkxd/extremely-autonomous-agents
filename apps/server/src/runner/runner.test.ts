@@ -11,7 +11,7 @@ import { runAgent, stateOf, type RunDeps } from './run.js';
 import { dropStaleRequestRuns, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
 import { answerRequest } from './api.js';
-import { notWaitingAlready, requestNotWaiting } from './engineer.js';
+import { notWaitingAlready, requestNotWaiting, withdrawProposal } from './engineer.js';
 import { registerTools, requestConnections, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
@@ -487,4 +487,17 @@ test('one card per agent: a request already on a waiting card, its own or groupe
   assert.throws(() => requestNotWaiting(41), /already on a card/);
   assert.throws(() => requestNotWaiting(42), /already on a card/); // grouped into Lead Research's
   requestNotWaiting(43);
+});
+
+test('the Agency Engineer withdraws its waiting card to propose an updated one: every request on it comes back', () => {
+  const now = Date.now();
+  exec("INSERT INTO requests (id, agent_id, what, why, created_at, stage) VALUES (61, 'lead-research', 'Set up Drive', 'files', ?, 'approval'), (62, 'outreach', 'Set up Drive', 'files', ?, 'approval')", now, now);
+  exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES ('w1', 'fleet', 'r1', 'engineer.publish_integration', ?, ?, ?)", JSON.stringify({ for_agent: 'lead-research', integration_id: 'drive2', request_id: 61, also: [{ for_agent: 'outreach', request_id: 62, tools: [] }] }), now, now + 86_400_000);
+  assert.throws(() => requestNotWaiting(62), /withdraw it first/);
+  assert.deepEqual(withdrawProposal(62, 'They asked for read-only.'), [61, 62]);
+  assert.equal(one<{ status: string }>("SELECT status FROM approvals WHERE id = 'w1'")!.status, 'withdrawn');
+  assert.deepEqual(all<{ stage: string }>('SELECT stage FROM requests WHERE id IN (61, 62)').map(r => r.stage), ['engineer', 'engineer']);
+  requestNotWaiting(61); // free to propose the updated card
+  requestNotWaiting(62);
+  assert.throws(() => withdrawProposal(61, 'again'), /no card waiting/);
 });

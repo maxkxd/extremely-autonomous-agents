@@ -47,6 +47,7 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'engineer.check_key': 'T0',
   'engineer.publish_integration': 'T2',
   'engineer.give_tools': 'T2',
+  'engineer.withdraw_proposal': 'T1',
   'engineer.give_events': 'T2',
   'web.web_search': 'T0',
   'web.fetch_page': 'T0',
@@ -108,6 +109,7 @@ A no to the way you picked (HubSpot) is rarely a no to what the agent needs (som
 
 ## Rules
 - Woken for a request that isn't in engineer.list_requests any more? It was closed (turned down, handed over, or its agent deleted): drop it and move on. Never ask anyone to restore or resend it.
+- A card you proposed can't be proposed again while it waits. When it should change - the person asks for something different on the request, or a better way turns up - engineer.withdraw_proposal, then propose the updated one. Never leave the old one waiting next to the new.
 - A withdrawn request's agent was deleted; nobody turned it down. Never undo or strip back work for it - a connection you drafted stays as it is.
 - Always tell the person what to do next - never just why something can't be done.
 - Never ask for keys, passwords or tokens in a conversation; if someone pastes one, tell them it belongs in Settings -> Connectors and not to share it.
@@ -171,17 +173,33 @@ const setStage = (id: number, stage: string) => exec('UPDATE requests SET stage 
 // again doesn't see it): refused, so a person never approves it twice.
 // A request already on a card waiting for a person - its own, or grouped into
 // another agent's (publish_integration's also): refused, one card per agent.
-export const requestNotWaiting = (requestId: unknown) => {
-  const n = Number(requestId);
-  const same = one<{ created_at: number }>(
-    `SELECT created_at FROM approvals WHERE status = 'pending' AND agent_id = ? AND tool IN ('engineer.publish_integration', 'engineer.give_tools', 'engineer.give_events')
+const cardFor = (requestId: number) =>
+  one<{ id: string; args: string; created_at: number }>(
+    `SELECT id, args, created_at FROM approvals WHERE status = 'pending' AND agent_id = ? AND tool IN ('engineer.publish_integration', 'engineer.give_tools', 'engineer.give_events')
        AND (CAST(json_extract(args, '$.request_id') AS INTEGER) = ? OR EXISTS (SELECT 1 FROM json_each(args, '$.also') WHERE CAST(json_extract(value, '$.request_id') AS INTEGER) = ?))`,
     FLEET_ENGINEER,
-    n,
-    n,
+    requestId,
+    requestId,
   );
-  if (same) throw new Error(`Request #${n} is already on a card waiting for a person's approval (proposed ${Math.max(1, Math.round((Date.now() - same.created_at) / 60_000))} min ago). Don't propose it again - carry on with other work.`);
+export const requestNotWaiting = (requestId: unknown) => {
+  const n = Number(requestId);
+  const same = cardFor(n);
+  if (same)
+    throw new Error(
+      `Request #${n} is already on a card waiting for a person's approval (proposed ${Math.max(1, Math.round((Date.now() - same.created_at) / 60_000))} min ago). To change what it proposes, withdraw it first (engineer.withdraw_proposal); otherwise leave it and carry on with other work.`,
+    );
 };
+// Takes a waiting card off the Approvals page, so an updated one can replace it.
+// Every request on it goes back to the engineer.
+export function withdrawProposal(requestId: number, why: string) {
+  const card = cardFor(requestId);
+  if (!card) throw new Error(`Request #${requestId} has no card waiting for approval.`);
+  exec("UPDATE approvals SET status = 'withdrawn', decided_at = ?, note = ? WHERE id = ? AND status = 'pending'", Date.now(), why.slice(0, 500), card.id);
+  const args = JSON.parse(card.args) as Record<string, unknown>;
+  const on = [Number(args.request_id), ...((args.also as { request_id: number }[] | undefined) ?? []).map(g => Number(g.request_id))].filter(Boolean);
+  for (const id of on) exec("UPDATE requests SET stage = 'engineer' WHERE id = ? AND status = 'open'", id);
+  return on;
+}
 export const notWaitingAlready = (tool: string, a: Record<string, unknown>, key: string) => {
   const same = one<{ created_at: number }>(
     `SELECT created_at FROM approvals WHERE status = 'pending' AND agent_id = ? AND tool = ? AND json_extract(args, '$.for_agent') = ? AND CAST(json_extract(args, '$.${key}') AS TEXT) = ?`,
@@ -627,6 +645,18 @@ const TOOLS: ToolDef[] = [
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", `${String(a.why)}\n\nYou now wake on: ${events.join(', ')}.`, Date.now(), r.id);
       postToRequest(r.id, 'engineer', `${await nameOf(String(a.for_agent))} now wakes on ${events.join(', ')}.`);
       return `${a.for_agent} now wakes on ${events.join(', ')}.`;
+    },
+  },
+  {
+    id: 'engineer.withdraw_proposal',
+    tier: 'T1',
+    description:
+      "Take your card off the Approvals page - for when what it proposes should change (the person asked for something different on the request, or you found a better way). Every request on it comes back to you; then propose the updated one.",
+    schema: obj({ request_id: int('A request on the card'), why: str('Why, in a sentence - said on the request') }, ['request_id', 'why']),
+    impl: async a => {
+      const on = withdrawProposal(Number(a.request_id), String(a.why));
+      for (const id of on) postToRequest(id, 'engineer', `I took my proposal off the Approvals page: ${String(a.why)} An updated one follows.`);
+      return `Withdrawn. Requests back with you: ${on.map(id => `#${id}`).join(', ')}. Propose the updated card now.`;
     },
   },
   {
