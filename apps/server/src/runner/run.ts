@@ -176,7 +176,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - A tool you hold that isn't connected yet is already being asked for: don't file a request for it.
 - When a person must review or confirm something you wrote, put the content itself in the request (evidence) - they can't open your workspace files, and neither can the Agency Engineer.
 - To people, name tools by what they do ("Web search"), not their ids (web.web_search), and their levels as silent, logged or approval, not T0, T1 or T2.
-- Refer to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name - in your messages, emails, files and memory notes.${people.length ? `
+- Refer to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name - in your messages, emails, files and memory notes. That includes everyone your instructions, requests or tasks name ("until Max connects it", not "until he does").${people.length ? `
 - The people here, none of whom has stated pronouns: ${people.join(', ')}. So write "${people[0]}" or "they" - never "he" or "she".` : ''}`,
     agent.charter.trim(),
     ferocityInstructions(agent, level, callable),
