@@ -117,13 +117,14 @@ their pack by exact name and department once, by hand.
 
 ## Tiers
 
-Three tiers, the same as the runner minus T3:
+Three tiers, the same as the runner minus T3. Settings calls them **Silent**,
+**Logged** and **Approval**:
 
 | Tier | What happens | Used for |
 |---|---|---|
-| T0 | Just runs | Reads, searches, browsing, its own scratch files: anything that would be pure noise to log |
-| T1 | Runs, and a notice lands in the agent's DM channel | Reversible internal writes: records, drafts, labels, tasks, notes to other agents |
-| T2 | Waits in **Approvals** until a person decides; expires if nobody does | Anything visible outside the organisation or hard to undo: sending, posting, publishing, paying, deleting |
+| T0 (Silent) | Just runs | Reads, searches, browsing, its own scratch files: anything that would be pure noise to log |
+| T1 (Logged) | Runs, and a notice lands in the agent's DM channel | Reversible internal writes: records, drafts, labels, tasks, notes to other agents |
+| T2 (Approval) | Waits in **Approvals** until a person decides; expires if nobody does | Anything visible outside the organisation or hard to undo: sending, posting, publishing, paying, deleting |
 
 There's no "never" tier. If a tool isn't in TOOLS.yaml, the agent can't call
 it. Leaving a tool out is how you forbid it.
