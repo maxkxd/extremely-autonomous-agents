@@ -70,13 +70,12 @@ Without the Azure secrets the installer is built unsigned, with a warning.
 
 ## Open
 
-- **The repository is private**, so installed apps can't read its releases
-  for updates. Releases need a public home: this repository made public, or a
-  public releases-only repository (`publish` in `apps/electron/package.json`).
 - **Signing**: Azure Trusted Signing and Apple Developer applied for.
 - **Sign-in with Google inside the app**: Google refuses OAuth in embedded
   browsers, which may block Clerk's Google button in the window; email codes
   work. If it does, sign-in moves to the system browser.
 - **Size**: the installer is about 200 MB - mostly the Copilot CLI (156 MB)
   that `@github/copilot-sdk` bundles.
-- The download page on extremely.agency.
+- The installer's name has no version in it (`Extremely-Autonomous-Agents-Setup.exe`), so
+  `https://github.com/maxkxd/extremely-autonomous-agents/releases/latest/download/Extremely-Autonomous-Agents-Setup.exe`
+  always gets the newest - that's the website's Download link.
