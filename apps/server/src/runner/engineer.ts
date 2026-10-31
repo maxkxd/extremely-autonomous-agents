@@ -168,7 +168,7 @@ export async function ensureFleetEngineer() {
 
 // --- Requests ------------------------------------------------------------------------
 
-type RequestRow = { id: number; agent_id: string; what: string; why: string; evidence: string | null; expected_effect: string | null; status: string; stage: string | null; created_at: number };
+type RequestRow = { id: number; agent_id: string; what: string; why: string; evidence: string | null; expected_effect: string | null; status: string; stage: string | null; created_at: number; setup: number | null; stars: number | null };
 
 export function postToRequest(id: number, from: 'engineer' | 'you', text: string, now = Date.now()) {
   exec('INSERT INTO request_messages (request_id, from_who, text, at) VALUES (?, ?, ?, ?)', id, from, text.slice(0, 6000), now);
@@ -280,6 +280,18 @@ async function missingTools(agentId: string): Promise<string> {
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required });
 const str = (description: string) => ({ type: 'string', description });
 const int = (description: string) => ({ type: 'number', description });
+// A new agent's setup connector is rated before it goes to the person: its stars
+// on the agent's setup list (runner/setup.ts), whichever way it gets there.
+const starsArg = int(
+  "How much this connection helps the asking agent, 1-5 (read its instructions): 5 = it can't do its main job without it, 3 = a real part of its work, 1 = a nice extra. Shown on the agent's setup list, highest first. Needed on a setup request (\"Set up ...\") not yet rated.",
+);
+export function rate(r: RequestRow, stars: unknown) {
+  if (stars != null && stars !== '') {
+    exec('UPDATE requests SET stars = ? WHERE id = ?', Math.max(1, Math.min(5, Math.round(Number(stars) || 3))), r.id);
+    return;
+  }
+  if (r.setup && r.stars == null) throw new Error(`Request #${r.id} is one of ${r.agent_id}'s setup connectors and isn't rated yet: call again with stars (1-5).`);
+}
 const toolsArg = {
   type: 'array',
   description: 'The tools, each with its tier',
@@ -423,9 +435,10 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.reply_to_request',
     tier: 'T0',
     description: 'Write to the person on a request: a question, or the steps only they can do and what you will do once they are done. It then waits on them.',
-    schema: obj({ request_id: int('The request number'), message: str('Plain text, about 5 sentences: what you did and why, then numbered steps. No research story.') }, ['request_id', 'message']),
+    schema: obj({ request_id: int('The request number'), message: str('Plain text, about 5 sentences: what you did and why, then numbered steps. No research story.'), stars: starsArg }, ['request_id', 'message']),
     impl: async a => {
       const r = openRequest(a.request_id);
+      rate(r, a.stars);
       postToRequest(r.id, 'engineer', String(a.message));
       setStage(r.id, 'waiting_you');
       return `Posted on request #${r.id}; it now waits on the person. You'll be woken when they reply.`;
@@ -435,9 +448,10 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.hand_to_person',
     tier: 'T0',
     description: "Give a request to the person: it isn't a tool problem, or it's beyond you. Say why and what they should do.",
-    schema: obj({ request_id: int('The request number'), message: str('Why it is theirs, and what to do') }, ['request_id', 'message']),
+    schema: obj({ request_id: int('The request number'), message: str('Why it is theirs, and what to do'), stars: starsArg }, ['request_id', 'message']),
     impl: async a => {
       const r = openRequest(a.request_id);
+      rate(r, a.stars);
       postToRequest(r.id, 'engineer', String(a.message));
       setStage(r.id, 'person');
       return `Request #${r.id} is with the person now.`;
@@ -539,14 +553,13 @@ const TOOLS: ToolDef[] = [
         integration_id: str('The draft integration'),
         request_id: int('The request it answers'),
         message: str('One or two sentences on what it is and why it is the best way, then the steps, numbered'),
-        stars: int("How much this connection helps the asking agent, 1-5 (read its instructions): 5 = it can't do its main job without it, 3 = a real part of its work, 1 = a nice extra. Shown on the agent's setup list, highest first."),
+        stars: starsArg,
       },
       ['integration_id', 'request_id', 'message', 'stars'],
     ),
     impl: async a => {
       const r = openRequest(a.request_id);
-      const stars = Math.max(1, Math.min(5, Math.round(Number(a.stars) || 3)));
-      exec('UPDATE requests SET stars = ? WHERE id = ?', stars, r.id);
+      rate(r, a.stars ?? 3);
       const i = (await listIntegrations()).find(x => x.id === String(a.integration_id));
       if (!i) throw new Error(`No integration "${a.integration_id}".`);
       // Asked already: the person has the steps - saying them again is noise.

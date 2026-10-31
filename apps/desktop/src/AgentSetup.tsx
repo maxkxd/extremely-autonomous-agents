@@ -16,7 +16,8 @@ export function SetupBar({ progress }: { progress: number }) {
 }
 
 const Stars = ({ n }: { n: number }) => (
-  <span className="setup-stars" aria-label={`${n} of 5: how much it helps`} title={`How much it helps: ${n} of 5`}>
+  // 1-5 once the Agency Engineer has rated it; none lit before that.
+  <span className="setup-stars" aria-label={n ? `${n} of 5: how much it helps` : 'Not rated yet'} title={n ? `How much it helps: ${n} of 5` : 'Not rated yet'}>
     {Array.from({ length: 5 }, (_, i) => (
       <Star key={i} size={12} className={i < n ? 'on' : 'off'} />
     ))}
