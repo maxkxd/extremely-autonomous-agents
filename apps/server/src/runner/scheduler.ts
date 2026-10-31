@@ -19,7 +19,6 @@ import { toolsFor } from './tools.js';
 import { finishSetups } from './setup.js';
 import { costOf, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
-import { pickDefaults } from './defaults.js';
 import { adapterFor } from './providers.js';
 import { eligibleModels, runAgent, stateOf, type RunDeps, type Trigger } from './run.js';
 
@@ -54,7 +53,6 @@ export const liveDeps: RunDeps = {
   cost: costOf,
   wake: (agentId, trigger, task) => book(agentId, trigger, task),
   compact: true,
-  spare: exclude => pickDefaults(models.filter(m => !exclude.has(m.connection)), 'strong'),
 };
 
 // The Agency Engineer's queued runs for requests that have since closed (turned

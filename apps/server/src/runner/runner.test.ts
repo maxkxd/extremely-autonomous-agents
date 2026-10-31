@@ -642,18 +642,3 @@ test('a new agent in setup starts by itself once every connector is connected, n
   assert.deepEqual(await finishSetups(), ['zz-setup']);
   assert.deepEqual({ ...one<{ state: string; setup: number | null }>('SELECT state, setup FROM agent_state WHERE agent_id = ?', 'zz-setup') }, { state: 'active', setup: null });
 });
-
-test('every model of its own failing, a run falls back to another connected AI (a key added since) instead of failing', async () => {
-  const used: string[] = [];
-  const adapter: Adapter = async req => {
-    used.push(req.model);
-    if (req.model !== 'spare-model') throw new ModelError("Couldn't start Claude Code: spawn claude ENOENT", 'network');
-    return { text: 'Done on the spare.', calls: [], usage: { input: 1, output: 1 } };
-  };
-  const r = await runAgent(agent(), 'run now', null, deps(adapter, { spare: exclude => (exclude.has('c') ? [] : [{ connection: 'c', model: 'spare-model', effort: 'medium' }]) }));
-  assert.equal(r.status, 'succeeded');
-  assert.deepEqual(used, ['m1', 'm2', 'spare-model']); // its own first, then the spare
-  // Without one, it fails as before - saying every model failed.
-  const none = await runAgent(agent(), 'run now', null, deps(adapter));
-  assert.equal(none.status, 'failed');
-});
