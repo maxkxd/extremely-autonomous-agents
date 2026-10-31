@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { execFile, spawn } from 'node:child_process';
 import { createHash, createPublicKey, randomBytes, randomUUID, verify as verifySig } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -518,21 +519,41 @@ function claudeEnv() {
 
 // Where Claude Code is: on the PATH, or where the official installer puts it
 // (a fresh install isn't on this server's PATH until it restarts).
+// Where Claude Code is: its own installer's folder and npm's global one by full
+// path first - the app's PATH is fixed when it starts, so one installed while
+// it's open isn't on it - then the PATH.
 async function claudeBin(): Promise<string | null> {
   const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
+  const win = process.platform === 'win32';
   const candidates = [
+    win ? join(home, '.local', 'bin', 'claude.exe') : join(home, '.local', 'bin', 'claude'),
+    ...(win && process.env.APPDATA ? [join(process.env.APPDATA, 'npm', 'claude.cmd')] : []),
     'claude',
-    process.platform === 'win32' ? join(home, '.local', 'bin', 'claude.exe') : join(home, '.local', 'bin', 'claude'),
   ];
   for (const bin of candidates) {
+    if (bin !== 'claude' && !existsSync(bin)) continue;
     try {
-      await run(bin, ['--version'], claudeOpts());
+      await run(quoted(bin), ['--version'], claudeOpts());
       return bin;
     } catch {
       // try the next one
     }
   }
   return null;
+}
+
+// How a run starts Claude Code (runner/harness.ts): a program it can start
+// directly, or (an npm .cmd, or only a name on the PATH) through the shell.
+// Found again after a minute, or when a start fails.
+let claudeFound: { bin: string; at: number } | null = null;
+export async function claudeCommand(fresh = false): Promise<{ bin: string; shell: boolean } | null> {
+  if (fresh || !claudeFound || Date.now() - claudeFound.at > 60_000) {
+    const bin = await claudeBin();
+    claudeFound = bin ? { bin, at: Date.now() } : null;
+  }
+  if (!claudeFound) return null;
+  const { bin } = claudeFound;
+  return { bin, shell: process.platform === 'win32' && !/\.exe$/i.test(bin) };
 }
 const claudeOpts = () => ({ timeout: 15000, windowsHide: true, shell: process.platform === 'win32', env: claudeEnv() });
 const quoted = (bin: string) => (bin.includes(' ') ? `"${bin}"` : bin);
