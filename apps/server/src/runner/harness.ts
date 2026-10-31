@@ -55,7 +55,7 @@ type ClaudeOut = { result?: string; is_error?: boolean; subtype?: string; sessio
 // started with. Through the shell (an npm .cmd) every argument is quoted - they
 // are the runner's own flags, ids and paths, never the agent's text.
 const shellQuote = (a: string) => `"${a.replace(/"/g, '\\"')}"`;
-async function claudeOnce(args: string[], prompt: string, cwd: string, signal?: AbortSignal): Promise<ClaudeOut> {
+export async function claudeOnce(args: string[], prompt: string, cwd: string, signal?: AbortSignal): Promise<ClaudeOut> {
   const cmd = await claudeCommand();
   if (!cmd) throw new ModelError("Claude Code isn't installed on this computer. Install it in Settings > Connectors (Claude).", 'auth');
   return new Promise((resolve, reject) => {
