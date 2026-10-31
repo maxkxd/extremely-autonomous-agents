@@ -554,7 +554,9 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
   const n = counts ? actsIn(call.args) : 0;
   if (tier === 'T2') {
     // The same action on the same thing already waiting for a person: one card, not two.
-    const key = ((impl.schema as { required?: string[] }).required ?? [])[0];
+    // The argument that says which record (an id, a company, an email) - not a type
+    // every call shares (object_type: "Leads" let only one Lead wait at a time).
+    const key = ((impl.schema as { required?: string[] }).required ?? []).find(k => /(^|_)(id|company|email|name|title|to|lead|record|issue|number)$/i.test(k) && !/type|module|kind/i.test(k));
     if (key && call.args[key] !== undefined) {
       const same = all<{ args: string }>("SELECT args FROM approvals WHERE agent_id = ? AND tool = ? AND status = 'pending'", ctx.agent.id, id).some(
         q => JSON.stringify((JSON.parse(q.args) as Record<string, unknown>)[key]) === JSON.stringify(call.args[key]),
