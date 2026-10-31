@@ -92,16 +92,17 @@ export function fileRequest(
 // For an agent whose instructions name exactly one of the examples, that one -
 // "Xero", not "accounting (Xero, QuickBooks)" - so the Agency Engineer builds the
 // service the organisation uses, not every example.
+const ACRONYMS = new Set(['seo', 'crm', 'api', 'aws', 'gcp', 'sql', 'sms', 'cdn', 'dns', 'erp', 'kpi', 'mcp', 'cms', 'ssl', 'tls', 'url', 'pdf', 'csv', 'llm']);
 export function serviceLabel(server: string, agentId?: string) {
   // A server the builder made up ("search_console") reads as words, not an id -
-  // short ones as the acronyms they are ("seo" is SEO, not "Seo").
+  // acronyms as acronyms ("seo" is SEO, not "Seo"; "app" stays App).
   const label =
     CONNECT_LABEL[server] ??
     CATALOG.find(s => s.server === server)?.what ??
     server
       .split(/[_-]+/)
       .filter(Boolean)
-      .map(w => (w.length <= 3 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+      .map(w => (w.length <= 2 || ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
       .join(' ');
   const options = /\(([^)]+)\)\s*$/.exec(label)?.[1].split(/,|\bor\b|\band\b/).map(o => o.trim()).filter(Boolean);
   if (!agentId || !options?.length) return label;

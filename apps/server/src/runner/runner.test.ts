@@ -588,6 +588,7 @@ test("a request names the service the agent's instructions use, not the catalogu
   assert.equal(serviceLabel('xero'), 'accounting (Xero, QuickBooks)');
   assert.equal(serviceLabel('analytics', 'zz-books'), 'PostHog'); // "GA" isn't in "against" or "legal"
   assert.equal(serviceLabel('seo'), 'SEO'); // a made-up server: an acronym, not "Seo"
+  assert.equal(serviceLabel('war_app'), 'War App'); // not "WAR APP"
   assert.equal(serviceLabel('search_console'), 'Google Search Console');
 });
 
