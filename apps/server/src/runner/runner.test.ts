@@ -8,7 +8,7 @@ import { APOCALYPTIC, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './feroc
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
 import { ModelError, type Adapter, type Call } from './providers.js';
 import { runAgent, stateOf, type RunDeps } from './run.js';
-import { book, dropStaleRequestRuns, nextRun } from './scheduler.js';
+import { book, dropStaleRequestRuns, engineerCanJoin, engineerScope, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
 import { decideApproval } from './approvals.js';
 import { fleetReport } from './doctor.js';
@@ -653,4 +653,19 @@ test('a setup connector is rated 1-5 before it goes to the person, whichever way
   rate(row(), undefined); // rated already: nothing more needed
   const plain = Number(exec("INSERT INTO requests (agent_id, what, why, created_at, stage) VALUES ('zz-rate', 'Fix the CRM tool', 'x', 0, 'engineer')").lastInsertRowid);
   rate(one<Parameters<typeof rate>[0]>('SELECT * FROM requests WHERE id = ?', plain)!, undefined); // not setup: no stars needed
+});
+
+test('the Agency Engineer works a few requests at once, never two on the same one or the same service', () => {
+  const ins = (service: string) => Number(exec("INSERT INTO requests (agent_id, what, why, created_at, stage, service) VALUES ('zz-par', 'Set up x', 'x', 0, 'engineer', ?)", service).lastInsertRowid);
+  const [desk1, desk2, crm] = [ins('helpdesk'), ins('helpdesk'), ins('crm')];
+  const task = (id: number) => `Request #${id} from zz-par: Set up x`;
+  assert.deepEqual(engineerScope(task(desk1)), { requests: [desk1], services: ['helpdesk'] });
+  assert.deepEqual(engineerScope('A person APPROVED your queued engineer.publish_integration (integration_id: x; request_id: 7').requests, [7]);
+  const going = [engineerScope(task(desk1))];
+  assert.equal(engineerCanJoin(going, { trigger: 'request', task: task(crm) }), true);
+  assert.equal(engineerCanJoin(going, { trigger: 'request', task: task(desk2) }), false); // same service: it'd draft Zoho Desk twice
+  assert.equal(engineerCanJoin(going, { trigger: 'request reply', task: task(desk1) }), false); // same request
+  assert.equal(engineerCanJoin(going, { trigger: 'scheduled', task: null }), false); // names no request: runs alone
+  assert.equal(engineerCanJoin(going, { trigger: 'your message', task: 'hi' }), true); // a person never waits
+  assert.equal(engineerCanJoin([engineerScope(null)], { trigger: 'request', task: task(crm) }), false); // nothing beside one that runs alone
 });
