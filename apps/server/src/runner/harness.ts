@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { approveAll, CopilotClient, defineTool, ToolSet } from '@github/copilot-sdk';
 import { copilotConnection } from '../models/copilotRuntime.js';
 import { getSecret } from '../vault.js';
-import { noteClaudeCodeTooOld } from '../models/connections.js';
+import { claudeCommand, noteClaudeCodeTooOld } from '../models/connections.js';
 import { openBridge } from './mcp.js';
 import { ModelError, type Call, type ToolSpec, type Usage } from './providers.js';
 
@@ -50,15 +50,26 @@ function claudeEnv() {
 
 type ClaudeOut = { result?: string; is_error?: boolean; subtype?: string; session_id?: string; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } };
 
-// One `claude -p` call; the prompt goes in on stdin, so no shell quoting.
-function claudeOnce(args: string[], prompt: string, cwd: string, signal?: AbortSignal): Promise<ClaudeOut> {
+// One `claude -p` call; the prompt goes in on stdin. Claude Code is found where
+// the connection check finds it (claudeCommand), not only on the PATH the app
+// started with. Through the shell (an npm .cmd) every argument is quoted - they
+// are the runner's own flags, ids and paths, never the agent's text.
+const shellQuote = (a: string) => `"${a.replace(/"/g, '\\"')}"`;
+async function claudeOnce(args: string[], prompt: string, cwd: string, signal?: AbortSignal): Promise<ClaudeOut> {
+  const cmd = await claudeCommand();
+  if (!cmd) throw new ModelError("Claude Code isn't installed on this computer. Install it in Settings > Connectors (Claude).", 'auth');
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', args, { cwd, env: claudeEnv(), windowsHide: true, signal });
+    const child = cmd.shell
+      ? spawn([shellQuote(cmd.bin), ...args.map(shellQuote)].join(' '), { cwd, env: claudeEnv(), windowsHide: true, signal, shell: true })
+      : spawn(cmd.bin, args, { cwd, env: claudeEnv(), windowsHide: true, signal });
     let out = '';
     let err = '';
     child.stdout.on('data', d => (out += d));
     child.stderr.on('data', d => (err += d));
-    child.on('error', e => reject(new ModelError(`Couldn't start Claude Code: ${e.message}`, 'network')));
+    child.on('error', e => {
+      void claudeCommand(true); // look again next time: it may have moved
+      reject(new ModelError(`Couldn't start Claude Code: ${e.message}`, 'network'));
+    });
     child.on('close', code => {
       const text = out.trim();
       try {
