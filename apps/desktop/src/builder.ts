@@ -200,6 +200,7 @@ export type Connection = {
   label?: string;
   models: number;
   pending?: { userCode?: string; verificationUri?: string };
+  preparing?: number; // Copilot: its runtime downloading on first connect, % done
   setupNeeded?: string;
   lastError?: string;
   broken?: string; // a saved key that didn't check out, and why
@@ -283,13 +284,13 @@ export type LiveRequest = {
 };
 export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
 
-// "Connect these first" (the Dashboard): services ranked by the agents they unlock.
-export type ConnectFirst = {
-  services: { key: string; name: string; integrationId: string | null; connected: boolean; settingUp: boolean; needs: string | null; agents: { id: string; name: string }[] }[];
-  agents: { unlocked: number; total: number };
-  connections: { done: number; total: number };
+// A new agent's setup, on its card until first resumed (runner/setup.ts).
+export type AgentSetup = {
+  items: { name: string; requestId: number; stars: number; connected: boolean; building: boolean }[];
+  building: number;
+  progress: number;
 };
-export const getConnectFirst = () => request<ConnectFirst>('/api/runner/connect-first');
+export const getSetups = () => request<Record<string, AgentSetup>>('/api/runner/setup');
 export const answerRequest = (id: number, status: 'done' | 'rejected', answer: string) =>
   post<{ ok: boolean }>('/api/runner/requests/answer', { id, status, answer });
 export const sendToIde = (id: number, ide: string) =>

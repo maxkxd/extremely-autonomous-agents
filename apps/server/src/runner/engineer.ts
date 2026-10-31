@@ -534,13 +534,19 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.ask_for_connection',
     tier: 'T0',
     description: "Ask the person to connect a draft integration in Settings -> Connectors (its key or sign-in). Say what the key needs (permissions, scopes). The link to the key page (its key_url) and a button to it in Settings are added after your message - don't write them, or 'linked below'. You're woken when they connect it.",
-    schema: obj({ integration_id: str('The draft integration'), request_id: int('The request it answers'), message: str('One or two sentences on what it is and why it is the best way, then the steps, numbered') }, [
-      'integration_id',
-      'request_id',
-      'message',
-    ]),
+    schema: obj(
+      {
+        integration_id: str('The draft integration'),
+        request_id: int('The request it answers'),
+        message: str('One or two sentences on what it is and why it is the best way, then the steps, numbered'),
+        stars: int("How much this connection helps the asking agent, 1-5 (read its instructions): 5 = it can't do its main job without it, 3 = a real part of its work, 1 = a nice extra. Shown on the agent's setup list, highest first."),
+      },
+      ['integration_id', 'request_id', 'message', 'stars'],
+    ),
     impl: async a => {
       const r = openRequest(a.request_id);
+      const stars = Math.max(1, Math.min(5, Math.round(Number(a.stars) || 3)));
+      exec('UPDATE requests SET stars = ? WHERE id = ?', stars, r.id);
       const i = (await listIntegrations()).find(x => x.id === String(a.integration_id));
       if (!i) throw new Error(`No integration "${a.integration_id}".`);
       // Asked already: the person has the steps - saying them again is noise.

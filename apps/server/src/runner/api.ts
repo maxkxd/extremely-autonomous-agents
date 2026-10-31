@@ -16,7 +16,7 @@ import {
 } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { DOCTOR } from './doctor.js';
-import { connectFirst } from './connectFirst.js';
+import { setups } from './setup.js';
 import { postToRequest, waitingOn } from './engineer.js';
 import { sendToIde, type Ide } from './ide.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
@@ -185,8 +185,8 @@ export const runnerRoutes: Record<string, Route> = {
   // The whole agency on standby (nothing starts by itself) or stopped (every
   // run cut short, nothing at all: no building or tailoring either), or active.
   'GET /api/runner/agency': async () => ({ state: agencyState() }),
-  // "Connect these first" on the Dashboard: services ranked by the agents they unblock.
-  'GET /api/runner/connect-first': async () => connectFirst(),
+  // New agents' setup (their cards): connectors, stars and progress, until first resumed.
+  'GET /api/runner/setup': async () => setups(),
   'POST /api/runner/agency': async (_req, _q, body) => {
     const { state } = await body<{ state: AgencyState }>();
     if (!['active', 'standby', 'stopped'].includes(state)) throw new Error('active, standby or stopped.');
@@ -213,6 +213,8 @@ export const runnerRoutes: Record<string, Route> = {
       if (state === 'stopped') abortRun(b.id);
       // Turning it back on also clears any failure backoff.
       if (state === 'active') exec('UPDATE agent_state SET fail_streak = 0, backoff_until = NULL WHERE agent_id = ?', b.id);
+      // Its first resume ends setup: its card's setup list is gone for good.
+      if (state !== 'stopped') exec('UPDATE agent_state SET setup = NULL WHERE agent_id = ?', b.id);
     }
     if (b.spendCapUsd !== undefined) requireAdmin(currentActor(), 'A spend cap');
     if (b.spendCapUsd !== undefined)

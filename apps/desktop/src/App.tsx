@@ -587,6 +587,10 @@ function Agency() {
         <div className="main-body" ref={mainBody}>
           {view === 'dashboard' ? (
             <Dashboard
+              onOpenRequest={id => {
+                setFocusRequest(id);
+                setView('requests');
+              }}
               range={range}
               hideBuiltIns={hideBuiltIns}
               agency={agency}
