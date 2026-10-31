@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Play, Star } from 'lucide-react';
+import { Check, Play, Star } from 'lucide-react';
 import type { AgentSetup } from './builder';
 
 // A new agent's setup, on its card until it's first resumed: the connectors its
@@ -25,18 +25,23 @@ const Stars = ({ n }: { n: number }) => (
 );
 
 export function SetupList({ setup, onOpenRequest }: { setup: AgentSetup; onOpenRequest: (id: number) => void }) {
-  // Connected ones drop off; once none are left it starts by itself (runner/setup.ts).
-  const todo = setup.items.filter(i => !i.connected);
-  if (!todo.length) return null;
+  // Connected ones stay, marked Complete - seeing them tick off is the point. Once
+  // all are, it starts by itself and the list goes (runner/setup.ts).
+  if (!setup.items.length) return null;
   return (
     <div className="setup-list">
       <ul>
-        {todo.map(i => (
-          <li key={i.name}>
+        {setup.items.map(i => (
+          <li key={i.name} className={i.connected ? 'done' : ''}>
             <span className="setup-name">{i.name}</span>
             <Stars n={i.stars} />
             <span className="setup-act">
-              {i.building ? (
+              {i.connected ? (
+                <span className="state-pill complete">
+                  <Check size={11} strokeWidth={3} />
+                  Complete
+                </span>
+              ) : i.building ? (
                 <span className="state-pill setting-up" title="The Agency Engineer is getting this ready to connect.">
                   Setting up
                 </span>

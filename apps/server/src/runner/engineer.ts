@@ -280,8 +280,8 @@ async function missingTools(agentId: string): Promise<string> {
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required });
 const str = (description: string) => ({ type: 'string', description });
 const int = (description: string) => ({ type: 'number', description });
-// A new agent's setup connector is rated before it goes to the person: its stars
-// on the agent's setup list (runner/setup.ts), whichever way it gets there.
+// A new agent's setup connector is rated before it goes to the person or is closed:
+// its stars on the agent's setup list (runner/setup.ts), whichever way it gets there.
 const starsArg = int(
   "How much this connection helps the asking agent, 1-5 (read its instructions): 5 = it can't do its main job without it, 3 = a real part of its work, 1 = a nice extra. Shown on the agent's setup list, highest first. Needed on a setup request (\"Set up ...\") not yet rated.",
 );
@@ -461,9 +461,10 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.close_request',
     tier: 'T0',
     description: 'Close a request that is settled (handed to another agent, or answered). The asking agent is woken with your answer.',
-    schema: obj({ request_id: int('The request number'), answer: str('For the asking agent: what happened and what it can do now') }, ['request_id', 'answer']),
+    schema: obj({ request_id: int('The request number'), answer: str('For the asking agent: what happened and what it can do now'), stars: starsArg }, ['request_id', 'answer']),
     impl: async (a, ctx) => {
       const r = openRequest(a.request_id);
+      rate(r, a.stars);
       const answer = String(a.answer).slice(0, 4000);
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
       postToRequest(r.id, 'engineer', answer);

@@ -2031,6 +2031,8 @@ a.sbtn { text-decoration: none; color: inherit; }
 .setup-act { display: flex; justify-content: flex-end; }
 .setup-go { height: 28px; padding: 0 12px; border-radius: 7px; border: 0; background: var(--attention); color: var(--attention-text); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .setup-go:hover { filter: brightness(1.1); }
+.state-pill.complete { display: inline-flex; align-items: center; gap: 4px; background: rgba(63, 178, 127, 0.14); color: #3fb27f; }
+.setup-list li.done .setup-name { color: var(--muted); }
 .confirm-resume {
   display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 8px; border: 0;
   background: var(--attention); color: var(--attention-text); font-size: 13px; font-weight: 600; cursor: pointer;

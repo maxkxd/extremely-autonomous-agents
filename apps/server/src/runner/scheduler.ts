@@ -34,7 +34,7 @@ const TICK_MS = 5_000;
 export const MAX_PARALLEL = 4;
 // A new agency files ~50 setup requests; one at a time, the last agents waited
 // over an hour. Its extra runs don't take the agents' places.
-export const ENGINEER_PARALLEL = 3;
+export const ENGINEER_PARALLEL = 8;
 
 type Running = { agentId: string; controller: AbortController; connection: string | null; startedAt: number; requests: number[]; services: string[] };
 // Keyed by run: an agent's id, or the engineer's id and a slot.
