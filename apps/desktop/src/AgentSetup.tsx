@@ -31,7 +31,7 @@ export function SetupList({ setup, onOpenRequest }: { setup: AgentSetup; onOpenR
     <div className="setup-list">
       <ul>
         {todo.map(i => (
-          <li key={i.name} className={i.connected ? 'done' : i.building ? 'building' : ''}>
+          <li key={i.name}>
             <span className="setup-name">{i.name}</span>
             <Stars n={i.stars} />
             <span className="setup-act">

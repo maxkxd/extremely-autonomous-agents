@@ -377,9 +377,16 @@ export function requestItems<T extends Pick<ResourceRequest, 'stage' | 'waitingO
   return list.length - extra;
 }
 
-function ConnectGroup({ name, members, row, refs }: { name: string; members: ResourceRequest[]; row: (r: ResourceRequest) => React.ReactNode; refs: RequestRefs }) {
+function ConnectGroup({ name, members, row, refs, focus }: { name: string; members: ResourceRequest[]; row: (r: ResourceRequest) => React.ReactNode; refs: RequestRefs; focus: number | null }) {
   const [open, setOpen] = useState(true);
   const [list, setList] = useState(false);
+  // Sent here for one of its requests: show it, so that row can glow.
+  const holds = members.some(m => m.live === focus);
+  useEffect(() => {
+    if (!holds) return;
+    setOpen(true);
+    setList(true);
+  }, [holds]);
   const agents = [...new Set(members.map(m => AGENTS.find(a => a.id === m.agentId)?.name ?? m.agentId))];
   // The latest steps from the Agency Engineer, on any of them.
   const steps = members.flatMap(m => (m.liveThread ?? []).filter(t => t.from === 'engineer').slice(-1))[0]?.text ?? '';
@@ -486,7 +493,7 @@ export function Requests({
         const { id, name } = r.waitingOn!;
         if (placed.has(id)) return null;
         placed.add(id);
-        return <ConnectGroup key={`connect-${id}`} name={name} members={byConnection.get(id)!} row={row} refs={refs} />;
+        return <ConnectGroup key={`connect-${id}`} name={name} members={byConnection.get(id)!} row={row} refs={refs} focus={focus} />;
       })}
     </div>
   );
