@@ -70,11 +70,25 @@ export function memoryForPrompt(agentId: string, now = Date.now()): string {
 // Compacts the oldest notes once there are more than CAP_NOTES. summarize is
 // given the old notes and the newer ones (so it can leave out anything a
 // newer note contradicts) and returns the summary text.
+// One at a time per agent: the Agency Engineer's runs can end together, and two
+// would summarize the same notes.
+const compacting = new Set<string>();
+
 export async function compactIfNeeded(
   agentId: string,
   summarize: (oldNotes: string[], newer: string[]) => Promise<string>,
   now = Date.now(),
 ): Promise<boolean> {
+  if (compacting.has(agentId)) return false;
+  compacting.add(agentId);
+  try {
+    return await compactNow(agentId, summarize, now);
+  } finally {
+    compacting.delete(agentId);
+  }
+}
+
+async function compactNow(agentId: string, summarize: (oldNotes: string[], newer: string[]) => Promise<string>, now: number): Promise<boolean> {
   const notes = all<Row>("SELECT * FROM memories WHERE agent_id = ? AND kind = 'note' ORDER BY created_at ASC, id ASC", agentId);
   if (notes.length <= CAP_NOTES) return false;
   const old = notes.slice(0, notes.length - KEEP_NOTES);

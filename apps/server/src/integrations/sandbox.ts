@@ -91,6 +91,12 @@ export function runSandboxed(
       fn();
     };
     const timer = setTimeout(() => finish(() => reject(new Error('The plugin took longer than 2 minutes and was stopped.'))), TIMEOUT_MS);
+    // A fetch's answer can come back after the plugin has gone (done, timed out,
+    // crashed): sending it then took the whole server down.
+    const reply = (m: unknown) => {
+      if (!settled && child.connected) child.send(m as Parameters<typeof child.send>[0], () => {});
+    };
+    child.on('error', e => finish(() => reject(e)));
     child.stderr?.on('data', d => (stderr = (stderr + String(d)).slice(-2000)));
     child.on('message', async (m: { fetch?: { id: number; url: string; init?: Record<string, unknown> }; done?: Done }) => {
       if (m.done) return finish(() => resolveDone(m.done!));
@@ -105,9 +111,9 @@ export function runSandboxed(
         const { res } = await safeFetch(url, init as Parameters<typeof safeFetch>[1]);
         const body = Buffer.from(await res.arrayBuffer());
         if (body.length > MAX_BODY) throw new Error('The response is larger than 50 MB.');
-        child.send({ fetched: { id, status: res.status, headers: Object.fromEntries(res.headers), body: body.toString('base64') } });
+        reply({ fetched: { id, status: res.status, headers: Object.fromEntries(res.headers), body: body.toString('base64') } });
       } catch (e) {
-        child.send({ fetched: { id, error: (e as Error).message } });
+        reply({ fetched: { id, error: (e as Error).message } });
       }
     });
     child.on('exit', code =>

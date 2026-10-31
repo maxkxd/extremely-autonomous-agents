@@ -25,15 +25,45 @@ import { eligibleModels, runAgent, stateOf, type RunDeps, type Trigger } from '.
 // Decides when each agent runs (docs/runner.md). Every tick, for each agent
 // that isn't running: a booking that's due (your messages first), else at
 // Apocalyptic the next run straight after the last, else its ferocity
-// schedule. One run per agent at a time; a few at once overall, and one
-// local-model run at a time (a laptop can't hold two). Failing agents back
-// off; the backstop is only for runaways.
+// schedule. One run per agent at a time (the Agency Engineer: a few, on
+// different requests); a few at once overall, and one local-model run at a time
+// (a laptop can't hold two). Failing agents back off; the backstop is only for
+// runaways.
 
 const TICK_MS = 5_000;
 export const MAX_PARALLEL = 4;
+// A new agency files ~50 setup requests; one at a time, the last agents waited
+// over an hour. Its extra runs don't take the agents' places.
+export const ENGINEER_PARALLEL = 3;
 
-const running = new Map<string, { controller: AbortController; connection: string | null; startedAt: number }>();
-export const isRunning = (agentId: string) => running.has(agentId);
+type Running = { agentId: string; controller: AbortController; connection: string | null; startedAt: number; requests: number[]; services: string[] };
+// Keyed by run: an agent's id, or the engineer's id and a slot.
+const running = new Map<string, Running>();
+export const isRunning = (agentId: string) => [...running.values()].some(r => r.agentId === agentId);
+const runsOf = (agentId: string) => [...running.values()].filter(r => r.agentId === agentId);
+
+// What an engineer run is about: the requests its task names, and their services.
+// None named (a batch of approvals, its own schedule): it could touch anything.
+export function engineerScope(task: string | null): { requests: number[]; services: string[] } {
+  const requests = [...new Set([...(task ?? '').matchAll(/#(\d+)|request_id: (\d+)/g)].map(m => Number(m[1] ?? m[2])))];
+  const services = requests.length
+    ? all<{ service: string | null; waiting_on: string | null }>(`SELECT service, waiting_on FROM requests WHERE id IN (${requests.map(() => '?').join(',')})`, ...requests)
+        .flatMap(r => [r.service, r.waiting_on])
+        .filter((x): x is string => !!x)
+    : [];
+  return { requests, services: [...new Set(services)] };
+}
+
+// Another engineer run can start beside these if it's on other requests and other
+// services (two at once would draft the same connection twice). One that names no
+// request runs alone - except a person's message, which never waits.
+export function engineerCanJoin(alongside: { requests: number[]; services: string[] }[], next: { trigger: string; task: string | null }): boolean {
+  if (!alongside.length) return true;
+  if (next.trigger === 'your message') return true;
+  const scope = engineerScope(next.task);
+  if (!scope.requests.length || alongside.some(r => !r.requests.length)) return false;
+  return !alongside.some(r => r.requests.some(x => scope.requests.includes(x)) || r.services.some(x => scope.services.includes(x)));
+}
 
 // What the runner knows about connected models, refreshed every tick.
 let models: Awaited<ReturnType<typeof availableModels>> = [];
@@ -116,8 +146,11 @@ export async function tick(deps: RunDeps = liveDeps) {
     // Events due a check (events.ts): in the background, so a slow service never holds up a tick.
     void pollEvents(book).catch(e => console.error('Polling events failed:', (e as Error).message));
     for (const id of await listIds()) {
-      if (running.size >= MAX_PARALLEL) break;
-      if (running.has(id)) continue;
+      const engineer = id === FLEET_ENGINEER;
+      const others = runsOf(id);
+      // The engineer's extra runs don't count against the agents.
+      if (!engineer && running.size - Math.max(0, runsOf(FLEET_ENGINEER).length - 1) >= MAX_PARALLEL) break;
+      if (others.length >= (engineer ? ENGINEER_PARALLEL : 1)) continue;
       const meta = await readMeta(id);
       // Helpers run only when called (quick.ts).
       if (!meta || meta.status === 'setting-up' || meta.service) continue;
@@ -126,8 +159,16 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (st.state === 'stopped') continue;
       const agent = await loadAgent(id);
       if (!agent) continue;
-      const next = nextRun(agent, st, now);
+      // The engineer beside its own runs: only booked work that doesn't overlap them
+      // (one more each tick). Next in line is work that runs alone (approvals): the
+      // others finish first, rather than it waiting behind the whole queue.
+      if (others.length) {
+        const head = nextRun(agent, st, now);
+        if (head?.bookingId && head.trigger !== 'your message' && !engineerScope(head.task).requests.length) continue;
+      }
+      const next = nextRun(agent, st, now, others.length ? b => engineerCanJoin(others, b) : undefined);
       if (!next) continue;
+      if (others.length && !next.bookingId) continue;
       const eligible = eligibleModels(agent, deps);
       // Nothing it can run on: wait (a message still gets an answer saying why).
       if (!eligible.length && next.trigger !== 'your message') continue;
@@ -158,15 +199,16 @@ const PERSON_DRIVEN = new Set<Trigger>(['your message', 'run now', 'approval', '
 //   draining - finishes the run it's in; starts nothing itself, but still answers a
 //              person, runs Run now, and hears approval outcomes
 //   stopped  - nothing; the run it was in was cut short (bookings wait)
-export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: number): Next | null {
+export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: number, fits?: (b: { trigger: Trigger; task: string | null }) => boolean): Next | null {
   if (st.state === 'stopped') return null;
-  const due = all<{ id: number; trigger: Trigger; task: string | null }>(
+  const listed = all<{ id: number; trigger: Trigger; task: string | null }>(
     // A person's message first; then a tool agents already rely on that's broken
     // (it waited an hour behind 23 new builds), then the rest in order.
     "SELECT id, trigger, task FROM bookings WHERE agent_id = ? AND due_at <= ? ORDER BY CASE WHEN trigger = 'your message' THEN 0 WHEN task LIKE '%: Fix the tool %' THEN 1 ELSE 2 END, due_at, id",
     agent.id,
     now,
   );
+  const due = fits ? listed.filter(fits) : listed;
   // A person's message is answered even when the agent is stopped or backing off.
   const message = due.find(b => b.trigger === 'your message');
   if (message) return { trigger: message.trigger, task: message.task, bookingId: message.id };
@@ -211,18 +253,21 @@ function blockedOnConnections(agent: AgentDef) {
 function start(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, connection: string | null, resumeFrom: string | null = null) {
   const now = deps.now();
   const controller = new AbortController();
-  running.set(agent.id, { controller, connection, startedAt: now });
+  const engineer = agent.id === FLEET_ENGINEER;
+  const key = engineer ? `${agent.id}#${++slot}` : agent.id;
+  running.set(key, { agentId: agent.id, controller, connection, startedAt: now, ...(engineer ? engineerScope(task) : { requests: [], services: [] }) });
   void runAgent(agent, trigger, task, deps, controller.signal, resumeFrom)
     .catch(e => console.error(`Run of ${agent.id} crashed:`, (e as Error).message))
     .finally(() => {
-      running.delete(agent.id);
+      running.delete(key);
       void tick(deps);
     });
 }
+let slot = 0;
 
-// Stop: the run going now is cut short.
+// Stop: the runs going now are cut short.
 export function abortRun(agentId: string) {
-  running.get(agentId)?.controller.abort();
+  for (const r of runsOf(agentId)) r.controller.abort();
 }
 export const abortAll = () => {
   for (const r of running.values()) r.controller.abort();
