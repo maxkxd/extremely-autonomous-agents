@@ -1,9 +1,9 @@
-import { ConnectFirst } from './ConnectFirst';
+import { ResumeSetupDialog, SetupBar, SetupList } from './AgentSetup';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CircleCheckBig, Ellipsis, GripVertical, LoaderCircle, Pause, Play, Square, Trash2, User, Wrench } from 'lucide-react';
 import { DeleteAgentDialog } from './DeleteAgentDialog';
 import { ModelPanel, ModelRow, useModelChecks, useModelSlide, type Checks } from './ModelPicker';
-import { getAgentModels, getAvailableModels, getLiveAgents, runNow, setAgentModels, setAgentRunner, type AgencyState, type AvailableModels, type LiveAgent, type ModelChoice } from './builder';
+import { getAgentModels, getAvailableModels, getLiveAgents, getSetups, runNow, setAgentModels, setAgentRunner, type AgencyState, type AgentSetup, type AvailableModels, type LiveAgent, type ModelChoice } from './builder';
 import { useDismiss } from './useDismiss';
 import { FlashCount } from './FlashCount';
 import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
@@ -285,7 +285,11 @@ export function AgentCard({
   loading = false,
   countsLoading = false,
   modelsLoading = false,
+  setup,
+  onOpenRequest,
 }: {
+  setup?: AgentSetup; // a new agent still in setup: its connectors (AgentSetup.tsx)
+  onOpenRequest?: (id: number) => void;
   agent: Agent;
   range: TimeRange;
   state: RunState;
@@ -351,6 +355,10 @@ export function AgentCard({
     const t = setTimeout(() => setKick(null), 500);
     return () => clearTimeout(t);
   }, [kick, level]);
+  // In setup until first resumed; resuming before everything's connected warns first.
+  const inSetup = !!setup && !preview && !agent.builtIn;
+  const [resumeWarn, setResumeWarn] = useState<RunState | null>(null);
+  const turn = (to: RunState) => (inSetup && to !== 'stopped' && setup!.items.some(i => !i.connected) ? setResumeWarn(to) : setState(to));
   // Stopping halts an in-flight run; standby lets it finish.
   const last = agent.lastRun;
   const outcome = !last ? 'never' : state === 'stopped' && last.outcome === 'running' ? 'stopped' : last.outcome;
@@ -363,6 +371,18 @@ export function AgentCard({
       className={`agent-card${modelsOpen ? ` models-open${slide.stacked ? ' stacked' : ''}` : ''}${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} ${loading ? 'loading fero-0 is-active' : `fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}`}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
       style={{ '--tx': tx, '--shift': `${slide.shift}px` } as React.CSSProperties}
     >
+      {inSetup && <SetupBar progress={setup!.progress} />}
+      {resumeWarn && (
+        <ResumeSetupDialog
+          name={agent.name}
+          missing={setup!.items.filter(i => !i.connected).map(i => i.name)}
+          onCancel={() => setResumeWarn(null)}
+          onResume={() => {
+            setState(resumeWarn);
+            setResumeWarn(null);
+          }}
+        />
+      )}
       {/* Drag handle: centred on the card's left edge. */}
       {!preview && (
       <button className="drag-grip" title="Drag to reorder" aria-label="Drag to reorder" onPointerDown={onGripDown}>
@@ -432,10 +452,14 @@ export function AgentCard({
             )}
           </div>
         </header>
-        <div className="card-charts">
-          <Donut caption="output" slices={output} format={count} loading={loading} />
-          <Donut caption="cost" slices={cost} format={dollars} loading={loading} />
-        </div>
+        {inSetup ? (
+          <SetupList setup={setup!} onOpenRequest={id => onOpenRequest?.(id)} />
+        ) : (
+          <div className="card-charts">
+            <Donut caption="output" slices={output} format={count} loading={loading} />
+            <Donut caption="cost" slices={cost} format={dollars} loading={loading} />
+          </div>
+        )}
       </div>
 
       <aside className="card-side">
@@ -488,7 +512,7 @@ export function AgentCard({
             key={state === 'draining' ? 'drain-resume' : 'drain'}
             className={`ctl-btn${state === 'draining' ? ' resume' : ''}`}
             disabled={state === 'stopped' || agencyHeld}
-            onClick={() => setState(state === 'draining' ? 'active' : 'draining')}
+            onClick={() => turn(state === 'draining' ? 'active' : 'draining')}
           >
             {state === 'draining' ? <Play size={15} /> : <Pause size={15} />}
             {state === 'draining' ? 'Resume' : 'Standby'}
@@ -497,7 +521,7 @@ export function AgentCard({
             key={state === 'stopped' ? 'stop-resume' : 'stop'}
             className={`ctl-btn ${state === 'stopped' ? 'resume' : 'stop'}`}
             disabled={agencyHeld}
-            onClick={() => setState(state === 'stopped' ? 'active' : 'stopped')}
+            onClick={() => turn(state === 'stopped' ? 'active' : 'stopped')}
           >
             {state === 'stopped' ? <Play size={15} /> : <Square size={13} fill="currentColor" />}
             {state === 'stopped' ? 'Resume' : 'Stop'}
@@ -604,7 +628,9 @@ export function Dashboard({
   onDeleteAgent,
   agencyReady,
   countsReady,
+  onOpenRequest,
 }: {
+  onOpenRequest: (id: number) => void; // a setup connector's "Go to request"
   range: TimeRange;
   hideBuiltIns?: boolean; // the built-ins' cards, off this page only
   agency: AgencyState;
@@ -627,6 +653,18 @@ export function Dashboard({
     const own = mine && (!l || Date.now() - mine.at < 6000) ? mine.state : (l?.state ?? 'active');
     return agency === 'standby' && own === 'active' ? 'draining' : own;
   };
+  // New agents still in setup: their connectors, stars and progress (AgentSetup.tsx).
+  const [setups, setSetups] = useState<Record<string, AgentSetup>>({});
+  useEffect(() => {
+    let alive = true;
+    const load = () => getSetups().then(s => alive && setSetups(s)).catch(() => {});
+    void load();
+    const t = setInterval(load, 10_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
   // Each agent's models, and every model that could be given (docs/model-connections.md).
   const [modelChoices, setModelChoices] = useState<Record<string, ModelChoice[]>>(() => lastModels.choices ?? {});
   const [available, setAvailable] = useState<AvailableModels[]>(() => lastModels.available ?? []);
@@ -878,7 +916,6 @@ export function Dashboard({
 
   return (
     <div className="dashboard">
-      <ConnectFirst />
       {order.map(id => {
         // Gone from AGENTS already: its slot just plays its exit.
         const found = AGENTS.find(x => x.id === id) ?? (removing === id ? deletedCard.current : undefined);
@@ -927,6 +964,8 @@ export function Dashboard({
               onCheck={check}
               onLevel={l ? level => setAgentRunner(a.id, { ferocity: level }).catch(() => {}) : undefined}
               onRunNow={l ? () => runNow(a.id).catch(() => {}) : undefined}
+              setup={setups[a.id]}
+              onOpenRequest={onOpenRequest}
             />
           </div>
         );

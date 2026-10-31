@@ -36,6 +36,13 @@ export function openDb(path = FILE): DatabaseSync {
     'ALTER TABLE requests ADD COLUMN answered_by_id TEXT',
     // The connection a request waits for the person to connect (engineer.ask_for_connection).
     'ALTER TABLE requests ADD COLUMN waiting_on TEXT',
+    // A new agent's setup (docs/requests.md): its connector requests filed as it was
+    // added, the kind of service each is for (crm), and how much each helps it (1-5,
+    // the Agency Engineer's call). The agent stays stopped, in setup, until first resumed.
+    'ALTER TABLE requests ADD COLUMN setup INTEGER',
+    'ALTER TABLE requests ADD COLUMN service TEXT',
+    'ALTER TABLE requests ADD COLUMN stars INTEGER',
+    'ALTER TABLE agent_state ADD COLUMN setup INTEGER',
   ])
     try {
       db.exec(sql);

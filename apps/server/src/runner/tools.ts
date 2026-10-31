@@ -62,7 +62,7 @@ export const setRequestRouter = (fn: typeof router) => void (router = fn);
 export function fileRequest(
   agentId: string,
   runId: string | null,
-  r: { what: string; why: string; evidence?: string | null; expected_effect?: string | null },
+  r: { what: string; why: string; evidence?: string | null; expected_effect?: string | null; service?: string },
   now: number,
   wake: Wake,
   direct = false,
@@ -70,7 +70,7 @@ export function fileRequest(
   const toEngineer = agentId !== FLEET_ENGINEER;
   const id = Number(
     run(
-      'INSERT INTO requests (agent_id, run_id, what, why, evidence, expected_effect, created_at, stage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO requests (agent_id, run_id, what, why, evidence, expected_effect, created_at, stage, service) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       agentId,
       runId,
       r.what.slice(0, 500),
@@ -79,6 +79,7 @@ export function fileRequest(
       r.expected_effect ? r.expected_effect.slice(0, 1000) : null,
       now,
       toEngineer ? 'engineer' : 'person',
+      r.service ?? null,
     ).lastInsertRowid,
   );
   if (!toEngineer) return id;
@@ -112,8 +113,11 @@ export function serviceLabel(server: string, agentId?: string) {
 // run's "they're being connected" is true. Not again while one is open, or for
 // a week after a person turned one down; closed once the service is connected.
 // Returns what it filed.
+const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
 export function requestConnections(agentId: string, agentName: string, tiers: Record<string, Tier>, now: number, wake: Wake): string[] {
   const groups = new Map<string, { label: string; what: string; names: string[]; ready: boolean; exists: boolean }>();
+  const server = (g: { label: string }) => [...groups].find(([, x]) => x === g)?.[0];
   for (const id of Object.keys(tiers)) {
     if (LEGACY.has(id) || FAMILIES[id] || BUILTIN_IDS.has(id)) continue;
     const [server, ...rest] = id.split('.');
@@ -144,13 +148,14 @@ export function requestConnections(agentId: string, agentName: string, tiers: Re
       continue;
     }
     if (same.some(r => r.status === 'open' || (r.status === 'rejected' && (r.answered_at ?? 0) > now - 7 * 86_400_000))) continue;
-    const uses = g.names.slice(0, 6).join('; ') + (g.names.length > 6 ? `; and ${g.names.length - 6} more` : '');
+    // In the agent's own words - it's asking, even before its first run.
+    const uses = g.names.slice(0, 6).map(lower).join('; ') + (g.names.length > 6 ? `; and ${g.names.length - 6} more` : '');
     fileRequest(
       agentId,
       null,
       g.exists
-        ? { what: g.what, why: `${agentName} can't use these until it's connected in Settings > Connectors: ${uses}.` }
-        : { what: g.what, why: `${agentName} needs these and nothing provides them yet: ${uses}.` },
+        ? { what: g.what, why: `I need ${g.label} connected to do my job. I'd use it to: ${uses}.`, service: server(g) }
+        : { what: g.what, why: `I need ${g.label} to do my job. I'd use it to: ${uses}. Nothing here connects to it yet.`, service: server(g) },
       now,
       wake,
       true,

@@ -33,7 +33,16 @@ export async function createAgent(a: { person: string; org: string | null; files
   });
   await setChoices(files.id, await topUpModels(files.models ?? []));
   if (setup) enqueue(files.id);
-  return requestWhatsMissing(files);
+  // A new agent starts stopped, in setup: its connectors are built and connected
+  // first (the card's setup list); the person's first resume ends setup.
+  exec(
+    "INSERT INTO agent_state (agent_id, state, setup, updated_at) VALUES (?, 'stopped', 1, ?) ON CONFLICT(agent_id) DO UPDATE SET state = 'stopped', setup = 1, updated_at = excluded.updated_at",
+    files.id,
+    Date.now(),
+  );
+  const filed = await requestWhatsMissing(files);
+  exec("UPDATE requests SET setup = 1 WHERE agent_id = ? AND run_id IS NULL AND status = 'open' AND (what LIKE 'Connect %' OR what LIKE 'Set up %')", files.id);
+  return filed;
 }
 
 // Tools and events it needs that nothing provides yet go to the Agency Engineer:
@@ -49,10 +58,10 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
   };
   const asked = new Set(all<{ what: string }>("SELECT what FROM requests WHERE agent_id = ? AND status = 'open'", files.id).map(r => r.what));
   const filed: string[] = [];
-  const ask = (what: string, why: string, evidence: string | null) => {
+  const ask = (what: string, why: string, evidence: string | null, service?: string) => {
     if (asked.has(what)) return;
     asked.add(what);
-    fileRequest(files.id, null, { what, why, evidence }, Date.now(), (agent, trigger, task) => book(agent, trigger as 'request', task), true);
+    fileRequest(files.id, null, { what, why, evidence, service }, Date.now(), (agent, trigger, task) => book(agent, trigger as 'request', task), true);
     filed.push(what);
   };
   // Services its catalogue tools need that aren't connected, one request each.
@@ -91,10 +100,12 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
     const others = [...new Set(tools.flatMap(t => t.usedBy ?? []))];
     const evs = wanted.get(server) ?? [];
     wanted.delete(server);
+    // In the agent's own words; the tool ids and their inputs are for the engineer.
     ask(
-      evs.length ? `Build the ${label} tools and events` : `Build the ${label} tools`,
-      `${files.name} needs these and nothing provides them yet:\n${tools.map(t => `- ${t.id}${t.does ? `: ${t.does}` : ''}`).join('\n')}${evs.length ? `\n\nAnd should wake when these happen:\n${eventLines(evs)}` : ''}`,
-      [...tools.filter(t => t.input).map(t => `${t.id} expects: ${JSON.stringify(t.input)}`), ...eventHow(evs), ...(others.length ? [`Also used by ${others.join(', ')}.`] : [])].join('\n') || null,
+      `Set up ${label}`,
+      `I need ${label} to do my job, and nothing here connects to it yet. I'd use it to:\n${tools.map(t => `- ${t.does || t.id}`).join('\n')}${evs.length ? `\n\nAnd I'd like to be woken when:\n${evs.map(e => `- ${e.description}`).join('\n')}` : ''}`,
+      [`Tools: ${tools.map(t => t.id).join(', ')}`, ...(evs.length ? [`Events: ${evs.map(e => e.id).join(', ')}`] : []), ...tools.filter(t => t.input).map(t => `${t.id} expects: ${JSON.stringify(t.input)}`), ...eventHow(evs), ...(others.length ? [`Also used by ${others.join(', ')}.`] : [])].join('\n') || null,
+      server,
     );
   }
   for (const [server, list] of wanted) {
@@ -111,7 +122,7 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
       );
       continue;
     }
-    ask(`Set up ${label} events`, `${files.name} should wake when these happen:\n${eventLines(list)}`, eventHow(list).join('\n') || null);
+    ask(`Set up ${label} events`, `I'd like to be woken when:\n${list.map(e => `- ${e.description}`).join('\n')}`, [`Events: ${list.map(e => e.id).join(', ')}`, ...eventHow(list)].join('\n') || null, server);
   }
   // GitHub connected already: the files its instructions name are checked now.
   void import('./runner/engineer.js').then(m => m.checkCharterFiles(files.id)).catch(() => {});

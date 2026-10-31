@@ -2009,42 +2009,35 @@ a.sbtn { text-decoration: none; color: inherit; }
 .connect-group-list { align-self: flex-start; }
 .connect-group-members { display: flex; flex-direction: column; gap: 8px; }
 
-/* "Connect these first" (Dashboard): ranked connections, the fleet's progress, stars.
-   Styled as an agent card; every row shares one set of columns. */
-.cf { background: var(--bg); border: 1px solid var(--hairline); border-radius: 14px; padding: 16px 20px 12px; }
-.cf-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-height: 22px; }
-.cf-toggle { display: flex; align-items: center; gap: 6px; padding: 0; background: none; border: 0; color: var(--text); cursor: pointer; }
-.cf-title { font-size: 15px; font-weight: 600; }
-.cf.closed .chev { transform: rotate(-90deg); }
-.cf-count { font-size: 13px; color: var(--muted); }
-.cf-count strong { color: var(--text); font-weight: 600; }
-.cf-done { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); margin-left: auto; }
-.cf-cheer { font-size: 12px; font-weight: 600; color: #e8b931; animation: cf-pop 0.5s ease-out; }
-@keyframes cf-pop { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); } }
-.cf-bar { display: block; height: 8px; border-radius: 99px; background: var(--hairline); margin: 12px 0 6px; overflow: hidden; }
-.cf-fill { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--attention), #e8b931); transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
-.cf-list { list-style: none; margin: 4px 0 0; padding: 0; }
-.cf-row {
-  display: grid; grid-template-columns: minmax(130px, 220px) 92px minmax(0, 1fr) 230px;
-  align-items: center; gap: 14px; min-height: 42px; padding: 0; border-top: 1px solid var(--hairline); font-size: 13px;
+/* A new agent's setup, on its card until it's first resumed (AgentSetup.tsx):
+   a bar across the card's top edge, like the new-agent chat's, and its connectors
+   where the charts go (they'd be empty before its first run). */
+.setup-bar { position: absolute; top: 0; left: 0; right: 0; height: 4px; background: var(--surface-hover); z-index: 2; }
+.setup-bar span {
+  display: block; height: 100%; background: var(--attention); border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 10px rgba(63, 123, 214, 0.6); transition: width 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.cf-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cf-stars { display: inline-flex; align-items: center; gap: 1px; }
-.cf-star { color: #e8b931; fill: #e8b931; }
-.cf-more { font-size: 11px; color: #e8b931; margin-left: 3px; font-weight: 600; }
-.cf-what { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cf-act { display: flex; justify-content: flex-end; }
-.cf-connect { height: 28px; padding: 0 16px; border-radius: 7px; border: 0; background: var(--attention); color: var(--attention-text); font-size: 12px; font-weight: 600; cursor: pointer; }
-.cf-connect:hover { filter: brightness(1.1); }
-.cf-wait { font-size: 12px; color: var(--muted); }
-.cf-row.setting-up .cf-name, .cf-row.setting-up .cf-what { color: var(--muted); }
-.cf-row.setting-up .cf-star { opacity: 0.55; }
-.cf-all { margin-top: 8px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; cursor: pointer; }
-.cf-all:hover { color: var(--text); }
-@media (max-width: 760px) {
-  .cf-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 2px; padding: 8px 0; }
-  .cf-row > :nth-child(2), .cf-what { grid-column: 1; }
-  .cf-act { grid-column: 2; grid-row: 1 / span 3; }
+.setup-list { margin: 14px 0 4px 28px; max-width: 560px; }
+.setup-lead { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+.setup-list ul { list-style: none; margin: 0; padding: 0; }
+.setup-list li {
+  display: grid; grid-template-columns: minmax(0, 1fr) 80px 120px; align-items: center; gap: 12px;
+  min-height: 38px; border-top: 1px solid var(--hairline); font-size: 13px;
+}
+.setup-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-stars { display: inline-flex; gap: 1px; }
+.setup-stars .on { color: #e8b931; fill: #e8b931; }
+.setup-stars .off { color: var(--border-strong); }
+.setup-act { display: flex; justify-content: flex-end; }
+.setup-go { height: 28px; padding: 0 12px; border-radius: 7px; border: 0; background: var(--attention); color: var(--attention-text); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.setup-go:hover { filter: brightness(1.1); }
+.setup-wait { font-size: 12px; color: var(--muted); }
+.setup-done { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.setup-list li.done .setup-name { color: var(--muted); font-weight: 500; }
+.setup-list li.done .setup-stars .on { opacity: 0.45; }
+.confirm-resume {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 8px; border: 0;
+  background: var(--attention); color: var(--attention-text); font-size: 13px; font-weight: 600; cursor: pointer;
 }
 
 /* The browser tab the desktop app signs in through (account.ts): the outcome alone. */

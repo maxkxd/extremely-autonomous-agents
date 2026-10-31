@@ -193,7 +193,7 @@ test("the builder's events: existing ones kept, its new ones added, and the engi
 test("an agent remade under an old id asks again; a fleet tool it reuses that nobody built is asked for too", async () => {
   const { requestWhatsMissing } = await import('../agents.js');
   // A request from the deleted agent that had this id, closed.
-  all("INSERT INTO requests (agent_id, what, why, status, created_at) VALUES ('zz-remade', 'Build the Zz tools', 'old', 'rejected', 0) RETURNING id");
+  all("INSERT INTO requests (agent_id, what, why, status, created_at) VALUES ('zz-remade', 'Set up Zz', 'old', 'rejected', 0) RETURNING id");
   const files = {
     id: 'zz-remade',
     name: 'Remade',
@@ -201,9 +201,12 @@ test("an agent remade under an old id asks again; a fleet tool it reuses that no
   };
   const filed = await requestWhatsMissing(files);
   // One request for the service, listing both: its own invention and another agent's nobody built. Catalogue and plumbing tools aren't asked for.
-  assert.deepEqual(filed, ['Build the Zz tools']);
-  const why = all<{ why: string }>("SELECT why FROM requests WHERE agent_id = 'zz-remade' AND status = 'open'")[0].why;
-  assert.match(why, /zz\.ping: Pings/);
-  assert.match(why, /zz\.someone_elses/);
+  assert.deepEqual(filed, ['Set up Zz']);
+  // In the agent's own words; the tool ids are for the engineer.
+  const r = all<{ why: string; evidence: string }>("SELECT why, evidence FROM requests WHERE agent_id = 'zz-remade' AND status = 'open'")[0];
+  assert.match(r.why, /^I need Zz/);
+  assert.match(r.why, /Pings/);
+  assert.doesNotMatch(r.why, /zz\.ping/);
+  assert.match(r.evidence, /zz\.ping, zz\.someone_elses/);
   assert.deepEqual(await requestWhatsMissing(files), []); // open now: not asked twice
 });
