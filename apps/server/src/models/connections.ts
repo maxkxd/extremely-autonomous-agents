@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { CopilotClient } from '@github/copilot-sdk';
-import { copilotConnection, copilotRuntimeProgress, ensureCopilotRuntime } from './copilotRuntime.js';
+import { copilotConnection, copilotRuntimeError, copilotRuntimeProgress } from './copilotRuntime.js';
 import { deleteSecret, getSecret, mask, setSecret } from '../vault.js';
 import { chatGptModels as chatGptList, keepChat, knownModel, type ModelInfo, type Native } from './caps.js';
 import type { Effort } from './choice.js';
@@ -126,6 +126,7 @@ export async function list(): Promise<ConnectionView[]> {
       else if (!saved && copilotError) view.lastError = copilotError;
       // Its runtime coming down (first connect on an installed app): how far.
       view.preparing = copilotRuntimeProgress() ?? undefined;
+      if (!saved && copilotRuntimeError()) view.lastError = `Copilot couldn't be set up: ${copilotRuntimeError()}`;
     }
     return view;
   });

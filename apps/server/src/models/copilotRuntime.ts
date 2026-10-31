@@ -35,6 +35,8 @@ const fetchedRoot = (p: string, v: string) => join(DATA_DIR, 'runtimes', 'copilo
 let fetching: Promise<string> | null = null;
 let progress: number | null = null; // 0-100 while downloading
 export const copilotRuntimeProgress = () => progress;
+let lastError: string | null = null; // the last fetch's failure, until the next try
+export const copilotRuntimeError = () => lastError;
 
 // The client's connection: the fetched runtime, or the SDK's default when it's installed.
 export async function copilotConnection(): Promise<{ connection?: ReturnType<typeof RuntimeConnection.forStdio> }> {
@@ -51,10 +53,17 @@ export function ensureCopilotRuntime(): Promise<string> {
   if (!v) return Promise.reject(new Error(`This build of the Copilot SDK has no runtime for ${p}.`));
   const root = fetchedRoot(p, v);
   if (existsSync(wrapperIn(root, p))) return Promise.resolve(wrapperIn(root, p));
-  fetching ??= download(p, v, root).finally(() => {
-    fetching = null;
-    progress = null;
-  });
+  fetching ??= download(p, v, root)
+    .catch(e => {
+      console.error(`Fetching Copilot's runtime failed: ${(e as Error).message}`);
+      lastError = (e as Error).message;
+      throw e;
+    })
+    .finally(() => {
+      fetching = null;
+      progress = null;
+    });
+  lastError = null;
   return fetching;
 }
 
@@ -95,10 +104,12 @@ async function download(p: string, v: string, root: string): Promise<string> {
   return wrapperIn(root, p);
 }
 
-// tar ships with Windows 10 and later, macOS and Linux.
+// tar ships with Windows 10 and later, macOS and Linux. On Windows, its own by
+// full path: another tar earlier on the PATH (Git's) reads "C:" as a host.
+const TAR = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
 function untar(file: string, into: string): Promise<void> {
   return new Promise((done, fail) => {
-    const tar = spawn('tar', ['-xzf', file, '-C', into], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    const tar = spawn(TAR, ['-xzf', file, '-C', into], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
     let err = '';
     tar.stderr.on('data', d => (err += d));
     tar.on('error', e => fail(new Error(`Unpacking Copilot's runtime failed: ${e.message}`)));
