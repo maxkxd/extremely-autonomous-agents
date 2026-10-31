@@ -144,13 +144,15 @@ export function requestConnections(agentId: string, agentName: string, tiers: Re
     groups.set(server, g);
   }
   const filed: string[] = [];
-  const mine = all<{ id: number; what: string; status: string; answered_at: number | null }>(
-    "SELECT id, what, status, answered_at FROM requests WHERE agent_id = ? AND (what LIKE 'Connect %' OR what LIKE 'Set up %')",
+  const mine = all<{ id: number; what: string; status: string; answered_at: number | null; service: string | null }>(
+    "SELECT id, what, status, answered_at, service FROM requests WHERE agent_id = ? AND (what LIKE 'Connect %' OR what LIKE 'Set up %')",
     agentId,
   );
   for (const g of groups.values()) {
     // Set up then Connect: the same ask, once the Agency Engineer has drafted it.
-    const same = mine.filter(r => r.what === `Connect ${g.label}` || r.what === `Set up ${g.label}`);
+    // By service, not only title: when how it's named changed ("analytics (PostHog,
+    // GA)" to "PostHog"), every run filed it again - 74 times in 20 minutes.
+    const same = mine.filter(r => r.service === server(g) || r.what === `Connect ${g.label}` || r.what === `Set up ${g.label}`);
     if (g.ready) {
       for (const r of same.filter(r => r.status === 'open'))
         run("UPDATE requests SET status = 'done', answer = 'Connected.', answered_at = ?, delivered_at = ?, stage = NULL WHERE id = ?", now, now, r.id);

@@ -440,6 +440,9 @@ test('tools that need a service nobody connected are asked for, once per service
   // The engineer drafts a CRM: "Connect" is the same ask as the open "Set up", not another.
   registerTools([{ id: 'crm.search_records', tier: 'T0', description: 'Find', schema: {}, impl: () => '', ready: () => connected }, { id: 'crm.create_record', tier: 'T1', description: 'Add', schema: {}, impl: () => '', ready: () => connected }]);
   assert.deepEqual(requestConnections(ID, 'Test Agent', tiers, now + 1, () => {}), []);
+  // Named differently since (how the label reads changed): still the same ask, by its service.
+  exec("UPDATE requests SET what = 'Connect analytics (PostHog, GA)' WHERE service = 'crm'");
+  assert.deepEqual(requestConnections(ID, 'Test Agent', tiers, now + 1, () => {}), []);
   // Its agent deleted: withdrawn, and the same agent added back asks again straight away.
   exec("UPDATE requests SET status = 'withdrawn', answered_at = ? WHERE status = 'open'", now + 1);
   assert.deepEqual(requestConnections(ID, 'Test Agent', tiers, now + 2, () => {}).sort(), ['Connect a CRM (HubSpot, Zoho, Salesforce)', 'Connect email (Gmail or Outlook)']);
