@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getSecret } from '../vault.js';
 import { fromLevels, type ModelInfo } from './caps.js';
@@ -143,15 +144,55 @@ const chatTool = { type: 'function', function: { name: TOOL.name, description: T
 const responsesTool = { type: 'function', name: TOOL.name, description: TOOL.description, parameters: TOOL.schema };
 const key = async (id: string) => (await getSecret<{ key: string }>(id))?.key ?? '';
 
+// One short prompt through Claude Code, started the way an agent's run starts it.
+async function probeClaudeCode(model: string): Promise<Check> {
+  const { claudeOnce } = await import('../runner/harness.js');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120_000);
+  try {
+    const out = await claudeOnce(['-p', '--output-format', 'json', '--model', model, '--max-turns', '1', '--tools', '', '--setting-sources', ''], PROMPT, tmpdir(), ctrl.signal);
+    if (out.is_error) return { ok: false, reason: (out.result || out.subtype || 'Claude Code answered with an error').slice(0, 200), at: Date.now() };
+    return { ok: true, at: Date.now() };
+  } catch (e) {
+    return { ok: false, reason: ctrl.signal.aborted ? "Claude Code didn't answer within two minutes." : (e as Error).message.slice(0, 200), at: Date.now() };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// One short prompt through Copilot's runtime (fetched first if this install
+// hasn't got it), in a session like a run's: model auto, none of its own tools.
+async function probeCopilot(model: string): Promise<Check> {
+  const token = (await getSecret<{ token: string }>('copilot'))?.token;
+  if (!token) return { ok: false, reason: 'Copilot is not signed in.', at: Date.now() };
+  const { CopilotClient, ToolSet, approveAll } = await import('@github/copilot-sdk');
+  const { copilotConnection } = await import('./copilotRuntime.js');
+  const client = new CopilotClient({ ...(await copilotConnection()), gitHubToken: token, useLoggedInUser: false, logLevel: 'error' });
+  try {
+    await client.start();
+    const session = await client.createSession({ model, workingDirectory: tmpdir(), availableTools: new ToolSet().addCustom('*'), onPermissionRequest: approveAll });
+    await session.sendAndWait({ prompt: PROMPT }, 120_000);
+    await session.disconnect().catch(() => {});
+    return { ok: true, at: Date.now() };
+  } catch (e) {
+    return { ok: false, reason: (e as Error).message.slice(0, 200), at: Date.now() };
+  } finally {
+    await client.stop().catch(() => {});
+  }
+}
+
 async function probe(connection: string, model: string): Promise<Check> {
   const done = (a: Answer): Check => (a.status >= 200 && a.status < 300 ? { ok: true, at: Date.now() } : { ok: false, ...classify(a), at: Date.now() });
   const unsureToOk = (c: Check): Check => (c.unsure ? { ...c, ok: true } : c);
 
   switch (connection) {
-    // Plans with a fixed list, checked when they were connected.
+    // Plans: a real answer through the same program runs use, since signed in
+    // isn't the same as working (Claude Code installed while the app was open,
+    // say, or Copilot's runtime not there).
     case 'claude-code':
+      return probeClaudeCode(model);
     case 'copilot':
-      return { ok: true, at: Date.now() };
+      return probeCopilot(model);
     case 'anthropic':
       return unsureToOk(
         done(
