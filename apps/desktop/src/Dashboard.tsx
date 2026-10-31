@@ -452,14 +452,12 @@ export function AgentCard({
             )}
           </div>
         </header>
-        {inSetup ? (
-          <SetupList setup={setup!} onOpenRequest={id => onOpenRequest?.(id)} />
-        ) : (
-          <div className="card-charts">
-            <Donut caption="output" slices={output} format={count} loading={loading} />
-            <Donut caption="cost" slices={cost} format={dollars} loading={loading} />
-          </div>
-        )}
+        {/* Under the name: what's left to connect (each gone once it's connected). */}
+        {inSetup && <SetupList setup={setup!} onOpenRequest={id => onOpenRequest?.(id)} />}
+        <div className="card-charts">
+          <Donut caption="output" slices={output} format={count} loading={loading} />
+          <Donut caption="cost" slices={cost} format={dollars} loading={loading} />
+        </div>
       </div>
 
       <aside className="card-side">

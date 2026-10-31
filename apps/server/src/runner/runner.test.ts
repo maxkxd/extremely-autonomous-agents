@@ -629,3 +629,16 @@ test('a target counts real outcomes only; a plan that counted only files counts 
   assert.equal(mixed.floor, 6);
   assert.deepEqual(planFrom({ counts: ['files.write_file'] }, ['files.write_file']).counts, []); // nothing real: no target
 });
+
+test('a new agent in setup starts by itself once every connector is connected, not before', async () => {
+  const { finishSetups, setups } = await import('./setup.js');
+  exec("INSERT INTO agent_state (agent_id, state, setup, updated_at) VALUES ('zz-setup', 'stopped', 1, 0)");
+  const crm = Number(exec("INSERT INTO requests (agent_id, what, why, created_at, stage, setup, service, stars) VALUES ('zz-setup', 'Connect a CRM', 'x', 0, 'waiting_you', 1, 'crm', 5)").lastInsertRowid);
+  exec("INSERT INTO requests (agent_id, what, why, status, created_at, setup, service) VALUES ('zz-setup', 'Connect GitHub', 'x', 'done', 0, 1, 'github')");
+  const s = (await setups())['zz-setup'];
+  assert.deepEqual(s.items.map(i => [i.name, i.stars, i.connected]), [['CRM', 5, false], ['Code repository', 3, true]]);
+  assert.deepEqual(await finishSetups(), []); // the CRM isn't connected yet
+  exec("UPDATE requests SET status = 'done' WHERE id = ?", crm);
+  assert.deepEqual(await finishSetups(), ['zz-setup']);
+  assert.deepEqual({ ...one<{ state: string; setup: number | null }>('SELECT state, setup FROM agent_state WHERE agent_id = ?', 'zz-setup') }, { state: 'active', setup: null });
+});

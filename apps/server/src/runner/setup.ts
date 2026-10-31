@@ -3,7 +3,7 @@
 // connecting is. The agent waits, stopped, until its person first resumes it -
 // that ends setup for good.
 import { listIntegrations } from '../integrations/index.js';
-import { all } from './db.js';
+import { all, run as exec } from './db.js';
 
 // On the card a connector goes by what it is, not a product the person may not
 // use ("CRM", not "HubSpot" - they may be on Salesforce); its request says which.
@@ -86,4 +86,14 @@ export async function setups(): Promise<Record<string, AgentSetup>> {
     };
   }
   return out;
+}
+
+// Every connector connected (and none still being got ready): it starts by itself,
+// and its setup is over - as if its person had resumed it.
+export async function finishSetups(now = Date.now()): Promise<string[]> {
+  const done = Object.entries(await setups())
+    .filter(([, s]) => !s.building && s.items.every(i => i.connected))
+    .map(([id]) => id);
+  for (const id of done) exec("UPDATE agent_state SET state = 'active', setup = NULL, updated_at = ? WHERE agent_id = ? AND setup = 1", now, id);
+  return done;
 }

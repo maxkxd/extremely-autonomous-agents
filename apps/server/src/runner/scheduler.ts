@@ -16,6 +16,7 @@ import { expireApprovals } from './approvals.js';
 import { all, one, run as exec } from './db.js';
 import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, RELENTLESS, scheduledDue, STEADY } from './ferocity.js';
 import { toolsFor } from './tools.js';
+import { finishSetups } from './setup.js';
 import { costOf, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
 import { adapterFor } from './providers.js';
@@ -107,6 +108,8 @@ export async function tick(deps: RunDeps = liveDeps) {
     models = await availableModels();
     checks = await allChecks();
     await fillBuiltInModels().catch(() => {});
+    // New agents whose connectors are all connected start by themselves (setup.ts).
+    await finishSetups().catch(() => {});
     const now = deps.now();
     expireApprovals(now, book);
     dropStaleRequestRuns();
