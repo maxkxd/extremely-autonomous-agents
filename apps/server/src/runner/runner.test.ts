@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
-import { DEFAULT_PLAN, type AgentDef } from './agent.js';
+import { DEFAULT_PLAN, planFrom, type AgentDef } from './agent.js';
 import { all, one, resetDbForTests, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './ferocity.js';
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
@@ -617,4 +617,15 @@ test("a tool that keeps failing isn't hammered: after 3 failures in a run it's r
   assert.equal(fix.length, 1);
   assert.equal(fix[0].stage, 'engineer');
   assert.match(fix[0].evidence, /404 Not Found/);
+});
+
+test('a target counts real outcomes only; a plan that counted only files counts its KPI, at a quarter of the numbers', () => {
+  const kpi = ['crm.create_lead', 'crm.add_lead_note'];
+  const filesOnly = planFrom({ counts: ['files.write_file'], floor: 40, soft_floor: 12, apocalyptic_floor: 120 }, kpi);
+  assert.deepEqual(filesOnly.counts, kpi);
+  assert.deepEqual([filesOnly.soft_floor, filesOnly.floor, filesOnly.apocalyptic_floor], [3, 10, 30]);
+  const mixed = planFrom({ counts: ['crm.create_lead', 'files.write_file', 'gmail.send_to_me', 'memory.remember'], floor: 6 }, kpi);
+  assert.deepEqual(mixed.counts, ['crm.create_lead']);
+  assert.equal(mixed.floor, 6);
+  assert.deepEqual(planFrom({ counts: ['files.write_file'] }, ['files.write_file']).counts, []); // nothing real: no target
 });

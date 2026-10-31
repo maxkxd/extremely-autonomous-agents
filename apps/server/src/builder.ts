@@ -381,18 +381,20 @@ export const BuildSchema = z.object({
       driven_every_hours: z.number().describe('Driven: about 2x as often as Chill'),
       relentless_every_hours: z.number().describe('Relentless: about 4x as often as Chill'),
       driven_soft_floor: z.number().describe('Driven: output actions a good run makes; a run ending below it gets one gentle nudge. Modest.'),
-      relentless_floor: z.number().describe('Relentless: the minimum output actions per run, excessively high for the job - these are extreme agents'),
-      apocalyptic_floor: z.number().describe('Apocalyptic: deliberately out of reach, well above Relentless; runs go back to back and push toward it'),
+      relentless_floor: z
+        .number()
+        .describe('Relentless: the minimum real outcomes per run - high for the job, but always reachable with real work in one run and never above its natural limits (a cap of 15 a day over ~4 runs is ~4 a run)'),
+      apocalyptic_floor: z.number().describe('Apocalyptic: well above Relentless, still real outcomes and still within natural limits; runs go back to back and push toward it'),
       counts: z
         .array(z.string())
         .describe(
-          'The tool ids whose calls count toward a floor - usually the kpi ids. If the main action has a natural limit (see natural_limits), count the actions of the extra work instead (e.g. files.write_file for stocked material), never the limited action.',
+          'The tool ids whose calls count toward a floor: real outcomes only - usually the kpi ids. Real means it leaves the agent and matters to someone: a record created or changed in a business system, a draft, an email, a post, a pull request, a document delivered to a shared place. Never workspace files (files.*), memory, tasks, requests or reports to the person (gmail.send_to_me) - counted, they were padded (one agent wrote 106 files to reach its number). If the main action has a natural limit (see natural_limits), still count it, and set the floors within the limit.',
         ),
       hint: z.string().describe('Where else to look or what else to do when a run is below its floor: specific sources, approaches and streams of work for this job'),
       extra_effort: z
         .string()
         .describe(
-          'What more output means for this job above Chill, where doing the main action more would be useless or harmful: e.g. a wallpaper agent stocks and rates ideas for future mornings and asks what the person likes, rather than changing the wallpaper again',
+          'What more effort means for this job above Chill, where doing the main action more would be useless or harmful: wider and better real work (more sources searched, harder cases taken on), never files written to reach a number - e.g. a wallpaper agent finds better candidates and asks what the person likes, rather than changing the wallpaper again',
         ),
     })
     .describe('How hard it works at each ferocity level, set for this job. The person picks the level on the card.'),
