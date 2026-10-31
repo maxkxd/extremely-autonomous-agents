@@ -579,10 +579,13 @@ test("a request names the service the agent's instructions use, not the catalogu
   const { DATA } = await import('../files.js');
   const { mkdir, writeFile } = await import('node:fs/promises');
   await mkdir(join(DATA, 'zz-books'), { recursive: true });
-  await writeFile(join(DATA, 'zz-books', 'CHARTER.md'), '# Revenue Ops\nReconcile Stripe against Xero and draft invoices in Xero.');
+  await writeFile(join(DATA, 'zz-books', 'CHARTER.md'), '# Revenue Ops\nReconcile Stripe against Xero and draft invoices in Xero. Check usage in PostHog against the legal plan.');
   assert.equal(serviceLabel('xero', 'zz-books'), 'Xero'); // not "accounting (Xero, QuickBooks)"
   assert.equal(serviceLabel('crm', 'zz-books'), 'a CRM (HubSpot, Zoho, Salesforce)'); // names none: the examples stay
   assert.equal(serviceLabel('xero'), 'accounting (Xero, QuickBooks)');
+  assert.equal(serviceLabel('analytics', 'zz-books'), 'PostHog'); // "GA" isn't in "against" or "legal"
+  assert.equal(serviceLabel('seo'), 'SEO'); // a made-up server: an acronym, not "Seo"
+  assert.equal(serviceLabel('search_console'), 'Google Search Console');
 });
 
 test("busywork doesn't meet a target: past 5 workspace files a run, they don't count for an agent with real output", async () => {

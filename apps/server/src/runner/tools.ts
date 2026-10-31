@@ -93,8 +93,16 @@ export function fileRequest(
 // "Xero", not "accounting (Xero, QuickBooks)" - so the Agency Engineer builds the
 // service the organisation uses, not every example.
 export function serviceLabel(server: string, agentId?: string) {
-  // A server the builder made up ("search_console") reads as words, not an id.
-  const label = CONNECT_LABEL[server] ?? CATALOG.find(s => s.server === server)?.what ?? server.split(/[_-]+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  // A server the builder made up ("search_console") reads as words, not an id -
+  // short ones as the acronyms they are ("seo" is SEO, not "Seo").
+  const label =
+    CONNECT_LABEL[server] ??
+    CATALOG.find(s => s.server === server)?.what ??
+    server
+      .split(/[_-]+/)
+      .filter(Boolean)
+      .map(w => (w.length <= 3 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+      .join(' ');
   const options = /\(([^)]+)\)\s*$/.exec(label)?.[1].split(/,|\bor\b|\band\b/).map(o => o.trim()).filter(Boolean);
   if (!agentId || !options?.length) return label;
   let charter = '';
@@ -103,7 +111,8 @@ export function serviceLabel(server: string, agentId?: string) {
   } catch {
     return label;
   }
-  const named = options.filter(o => charter.includes(o.toLowerCase()));
+  // As a word: "GA" isn't in "against" (every charter "named" both, so none got one).
+  const named = options.filter(o => new RegExp(`\\b${o.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(charter));
   return named.length === 1 ? named[0] : label;
 }
 

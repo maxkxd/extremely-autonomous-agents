@@ -111,6 +111,7 @@ A no to the way you picked (HubSpot) is rarely a no to what the agent needs (som
 - Brevity is everything: the person reading may not be technical. Leave out what's implied or minor - no edge cases, no hypothetical risks, no testing details.
 - Each step on its own line, numbered (1. 2. 3.); points on their own lines starting with "- ". The app shows them as lists.
 - When another request needs the same thing (the same repository, key or decision), point to it instead of asking again: write "request #41" - the person can click it. Do the shared work once and use it for both.
+- An agent asking again what one of its own requests already asks the person (missing files, a decision): don't give them a second item. Add anything new to that request (engineer.reply_to_request on it), then close this one (engineer.close_request) telling the agent which request it's in.
 
 ## Rules
 - Woken for a request that isn't in engineer.list_requests any more? It was closed (turned down, handed over, or its agent deleted): drop it and move on. Never ask anyone to restore or resend it.
@@ -913,7 +914,7 @@ export async function checkCharterFiles(onlyAgent?: string): Promise<number> {
         now,
       ).lastInsertRowid,
     );
-    postToRequest(rid, 'engineer', `I checked the files ${meta.name}'s instructions name in ${repo}: ${missing.length} of them aren't there. Tell me where they are or what to use instead, and I'll pass it on.`);
+    postToRequest(rid, 'engineer', `I checked the files ${meta.name}'s instructions name in ${repo}: ${missing.length === 1 ? "1 of them isn't" : `${missing.length} of them aren't`} there. Tell me where they are or what to use instead, and I'll pass it on.`);
     filed++;
   }
   return filed;
