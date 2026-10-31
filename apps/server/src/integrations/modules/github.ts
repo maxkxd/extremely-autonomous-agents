@@ -134,7 +134,10 @@ const listIssues: CodeTool = {
     const max = Math.max(1, Math.min(100, Number(args.max) || 20));
     let items: Issue[];
     if (String(args.query ?? '').trim()) {
-      const q = `repo:${repo} ${String(args.query).trim()}`;
+      // GitHub's search refuses a query that doesn't say issues or PRs (422) -
+      // agents kept tripping on it; without one, it's issues. Its own repo: once.
+      const words = String(args.query).trim().replace(/\brepo:\S+/g, '').trim();
+      const q = `repo:${repo} ${/\b(is|type):(issue|pr|pull-request)\b/i.test(words) ? '' : 'is:issue '}${words}`;
       items = (await api<{ items: Issue[] }>(token, `/search/issues?q=${encodeURIComponent(q)}&per_page=${max}&sort=updated`)).items;
     } else {
       const state = ['open', 'closed', 'all'].includes(String(args.state)) ? String(args.state) : 'open';

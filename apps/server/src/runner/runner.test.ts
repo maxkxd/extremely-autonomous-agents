@@ -622,6 +622,14 @@ test("a tool that keeps failing isn't hammered: after 3 failures in a run it's r
   assert.match(fix[0].evidence, /404 Not Found/);
 });
 
+test("a tool that works for other inputs isn't reported broken: a wrong path's 404 is the caller's", async () => {
+  registerTools([{ id: 'zzpath.read', tier: 'T0', description: 'x', schema: { type: 'object' }, impl: async a => { if (a.path !== 'ok') throw new Error('Not found'); return 'fine'; } }]);
+  const ctx = { agent: agent({ tiers: { 'zzpath.read': 'T0' } }), runId: 'r_paths', level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} };
+  const ids = new Map([['zzpath__read', 'zzpath.read']]);
+  for (const path of ['nope', 'ok', 'nope', 'ok', 'nope']) await execute({ ...ctx, runId: `r_paths_${path}_${Math.random()}` }, { id: path, name: 'zzpath__read', args: { path } }, ids);
+  assert.equal(all("SELECT 1 FROM requests WHERE what LIKE 'Fix the tool zzpath.read%'").length, 0);
+});
+
 test('a target counts real outcomes only; a plan that counted only files counts its KPI, at a quarter of the numbers', () => {
   const kpi = ['crm.create_lead', 'crm.add_lead_note'];
   const filesOnly = planFrom({ counts: ['files.write_file'], floor: 40, soft_floor: 12, apocalyptic_floor: 120 }, kpi);

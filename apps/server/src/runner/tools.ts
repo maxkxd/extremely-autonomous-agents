@@ -521,7 +521,8 @@ const FAILS_PER_RUN = 3;
 const REPEATS_PER_RUN = 10;
 const repeatsInRun = new Map<string, number>();
 const failedInRun = new Map<string, { n: number; last: string }>();
-// A connection's tool that keeps failing (3 times in an hour, any agents) goes straight to the Agency Engineer to
+// A connection's tool that keeps failing (3 times in an hour, any agents, and not
+// working for anyone in between) goes straight to the Agency Engineer to
 // diagnose and fix - once per tool while that's open - instead of waiting for
 // an agent to report it or the Agency Doctor's next look. Not the plumbing, and
 // not the web tools (a site answering 404 isn't a broken tool).
@@ -533,10 +534,16 @@ function reportFailing(ctx: RunCtx, id: string, message: string): boolean {
   fileRequest(ctx.agent.id, ctx.runId, { what, why: `${id} has failed ${FAILS_PER_RUN} or more times in the last hour (most recently for ${ctx.agent.name}).`, evidence: `Last error: ${message.slice(0, 1500)}` }, ctx.now(), ctx.wake, true);
   return true;
 }
-// Its failures in the last hour, from any agent: called directly, or approved and run.
-const failuresLastHour = (id: string, now: number) =>
-  (one<{ n: number }>("SELECT COUNT(*) AS n FROM actions WHERE tool = ? AND outcome = 'failed' AND at > ?", id, now - 3_600_000)?.n ?? 0) +
-  (one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE tool = ? AND result LIKE 'Approved, but it failed%' AND decided_at > ?", id, now - 3_600_000)?.n ?? 0);
+// Its failures in the last hour, from any agent (called directly, or approved and
+// run), since it last worked for anyone: a tool that works for other inputs isn't
+// broken - a wrong path's 404 had the engineer spend 14 runs saying so.
+const failuresLastHour = (id: string, now: number) => {
+  const since = Math.max(now - 3_600_000, one<{ t: number | null }>('SELECT MAX(last_ok) AS t FROM tool_health WHERE tool = ?', id)?.t ?? 0);
+  return (
+    (one<{ n: number }>("SELECT COUNT(*) AS n FROM actions WHERE tool = ? AND outcome = 'failed' AND at > ?", id, since)?.n ?? 0) +
+    (one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE tool = ? AND result LIKE 'Approved, but it failed%' AND decided_at > ?", id, since)?.n ?? 0)
+  );
+};
 
 export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>): Promise<CallOutcome> {
   const id = ids.get(call.name) ?? call.name.replace('__', '.');
