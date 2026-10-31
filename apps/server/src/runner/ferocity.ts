@@ -105,7 +105,7 @@ export function nudgeText(agent: AgentDef, acts: number, floor: number, n: numbe
   return [
     `Not finished. This run has made ${acts} output action(s); the floor for every run is ${floor}. Carry on now:`,
     agent.ferocity.hint,
-    `Keep going until you reach ${floor}, then write your summary. (Continuation ${n} of ${of}.)`,
+    `Keep going until you reach ${floor}, then write your summary. But if a limit in your instructions is reached, or there is genuinely no real work left, stop and say so - never make other work to fill the number. (Continuation ${n} of ${of}.)`,
   ].join('\n');
 }
 
