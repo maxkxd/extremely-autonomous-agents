@@ -1,0 +1,69 @@
+name: Release
+
+# Builds the Windows installer and publishes it as a draft GitHub Release, which
+# the app's auto-update reads once it's published (docs/packaging.md).
+#
+# Only ever run by hand (Actions > Release > Run workflow): never on a push, tag
+# or schedule. Signing is metered, and a release is a decision. The job runs in
+# the protected `release` environment - a person approves it before it starts,
+# and the signing secrets live there and nowhere else.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release (e.g. 0.1.0)
+        required: true
+
+permissions:
+  contents: write # the draft release
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # also the Node the agency ships with
+
+      - name: Set the version
+        working-directory: apps/electron
+        run: npm version ${{ inputs.version }} --no-git-tag-version
+
+      - name: Stage the agency, the app and Node
+        working-directory: apps/electron
+        env:
+          VITE_EAA_BACKEND_URL: ${{ vars.EAA_BACKEND_URL }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+        run: node scripts/stage.cjs
+
+      - name: Install the packager
+        working-directory: apps/electron
+        run: npm ci --no-audit --no-fund
+
+      # Signed with Azure Trusted Signing once its details are in the `release`
+      # environment; until then the installer is unsigned (Windows warns
+      # "unknown publisher").
+      - name: Build, sign when set up, publish a draft release
+        working-directory: apps/electron
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          SIGN=()
+          if [ -n "$AZURE_CLIENT_ID" ]; then
+            SIGN=(
+              "-c.win.azureSignOptions.publisherName=World Asset Register"
+              "-c.win.azureSignOptions.endpoint=${{ vars.AZURE_SIGNING_ENDPOINT }}"
+              "-c.win.azureSignOptions.codeSigningAccountName=${{ vars.AZURE_SIGNING_ACCOUNT }}"
+              "-c.win.azureSignOptions.certificateProfileName=${{ vars.AZURE_CERTIFICATE_PROFILE }}"
+            )
+          else
+            echo "::warning::No Azure signing set up in the release environment: this build is unsigned."
+          fi
+          npx electron-builder --win --publish always "${SIGN[@]}"
