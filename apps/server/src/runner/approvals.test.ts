@@ -97,6 +97,21 @@ test('a failing approved call is reported, not lost', async () => {
   assert.match(woken[0].task, /failed: mailbox full/);
 });
 
+test('an approved call that keeps failing goes to the Agency Engineer, and the agent is told to stop queuing it', async () => {
+  const now = Date.now();
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES ('r1', ?, 'scheduled', 0, 'running', ?)", agent.id, now);
+  const ctx = { agent, runId: 'r1', level: 0, now: () => now, fleet: async () => [], wake: () => {} };
+  fail = true;
+  for (const to of ['a@acme.com', 'b@acme.com', 'c@acme.com']) {
+    const out = await execute(ctx, { id: to, name: 'mail__send', args: { to, body: 'hi' } }, new Map([['mail__send', 'mail.send']]));
+    await decideApproval(out.approvalId!, 'approved', null, wake, now, async () => agent);
+  }
+  assert.ok(one("SELECT 1 FROM requests WHERE what = 'Fix the tool mail.send: it keeps failing' AND status = 'open'"));
+  const told = woken.filter(w => w.agent === agent.id).map(w => w.task);
+  assert.doesNotMatch(told[1], /Agency Engineer/); // twice could be the input
+  assert.match(told[2], /with the Agency Engineer to fix\. Don't queue it again/);
+});
+
 test("a call missing a required input is refused, never queued for a person", async () => {
   exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES ('r2', ?, 'scheduled', 0, 'running', ?)", agent.id, Date.now());
   const ctx = { agent, runId: 'r2', level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} };

@@ -414,7 +414,12 @@ export async function runApproved(ctx: RunCtx, id: string, args: Record<string, 
     healthOk(ctx.agent.id, id, ctx.now());
     return out;
   } catch (e) {
-    healthFail(ctx.agent.id, id, ctx.now(), (e as Error).message || 'It failed.');
+    const message = (e as Error).message || 'It failed.';
+    healthFail(ctx.agent.id, id, ctx.now(), message);
+    // Approved writes fail too: Lead Researcher re-worded one note six times for a
+    // plugin that sent it as the query string, and nothing told the engineer.
+    if (failuresLastHour(id, ctx.now()) + 1 >= FAILS_PER_RUN && reportFailing(ctx, id, message))
+      throw new Error(`${message} (${id} keeps failing, for any input: it's with the Agency Engineer to fix. Don't queue it again until it's fixed - you'll see it working in your tools list.)`);
     throw e;
   }
 }
@@ -520,12 +525,18 @@ const failedInRun = new Map<string, { n: number; last: string }>();
 // diagnose and fix - once per tool while that's open - instead of waiting for
 // an agent to report it or the Agency Doctor's next look. Not the plumbing, and
 // not the web tools (a site answering 404 isn't a broken tool).
-function reportFailing(ctx: RunCtx, id: string, message: string) {
-  if (ctx.agent.id === FLEET_ENGINEER || /^(files|tasks|requests|memory|ops|web|browser|engineer|doctor)\./.test(id)) return;
+// Whether it's with the engineer now (filed, or already open).
+function reportFailing(ctx: RunCtx, id: string, message: string): boolean {
+  if (ctx.agent.id === FLEET_ENGINEER || /^(files|tasks|requests|memory|ops|web|browser|engineer|doctor)\./.test(id)) return false;
   const what = `Fix the tool ${id}: it keeps failing`;
-  if (one("SELECT 1 FROM requests WHERE what = ? AND status = 'open'", what)) return;
+  if (one("SELECT 1 FROM requests WHERE what = ? AND status = 'open'", what)) return true;
   fileRequest(ctx.agent.id, ctx.runId, { what, why: `${id} has failed ${FAILS_PER_RUN} or more times in the last hour (most recently for ${ctx.agent.name}).`, evidence: `Last error: ${message.slice(0, 1500)}` }, ctx.now(), ctx.wake, true);
+  return true;
 }
+// Its failures in the last hour, from any agent: called directly, or approved and run.
+const failuresLastHour = (id: string, now: number) =>
+  (one<{ n: number }>("SELECT COUNT(*) AS n FROM actions WHERE tool = ? AND outcome = 'failed' AND at > ?", id, now - 3_600_000)?.n ?? 0) +
+  (one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE tool = ? AND result LIKE 'Approved, but it failed%' AND decided_at > ?", id, now - 3_600_000)?.n ?? 0);
 
 export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>): Promise<CallOutcome> {
   const id = ids.get(call.name) ?? call.name.replace('__', '.');
@@ -647,7 +658,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     healthFail(ctx.agent.id, id, ctx.now(), message);
     failedInRun.set(failKey, { n: (failed?.n ?? 0) + 1, last: message });
     // Three failures of it in the last hour, from any agent (each agent may hit it once a run).
-    const lastHour = (one<{ n: number }>("SELECT COUNT(*) AS n FROM actions WHERE tool = ? AND outcome = 'failed' AND at > ?", id, ctx.now() - 3_600_000)?.n ?? 0) + 1;
+    const lastHour = failuresLastHour(id, ctx.now()) + 1;
     if (lastHour >= FAILS_PER_RUN) reportFailing(ctx, id, message);
     // Not output: a failure counted, a broken drive.append_doc carried Revenue Ops to its target.
     return record({ content: message, error: true, outcome: 'failed', counted: 0 });
