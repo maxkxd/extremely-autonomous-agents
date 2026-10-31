@@ -324,12 +324,15 @@ const BUILTIN: ToolDef[] = [
   {
     id: 'ops.book_next_run',
     tier: 'T0',
-    description: 'Book your own next run, naming the work it is for. delay_minutes: how long from now (0 = as soon as this one ends).',
-    schema: obj({ reason: str('The work the run is for'), delay_minutes: { type: 'number', description: '0 to 1440' } }, ['reason']),
+    description: 'Book your own next run, naming the work it is for. delay_minutes: how long from now (0 = as soon as this one ends), up to 10080 (7 days) - work for Monday is booked for Monday.',
+    schema: obj({ reason: str('The work the run is for'), delay_minutes: { type: 'number', description: '0 to 10080' } }, ['reason']),
     impl: (a, ctx) => {
       if (ctx.level === APOCALYPTIC) return "Not needed: at your level your next run starts as soon as this one ends.";
-      const delay = Math.max(0, Math.min(1440, Number(a.delay_minutes) || 0));
-      const pending = one<{ id: number }>("SELECT id FROM bookings WHERE agent_id = ? AND trigger = 'self-booked'", ctx.agent.id);
+      // Up to a week: capped at a day, "Monday's report" ran on Saturday and found nothing to do.
+      const delay = Math.max(0, Math.min(10_080, Number(a.delay_minutes) || 0));
+      // Merged only into its own booking still in the future - not a wake-up that's
+      // due now (a request answered), which would pull a Monday run forward to now.
+      const pending = one<{ id: number }>("SELECT id FROM bookings WHERE agent_id = ? AND trigger = 'self-booked' AND due_at > ?", ctx.agent.id, ctx.now());
       const due = ctx.now() + delay * 60_000;
       if (pending) run('UPDATE bookings SET due_at = MIN(due_at, ?), task = ? WHERE id = ?', due, String(a.reason ?? ''), pending.id);
       else
