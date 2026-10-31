@@ -577,8 +577,10 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
         c.connected
           ? `${c.label}${modelCount(c.models)}`
           : code
-            ? 'Enter this code on GitHub and approve.'
-            : (c.setupNeeded ?? c.what)
+            ? `Enter this code on GitHub and approve.${c.preparing != null ? ` Getting Copilot ready: ${c.preparing}%` : ''}`
+            : c.preparing != null
+              ? `Getting Copilot ready: ${c.preparing}%`
+              : (c.setupNeeded ?? c.what)
       }
       below={
         errorLine ||

@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { CopilotClient } from '@github/copilot-sdk';
+import { copilotConnection, copilotRuntimeProgress, ensureCopilotRuntime } from './copilotRuntime.js';
 import { deleteSecret, getSecret, mask, setSecret } from '../vault.js';
 import { chatGptModels as chatGptList, keepChat, knownModel, type ModelInfo, type Native } from './caps.js';
 import type { Effort } from './choice.js';
@@ -87,6 +88,7 @@ export type ConnectionView = {
   label?: string; // masked key, account, or status line
   models: number;
   pending?: { userCode?: string; verificationUri?: string }; // a sign-in in progress
+  preparing?: number; // Copilot: its runtime downloading, % done (copilotRuntime.ts)
   setupNeeded?: string; // why it can't connect yet, in plain words
   broken?: string; // a saved key that didn't check out, and why
   lastError?: string; // why the last sign-in didn't finish
@@ -122,6 +124,8 @@ export async function list(): Promise<ConnectionView[]> {
     if (p.id === 'copilot') {
       if (copilotPending) view.pending = { userCode: copilotPending.userCode, verificationUri: copilotPending.verificationUri };
       else if (!saved && copilotError) view.lastError = copilotError;
+      // Its runtime coming down (first connect on an installed app): how far.
+      view.preparing = copilotRuntimeProgress() ?? undefined;
     }
     return view;
   });
@@ -405,6 +409,8 @@ let copilotError: string | null = null;
 
 export async function copilotStart() {
   const clientId = GITHUB_CLIENT_ID;
+  // Its runtime, if this install doesn't have it, comes down while they sign in (copilotRuntime.ts).
+  void copilotConnection().catch(e => (copilotError = (e as Error).message));
   const res = await fetch('https://github.com/login/device/code', {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json' },
@@ -438,7 +444,7 @@ async function pollCopilot(clientId: string, deviceCode: string, interval: numbe
       if (t.error === 'access_denied') return void (copilotError = 'Sign-in was cancelled on GitHub.');
       if (!t.access_token) return void (copilotError = `GitHub sign-in failed (${t.error ?? 'no token'}).`);
       // Confirm the account has Copilot before calling it connected.
-      const client = new CopilotClient({ gitHubToken: t.access_token, useLoggedInUser: false, logLevel: 'error' });
+      const client = new CopilotClient({ ...(await copilotConnection()), gitHubToken: t.access_token, useLoggedInUser: false, logLevel: 'error' });
       try {
         await client.start();
         const models = (await client.listModels()).map(m => ({ id: m.id, efforts: [] }));
