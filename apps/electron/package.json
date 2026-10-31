@@ -38,7 +38,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "runAfterFinish": true,
-      "artifactName": "Extremely-Autonomous-Agents-Setup-${version}.${ext}"
+      "artifactName": "Extremely-Autonomous-Agents-Setup.${ext}"
     },
     "publish": [{ "provider": "github", "owner": "maxkxd", "repo": "extremely-autonomous-agents", "releaseType": "draft" }]
   }
