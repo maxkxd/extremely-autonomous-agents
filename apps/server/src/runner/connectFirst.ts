@@ -72,17 +72,23 @@ export async function connectFirst() {
     if (integ && names.has(r.agent_id)) add(service(integ.id, integ.name, integ), r.agent_id, names.get(r.agent_id)!);
   }
   // ...and what it is still building, by the request's own name ("Set up Stripe").
-  const known = () => new Set([...services.values()].map(s => s.name.toLowerCase()));
+  // A request's name ("Drive", "Zoho", "analytics (PostHog, GA)") is matched to a
+  // connection already listed when either name contains the other, or one of its
+  // options does - so Google Drive isn't listed again as "Drive being set up".
+  const match = (label: string) => {
+    const l = label.toLowerCase();
+    const opts = [l.replace(/\s*\(.*\)\s*/, '').trim(), ...(/\(([^)]*)\)/.exec(l)?.[1].split(/,|or/).map(o => o.trim()) ?? [])].filter(o => o.length > 1);
+    const found = [...services.values()].filter(s => {
+      const n = s.name.toLowerCase();
+      return opts.some(o => n === o || n.includes(o) || o.includes(n));
+    });
+    return found.sort((x, y) => x.name.length - y.name.length)[0];
+  };
   for (const r of all<{ agent_id: string; what: string }>("SELECT agent_id, what FROM requests WHERE status = 'open' AND stage = 'engineer' AND waiting_on IS NULL")) {
     const m = /^(?:Set up|Connect|Build the) (.+?)(?: tools(?: and events)?| events)?$/.exec(r.what);
     if (!m || !names.has(r.agent_id) || /^Fix the tool/.test(r.what)) continue;
     const name = m[1].replace(/^(a|an|the) /i, '');
-    if (known().has(name.toLowerCase())) {
-      const s = [...services.values()].find(x => x.name.toLowerCase() === name.toLowerCase())!;
-      add(s, r.agent_id, names.get(r.agent_id)!);
-      continue;
-    }
-    add(service(`build:${name.toLowerCase()}`, name, null), r.agent_id, names.get(r.agent_id)!);
+    add(match(name) ?? service(`build:${name.toLowerCase()}`, name, null), r.agent_id, names.get(r.agent_id)!);
   }
   const list = [...services.values()].filter(s => s.agents.length);
   list.sort(
