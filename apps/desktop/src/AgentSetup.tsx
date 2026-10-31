@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Check, Play, Star } from 'lucide-react';
+import { Play, Star } from 'lucide-react';
 import type { AgentSetup } from './builder';
 
 // A new agent's setup, on its card until it's first resumed: the connectors its
@@ -24,28 +24,21 @@ const Stars = ({ n }: { n: number }) => (
 );
 
 export function SetupList({ setup, onOpenRequest }: { setup: AgentSetup; onOpenRequest: (id: number) => void }) {
-  const left = setup.items.filter(i => !i.connected).length;
+  // Connected ones drop off; once none are left it starts by itself (runner/setup.ts).
+  const todo = setup.items.filter(i => !i.connected);
+  if (!todo.length) return null;
   return (
     <div className="setup-list">
-      <p className="setup-lead">
-        {setup.building
-          ? `The Agency Engineer is getting ${setup.building} connector${setup.building === 1 ? '' : 's'} ready.`
-          : left
-            ? `Connect ${left === 1 ? 'this' : 'these'} to get it going.`
-            : 'All connected. Resume it when you’re ready.'}
-      </p>
       <ul>
-        {setup.items.map(i => (
+        {todo.map(i => (
           <li key={i.name} className={i.connected ? 'done' : i.building ? 'building' : ''}>
             <span className="setup-name">{i.name}</span>
             <Stars n={i.stars} />
             <span className="setup-act">
-              {i.connected ? (
-                <span className="setup-done">
-                  <Check size={13} strokeWidth={2.25} /> Connected
+              {i.building ? (
+                <span className="state-pill setting-up" title="The Agency Engineer is getting this ready to connect.">
+                  Setting up
                 </span>
-              ) : i.building ? (
-                <span className="setup-wait">Getting it ready</span>
               ) : (
                 <button className="setup-go" onClick={() => onOpenRequest(i.requestId)}>
                   Go to request
