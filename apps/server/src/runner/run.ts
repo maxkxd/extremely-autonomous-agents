@@ -308,6 +308,9 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task)}${resume}` }];
   let acts = 0;
   let nudges = 0;
+  // Output when it was last nudged: a nudge that brought nothing new (a limit reached,
+  // no real work left) is the last one - four more said the same thing four times.
+  let actsAtNudge = -1;
   let input = 0;
   let output = 0;
   let cost: number | null = 0;
@@ -353,7 +356,8 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
                 return { content: r.content, error: r.error };
               },
               next: () => {
-                if (floor && acts < floor.floor && nudges < floor.nudges && canStillCount(agent, id, callableNow)) {
+                if (floor && acts < floor.floor && nudges < floor.nudges && acts > actsAtNudge && canStillCount(agent, id, callableNow)) {
+                  actsAtNudge = acts;
                   nudges++;
                   return nudgeText(agent, acts, floor.floor, nudges, floor.nudges, floor.soft);
                 }
@@ -419,7 +423,8 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
         continue;
       }
       // The model ended its turn. Below the floor? Nudge it (in the same conversation).
-      if (floor && acts < floor.floor && nudges < floor.nudges && canStillCount(agent, id, callableNow)) {
+      if (floor && acts < floor.floor && nudges < floor.nudges && acts > actsAtNudge && canStillCount(agent, id, callableNow)) {
+        actsAtNudge = acts;
         nudges++;
         messages.push({ role: 'user', text: nudgeText(agent, acts, floor.floor, nudges, floor.nudges, floor.soft) });
         continue;
