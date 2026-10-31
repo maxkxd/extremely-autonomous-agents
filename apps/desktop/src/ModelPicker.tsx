@@ -92,14 +92,16 @@ export function ModelPanel({
   onChange,
   checks = {},
   onCheck,
+  startSlot,
 }: {
   choices: ModelChoice[];
   available: AvailableModels[];
   onChange: (next: ModelChoice[]) => void;
   checks?: Checks;
   onCheck?: (connection: string, model: string) => void; // a model was just picked: test it
+  startSlot?: number; // which slot opens selected (default: the first empty one; the help's demo picks the first)
 }) {
-  const [slot, setSlot] = useState(Math.min(choices.length, SLOTS - 1));
+  const [slot, setSlot] = useState(startSlot ?? Math.min(choices.length, SLOTS - 1));
   const [query, setQuery] = useState('');
   const [openGroups, setOpenGroups] = useState<Set<string>>(
     () => new Set(choices[0] ? [choices[0].connection] : available[0] ? [available[0].connection] : []),

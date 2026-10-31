@@ -1,0 +1,347 @@
+/* Page help: the "?" button, the help window and its diagrams. */
+
+:root { --help-rgb: 245, 197, 66; }
+
+/* ---- The "?" ---------------------------------------------------------------- */
+.help-btn {
+  position: relative; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 15px; font-weight: 700; color: var(--muted);
+  border: 1px solid var(--border-strong); background: transparent;
+  transition: color 0.3s, border-color 0.3s, box-shadow 0.3s, background-color 0.3s;
+}
+.help-btn:hover, .help-btn.open { color: var(--text); border-color: var(--muted); }
+
+/* Unread: yellow, glowing, with sonar rings going out from it. */
+.help-btn.unread {
+  color: rgb(var(--help-rgb)); border-color: rgb(var(--help-rgb));
+  box-shadow: 0 0 12px rgba(var(--help-rgb), 0.55), inset 0 0 6px rgba(var(--help-rgb), 0.25);
+  text-shadow: 0 0 8px rgba(var(--help-rgb), 0.9);
+}
+.help-btn.unread::before,
+.help-btn.unread::after {
+  content: ''; position: absolute; inset: -1px; border-radius: 50%;
+  border: 2px solid rgba(var(--help-rgb), 0.6); pointer-events: none;
+  animation: help-sonar 2s ease-out infinite;
+}
+.help-btn.unread::after { animation-delay: 1s; }
+@keyframes help-sonar {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+
+/* Holds a page's own header controls plus the help button, right-aligned. */
+.header-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+
+/* ---- The window: grows out of the "?" ----------------------------------------- */
+.help-scrim { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0); transition: background 0.35s; }
+.help-scrim.in { background: rgba(0, 0, 0, 0.6); }
+.help-window {
+  position: fixed; display: flex; overflow: hidden;
+  border-radius: 14px; background: var(--bg); border: 1px solid var(--border-strong);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  transition: top 0.42s cubic-bezier(0.2, 0.8, 0.2, 1), left 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 0.42s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-radius 0.42s;
+}
+.help-window:not(.grown) { border-radius: 50%; }
+/* Closing: it fades as it shrinks, so it dissolves into the "?" rather than
+   arriving as a grey disc and vanishing. */
+.help-window.closing {
+  opacity: 0;
+  transition: top 0.42s cubic-bezier(0.4, 0, 0.6, 1), left 0.42s cubic-bezier(0.4, 0, 0.6, 1),
+    width 0.42s cubic-bezier(0.4, 0, 0.6, 1), height 0.42s cubic-bezier(0.4, 0, 0.6, 1),
+    border-radius 0.42s, opacity 0.3s ease-in 0.1s;
+}
+/* ...and the "?" gives a little pop as it takes it back. */
+.help-btn.caught { animation: help-caught 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes help-caught {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.18); border-color: var(--text); color: var(--text); }
+  100% { transform: scale(1); }
+}
+.help-window.grown {
+  top: 40px; left: calc(50% - min(500px, 50vw - 40px));
+  width: min(1000px, 100vw - 80px); height: calc(100vh - 80px);
+}
+.help-window > * { opacity: 0; transition: opacity 0.15s; }
+.help-window.grown > * { opacity: 1; transition: opacity 0.2s 0.25s; }
+
+/* Tabs down the side, part of the box - like Settings. */
+.help-nav {
+  width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding: 18px 10px 12px;
+  background: var(--sidebar); border-right: 1px solid var(--hairline);
+}
+.help-nav-title { padding: 0 10px 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.help-tab {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; padding: 9px 10px; border-radius: 8px; font-size: 14px; color: #bdbdbd; text-align: left;
+}
+.help-tab:hover { background: var(--surface-hover); color: var(--text); }
+.help-tab.on { background: var(--selected); color: var(--text); }
+.help-tab-new {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: rgb(var(--help-rgb)); box-shadow: 0 0 8px rgba(var(--help-rgb), 0.9);
+}
+
+.help-body { flex: 1; min-width: 0; overflow-y: auto; padding: 22px 36px 28px; }
+.help-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.help-head h2 { margin: 0; font-size: 22px; font-weight: 600; }
+.help-close { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
+.help-close:hover { background: var(--surface-hover); color: var(--text); }
+.help-section { margin-top: 26px; }
+.help-section h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.help-section p { margin: 12px 0 0; max-width: 620px; font-size: 14.5px; line-height: 1.55; color: #cfcfcf; }
+.help-caption { margin-top: 14px; max-width: 620px; }
+.help-caption p { margin: 0; }
+.help-caption p + p, .help-caption ul + p { margin-top: 12px; }
+.help-caption ul { margin: 6px 0 0; padding-left: 20px; list-style: disc; display: flex; flex-direction: column; gap: 5px; }
+.help-caption li { font-size: 14.5px; line-height: 1.5; color: #cfcfcf; }
+.help-caption li::marker { color: var(--attention); }
+.help-link {
+  display: inline; padding: 0; font: inherit; color: #6b9de6; cursor: pointer;
+  text-decoration: underline; text-decoration-color: rgba(107, 157, 230, 0.4); text-underline-offset: 3px;
+}
+.help-link:hover { color: #8fb6ee; text-decoration-color: currentColor; }
+.help-foot { margin-top: 30px; }
+.help-done {
+  height: 36px; padding: 0 16px; border-radius: 9px;
+  font-size: 14px; font-weight: 600; background: var(--attention); color: var(--attention-text);
+}
+.help-done:hover { filter: brightness(1.1); }
+
+/* ---- Diagrams ------------------------------------------------------------------ */
+.hd-stage {
+  position: relative; min-height: 200px; padding: 26px 28px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 18px;
+  background:
+    radial-gradient(circle at 50% 120%, rgba(63, 123, 214, 0.08), transparent 60%),
+    var(--sidebar);
+  border: 1px solid var(--border);
+  font-size: 13px; color: var(--text);
+}
+.hd-btn {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 7px;
+  font-size: 12px; font-weight: 600; border: 1px solid var(--border-strong); color: var(--text); white-space: nowrap;
+}
+.hd-btn.blue { background: var(--attention); border-color: var(--attention); color: #fff; }
+.hd-btn.light { background: #e6e6e6; border-color: #e6e6e6; color: #111; }
+.hd-callout {
+  position: relative; padding: 4px 9px; border-radius: 6px; font-size: 12px; color: rgb(var(--help-rgb));
+  border: 1px dashed rgba(var(--help-rgb), 0.55); background: rgba(var(--help-rgb), 0.06); white-space: nowrap;
+}
+
+/* The real agent card, scaled down. */
+.hd-real { width: 100%; }
+.hd-real-card { pointer-events: none; }
+/* Scaled down, the name, owner and counts get small, so they're drawn larger
+   here (zoom scales the icons too). Their column is narrower than the real
+   one, since "Outreach" is a short name; the pies take what's left. */
+.hd-real-card .card-head { width: 215px; zoom: 1.35; }
+.hd-real-card .agent-card { margin: 0; }
+
+/* The real charts, big. They take the card's blue (Driven) colours. */
+.hd-charts {
+  gap: 150px; align-items: flex-start; padding-top: 30px; padding-bottom: 26px;
+  --slice-0: #3f7bd6; --slice-1: #7aa3e4; --slice-2: #b4cbf0; --slice-3: #6b6b6b; --slice-4: #a0a0a0;
+  --fx-rgb: 63, 123, 214; --donut: 230px; --tx: 0.9s;
+}
+.hd-chart { width: 230px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.hd-chart .donut { filter: drop-shadow(0 0 8px rgba(63, 123, 214, 0.35)); }
+.hd-chart > span { font-size: 12.5px; color: var(--muted); }
+
+/* Agent card */
+.hd-agent { display: flex; border: 1px solid rgba(63, 123, 214, 0.6); border-radius: 12px; background: #181818; box-shadow: 0 0 24px rgba(63, 123, 214, 0.25); }
+.hd-agent-main { padding: 12px 16px; }
+.hd-agent-name { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 14px; }
+.hd-agent-charts { display: flex; gap: 14px; margin-top: 8px; }
+.hd-agent-side { width: 120px; padding: 12px 14px; border-left: 1px solid var(--hairline); }
+.hd-k { font-size: 11px; color: var(--muted); }
+.hd-v { font-size: 22px; font-weight: 600; margin-bottom: 14px; }
+.hd-slider { margin-top: 8px; height: 4px; border-radius: 2px; background: #333; }
+.hd-slider span { display: block; height: 100%; border-radius: 2px; background: var(--attention); }
+.hd-agent-notes { display: flex; flex-direction: column; gap: 10px; }
+.hd-donut { position: relative; width: 104px; height: 104px; }
+.hd-donut-mid { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.hd-donut-mid b { font-size: 16px; }
+.hd-donut-mid span { font-size: 10.5px; color: var(--muted); }
+
+/* Ferocity scale: five columns, colour building from grey to red. */
+.hd-ferocity { flex-direction: column; align-items: stretch; gap: 0; }
+/* Grey, grey-blue, blue, vibrant blue, red. */
+.hd-fero, .hd-fero-stop { --c: 138, 138, 138; }
+.hd-ferocity .fero-1 { --c: 128, 148, 180; }
+.hd-ferocity .fero-2 { --c: 63, 123, 214; }
+.hd-ferocity .fero-3 { --c: 46, 140, 255; }
+.hd-ferocity .fero-4 { --c: 229, 72, 77; }
+/* Like the card's slider: a track, one stop per level, getting fiercer to the right. */
+.hd-fero-slider { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); height: 40px; }
+.hd-fero-track {
+  position: absolute; left: 10%; right: 10%; top: 50%; height: 8px; margin-top: -4px; border-radius: 4px;
+  background: linear-gradient(to right, rgb(138, 138, 138), rgb(128, 148, 180), rgb(63, 123, 214), rgb(46, 140, 255), rgb(229, 72, 77));
+  box-shadow: 0 0 14px rgba(229, 72, 77, 0.12);
+}
+.hd-fero-stop { position: relative; display: grid; place-items: center; }
+.hd-fero-dot { width: 12px; height: 12px; border-radius: 50%; background: rgb(var(--c)); box-shadow: 0 0 0 3px var(--sidebar); }
+.hd-fero-stop.fero-3 .hd-fero-dot { box-shadow: 0 0 0 3px var(--sidebar), 0 0 12px rgba(var(--c), 0.7); }
+.hd-fero-stop.fero-4 .hd-fero-dot { box-shadow: 0 0 0 3px var(--sidebar), 0 0 16px rgba(var(--c), 0.9); }
+.hd-fero-levels { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 10px; }
+.hd-fero { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.hd-fero-name { font-size: 15px; font-weight: 600; color: rgb(var(--c)); }
+.hd-fero.fero-4 .hd-fero-name { text-transform: uppercase; letter-spacing: 0.06em; text-shadow: 0 0 10px rgba(var(--c), 0.8); }
+.hd-fero-title { font-size: 12.5px; font-weight: 600; line-height: 1.3; color: var(--text); }
+.hd-fero-line { margin-top: -4px; font-size: 12px; line-height: 1.35; color: #b4b4b4; }
+
+/* The card's right-hand column on its own, numbered, with a legend. */
+.hd-side-stage { gap: 44px; padding: 26px 34px; counter-reset: none; }
+.hd-side { zoom: 1.1; flex-shrink: 0; counter-reset: part; }
+.hd-side .card-main, .hd-side .drag-grip { display: none; }
+.hd-side .agent-card { overflow: visible; width: auto; }
+.hd-side .stat, .hd-side .controls, .hd-side .ferocity, .hd-side .model-row { position: relative; counter-increment: part; }
+.hd-side .stat::before, .hd-side .controls::before, .hd-side .ferocity::before, .hd-side .model-row::before {
+  content: counter(part); position: absolute; left: -34px; top: 1px;
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 11px; font-weight: 700; color: #fff; background: var(--attention);
+  box-shadow: 0 0 10px rgba(63, 123, 214, 0.6);
+}
+.hd-side .controls::before { top: 8px; }
+.hd-side .model-row::before { top: 7px; }
+.hd-legend { margin: 0; padding: 0; list-style: none; counter-reset: part; display: flex; flex-direction: column; gap: 14px; max-width: 300px; }
+.hd-legend li { position: relative; padding-left: 32px; counter-increment: part; font-size: 13px; line-height: 1.45; color: #b4b4b4; }
+.hd-legend li::before {
+  content: counter(part); position: absolute; left: 0; top: 0;
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 11px; font-weight: 700; color: #fff; background: var(--attention);
+}
+.hd-legend b { display: block; color: var(--text); }
+
+/* The model picker, working. */
+.hd-models .model-groups { overscroll-behavior: auto; } /* let the wheel scroll the help window */
+.hd-models .model-panel { width: 560px; border-radius: 12px; border: 1px solid var(--border-strong); }
+
+/* Approvals */
+.hd-approval {
+  width: 250px; padding: 12px 14px; border-radius: 10px; background: #1b1b1b; border: 1px solid var(--border-strong);
+}
+.hd-approval-line { font-size: 12.5px; color: var(--muted); }
+.hd-approval-line b { color: var(--text); }
+.hd-approval-field { margin-top: 6px; font-size: 12px; }
+.hd-approval-field span { color: var(--muted); margin-right: 8px; }
+.hd-approval-buttons { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.hd-approval-clock { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--muted); }
+.hd-approval.approved { border-color: #3fb27f; box-shadow: 0 0 22px rgba(63, 178, 127, 0.4); background: rgba(63, 178, 127, 0.08); }
+.hd-approval.rejected { border-color: #e5484d; box-shadow: 0 0 22px rgba(229, 72, 77, 0.4); background: rgba(229, 72, 77, 0.08); }
+.hd-decide { gap: 6px; overflow: hidden; }
+.hd-decide-side { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.hd-decide-side b { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; font-size: 14px; }
+.hd-decide-side > span { font-size: 11.5px; color: var(--muted); }
+.hd-decide-side.green b { color: #3fb27f; }
+.hd-decide-side.red b { color: #e5484d; }
+/* The decided cards: smaller, tilted, on their way out. */
+.hd-decide-card { width: 160px; height: 78px; position: relative; }
+.hd-decide-card .hd-approval { position: absolute; top: 0; left: 0; transform-origin: top left; transform: scale(0.64); }
+.hd-decide-card.left { transform: rotate(-4deg); }
+.hd-decide-card.right { transform: rotate(4deg); }
+.hd-decide-arrow { color: #6a6a6a; }
+.hd-decide-arrow.left { transform: scaleX(-1); }
+/* Silent, Logged, Approval: three columns, each with what you see of it. */
+.hd-tiers { align-items: stretch; gap: 14px; }
+.hd-tier { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.hd-tier > b { font-size: 14px; }
+.hd-tier-badge {
+  height: 34px; padding: 0 16px; border-radius: 999px; display: grid; place-items: center; margin-bottom: 6px;
+  font-size: 14px; font-weight: 700; border: 1px solid; --c: 138, 138, 138;
+  color: rgb(var(--c)); border-color: rgba(var(--c), 0.55); background: rgba(var(--c), 0.1);
+}
+.hd-tier-badge.t1 { --c: 63, 123, 214; }
+.hd-tier-badge.t2 { --c: 63, 178, 127; }
+.hd-tier-eg { font-size: 11.5px; color: var(--muted); min-height: 30px; }
+.hd-tier-shows {
+  margin-top: auto; width: 100%; min-height: 74px; padding: 10px; border-radius: 10px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  background: #1b1b1b; border: 1px solid var(--border);
+}
+.hd-tier-shows.quiet { flex-direction: row; gap: 6px; color: #5f5f5f; font-size: 12px; border-style: dashed; }
+.hd-tier-shows em { font-style: normal; font-size: 11px; color: var(--muted); }
+.hd-tier-dm { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); }
+.hd-tier-dm svg { color: #3fb27f; }
+.hd-tier-tool { font-size: 11px; color: #b4b4b4; }
+.hd-tier-approval { display: flex; gap: 6px; }
+.hd-tier-approval .hd-btn { height: 24px; padding: 0 8px; font-size: 11px; }
+
+/* An approval card, with the Approvals page's own styles. */
+.hd-approval-real .approvals { padding: 0; max-width: none; }
+.hd-approval-real .approval { margin: 0; }
+
+/* A request, with the Requests page's own styles. */
+.hd-request-real .requests { padding: 0; max-width: none; }
+.hd-request-real .request-wrap, .hd-request-real .request { margin: 0; }
+.hd-request-real .request-expand { grid-template-rows: 1fr; }
+
+/* Answering a request: its buttons, numbered, over a legend. */
+.hd-answer { flex-direction: column; align-items: stretch; gap: 24px; padding: 30px 30px 26px; }
+.hd-answer-parts { display: flex; flex-direction: column; gap: 14px; counter-reset: part; }
+.hd-answer-parts .request-actions { margin: 0; }
+.hd-answer-parts .eng-composer { position: relative; counter-increment: part; }
+.hd-numbered-box::before {
+  content: counter(part); position: absolute; top: -10px; left: -10px; z-index: 1;
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 11px; font-weight: 700; color: #fff; background: var(--attention);
+  box-shadow: 0 0 10px rgba(63, 123, 214, 0.6);
+}
+.hd-numbered .rq-btn { position: relative; counter-increment: part; }
+.hd-numbered .rq-btn::before {
+  content: counter(part); position: absolute; top: -10px; left: -10px; z-index: 1;
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 11px; font-weight: 700; color: #fff; background: var(--attention);
+  box-shadow: 0 0 10px rgba(63, 123, 214, 0.6);
+}
+.hd-numbered .rq-btn:disabled { opacity: 1; }
+.hd-answer-legend { max-width: none; display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; }
+
+/* An agent DM, with the DM page's own styles. */
+.hd-dm-real {
+  border-radius: 12px; border: 1px solid var(--border); background: var(--bg); overflow: hidden;
+}
+.hd-dm-real .dm-log { padding: 14px 20px 10px; }
+.hd-dm-real .dm-composer { position: static; margin: 0 20px; padding: 6px 0 16px; }
+.hd-dm-real .dm-runline { cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .help-btn.unread::before, .help-btn.unread::after { animation: none; opacity: 0; }
+  .help-window { transition: none; }
+}
+
+/* Getting started: the ordinary agent next to the extreme one. */
+.hd-ambition { align-items: stretch; gap: 16px; }
+.hd-ambition .hd-decide-arrow { align-self: center; flex-shrink: 0; }
+.hd-ambition-col {
+  flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px;
+  background: #1b1b1b; border: 1px solid var(--border);
+}
+.hd-ambition-head { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.hd-ambition-agent { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 9px; background: var(--sidebar); border: 1px solid var(--border); }
+.hd-ambition-agent svg { flex-shrink: 0; margin-top: 1px; }
+.hd-ambition-agent b { display: block; font-size: 13.5px; }
+.hd-ambition-agent span { display: block; margin-top: 2px; font-size: 12.5px; line-height: 1.4; }
+.hd-ambition-col.small { opacity: 0.55; }
+.hd-ambition-col.small .hd-ambition-agent span { color: var(--muted); }
+.hd-ambition-col.big { border-color: rgba(63, 123, 214, 0.6); box-shadow: 0 0 28px rgba(63, 123, 214, 0.18); }
+.hd-ambition-col.big .hd-ambition-head { color: #7aa3e4; }
+.hd-ambition-col.big .hd-ambition-agent svg { color: #7aa3e4; }
+
+/* Getting started: the New agent page, sketched. */
+.hd-first { align-items: stretch; gap: 14px; }
+.hd-first-pack {
+  flex: 1; height: 170px; display: flex; flex-direction: column; gap: 8px; padding: 18px 16px; border-radius: 12px;
+  background: #1b1b1b; border: 1px solid var(--border);
+}
+.hd-first-pack b { font-size: 15px; margin-bottom: 4px; }
+.hd-first-pack i { display: block; height: 7px; border-radius: 4px; background: #2e2e2e; }
+.hd-first-rows { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+.hd-first-rows i { height: 22px; border-radius: 6px; background: #222; }
+.hd-first-pack.custom {
+  align-items: center; justify-content: center; color: #7aa3e4;
+  border: 1px dashed rgba(63, 123, 214, 0.6); background: rgba(63, 123, 214, 0.06);
+  box-shadow: 0 0 28px rgba(63, 123, 214, 0.15);
+}

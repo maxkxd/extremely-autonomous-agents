@@ -1,3 +1,5 @@
+import { HelpButton } from './help/HelpButton';
+import { helpTopicFor } from './help/topics';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ChevronRight, Eye, EyeOff, Plus } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
@@ -549,6 +551,7 @@ function Agency() {
               </>
             )}
           </div>
+          <div className="header-right">
           {view === 'dashboard' && (
             <div className="header-tools">
               {isAdmin() && <AgencyControls state={agency} onChange={changeAgency} />}
@@ -577,6 +580,9 @@ function Agency() {
               setAgentFilter={setAgentFilter}
             />
           )}
+          {/* The page's help (help/): glows until read; Getting started first. */}
+          {helpTopicFor(view) && <HelpButton key={helpTopicFor(view)} topic={helpTopicFor(view)!} onNavigate={setView} />}
+          </div>
         </header>
         <div className="main-body" ref={mainBody}>
           {view === 'dashboard' ? (
