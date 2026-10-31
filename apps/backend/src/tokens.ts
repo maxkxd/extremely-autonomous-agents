@@ -70,6 +70,21 @@ async function clerkProfile(userId: string): Promise<Profile> {
   return { id: userId, email, name };
 }
 
+// A single-use Clerk sign-in ticket for someone already signed in (in their
+// browser), for the desktop app to sign in with: Google and GitHub refuse
+// embedded windows, so the app signs in there and is handed this. Short-lived.
+export async function signInTicket(userId: string): Promise<string> {
+  const secret = process.env.CLERK_SECRET_KEY;
+  if (!secret) throw new Error('CLERK_SECRET_KEY is not set.');
+  const res = await fetch('https://api.clerk.com/v1/sign_in_tokens', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, expires_in_seconds: 120 }),
+  });
+  if (!res.ok) throw new Error(`Clerk answered ${res.status} for a sign-in ticket.`);
+  return ((await res.json()) as { token: string }).token;
+}
+
 export async function createAuth(opts: {
   // Clerk's signing keys; tests pass their own.
   sessionKeys?: JWTVerifyGetKey;

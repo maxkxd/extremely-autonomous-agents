@@ -6,10 +6,11 @@ runs in development.
 
 ## What the app is
 
-- **Its own Node runs the agency.** `apps/server` ships as its source, run with
-  `tsx` exactly as in development (`node --import tsx src/index.ts`), so every
-  path it reads - shipped integrations, packs, plugin sources, the sandbox -
-  works unchanged. An organisation the computer hosts is started the same way.
+- **Electron's own Node runs the agency** (`ELECTRON_RUN_AS_NODE`): one runtime
+  shipped, not two. `apps/server` ships as its source, run with `tsx` exactly as
+  in development (`--import tsx src/index.ts`), so every path it reads - shipped
+  integrations, packs, plugin sources, the sandbox - works unchanged. An
+  organisation the computer hosts, and the plugin sandbox, start the same way.
 - **The agency serves the app.** With `EAA_UI_DIR` set (only in the packaged
   app), `apps/server/src/ui.ts` serves the built `apps/desktop` at the same
   address as `/api`. The root still takes a service's sign-in callback (it
@@ -24,6 +25,14 @@ runs in development.
 - **The agency goes with the app** however it ends: it watches the app's
   process (`EAA_APP_PID`, `hosting.ts`), so a crash can't leave it holding the
   ports.
+- **Google and GitHub sign-in happen in the person's browser**: they refuse
+  embedded windows. The app opens its own address in the browser, the sign-in
+  happens there, and a single-use Clerk ticket (`/me/sign-in-ticket` on the
+  backend) comes back to the app through the agency (`handoff.ts`, guarded by a
+  code only the app knows, ten minutes, this computer only). The browser is
+  signed back out. Email codes sign in inside the window as before.
+- **Copilot works out of the box**: its GitHub OAuth client id is public and
+  built in (`GITHUB_OAUTH_CLIENT_ID` still overrides it).
 - **What it doesn't ship**: Claude Code, the Copilot CLI's sign-in, Cloudflare's
   tunnel, Chrome or Edge for the agents' browser. The app finds them, and offers
   to install Claude Code, as in development.
@@ -46,8 +55,8 @@ On Windows, with Node 24:
 
 `scripts/stage.cjs` assembles `build/stage`: the server with its production
 dependencies, the built app (`VITE_EAA_BACKEND_URL` and
-`VITE_CLERK_PUBLISHABLE_KEY` from the environment or `apps/desktop/.env.local`),
-and the Node running it. `scripts/after-pack.cjs` copies the server's
+`VITE_CLERK_PUBLISHABLE_KEY` from the environment or `apps/desktop/.env.local`) -
+and no Node of its own, since Electron's runs it. `scripts/after-pack.cjs` copies the server's
 `node_modules` in after packing - electron-builder won't copy a `node_modules`
 through `extraResources`.
 
@@ -71,11 +80,9 @@ Without the Azure secrets the installer is built unsigned, with a warning.
 ## Open
 
 - **Signing**: Azure Trusted Signing and Apple Developer applied for.
-- **Sign-in with Google inside the app**: Google refuses OAuth in embedded
-  browsers, which may block Clerk's Google button in the window; email codes
-  work. If it does, sign-in moves to the system browser.
-- **Size**: the installer is about 200 MB - mostly the Copilot CLI (156 MB)
-  that `@github/copilot-sdk` bundles.
+- **Size**: about 170 MB - mostly the Copilot runtime (156 MB unpacked) that
+  `@github/copilot-sdk` bundles for everyone, Copilot or not. Fetching it only
+  when someone connects Copilot would roughly halve the download.
 - The installer's name has no version in it (`Extremely-Autonomous-Agents-Setup.exe`), so
   `https://github.com/maxkxd/extremely-autonomous-agents/releases/latest/download/Extremely-Autonomous-Agents-Setup.exe`
   always gets the newest - that's the website's Download link.

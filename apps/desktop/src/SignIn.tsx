@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { siGithub, siGoogle, type SimpleIcon } from 'simple-icons';
-import { devSignIn, emailCode, signInWith, state } from './account';
+import { devSignIn, emailCode, inDesktopApp, signInWith, state } from './account';
 
 // Anywhere in the app can ask for it; App shows it, grown out of the button
 // pressed (from), if there was one. 'up' only changes the title: the same
@@ -72,6 +72,18 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
   const [code, setCode] = useState('');
   const [finish, setFinish] = useState<((code: string) => Promise<void>) | null>(null);
   const [busy, setBusy] = useState(false);
+  // Google/GitHub in the desktop app: signing in in the browser (account.ts).
+  const [inBrowser, setInBrowser] = useState(false);
+  const withProvider = (provider: 'google' | 'github') =>
+    run(async () => {
+      setInBrowser(inDesktopApp);
+      try {
+        await signInWith(provider);
+      } finally {
+        setInBrowser(false);
+      }
+      if (inDesktopApp) onDone();
+    });
   const [error, setError] = useState<string | null>(null);
   const first = useRef<HTMLInputElement>(null);
   const dev = state.signIn === 'dev';
@@ -141,11 +153,11 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
           <>
             {!dev && (
               <div className="signin-providers">
-                <button type="button" className="sbtn" disabled={busy} onClick={() => run(() => signInWith('google'))}>
+                <button type="button" className="sbtn" disabled={busy} onClick={() => withProvider('google')}>
                   <Mark icon={siGoogle} />
                   Google
                 </button>
-                <button type="button" className="sbtn" disabled={busy} onClick={() => run(() => signInWith('github'))}>
+                <button type="button" className="sbtn" disabled={busy} onClick={() => withProvider('github')}>
                   <Mark icon={siGithub} />
                   GitHub
                 </button>
@@ -154,6 +166,7 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
             <input ref={first} className="signin-input" type="email" autoComplete="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
             {dev && <input className="signin-input" autoComplete="name" placeholder="Name" value={name} onChange={e => setName(e.target.value)} />}
             {dev && <p className="signin-note">Development sign-in: no code.</p>}
+            {inBrowser && <p className="signin-note">Finish signing in in the browser window that opened.</p>}
           </>
         )}
         {error && <div className="custom-error">{error}</div>}

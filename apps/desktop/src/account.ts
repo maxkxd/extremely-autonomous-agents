@@ -55,6 +55,9 @@ export const state = {
   localName: null as string | null, // this computer's own person, as its agency knows them
   localFullName: null as string | null, // the name they chose, when not signed in (their agency's profile of them)
   unreachable: null as string | null, // the organisation the app is in can't be reached: why ('offline', or a message)
+  // This page is the browser half of the desktop app's Google/GitHub sign-in:
+  // what to show instead of the app (signInWith).
+  handoff: null as null | 'done' | { error: string },
 };
 
 // --- Signing in ---
@@ -132,11 +135,83 @@ export async function emailCode(email: string): Promise<(code: string) => Promis
 }
 const clerkMessage = (e: unknown) => (e as { errors?: { message?: string }[] }).errors?.[0]?.message ?? 'That didn’t work. Try again.';
 
-// Google or GitHub: away to the provider, and back to /sso-callback.
+// The desktop app's own window (apps/electron), not a browser.
+export const inDesktopApp = /\bElectron\//.test(navigator.userAgent);
+
+// Google or GitHub: away to the provider, and back to /sso-callback. In the
+// desktop app they refuse the embedded window, so the person's own browser
+// opens this same address, signs in there, and hands a single-use ticket back
+// through this computer's agency (apps/server/src/handoff.ts); this resolves
+// once the app is signed in with it.
 export async function signInWith(provider: 'google' | 'github') {
   const c = await loadClerk();
   if (!c?.client) throw new SignInError("Can't reach sign-in right now.");
-  await c.client.signIn.authenticateWithRedirect({ strategy: `oauth_${provider}`, redirectUrl: `${location.origin}/sso-callback`, redirectUrlComplete: `${location.origin}/` });
+  if (!inDesktopApp) {
+    await c.client.signIn.authenticateWithRedirect({ strategy: `oauth_${provider}`, redirectUrl: `${location.origin}/sso-callback`, redirectUrlComplete: `${location.origin}/` });
+    return;
+  }
+  const { state: code } = await local<{ state: string }>('/api/auth/handoff', {});
+  window.open(`${location.origin}/?handoff=${provider}&state=${encodeURIComponent(code)}`, '_blank');
+  const until = Date.now() + 10 * 60_000;
+  while (Date.now() < until) {
+    await new Promise(r => setTimeout(r, 1500));
+    const got = await local<{ ticket: string | null; expired: boolean }>(`/api/auth/handoff/ticket?state=${encodeURIComponent(code)}`).catch(() => null);
+    if (got?.expired) break;
+    if (!got?.ticket) continue;
+    const signIn = await c.client.signIn.create({ strategy: 'ticket', ticket: got.ticket }).catch(err => {
+      throw new SignInError(clerkMessage(err));
+    });
+    if (!signIn.createdSessionId) throw new SignInError('That didn’t finish signing in. Try again.');
+    await c.setActive({ session: signIn.createdSessionId });
+    await refreshMe();
+    return;
+  }
+  throw new SignInError('Signing in in the browser timed out. Try again.');
+}
+
+// The browser half (opened by the desktop app with ?handoff=<provider>&state=):
+// sign in as on the web, then hand the app a ticket and sign this browser back out.
+const HANDOFF_KEY = 'eaa.handoff';
+async function browserHandoff() {
+  const params = new URLSearchParams(location.search);
+  const provider = params.get('handoff');
+  const code = params.get('state');
+  if ((provider === 'google' || provider === 'github') && code) {
+    try {
+      sessionStorage.setItem(HANDOFF_KEY, code);
+    } catch {
+      // nowhere to keep it: the hand-back below fails and says so
+    }
+    const c = await loadClerk();
+    if (!c?.client) return void (state.handoff = { error: "Can't reach sign-in right now." });
+    if (!c.session) {
+      // Off to the provider; this page comes back at /sso-callback.
+      await c.client.signIn.authenticateWithRedirect({ strategy: `oauth_${provider}`, redirectUrl: `${location.origin}/sso-callback`, redirectUrlComplete: `${location.origin}/` });
+      return;
+    }
+  }
+  let pendingCode: string | null = null;
+  try {
+    pendingCode = sessionStorage.getItem(HANDOFF_KEY);
+  } catch {
+    // none
+  }
+  if (!pendingCode) return;
+  try {
+    sessionStorage.removeItem(HANDOFF_KEY);
+  } catch {
+    // fine
+  }
+  try {
+    const c = await loadClerk();
+    if (!c?.session) throw new SignInError('Signing in didn’t finish. Try again from the app.');
+    const { ticket } = await backend<{ ticket: string }>('/me/sign-in-ticket', { method: 'POST' });
+    await local('/api/auth/handoff/ticket', { state: pendingCode, ticket });
+    await c.signOut().catch(() => {});
+    state.handoff = 'done';
+  } catch (e) {
+    state.handoff = { error: (e as Error).message };
+  }
 }
 
 // Organisations' snapshots (offline copies) in this browser: one, or all.
@@ -296,6 +371,11 @@ export async function initAccount() {
     const c = await loadClerk().catch(() => null);
     await c?.handleRedirectCallback({ signInUrl: '/', signUpUrl: '/' }, async to => history.replaceState(null, '', to)).catch(() => {});
     history.replaceState(null, '', '/');
+  }
+  // The browser half of the desktop app's sign-in: nothing else on this page.
+  if (!inDesktopApp) {
+    await browserHandoff();
+    if (state.handoff || new URLSearchParams(location.search).has('handoff')) return;
   }
   state.agency = read(AGENCY_KEY, 'personal');
   state.me = read(ME_KEY, null);

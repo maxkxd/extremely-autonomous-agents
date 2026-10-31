@@ -120,7 +120,6 @@ export async function list(): Promise<ConnectionView[]> {
       view.connected = cc.loggedIn && !!saved;
     }
     if (p.id === 'copilot') {
-      if (!process.env.GITHUB_OAUTH_CLIENT_ID) view.setupNeeded = 'Needs a GitHub OAuth App for this app (GITHUB_OAUTH_CLIENT_ID).';
       if (copilotPending) view.pending = { userCode: copilotPending.userCode, verificationUri: copilotPending.verificationUri };
       else if (!saved && copilotError) view.lastError = copilotError;
     }
@@ -397,13 +396,15 @@ async function chatGptModels(accessToken: string): Promise<ModelInfo[]> {
 // --- GitHub Copilot: device sign-in, then the official Copilot SDK -------------
 // https://docs.github.com/en/copilot/how-tos/copilot-sdk/setup/github-oauth
 // Needs a GitHub OAuth App registered for this product, with device flow on.
+// Its client id is public by design (device flow has no secret), so it's built
+// in - the installed app has no .env. GITHUB_OAUTH_CLIENT_ID still overrides it.
+const GITHUB_CLIENT_ID = process.env.GITHUB_OAUTH_CLIENT_ID || 'Ov23liRZprRaqnQxYLB8';
 
 let copilotPending: { userCode: string; verificationUri: string } | null = null;
 let copilotError: string | null = null;
 
 export async function copilotStart() {
-  const clientId = process.env.GITHUB_OAUTH_CLIENT_ID;
-  if (!clientId) throw new ConnectError('GitHub Copilot needs a GitHub OAuth App for this app first (see docs/model-connections.md).');
+  const clientId = GITHUB_CLIENT_ID;
   const res = await fetch('https://github.com/login/device/code', {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json' },
