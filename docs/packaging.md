@@ -33,6 +33,11 @@ runs in development.
   signed back out. Email codes sign in inside the window as before.
 - **Copilot works out of the box**: its GitHub OAuth client id is public and
   built in (`GITHUB_OAUTH_CLIENT_ID` still overrides it).
+- **Copilot's runtime comes down on first connect** (`models/copilotRuntime.ts`):
+  it's about 160 MB and only Copilot users need it, so the installer leaves its
+  package out. Connecting Copilot (or a run that needs it) fetches the version
+  the SDK asks for from npm, checks npm's sha512, and unpacks it into the data
+  folder with Windows' own tar; its progress shows on Copilot's row.
 - **What it doesn't ship**: Claude Code, the Copilot CLI's sign-in, Cloudflare's
   tunnel, Chrome or Edge for the agents' browser. The app finds them, and offers
   to install Claude Code, as in development.
@@ -80,9 +85,7 @@ Without the Azure secrets the installer is built unsigned, with a warning.
 ## Open
 
 - **Signing**: Azure Trusted Signing and Apple Developer applied for.
-- **Size**: about 170 MB - mostly the Copilot runtime (156 MB unpacked) that
-  `@github/copilot-sdk` bundles for everyone, Copilot or not. Fetching it only
-  when someone connects Copilot would roughly halve the download.
+- **Size**: about 130 MB, nearly all Electron.
 - The installer's name has no version in it (`Extremely-Autonomous-Agents-Setup.exe`), so
   `https://github.com/maxkxd/extremely-autonomous-agents/releases/latest/download/Extremely-Autonomous-Agents-Setup.exe`
   always gets the newest - that's the website's Download link.
