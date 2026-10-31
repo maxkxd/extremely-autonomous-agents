@@ -636,7 +636,8 @@ test('a new agent in setup starts by itself once every connector is connected, n
   const crm = Number(exec("INSERT INTO requests (agent_id, what, why, created_at, stage, setup, service, stars) VALUES ('zz-setup', 'Connect a CRM', 'x', 0, 'waiting_you', 1, 'crm', 5)").lastInsertRowid);
   exec("INSERT INTO requests (agent_id, what, why, status, created_at, setup, service) VALUES ('zz-setup', 'Connect GitHub', 'x', 'done', 0, 1, 'github')");
   const s = (await setups())['zz-setup'];
-  assert.deepEqual(s.items.map(i => [i.name, i.stars, i.connected]), [['CRM', 5, false], ['Code repository', 3, true]]);
+  assert.deepEqual(s.items.map(i => [i.name, i.stars, i.connected]), [['CRM', 5, false], ['Code repository', 0, true]]); // unrated: no stars yet
+  assert.equal(s.progress, 3 / 8); // weighted as 3 until rated
   assert.deepEqual(await finishSetups(), []); // the CRM isn't connected yet
   exec("UPDATE requests SET status = 'done' WHERE id = ?", crm);
   assert.deepEqual(await finishSetups(), ['zz-setup']);
