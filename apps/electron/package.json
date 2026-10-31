@@ -2,7 +2,7 @@
   "name": "@eaa/electron",
   "productName": "Extremely Autonomous Agents",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Extremely Autonomous Agents for your desktop",
   "license": "AGPL-3.0-only",
   "author": "World Asset Register",
@@ -23,14 +23,29 @@
     "appId": "agency.extremely.desktop",
     "productName": "Extremely Autonomous Agents",
     "executableName": "ExtremelyAutonomousAgents",
-    "directories": { "output": "dist" },
+    "directories": {
+      "output": "dist"
+    },
     "afterPack": "scripts/after-pack.cjs",
-    "files": ["main.cjs", "build/icon.png", "package.json"],
-    "extraResources": [
-      { "from": "build/stage/server", "to": "server" },
-      { "from": "build/stage/ui", "to": "ui" }
+    "files": [
+      "main.cjs",
+      "build/icon.png",
+      "package.json"
     ],
-    "win": { "target": "nsis", "icon": "build/icon.ico" },
+    "extraResources": [
+      {
+        "from": "build/stage/server",
+        "to": "server"
+      },
+      {
+        "from": "build/stage/ui",
+        "to": "ui"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
@@ -39,6 +54,13 @@
       "runAfterFinish": true,
       "artifactName": "Extremely-Autonomous-Agents-Setup.${ext}"
     },
-    "publish": [{ "provider": "github", "owner": "maxkxd", "repo": "extremely-autonomous-agents", "releaseType": "draft" }]
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "maxkxd",
+        "repo": "extremely-autonomous-agents",
+        "releaseType": "draft"
+      }
+    ]
   }
 }
