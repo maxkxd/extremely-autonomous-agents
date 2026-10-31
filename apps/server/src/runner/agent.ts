@@ -69,20 +69,29 @@ type ToolsYaml = {
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : fallback);
 
-// Telling the person isn't output: counted, a blocked Revenue Ops' only way to
-// its target was to email Max over and over.
+// Real outcomes only. Telling the person isn't output (a blocked Revenue Ops'
+// only way to its target was to email Max over and over), and neither is the
+// agent's own workspace, memory or plumbing (Outreach wrote 106 files to reach 15).
 const NOT_OUTPUT = new Set(['gmail.send_to_me']);
+const notOutput = (c: string) => NOT_OUTPUT.has(c) || /^(files|memory|tasks|requests|ops)\./.test(c);
 
 export function planFrom(raw: Partial<FerocityPlan> | undefined, output: string[]): FerocityPlan {
   const p = raw ?? {};
   const every = Array.isArray(p.every_hours) && p.every_hours.length === 4 ? p.every_hours : DEFAULT_PLAN.every_hours;
-  const floor = num(p.floor, DEFAULT_PLAN.floor);
+  const given = Array.isArray(p.counts) && p.counts.length ? p.counts.map(String) : output;
+  let counts = given.filter(c => !notOutput(c));
+  // A plan that counted only its workspace counts its KPI's real actions instead;
+  // its numbers were sized for files, so they're scaled down to a quarter.
+  const rescaled = !counts.length && given.length > 0;
+  if (rescaled) counts = output.filter(c => !notOutput(c));
+  const scale = (n: number) => (rescaled ? Math.max(1, Math.round(n / 4)) : n);
+  const given_floor = num(p.floor, DEFAULT_PLAN.floor);
   return {
     every_hours: every.map((h, i) => num(h, DEFAULT_PLAN.every_hours[i])) as FerocityPlan['every_hours'],
-    soft_floor: num(p.soft_floor, Math.max(1, Math.round(floor / 3))),
-    floor,
-    apocalyptic_floor: num(p.apocalyptic_floor, floor * 3),
-    counts: (Array.isArray(p.counts) && p.counts.length ? p.counts.map(String) : output).filter(c => !NOT_OUTPUT.has(c)),
+    soft_floor: scale(num(p.soft_floor, Math.max(1, Math.round(given_floor / 3)))),
+    floor: scale(given_floor),
+    apocalyptic_floor: scale(num(p.apocalyptic_floor, given_floor * 3)),
+    counts,
     hint: typeof p.hint === 'string' && p.hint.trim() ? p.hint : DEFAULT_PLAN.hint,
     extra_effort: typeof p.extra_effort === 'string' && p.extra_effort.trim() ? p.extra_effort : DEFAULT_PLAN.extra_effort,
   };
