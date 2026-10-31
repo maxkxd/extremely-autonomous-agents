@@ -1,5 +1,5 @@
 // The desktop app (docs/packaging.md): starts this computer's agency (apps/server)
-// with its own copy of Node, shows the app it serves, and keeps the agency
+// with Electron's own Node (ELECTRON_RUN_AS_NODE), shows the app it serves, and keeps the agency
 // running in the tray when the window closes - agents work in the background.
 // Updates come from GitHub Releases; before one installs, the agency is put on
 // standby and running agents finish, so no run is cut off.
@@ -20,7 +20,10 @@ const ORIGIN = `http://127.0.0.1:${PORTS.app}`;
 const RES = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'build', 'stage');
 const SERVER_DIR = app.isPackaged ? path.join(RES, 'server') : path.join(__dirname, '..', 'server');
 const UI_DIR = app.isPackaged ? path.join(RES, 'ui') : path.join(__dirname, '..', 'desktop', 'dist');
-const NODE = app.isPackaged ? path.join(RES, 'node', process.platform === 'win32' ? 'node.exe' : 'node') : 'node';
+// Electron is Node too: run as Node, it starts the agency - and whatever the agency
+// starts with process.execPath (an organisation it hosts, the plugin sandbox),
+// since they inherit ELECTRON_RUN_AS_NODE. One runtime shipped, not two.
+const NODE = app.isPackaged ? process.execPath : 'node';
 
 const DATA = path.join(app.getPath('userData'), 'data');
 const LOGS = path.join(app.getPath('userData'), 'logs');
@@ -70,7 +73,7 @@ function startServer() {
       EAA_UI_DIR: UI_DIR,
       EAA_APP_PID: String(process.pid), // it stops if the app goes (hosting.ts)
       NODE_ENV: 'production',
-      ELECTRON_RUN_AS_NODE: undefined,
+      ELECTRON_RUN_AS_NODE: app.isPackaged ? '1' : undefined,
     },
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],

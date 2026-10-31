@@ -28,8 +28,7 @@
     "files": ["main.cjs", "build/icon.png", "package.json"],
     "extraResources": [
       { "from": "build/stage/server", "to": "server" },
-      { "from": "build/stage/ui", "to": "ui" },
-      { "from": "build/stage/node", "to": "node" }
+      { "from": "build/stage/ui", "to": "ui" }
     ],
     "win": { "target": "nsis", "icon": "build/icon.ico" },
     "nsis": {

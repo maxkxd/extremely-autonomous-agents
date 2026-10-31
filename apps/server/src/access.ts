@@ -129,6 +129,10 @@ const NEEDS: Record<string, Level> = {
   'POST /api/settings/host-secret': 'local',
   // A self-hosted organisation's people (selfhost.ts checks who may change what).
   'POST /api/self/setup': 'local',
+  // The desktop app's browser sign-in (handoff.ts): this computer only.
+  'POST /api/auth/handoff': 'local',
+  'POST /api/auth/handoff/ticket': 'local',
+  'GET /api/auth/handoff/ticket': 'local',
   'GET /api/self/members': 'member',
   'POST /api/self/role': 'member',
   'POST /api/self/remove': 'member',

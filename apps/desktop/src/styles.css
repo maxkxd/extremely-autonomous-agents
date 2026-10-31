@@ -2046,3 +2046,8 @@ a.sbtn { text-decoration: none; color: inherit; }
   .cf-row > :nth-child(2), .cf-what { grid-column: 1; }
   .cf-act { grid-column: 2; grid-row: 1 / span 3; }
 }
+
+/* The browser tab the desktop app signs in through (account.ts): the outcome alone. */
+.handoff-page { min-height: 100vh; display: grid; place-content: center; text-align: center; gap: 8px; padding: 24px; }
+.handoff-page h1 { margin: 0; font-size: 24px; font-weight: 600; }
+.handoff-page p { margin: 0; color: var(--muted); }

@@ -142,7 +142,7 @@ async function parse<T extends z.ZodType>(
       if (effort !== 'low') return parse(schema, ctx, task, messages, effort === 'high' ? 'medium' : 'low');
       throw new BuilderError('The reply was cut off. Try again.');
     }
-    if (e instanceof Anthropic.AuthenticationError) throw new BuilderError('No valid Anthropic API key. Add ANTHROPIC_API_KEY to apps/server/.env and restart the server.');
+    if (e instanceof Anthropic.AuthenticationError) throw new BuilderError('The Anthropic key was refused. Check it in Settings > Connectors, or connect another AI model.');
     if (e instanceof Anthropic.RateLimitError) throw new BuilderError('Rate limited by the Claude API. Wait a moment and try again.');
     if (e instanceof Anthropic.APIConnectionError) throw new BuilderError('Could not reach the Claude API.');
     // With Claude's own reason, so a rejected request says why (logged, and shown).

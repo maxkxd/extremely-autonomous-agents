@@ -25,7 +25,7 @@ import {
   setDisplayName,
   setRole,
 } from './directory.js';
-import type { Auth } from './tokens.js';
+import { signInTicket, type Auth } from './tokens.js';
 import { sendInvite } from './mail.js';
 
 // Our backend's API (docs/architecture.md, "Accounts and organisations").
@@ -105,6 +105,16 @@ const ROUTES: Route[] = [
     },
   },
   { method: 'GET', path: /^\/me\/invites$/, run: async c => invitesFor(c.db, await user(c)) },
+  // The desktop app's Google or GitHub sign-in, finished in the person's browser:
+  // a single-use ticket that signs the app in as them (tokens.ts). Clerk only.
+  {
+    method: 'POST',
+    path: /^\/me\/sign-in-ticket$/,
+    run: async c => {
+      if (c.auth.devSignIn) throw new ApiError(404, 'Not found.');
+      return { ticket: await signInTicket(c.userId) };
+    },
+  },
   { method: 'POST', path: /^\/invites\/([\w-]+)\/decline$/, run: async c => (await declineInvite(c.db, c.params[0], await user(c)), { ok: true }) },
   { method: 'GET', path: /^\/orgs\/([\w-]+)\/invites$/, run: async c => pendingInvites(c.db, c.params[0], c.userId) },
   { method: 'DELETE', path: /^\/invites\/([\w-]+)$/, run: async c => (await revokeInvite(c.db, c.params[0], c.userId), { ok: true }) },

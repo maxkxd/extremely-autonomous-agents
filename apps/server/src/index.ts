@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { serveUi } from './ui.js';
+import { collectTicket, handInTicket, startHandoff } from './handoff.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { BuilderError, build, interview, matchPack, profileInterview, type Build, type Context, type Pack, type Turn } from './builder.js';
 import { compose, kpiLabels, listIds, readMeta, remove, save, slug, type AgentFiles } from './files.js';
@@ -239,6 +240,17 @@ const routes: Record<string, Route> = {
   'GET /api/catalog': async () => CATALOG.map(s => ({ server: s.server, what: s.what, tools: s.tools.length })),
   // Whether a key is set - never the key itself.
   'GET /api/health': async () => ({ anthropicKey: !!process.env.ANTHROPIC_API_KEY }),
+  // The desktop app's Google/GitHub sign-in, finished in the browser (handoff.ts).
+  'POST /api/auth/handoff': async () => startHandoff(),
+  'POST /api/auth/handoff/ticket': async req => {
+    const { state, ticket } = await body<{ state: string; ticket: string }>(req);
+    try {
+      return handInTicket(state, ticket);
+    } catch (e) {
+      throw new ConnectError((e as Error).message);
+    }
+  },
+  'GET /api/auth/handoff/ticket': async (_req, q) => collectTicket(q.get('state')),
 
   // --- AI model connections (docs/model-connections.md) ---
   'GET /api/connections': async () => conn.list(),
