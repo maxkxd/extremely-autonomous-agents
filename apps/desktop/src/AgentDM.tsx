@@ -34,7 +34,7 @@ const TOOL_TITLE: Record<ToolState, string> = { ok: 'Succeeded', failed: 'Failed
 
 const duration = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`);
 
-function RunPostView({
+export function RunPostView({
   post,
   agentName,
   Icon,

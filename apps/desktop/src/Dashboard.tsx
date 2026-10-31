@@ -38,8 +38,22 @@ const CUT_TO = R + 34; // past its outer edge
 const TOTAL_MAX_WIDTH = 100;
 
 // No legend: hovering a slice highlights it and shows its label, value and share.
-function Donut({ caption, slices, format, loading = false }: { caption: string; slices: Slice[]; format: (n: number) => string; loading?: boolean }) {
-  const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
+// `pin` shows one slice as hovered until the pointer moves over the chart (the
+// help window uses it to show what hovering does).
+export function Donut({
+  caption,
+  slices,
+  format,
+  loading = false,
+  pin,
+}: {
+  caption: string;
+  slices: Slice[];
+  format: (n: number) => string;
+  loading?: boolean;
+  pin?: number;
+}) {
+  const [mouse, setHover] = useState<{ i: number; x: number | string; y: number | string } | null>(null);
   const maskId = `cuts${useId().replace(/:/g, '')}`;
   // The centre total keeps its full size unless it would spill out of the hole;
   // then it shrinks just enough to fit.
@@ -73,6 +87,16 @@ function Donut({ caption, slices, format, loading = false }: { caption: string; 
     document.fonts.ready.then(fit);
   }, [label]);
   let offset = 0;
+  // A pinned slice's tip sits near the start of its arc (top of the chart for
+  // the first slice), as % of the chart.
+  let pinned: typeof mouse = null;
+  if (pin !== undefined && total > 0 && slices[pin]?.value > 0) {
+    const before = slices.slice(0, pin).reduce((n, s) => n + Math.max(s.value, 0), 0);
+    const a = ((before + slices[pin].value * 0.1) / total) * 2 * Math.PI - Math.PI / 2;
+    const at = (v: number) => `${((SIZE / 2 + R * v) / SIZE) * 100}%`;
+    pinned = { i: pin, x: at(Math.cos(a)), y: at(Math.sin(a)) };
+  }
+  const hover = mouse ?? pinned;
 
   return (
     <div className="chart" onMouseLeave={() => setHover(null)}>
