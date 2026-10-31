@@ -64,25 +64,28 @@ export async function setups(): Promise<Record<string, AgentSetup>> {
       id,
     );
     // One line per kind of service (its tools and its events are one connector).
+    // No stars until the Agency Engineer has rated it (ask_for_connection).
     const items = new Map<string, SetupItem>();
     for (const r of rows) {
       const name = generic(r.service, r.what);
       const done = r.status === 'done' || (!!r.waiting_on && connected.has(r.waiting_on));
       const had = items.get(name);
       const item: SetupItem = had
-        ? { ...had, stars: Math.max(had.stars, r.stars ?? 3), connected: had.connected && done, building: had.building || (r.status === 'open' && r.stage === 'engineer') }
-        : { name, requestId: r.id, stars: r.stars ?? 3, connected: done, building: r.status === 'open' && r.stage === 'engineer' };
+        ? { ...had, stars: Math.max(had.stars, r.stars ?? 0), connected: had.connected && done, building: had.building || (r.status === 'open' && r.stage === 'engineer') }
+        : { name, requestId: r.id, stars: r.stars ?? 0, connected: done, building: r.status === 'open' && r.stage === 'engineer' };
       // "Go to request" opens the one still waiting, if any.
       if (had && !done && had.connected) item.requestId = r.id;
       items.set(name, item);
     }
     const list = [...items.values()].sort((a, b) => b.stars - a.stars || a.name.localeCompare(b.name));
-    const total = list.reduce((n, i) => n + i.stars, 0);
+    // Unrated ones count as middling, so a rating coming in doesn't move the bar.
+    const weight = (i: SetupItem) => i.stars || 3;
+    const total = list.reduce((n, i) => n + weight(i), 0);
     out[id] = {
       items: list,
       building: list.filter(i => i.building).length,
       // Weighted by stars: the connectors it can't do without move it most.
-      progress: total ? list.filter(i => i.connected).reduce((n, i) => n + i.stars, 0) / total : 1,
+      progress: total ? list.filter(i => i.connected).reduce((n, i) => n + weight(i), 0) / total : 1,
     };
   }
   return out;
