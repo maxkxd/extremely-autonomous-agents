@@ -28,9 +28,6 @@ export type RunDeps = {
   harness: (connection: string) => Harness | null; // plans with their own agent loop
   // The model, if it can be used now: connected, not failed its check.
   modelInfo: (c: ModelChoice) => { usable: boolean; efforts: Effort[]; native?: Partial<Record<Effort, string>> };
-  // Models from connected AIs other than these, best first: a turn's last
-  // resort when every model of the agent's own has failed (a key added since).
-  spare?: (excludeConnections: Set<string>) => ModelChoice[];
   cost: (connection: string, model: string, input: number, output: number) => Promise<number | null>;
   wake: (agentId: string, trigger: Trigger, task: string) => void;
   compact: boolean; // compact memory after the run (off in tests)
@@ -79,9 +76,11 @@ export const putHealth = (h: Health) => setSetting(HEALTH_KEY, h);
 
 // The models a run can use now: usable, with an adapter, and - when a spend
 // cap is reached - free ones only (plans and local models).
-export function eligibleModels(agent: AgentDef, deps: RunDeps, from: ModelChoice[] = agent.models): ModelChoice[] {
+export function eligibleModels(agent: AgentDef, deps: RunDeps): ModelChoice[] {
   const over = overSpend(agent.id, deps.now());
-  return from.filter(c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)) && (isFree(c.connection) || !over));
+  return agent.models.filter(
+    c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)) && (isFree(c.connection) || !over),
+  );
 }
 
 // This month's spending limit reached - the agency's, or this agent's own.
@@ -330,20 +329,14 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
       }
       // A model for this turn: the first eligible one, falling back down the list.
       const tried = new Set<string>();
-      const triedConnections = new Set<string>();
       let turn: Awaited<ReturnType<Adapter>> | null = null;
       let harnessDone = false;
       while (!turn && !harnessDone) {
-        let eligible = eligibleModels(agent, deps).filter(c => !tried.has(choiceKey(c)));
-        // Every model of its own has failed: another connected AI before giving up,
-        // so connecting one rescues agents without re-picking theirs.
-        if (!eligible.length && tried.size && deps.spare)
-          eligible = eligibleModels(agent, deps, deps.spare(new Set([...triedConnections, ...agent.models.map(m => m.connection)]))).filter(c => !tried.has(choiceKey(c)));
+        const eligible = eligibleModels(agent, deps).filter(c => !tried.has(choiceKey(c)));
         const pick = pickModel(eligible, health, () => true, deps.now());
         if (!pick) throw new Error(tried.size ? `Every model failed this turn. Last: ${error}` :noModelReason(agent, deps));
         const c = pick.choice;
         tried.add(choiceKey(c));
-        triedConnections.add(c.connection);
         const info = deps.modelInfo(c);
         const level = info.efforts.length ? fitEffort(c.effort, info.efforts) : null;
         const effort = level ? (info.native?.[level] ?? level) : undefined;
