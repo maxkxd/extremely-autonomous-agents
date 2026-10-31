@@ -14,7 +14,7 @@ import type { ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals } from './approvals.js';
 import { all, one, run as exec } from './db.js';
-import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, scheduledDue, STEADY } from './ferocity.js';
+import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, RELENTLESS, scheduledDue, STEADY } from './ferocity.js';
 import { toolsFor } from './tools.js';
 import { costOf, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
@@ -180,12 +180,21 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   // files, is connected: it runs as Steady until a connection wakes it (Tier 1
   // Support, with no Desk, wrote procedures for its procedures every 30 minutes).
   const blocked = !BUILT_IN_IDS.includes(agent.id) && blockedOnConnections(agent);
-  if (st.ferocity === APOCALYPTIC && !blocked) {
-    const last = one<{ ended_at: number | null }>('SELECT ended_at FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1', agent.id);
+  // Apocalyptic runs back to back - until a run stops short of its target (a limit
+  // in its instructions, or no real work left): then it waits for Relentless's
+  // schedule, rather than starting again to say the same thing.
+  const last = one<{ ended_at: number | null; acts: number | null; floor: number | null; trigger: string }>(
+    "SELECT ended_at, acts, floor, trigger FROM runs WHERE agent_id = ? AND status != 'running' ORDER BY started_at DESC LIMIT 1",
+    agent.id,
+  );
+  const spent = st.ferocity === APOCALYPTIC && last?.trigger === 'apocalyptic' && last.floor != null && (last.acts ?? 0) < last.floor;
+  if (st.ferocity === APOCALYPTIC && !blocked && !spent) {
     if (last?.ended_at && now - last.ended_at < APOCALYPTIC_GAP_MS) return null;
     return { trigger: 'apocalyptic', task: null };
   }
-  const scheduled = scheduledDue(agent, blocked ? Math.min(st.ferocity, STEADY) : st.ferocity, st.last_scheduled_at, now);
+  const level = blocked ? Math.min(st.ferocity, STEADY) : spent ? RELENTLESS : st.ferocity;
+  if (spent && st.last_scheduled_at == null && last?.ended_at) exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', last.ended_at, agent.id);
+  const scheduled = scheduledDue(agent, level, st.last_scheduled_at ?? last?.ended_at ?? null, now);
   return scheduled != null && scheduled <= now ? { trigger: 'scheduled', task: null } : null;
 }
 

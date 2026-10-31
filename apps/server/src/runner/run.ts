@@ -171,6 +171,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - End every run with a short summary: what you did, what is waiting (approvals, requests, tasks), and what comes next.
 - Questions for a person: all of them in ONE request, each with the answer you'll go with if they don't reply ("A$40 a day unless you say otherwise") - then carry on with those defaults; don't wait. Only ask what you can't reasonably decide yourself, and nothing your instructions already answer.
 - Reports and alerts for the person you work for go by gmail.send_to_me when you have it (logged, no approval) - not gmail.send_email, which waits for a person.
+- A limit your instructions set (a cap of 4 drafts a week, 15 leads a day) is the end of that work for now: say so in your summary and stop - never produce work of another kind (briefs, notes, extra files) to reach a target. Reaching your limit is a complete run.
 - A missing tool blocks only the part of your job that needs it: do everything else you can with what you have (research, drafts, analysis - the tools you hold and your workspace). Never record that you're blocked: no email, document or file just to say so - your open requests already show the person what's waiting. Email when there's something new - work done, a finding, a change.
 - Who approves your queued actions is the app's job (the Approvals page): never ask who approves - queue it.
 - A tool you hold that isn't connected yet is already being asked for: don't file a request for it.
