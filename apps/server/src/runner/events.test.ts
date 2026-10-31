@@ -204,7 +204,7 @@ test("an agent remade under an old id asks again; a fleet tool it reuses that no
   assert.deepEqual(filed, ['Set up ZZ']);
   // In the agent's own words; the tool ids are for the engineer.
   const r = all<{ why: string; evidence: string }>("SELECT why, evidence FROM requests WHERE agent_id = 'zz-remade' AND status = 'open'")[0];
-  assert.match(r.why, /^I need Zz/);
+  assert.match(r.why, /^I need ZZ/);
   assert.match(r.why, /Pings/);
   assert.doesNotMatch(r.why, /zz\.ping/);
   assert.match(r.evidence, /zz\.ping, zz\.someone_elses/);
