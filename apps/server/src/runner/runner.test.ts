@@ -13,7 +13,7 @@ import { forgetAgentRuns } from './forget.js';
 import { decideApproval } from './approvals.js';
 import { fleetReport } from './doctor.js';
 import { answerRequest } from './api.js';
-import { notWaitingAlready, requestNotWaiting, withdrawProposal } from './engineer.js';
+import { notWaitingAlready, rate, requestNotWaiting, withdrawProposal } from './engineer.js';
 import { execute, registerTools, requestConnections, serviceLabel, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
@@ -642,4 +642,15 @@ test('a new agent in setup starts by itself once every connector is connected, n
   exec("UPDATE requests SET status = 'done' WHERE id = ?", crm);
   assert.deepEqual(await finishSetups(), ['zz-setup']);
   assert.deepEqual({ ...one<{ state: string; setup: number | null }>('SELECT state, setup FROM agent_state WHERE agent_id = ?', 'zz-setup') }, { state: 'active', setup: null });
+});
+
+test('a setup connector is rated 1-5 before it goes to the person, whichever way it goes', () => {
+  const id = Number(exec("INSERT INTO requests (agent_id, what, why, created_at, stage, setup) VALUES ('zz-rate', 'Set up Gmail', 'x', 0, 'engineer', 1)").lastInsertRowid);
+  const row = () => one<Parameters<typeof rate>[0]>('SELECT * FROM requests WHERE id = ?', id)!;
+  assert.throws(() => rate(row(), undefined), /isn't rated yet/);
+  rate(row(), 9);
+  assert.equal(row().stars, 5);
+  rate(row(), undefined); // rated already: nothing more needed
+  const plain = Number(exec("INSERT INTO requests (agent_id, what, why, created_at, stage) VALUES ('zz-rate', 'Fix the CRM tool', 'x', 0, 'engineer')").lastInsertRowid);
+  rate(one<Parameters<typeof rate>[0]>('SELECT * FROM requests WHERE id = ?', plain)!, undefined); // not setup: no stars needed
 });
