@@ -281,7 +281,8 @@ async function missingTools(agentId: string): Promise<string> {
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required });
 const str = (description: string) => ({ type: 'string', description });
 const int = (description: string) => ({ type: 'number', description });
-// A new agent's setup connector is rated before it goes to the person or is closed:
+// A new agent's setup connector is rated before it goes to the person, to the
+// Approvals page, or is closed:
 // its stars on the agent's setup list (runner/setup.ts), whichever way it gets there.
 const starsArg = int(
   "How much this connection helps the asking agent, 1-5 (read its instructions): 5 = it can't do its main job without it, 3 = a real part of its work, 1 = a nice extra. Shown on the agent's setup list, highest first. Needed on a setup request (\"Set up ...\") not yet rated.",
@@ -331,9 +332,9 @@ const nameOf = async (agentId: string) => (await readMeta(agentId))?.name ?? age
 
 // Who a publish_integration card gives the connection to: the agent it's for, then any grouped with it.
 type Grant = { for_agent: string; request_id: number; tools: { id: string; tier: Tier }[] };
-const grantsOf = (a: Record<string, unknown>): Grant[] => [
-  { for_agent: String(a.for_agent), request_id: Number(a.request_id), tools: (a.tools as Grant['tools']) ?? [] },
-  ...((a.also as Grant[] | undefined) ?? []).map(g => ({ for_agent: String(g.for_agent), request_id: Number(g.request_id), tools: g.tools ?? [] })),
+const grantsOf = (a: Record<string, unknown>): (Grant & { stars?: unknown })[] => [
+  { for_agent: String(a.for_agent), request_id: Number(a.request_id), tools: (a.tools as Grant['tools']) ?? [], stars: a.stars },
+  ...((a.also as (Grant & { stars?: unknown })[] | undefined) ?? []).map(g => ({ for_agent: String(g.for_agent), request_id: Number(g.request_id), tools: g.tools ?? [], stars: g.stars })),
 ];
 
 // --- Tool history --------------------------------------------------------------------
@@ -621,9 +622,10 @@ const TOOLS: ToolDef[] = [
         also: {
           type: 'array',
           description: "Other agents whose open requests need this same connection: given it on the same card, so the person approves once. Each {for_agent, request_id, tools}.",
-          items: obj({ for_agent: str('The agent'), request_id: int('Its request'), tools: toolsArg }, ['for_agent', 'request_id', 'tools']),
+          items: obj({ for_agent: str('The agent'), request_id: int('Its request'), tools: toolsArg, stars: starsArg }, ['for_agent', 'request_id', 'tools']),
         },
         summary: str("For the person approving: at most 3 plain sentences - what it lets the agent do, and its limits. Nothing about testing; no risks unless obvious and significant to someone who isn't technical. The card shows only this and a few bullets."),
+        stars: starsArg,
       },
       ['integration_id', 'request_id', 'for_agent', 'tools', 'summary'],
     ),
@@ -639,7 +641,7 @@ const TOOLS: ToolDef[] = [
         seen.add(g.for_agent);
         const waits = one<{ waiting_on: string | null }>('SELECT waiting_on FROM requests WHERE id = ?', g.request_id)?.waiting_on;
         if (waits && waits !== String(a.integration_id)) throw new Error(`Request #${g.request_id} is waiting on ${waits}, not ${a.integration_id}: leave it off this card.`);
-        openRequest(g.request_id);
+        rate(openRequest(g.request_id), g.stars);
         if (!(await loadAgent(g.for_agent))) throw new Error(`No agent "${g.for_agent}".`);
         requestNotWaiting(g.request_id);
       }
@@ -739,11 +741,11 @@ const TOOLS: ToolDef[] = [
     tier: 'T2',
     description: 'Propose subscribing an agent to events that are already live (a person approves): it wakes when they happen, as well as on its schedule. Approved, the request closes.',
     schema: obj(
-      { for_agent: str('The agent'), events: { type: 'array', items: { type: 'string' }, description: 'Event ids (server.event)' }, request_id: int('The request it answers'), why: str('Why it should wake on them - the person reads this') },
+      { for_agent: str('The agent'), events: { type: 'array', items: { type: 'string' }, description: 'Event ids (server.event)' }, request_id: int('The request it answers'), why: str('Why it should wake on them - the person reads this'), stars: starsArg },
       ['for_agent', 'events', 'request_id', 'why'],
     ),
     preview: async a => {
-      openRequest(a.request_id);
+      rate(openRequest(a.request_id), a.stars);
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
       requestNotWaiting(a.request_id);
       const live = new Set(liveEventIds());
@@ -778,14 +780,14 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.give_tools',
     tier: 'T2',
     description: 'Propose giving an agent tools that already exist and are live (a person approves). Approved, the agent has them from its next run, and the request closes.',
-    schema: obj({ for_agent: str('The agent'), tools: toolsArg, request_id: int('The request it answers'), why: str('Why it needs them - the person reads this') }, [
+    schema: obj({ for_agent: str('The agent'), tools: toolsArg, request_id: int('The request it answers'), why: str('Why it needs them - the person reads this'), stars: starsArg }, [
       'for_agent',
       'tools',
       'request_id',
       'why',
     ]),
     preview: async a => {
-      openRequest(a.request_id);
+      rate(openRequest(a.request_id), a.stars);
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
       requestNotWaiting(a.request_id);
       setStage(Number(a.request_id), 'approval');
