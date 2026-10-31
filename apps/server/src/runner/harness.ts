@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { approveAll, CopilotClient, defineTool, ToolSet } from '@github/copilot-sdk';
+import { copilotConnection } from '../models/copilotRuntime.js';
 import { getSecret } from '../vault.js';
 import { noteClaudeCodeTooOld } from '../models/connections.js';
 import { openBridge } from './mcp.js';
@@ -126,7 +127,7 @@ const copilot: Harness = async run => {
   const token = (await getSecret<{ token: string }>('copilot'))?.token;
   if (!token) throw new ModelError('Copilot is not signed in', 'auth');
   const cwd = await mkdtemp(join(tmpdir(), 'eaa-run-'));
-  const client = new CopilotClient({ gitHubToken: token, useLoggedInUser: false, logLevel: 'error' });
+  const client = new CopilotClient({ ...(await copilotConnection()), gitHubToken: token, useLoggedInUser: false, logLevel: 'error' });
   try {
     await client.start();
     const session = await client.createSession({

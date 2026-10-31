@@ -31,6 +31,11 @@ for (const item of ['src', 'integrations', 'packs', 'package.json', 'package-loc
     filter: src => !/\.test\.ts$/.test(src) && !/[\\/](data|node_modules)([\\/]|$)/.test(path.relative(from, src)),
   });
 run('npm ci --omit=dev --no-audit --no-fund', server);
+// Copilot's runtime (about 160 MB, most of the app) is fetched the first time
+// someone connects Copilot (apps/server/src/models/copilotRuntime.ts), not shipped.
+const gh = path.join(server, 'node_modules', '@github');
+for (const name of fs.existsSync(gh) ? fs.readdirSync(gh) : [])
+  if (/^copilot-sdk-(darwin|linux|linuxmusl|win32)-/.test(name)) fs.rmSync(path.join(gh, name), { recursive: true, force: true });
 
 // --- ui ---
 run('npm ci --no-audit --no-fund', path.join(ROOT, 'desktop'));
