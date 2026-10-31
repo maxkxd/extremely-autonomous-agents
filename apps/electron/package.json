@@ -1,0 +1,45 @@
+{
+  "name": "@eaa/electron",
+  "productName": "Extremely Autonomous Agents",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Extremely Autonomous Agents for your desktop",
+  "license": "AGPL-3.0-only",
+  "author": "World Asset Register",
+  "main": "main.cjs",
+  "scripts": {
+    "stage": "node scripts/stage.cjs",
+    "start": "electron .",
+    "dist": "node scripts/stage.cjs && electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.10"
+  },
+  "devDependencies": {
+    "electron": "43.8.0",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "agency.extremely.desktop",
+    "productName": "Extremely Autonomous Agents",
+    "executableName": "ExtremelyAutonomousAgents",
+    "directories": { "output": "dist" },
+    "afterPack": "scripts/after-pack.cjs",
+    "files": ["main.cjs", "build/icon.png", "package.json"],
+    "extraResources": [
+      { "from": "build/stage/server", "to": "server" },
+      { "from": "build/stage/ui", "to": "ui" },
+      { "from": "build/stage/node", "to": "node" }
+    ],
+    "win": { "target": "nsis", "icon": "build/icon.ico" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true,
+      "artifactName": "Extremely-Autonomous-Agents-Setup-${version}.${ext}"
+    },
+    "publish": [{ "provider": "github", "owner": "maxkxd", "repo": "extremely-autonomous-agents", "releaseType": "draft" }]
+  }
+}

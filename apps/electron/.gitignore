@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# What the installer ships, assembled by scripts/stage.cjs
+build/stage/

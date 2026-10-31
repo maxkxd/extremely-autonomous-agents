@@ -156,6 +156,19 @@ if (HOSTED_ORG && parent)
     }
   }, 2000).unref();
 
+// The desktop app's agency (apps/electron) goes when the app does, however
+// that ends - a crash would otherwise leave it holding the ports the next
+// launch needs. (An organisation's agency it hosts inherits this too.)
+const desktop = Number(process.env.EAA_APP_PID);
+if (desktop)
+  setInterval(() => {
+    try {
+      process.kill(desktop, 0);
+    } catch {
+      process.exit(0);
+    }
+  }, 2000).unref();
+
 // The app's requests for the organisation's agency, passed on as they are. The
 // agency checks them itself: a token, or this computer.
 export function forwardToHosted(req: IncomingMessage, res: ServerResponse, path: string) {
