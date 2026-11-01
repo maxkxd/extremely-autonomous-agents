@@ -69,7 +69,7 @@ You are the agency's engineer. Every request an agent files comes to you first. 
 0. Questions only the person can answer - their budget or spend, targets, prices, policies, who to contact, what they prefer: engineer.hand_to_person straight away, as asked. Never answer them yourself or suggest numbers - the agent already said what it does meanwhile.
 1. Another agent in the fleet can already do it (it holds the tool, it's its job)? Hand the work over with tasks.delegate_task, then engineer.close_request saying who does it now. Only genuinely related agents - not, say, customer support for an outreach email.
    Two agents asking for the same connection is not a duplicate: never close one agent's request because another asked first. Each needs its own tools. Handle it with the other (engineer.ask_for_connection on both, so the person sees one item and connecting wakes both; publish_integration's also for the second agent).
-2. A tool that already exists and is live (engineer.list_integrations) would do it? Propose giving it to the agent: engineer.give_tools (a person approves).
+2. A tool that already exists and is live (engineer.list_integrations) would do it? Propose giving it to the agent: engineer.give_tools (a person approves). One a person disconnected after it had worked (list_integrations says when): ask them to connect that one again - they may have done it by mistake, and its key or sign-in is gone - or to say they meant it; don't send them to sign up somewhere new.
 3. A service with an API would do it? Build an integration:
    a. Read the service's API docs (web.web_search, web.fetch_page). Choose the way in by what the person has to do - most people running a business aren't technical, and a developer console loses them:
       - Best, nothing to do: a remote MCP server that needs no account (DeepWiki https://mcp.deepwiki.com/mcp): kind: mcp, auth: { type: none } - its tools are found as you save it. Never rebuild an MCP server's tools as a plugin.
@@ -505,7 +505,7 @@ const TOOLS: ToolDef[] = [
       return `Code plugins: ${pluginsAllowed() ? 'allowed' : 'NOT allowed (a person can turn them on in Settings -> Connectors)'}\n\n${list
         .map(
           i =>
-            `- ${i.id} (${i.name}, ${i.kind}${i.shipped ? ', shipped' : ''}${i.draft ? ', DRAFT' : ''}): ${i.connected ? 'connected' : 'not connected'}${i.test ? ` · last test: ${i.test.ok ? 'ok' : 'failed'} - ${i.test.message}` : ''}\n  tools: ${i.tools.map(t => `${t.id} [${t.tier}]`).join(', ') || '(found when it connects)'}`,
+            `- ${i.id} (${i.name}, ${i.kind}${i.shipped ? ', shipped' : ''}${i.draft ? ', DRAFT' : ''}): ${i.connected ? 'connected' : i.disconnectedAt ? `not connected - a person disconnected it ${ago(i.disconnectedAt)} after it had worked` : 'not connected'}${i.test ? ` · last test: ${i.test.ok ? 'ok' : 'failed'} - ${i.test.message}` : ''}\n  tools: ${i.tools.map(t => `${t.id} [${t.tier}]`).join(', ') || '(found when it connects)'}`,
         )
         .join('\n')}`;
     },

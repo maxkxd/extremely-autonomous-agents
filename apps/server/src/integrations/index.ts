@@ -49,6 +49,7 @@ type State = {
   codeHash?: string;
   published?: boolean; // it has been live: a turned-down draft of it puts the live version back
   liveHash?: string; // while it's redrafted: the live plugin code's approved hash
+  disconnectedAt?: number; // a person disconnected it after it had worked (maybe by mistake)
 };
 const STATE_KEY = 'integrations';
 const states = () => getSetting<Record<string, State>>(STATE_KEY, {});
@@ -452,9 +453,11 @@ export async function disconnectIntegration(id: string) {
   if (auth?.type === 'oauth2') await oauthSignOut(id, auth);
   else if (found) await oauthSignOut(id, found);
   else await deleteSecret(secretKey(id));
-  // Signed out; whether it's a draft, and whose, stays.
-  const { draft, by, request, codeHash: hash } = states()[id] ?? {};
-  putState(id, draft || by || hash ? { draft, by, request, codeHash: hash } : null);
+  // Signed out; whether it's a draft, and whose, stays - and that it worked until now,
+  // so a request for "web search" gets "reconnect Brave", not a new provider to sign up for.
+  const { draft, by, request, codeHash: hash, connectedAt } = states()[id] ?? {};
+  const disconnectedAt = connectedAt ? Date.now() : undefined;
+  putState(id, draft || by || hash || disconnectedAt ? { draft, by, request, codeHash: hash, disconnectedAt } : null);
   register();
 }
 
@@ -546,6 +549,7 @@ export async function listIntegrations() {
     approvalId: waiting.get(integration.id) ?? null,
     by: st[integration.id]?.by ?? null,
     test: st[integration.id]?.test ?? null,
+    disconnectedAt: st[integration.id]?.connectedAt ? null : (st[integration.id]?.disconnectedAt ?? null),
     tools:
       integration.kind === 'http'
         ? integration.tools.map(t => ({ id: t.id, tier: t.tier }))
