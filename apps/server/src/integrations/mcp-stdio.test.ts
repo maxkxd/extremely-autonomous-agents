@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { callMcpTool, listMcpTools } from './mcp-client.js';
-import { stopStdioServer } from './mcp-stdio.js';
+import { missing, stopStdioServer } from './mcp-stdio.js';
 import { Integration, type McpIntegration } from './schema.js';
 
 // A whole MCP server on stdio, in a few lines: one tool that echoes.
@@ -38,4 +38,11 @@ test('an MCP server on this computer: started, its tools found and called, the p
   assert.deepEqual(tools.map(t => [t.name, t.readOnly]), [['echo', true]]);
   assert.equal(await callMcpTool(integration, undefined, 'echo', { x: 'hi' }), 'echo:hi');
   assert.equal(await callMcpTool(integration, undefined, 'echo', { x: 'again' }), 'echo:again');
+});
+
+test("a program that isn't on this computer says what to install (a new computer has no npx)", () => {
+  assert.match(missing('npx', "'npx' is not recognized as an internal or external command,\r\noperable program or batch file.") ?? '', /npx isn't installed.*Node\.js/);
+  assert.match(missing('C:\\tools\\uvx.exe', "'C:\\tools\\uvx.exe' is not recognized as an internal or external command,") ?? '', /uvx\.exe isn't installed.*uv/);
+  assert.match(missing('/opt/bin/thing', 'sh: /opt/bin/thing: No such file or directory') ?? '', /isn't on this computer/);
+  assert.equal(missing('npx', 'Error: something else broke'), null);
 });

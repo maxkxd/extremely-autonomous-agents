@@ -1,6 +1,21 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
+// The program isn't on this computer (a new one has no Node.js, so no npx): what to install.
+// Windows: "'npx' is not recognized as an internal or external command"; elsewhere "not found".
+const NEEDS: [RegExp, string][] = [
+  [/^(npx|npm|node)(\.cmd|\.exe)?$/i, 'Node.js (nodejs.org - the LTS installer), which npx comes with'],
+  [/^(uvx|uv)(\.exe)?$/i, 'uv (docs.astral.sh/uv)'],
+  [/^(python3?|pip3?)(\.exe)?$/i, 'Python (python.org)'],
+  [/^docker(\.exe)?$/i, 'Docker Desktop (docker.com), running'],
+];
+export function missing(cmd: string, stderr: string): string | null {
+  if (!/is not recognized as an internal or external command|command not found|cannot find the path|No such file or directory|ENOENT/i.test(stderr)) return null;
+  const name = cmd.split(/[\\/]/).pop() ?? cmd;
+  const what = NEEDS.find(([re]) => re.test(name))?.[1];
+  return what ? `${name} isn't installed on this computer. It needs ${what}; install it, then try again.` : `${cmd} isn't on this computer - check the path, or install the program first.`;
+}
+
 // An MCP server that runs on this computer as a program (the stdio transport):
 // started by the app, spoken to with newline-separated JSON-RPC on its stdin
 // and stdout. One process per integration, kept running and reused; started
@@ -51,9 +66,10 @@ class StdioServer {
       // The line that says what went wrong, not Node's trailing version line.
       const lines = this.stderr.trim().split('\n').map(l => l.trim()).filter(Boolean);
       const why = lines.find(l => /error|cannot|not found|denied|invalid/i.test(l)) ?? lines.pop() ?? '';
+      const said = missing(this.command[0], this.stderr) ?? `${this.name} stopped (exit ${code})${why ? `: ${why.slice(0, 300).replace(/\.+$/, '')}` : ''}.`;
       for (const p of this.pending.values()) {
         clearTimeout(p.timer);
-        p.reject(new Error(`${this.name} stopped (exit ${code})${why ? `: ${why.slice(0, 300)}` : ''}.`));
+        p.reject(new Error(said));
       }
       this.pending.clear();
       this.child = null;
