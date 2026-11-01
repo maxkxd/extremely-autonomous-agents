@@ -163,6 +163,9 @@ export const Integration = z.discriminatedUnion('kind', [
     key_url: z.string().optional(),
     key_help: z.string().optional(), // what the key needs (permissions), shown by its field
     auth: Auth,
+    // Works with no key too, rate-limited (Tavily's free mode): live without
+    // connecting anything, sent with these headers; a connected key is used instead.
+    keyless: z.object({ headers: z.record(z.string(), z.string()) }).optional(),
     events: z.array(EventDef).optional(),
     // May hold a fields sign-in's non-secret fields: https://www.zohoapis.{{region}}
     base_url: z.string().refine(u => URL.canParse(u.replace(/\{\{\w+\}\}/g, 'x')), 'base_url must be an address'),

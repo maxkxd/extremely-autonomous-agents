@@ -6,6 +6,9 @@ name: Tavily
 what: Web search built for AI agents
 key_url: https://app.tavily.com/home
 auth: { type: bearer }
+# Free with no key, rate-limited: https://docs.tavily.com/documentation/keyless.md
+# Web search works from the start; a connected key (higher limits) replaces it.
+keyless: { headers: { x-tavily-access-mode: keyless } }
 base_url: https://api.tavily.com
 test: { tool: web.web_search, args: { query: weather in Paris } }
 tools:

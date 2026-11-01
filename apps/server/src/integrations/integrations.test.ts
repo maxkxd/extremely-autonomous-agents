@@ -95,3 +95,17 @@ tools:
   assert.equal(redact('bad token tok-123456 for shh-secret-value', zoho.auth, key), 'bad token [key] for [key]');
   assert.throws(() => authParts(zoho.auth, undefined), /no key saved/);
 });
+
+test('web search works with nothing connected: Tavily in its free keyless mode, which a connected key replaces', async () => {
+  const { resetDbForTests } = await import('../runner/db.js');
+  const { integrationToolIds, integrationToolsForPrompt, listIntegrations, loadIntegrations } = await import('./index.js');
+  resetDbForTests();
+  await loadIntegrations();
+  assert.ok(integrationToolIds().includes('web.web_search'));
+  assert.match(integrationToolsForPrompt(), /web\.web_search .*\(via Tavily, free with no key\)/);
+  const tavily = (await listIntegrations()).find(i => i.id === 'tavily');
+  assert.equal(tavily?.free, true);
+  assert.equal(tavily?.connected, false);
+  // Only the keyless one serves for free: the others still need their key.
+  assert.equal((await listIntegrations()).find(i => i.id === 'brave-search')?.free, false);
+});

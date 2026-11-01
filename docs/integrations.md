@@ -39,7 +39,16 @@ own (`zoho.create_lead`, `deepwiki.ask_wiki_question`).
 
 Shipped integrations live in `apps/server/integrations/*.yaml` (the four web
 search services: Brave Search, Tavily, Serper, Exa - also the reference
-examples of the format - Gmail and GitHub). Added ones live in `data/integrations/`. Keys are in
+examples of the format - Gmail and GitHub).
+
+Web search works from the start, with nothing connected: Tavily has a free
+keyless mode (rate-limited, search and extract only -
+https://docs.tavily.com/documentation/keyless.md), declared in its definition
+as `keyless: { headers: ... }`. An integration with one serves its tools with
+those headers while it isn't connected; any connected service that provides
+the same tool (a Tavily key, Brave, Serper, Exa) is used instead. Tested
+2026-11-02 on a fresh agency with only a free Gemini key: a competitor-news
+agent searched, read pages and wrote its summary with no search set up. Added ones live in `data/integrations/`. Keys are in
 the vault; connection state and an MCP server's tools in the runner's store.
 
 ## The Agency Engineer's loop (agreed 2026-10-29)

@@ -198,6 +198,9 @@ const isConnected = (id: string): boolean => {
 // What agents can use: connected, and not a draft - or a draft of one that's
 // live, whose live version they keep using until the draft is approved.
 const isLive = (id: string) => isConnected(id) && (!states()[id]?.draft || liveCopies.has(id));
+// Served with no key: shipped (or approved) with a keyless mode, and nothing connected.
+const isFree = (i: Integration) => i.kind === 'http' && !!i.keyless && !isConnected(i.id) && !states()[i.id]?.draft;
+const canServe = (i: Integration) => isLive(i.id) || isFree(i);
 // A code integration's tools: shipped modules, or an approved plugin.
 const moduleOf = (name: string): CodeModule | undefined => MODULES[name] ?? pluginModule(name);
 
@@ -226,7 +229,10 @@ function providers(forAgents = false): Map<string, { def: Omit<ToolDef, 'impl'>;
       for (const tool of integration.tools)
         add(tool.id, { id: tool.id, tier: tool.tier, description: tool.description, schema: tool.input }, {
           integration,
-          call: async args => callHttp(integration, tool, args, await keyOf(integration.id, integration)),
+          call: async args =>
+            isFree(integration)
+              ? callHttp({ ...integration, auth: { type: 'none' } }, { ...tool, request: { ...tool.request, headers: { ...tool.request.headers, ...integration.keyless!.headers } } }, args, undefined)
+              : callHttp(integration, tool, args, await keyOf(integration.id, integration)),
         });
     } else if (integration.kind === 'code') {
       for (const tool of moduleOf(integration.module)?.tools ?? [])
@@ -248,16 +254,17 @@ function providers(forAgents = false): Map<string, { def: Omit<ToolDef, 'impl'>;
 }
 
 // Registers every integration tool with the runner. A tool is ready when an
-// integration that provides it is live; the first live one serves it.
+// integration that provides it is live; the first live one serves it, else a
+// free one (so a connected search key always wins over the keyless mode).
 let registered: ToolDef[] = [];
 function register() {
   const defs: ToolDef[] = [];
   for (const [id, { def, by }] of providers(true))
     defs.push({
       ...def,
-      ready: () => by.some(p => isLive(p.integration.id)),
+      ready: () => by.some(p => canServe(p.integration)),
       impl: args => {
-        const p = by.find(p => isLive(p.integration.id));
+        const p = by.find(p => isLive(p.integration.id)) ?? by.find(p => isFree(p.integration));
         if (!p) throw new Error(`No integration that provides ${id} is connected. File a request for one.`);
         return p.call(args);
       },
@@ -543,6 +550,8 @@ export async function listIntegrations() {
           : null,
     shipped,
     connected: isConnected(integration.id),
+    // Working already with nothing entered (a keyless mode); a key replaces it.
+    free: isFree(integration),
     // An extension: connected through this one, nothing to enter.
     keyFrom: keyFrom(integration) ? { id: keyFrom(integration)!, name: find(keyFrom(integration)!)?.name ?? keyFrom(integration)! } : null,
     draft: !!st[integration.id]?.draft,
@@ -625,7 +634,7 @@ export function integrationToolInfo(): Map<string, { description: string; via: s
 }
 
 export function integrationToolIds(): string[] {
-  return [...providers(true)].filter(([, { by }]) => by.some(p => isLive(p.integration.id))).map(([id]) => id);
+  return [...providers(true)].filter(([, { by }]) => by.some(p => canServe(p.integration))).map(([id]) => id);
 }
 
 // Tools from connected integrations, for the builder's catalogue.
@@ -639,7 +648,8 @@ export function integrationEventsForPrompt(): string {
 export function integrationToolsForPrompt(): string {
   const lines: string[] = [];
   for (const [id, { def, by }] of providers(true)) {
-    const connected = by.filter(p => isLive(p.integration.id)).map(p => p.integration.name);
+    const live = by.filter(p => isLive(p.integration.id)).map(p => p.integration.name);
+    const connected = live.length ? live : by.filter(p => isFree(p.integration)).map(p => `${p.integration.name}, free with no key`);
     if (connected.length) lines.push(`- ${id} [${def.tier}] ${def.description.split('\n')[0].slice(0, 160)} (via ${connected.join(', ')})`);
   }
   return lines.join('\n');
