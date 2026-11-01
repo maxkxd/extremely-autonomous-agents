@@ -377,7 +377,8 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
           </>
         ) : open ? null : (
           <>
-            {signIn.hasClient && (
+            {/* An MCP server's own sign-in (no redirect to set) has no client the person made. */}
+            {signIn.hasClient && signIn.redirect && (
               <button className="sbtn" onClick={() => setOpen(true)} disabled={busy}>
                 Change client
               </button>
