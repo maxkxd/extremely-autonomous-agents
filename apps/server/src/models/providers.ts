@@ -122,12 +122,28 @@ async function listModels(id: string, key: string, baseUrl?: string): Promise<Mo
       return groqModels((await getJson('https://api.groq.com/openai/v1/models', bearer)).data);
     case 'custom': {
       if (!baseUrl) throw new ConnectError('Add the API base URL (ending in /v1).');
-      return named(id, ids((await getJson(`${trimSlash(baseUrl)}/models`, bearer)).data));
+      if (!/^https?:\/\/[^\s/]+/i.test(baseUrl)) throw new ConnectError("That isn't a web address - the base URL looks like https://api.example.com/v1.");
+      try {
+        return named(id, ids((await getJson(`${trimSlash(baseUrl)}/models`, bearer)).data));
+      } catch (e) {
+        // A site that isn't an OpenAI-compatible API (no /models): the address, not the provider.
+        if (e instanceof ConnectError && /had a problem \((404|405)\)/.test(e.message))
+          throw new ConnectError("Nothing at that address answers like an OpenAI-compatible API (no /models there). Check the base URL - it usually ends in /v1.");
+        throw e;
+      }
     }
     case 'ollama': {
       // Each model says what it can do; one that won't say is kept.
       const base = trimSlash(baseUrl || 'http://localhost:11434');
-      const names = ids((await getJson(`${base}/api/tags`)).models, 'name');
+      let tags: Record<string, unknown>;
+      try {
+        tags = await getJson(`${base}/api/tags`);
+      } catch (e) {
+        if (e instanceof ConnectError && /Couldn't reach/.test(e.message))
+          throw new ConnectError(`Ollama isn't running on ${new URL(base).host}. Start it (or install it from ollama.com), then connect again.`);
+        throw e;
+      }
+      const names = ids(tags.models, 'name');
       const shown = await Promise.all(
         names.map(async name => {
           try {

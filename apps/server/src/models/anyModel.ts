@@ -62,10 +62,10 @@ export async function jsonFromAnyModel<T extends z.ZodType>(schema: T, system: s
   const failed: string[] = [];
   for (const c of choices) {
     let convo = said.length ? said : [{ role: 'user' as const, text: 'Go ahead.' }];
+    let problem = '';
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
         const text = await say(c.connection, c.model, sys, convo);
-        let problem: string;
         try {
           const r = schema.safeParse(jsonIn(text));
           if (r.success) return r.data;
@@ -75,7 +75,7 @@ export async function jsonFromAnyModel<T extends z.ZodType>(schema: T, system: s
         }
         convo = [...convo, { role: 'assistant', text }, { role: 'user', text: `That didn't fit the schema (${problem}). Answer again with the corrected JSON object only.` }];
       }
-      failed.push("its answer didn't fit, twice");
+      failed.push(`its answer didn't fit, twice: ${problem.slice(0, 200)}`);
     } catch (e) {
       failed.push((e as Error).message.slice(0, 160));
     }
