@@ -43,3 +43,10 @@ test('the schema Claude gets keeps the three lists as text, everything else as b
   for (const k of ['approval_hours', 'natural_limits', 'new_events'] as const) assert.equal(shape[k].type, 'string', k);
   assert.equal(shape.tools.type, 'array');
 });
+
+test("a higher ferocity level never runs less often than the one below it; the fastest is every 10 minutes", async () => {
+  const { ferocityPlan } = await import('./files.js');
+  const f = { chill_every_hours: 6, steady_every_hours: 4, driven_every_hours: 2, relentless_every_hours: 3, driven_soft_floor: 1, relentless_floor: 3, apocalyptic_floor: 9, counts: [], hint: '', extra_effort: '' };
+  assert.deepEqual(ferocityPlan(f, {}).every_hours, [6, 4, 2, 2]);
+  assert.equal(ferocityPlan({ ...f, relentless_every_hours: 0.05 }, {}).every_hours[3], 1 / 6);
+});

@@ -46,6 +46,14 @@ How agents work with people, which every agent must respect:
 - How hard an agent works is set separately by the person (its ferocity), so don't ask about cadence beyond what the job itself needs (e.g. "within an hour of a ticket arriving" is a job requirement; "run more" isn't).
 - API keys and passwords are added later in settings. Never ask for them and tell the person not to paste them into the chat.
 
+Ferocity, which you set for each job (the person picks the level on the agent's card):
+- Chill, "the default: will get the job done". What a sensible person would schedule.
+- Steady, "needle mover: will go above expectations".
+- Driven, "intensely overworked: will never leave output on the table".
+- Relentless, "inhuman: will never rest". Very high effort - a high floor, chaining its own runs, digging deep, asking for more tools - not constant runs for their own sake. Its pace comes from the job, not from Chill. A job hunting an open-ended supply of work (lead research, prospecting, content ideas) runs every 10-30 minutes - even when its main action has a daily cap, the runs between refresh existing records, research deeper and widen its sources (its hint and extra_effort say how). A job driven by events (bug triage on a Sentry alert, incidents, tickets) is woken by them; its schedule is only an idle sweep every 6-8 hours, and when woken it follows the event to the bottom and books follow-up runs. A job with a fixed rhythm (a weekly report) keeps it.
+- Apocalyptic, "the paperclip maximizer": runs back to back.
+max_runs_per_day sits above the Relentless pace (a 10-minute pace is 144 a day).
+
 Writing for the organisation: a Charter is written for one specific organisation, the way a real employee's brief would be. Name the organisation, what it sells and to whom, the voice it speaks in, and the actual people the agent reports to, asks, or writes as (by name and role, from the profile). Refer to the fleet's other agents by name when it hands work to them. Never invent facts about the organisation: where the profile doesn't say, keep that part general.
 
 Tools: prefer what exists. First the tools this fleet already uses (listed with the organisation below), then the catalogue. Reuse their exact ids. Never define a near-duplicate of a tool that already does the job under another name (no email_marketing.send when gmail.send_email exists). Only define a new tool when nothing existing does the job, or when a narrower version is needed so some uses can skip approval - and then say why in its "why".
@@ -387,7 +395,7 @@ export const BuildSchema = z.object({
       driven_soft_floor: z.number().describe('Driven: output actions a good run makes; a run ending below it gets one gentle nudge. Modest.'),
       relentless_floor: z
         .number()
-        .describe('Relentless: the minimum real outcomes per run - high for the job (it never rests), but always reachable with real work in one run and never above its natural limits (a cap of 15 a day over ~4 runs is ~4 a run; at a 10-minute pace, a run is a few outcomes)'),
+        .describe('Relentless: the minimum real outcomes per run - set high, what a tireless expert gets done in one run of this job (bug triage woken by an alert: the issue filed, its notes, a repro, and anything related it turned up - not 1 or 2), but always reachable with real work and never above its natural limits (a cap of 15 a day over ~4 runs is ~4 a run; at a 10-minute pace, a run is a few outcomes)'),
       apocalyptic_floor: z.number().describe('Apocalyptic: well above Relentless, still real outcomes and still within natural limits; runs go back to back and push toward it'),
       counts: z
         .array(z.string())

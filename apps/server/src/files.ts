@@ -112,13 +112,17 @@ export function compose(
 // The builder's ferocity plan in the runner's shape (runner/agent.ts). Floors
 // only count tools the agent holds; schedules never get faster than every
 // 10 minutes below Apocalyptic (a Relentless lead researcher's pace).
-function ferocityPlan(f: NonNullable<Build['ferocity']>, tiers: Record<string, Tier>) {
+export function ferocityPlan(f: NonNullable<Build['ferocity']>, tiers: Record<string, Tier>) {
   const hours = (h: number, fallback: number) => (Number.isFinite(h) && h > 0 ? Math.max(1 / 6, h) : fallback);
   const chill = hours(f.chill_every_hours, 24);
   const whole = (n: number, min: number) => Math.max(min, Math.round(Number.isFinite(n) ? n : min));
   const floor = whole(f.relentless_floor, 1);
   return {
-    every_hours: [chill, hours(f.steady_every_hours, chill / 1.5), hours(f.driven_every_hours, chill / 2), hours(f.relentless_every_hours, chill / 4)],
+    // A higher level never runs less often than the one below it (an SRE agent came
+    // out Driven every 2 h, Relentless every 3).
+    every_hours: [chill, hours(f.steady_every_hours, chill / 1.5), hours(f.driven_every_hours, chill / 2), hours(f.relentless_every_hours, chill / 4)].map(
+      (h, i, all) => Math.min(h, ...all.slice(0, i)),
+    ),
     soft_floor: whole(f.driven_soft_floor, 1),
     floor,
     apocalyptic_floor: Math.max(whole(f.apocalyptic_floor, floor * 3), floor + 1),
