@@ -229,10 +229,17 @@ function providers(forAgents = false): Map<string, { def: Omit<ToolDef, 'impl'>;
       for (const tool of integration.tools)
         add(tool.id, { id: tool.id, tier: tool.tier, description: tool.description, schema: tool.input }, {
           integration,
-          call: async args =>
-            isFree(integration)
-              ? callHttp({ ...integration, auth: { type: 'none' } }, { ...tool, request: { ...tool.request, headers: { ...tool.request.headers, ...integration.keyless!.headers } } }, args, undefined)
-              : callHttp(integration, tool, args, await keyOf(integration.id, integration)),
+          call: async args => {
+            if (!isFree(integration)) return callHttp(integration, tool, args, await keyOf(integration.id, integration));
+            try {
+              return await callHttp({ ...integration, auth: { type: 'none' } }, { ...tool, request: { ...tool.request, headers: { ...tool.request.headers, ...integration.keyless!.headers } } }, args, undefined);
+            } catch (e) {
+              if (!/answered 429/.test((e as Error).message)) throw e;
+              onFreeLimit?.(integration.id);
+              // Its own answer tells the agent to pay, or to sign up: it can do neither.
+              throw new Error(`${integration.name} answered 429: its free no-key limit (shared, per hour) is used up for now. The person has been asked for a key.`);
+            }
+          },
         });
     } else if (integration.kind === 'code') {
       for (const tool of moduleOf(integration.module)?.tools ?? [])
@@ -417,6 +424,9 @@ export const whenDraftConnected = (fn: (id: string, request?: number) => void) =
 let onConnected: ((id: string) => void) | null = null;
 export const whenConnected = (fn: (id: string) => void) => void (onConnected = fn);
 export const toolIdsOf = (id: string) => toolsOf(id).map(([t]) => t);
+// A free no-key mode's limit reached (Tavily's, per hour): the person is asked for a key.
+let onFreeLimit: ((id: string) => void) | null = null;
+export const whenFreeLimit = (fn: (id: string) => void) => void (onFreeLimit = fn);
 
 // The OAuth client the person already made for another connection that signs in
 // at the same place (Gmail, Google Calendar and Drive all sign in at Google): one

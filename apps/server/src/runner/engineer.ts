@@ -13,6 +13,7 @@ import {
   testIntegrationTool,
   whenDraftConnected,
   whenConnected,
+  whenFreeLimit,
   toolIdsOf,
   writeDraftIntegration,
 } from '../integrations/index.js';
@@ -25,7 +26,7 @@ import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { toolTitle, toolsForPeople, type Tier } from '../catalog.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { all, builtInLevels, one, run as exec } from './db.js';
-import { heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
+import { fileRequest, heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
 
 // The Agency Engineer (docs/requests.md, docs/integrations.md): the built-in
 // agent, owned by no one, that every request goes to first. It hands work to an
@@ -863,9 +864,27 @@ export function startEngineer(book: (agentId: string, trigger: 'request' | 'conn
   // A live connection (GitHub, built in) connected: nine requests waited on it and
   // nothing woke. An agent that already holds its tools has them working now -
   // its request closes and it's woken to use them; the rest go to the engineer.
+  // Web search on Tavily's free mode ran out for the hour (three agents at once did):
+  // searching pauses and comes back by itself, but a key is what makes it last.
+  whenFreeLimit(async id => {
+    if (one("SELECT 1 FROM requests WHERE agent_id = ? AND service = ? AND what LIKE ? AND status = 'open'", FLEET_ENGINEER, id, `${FREE_LIMIT}%`)) return;
+    const name = (await listIntegrations()).find(i => i.id === id)?.name ?? id;
+    fileRequest(
+      FLEET_ENGINEER,
+      null,
+      {
+        what: `${FREE_LIMIT} (${name})`,
+        why: `Web search works without a key on ${name}'s free mode, which allows only so many searches an hour, shared by everyone using it - your agents used this hour's, so their searching pauses until it frees up. A free ${name} account gives you a key with a much bigger allowance: add it in Settings -> Connectors -> ${name}, and searching carries on with it.`,
+        service: id,
+      },
+      Date.now(),
+      () => {},
+    );
+  });
   whenConnected(async id => {
     const list = await listIntegrations();
     const name = list.find(i => i.id === id)?.name ?? id;
+    exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE agent_id = ? AND service = ? AND what LIKE ? AND status = 'open'", `${name}'s key is in - web search uses it now.`, Date.now(), FLEET_ENGINEER, id, `${FREE_LIMIT}%`);
     const tools = new Set(toolIdsOf(id));
     const rest: number[] = [];
     for (const r of waitingFor(id, list)) {
@@ -890,6 +909,8 @@ export function startEngineer(book: (agentId: string, trigger: 'request' | 'conn
     book(FLEET_ENGINEER, 'request', `Request #${r.id} from ${r.agent_id}: ${r.what.slice(0, 300)}`);
   }
 }
+
+const FREE_LIMIT = 'Add a key for more web searches';
 
 // --- Files an agent's instructions name ---------------------------------------------------
 // A Charter written from a spec can name repo files that don't exist (Outreach's
