@@ -369,6 +369,21 @@ let onConnected: ((id: string) => void) | null = null;
 export const whenConnected = (fn: (id: string) => void) => void (onConnected = fn);
 export const toolIdsOf = (id: string) => toolsOf(id).map(([t]) => t);
 
+// The OAuth client the person already made for another connection that signs in
+// at the same place (Gmail, Google Calendar and Drive all sign in at Google): one
+// client per provider, not one per connection - they're told to make it once.
+async function siblingClient(id: string): Promise<{ clientId: string; clientSecret?: string } | undefined> {
+  const mine = find(id);
+  if (mine?.auth.type !== 'oauth2') return undefined;
+  const host = new URL(mine.auth.authorize_url).host;
+  for (const { integration: other } of loaded) {
+    if (other.id === id || other.auth.type !== 'oauth2' || new URL(other.auth.authorize_url).host !== host) continue;
+    const s = await oauthSecret(other.id);
+    if (s?.clientId) return { clientId: s.clientId, clientSecret: s.clientSecret };
+  }
+  return undefined;
+}
+
 // Signing in (OAuth): the person's OAuth client in, the service's sign-in page out.
 export async function startIntegrationSignIn(id: string, client: { clientId?: string; clientSecret?: string }) {
   const integration = find(id);
@@ -379,7 +394,8 @@ export async function startIntegrationSignIn(id: string, client: { clientId?: st
     return { url: await oauthStart(id, found.auth, { clientId: found.clientId, clientSecret: found.clientSecret }, { discovered: found.auth }) };
   }
   if (integration?.auth.type !== 'oauth2') throw new Error("That integration doesn't sign in.");
-  return { url: await oauthStart(id, integration.auth, client) };
+  const own = client.clientId?.trim() || (await oauthSecret(id))?.clientId;
+  return { url: await oauthStart(id, integration.auth, own ? client : ((await siblingClient(id)) ?? client)) };
 }
 
 // The sign-in landed: test it straight away, so it's live only if it works.
@@ -404,6 +420,15 @@ export async function disconnectIntegration(id: string) {
 // --- Adding ----------------------------------------------------------------------
 
 // Saves a new integration's definition (YAML or JSON text, or an object).
+// An MCP server that needs no sign-in (DeepWiki) has nothing to connect, so nothing
+// ever found its tools: found when it's added, so they can be tried and given.
+async function findOpenTools(integration: Integration) {
+  if (integration.kind !== 'mcp' || integration.auth.type !== 'none') return;
+  const r = await test(integration);
+  putState(integration.id, { ...states()[integration.id], test: { ok: r.ok, at: Date.now(), message: r.message }, tools: r.tools ?? states()[integration.id]?.tools });
+  register();
+}
+
 export async function addIntegration(definition: unknown): Promise<Integration> {
   const raw = typeof definition === 'string' ? parse(definition) : definition;
   const integration = Integration.parse(raw);
@@ -411,6 +436,7 @@ export async function addIntegration(definition: unknown): Promise<Integration> 
   await mkdir(ADDED, { recursive: true });
   await writeFile(join(ADDED, `${integration.id}.yaml`), stringify(integration));
   await loadIntegrations();
+  await findOpenTools(integration);
   return integration;
 }
 
@@ -445,7 +471,8 @@ export async function listIntegrations() {
     if (integration.auth.type === 'fields') savedFields.set(integration.id, (await getSecret<{ fields: Record<string, string> }>(secretKey(integration.id)))?.fields ?? {});
   // Which signed-in integrations already have the person's OAuth client saved.
   const clients = new Set<string>();
-  for (const { integration } of loaded) if (integration.auth.type === 'oauth2' && (await oauthSecret(integration.id))?.clientId) clients.add(integration.id);
+  for (const { integration } of loaded)
+    if (integration.auth.type === 'oauth2' && ((await oauthSecret(integration.id))?.clientId || (await siblingClient(integration.id)))) clients.add(integration.id);
   return loaded.map(({ integration, shipped }) => ({
     id: integration.id,
     name: integration.name,
@@ -642,6 +669,7 @@ export async function writeDraftIntegration(definition: string, by: string, requ
     liveHash: wasLiveNow ? prev?.codeHash : prev?.liveHash,
   });
   await loadIntegrations();
+  await findOpenTools(integration);
   return { integration, wasLive: !!existing && !prev?.draft };
 }
 

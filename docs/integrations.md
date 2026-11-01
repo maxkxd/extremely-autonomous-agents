@@ -203,8 +203,22 @@ is forced under `agent/`. Approving a review is for people.
 - **Sign in** (`auth: { type: mcp_oauth }`, `integrations/mcp-auth.ts`): the
   MCP authorization spec. The server says where its sign-in is; the app
   registers itself there (dynamic client registration), so the person makes
-  no OAuth client - they choose Sign in, and sign in. Tested to the sign-in
-  page with Linear and Notion.
+  no OAuth client - they choose Sign in, and sign in. Checked 2026-11-01 to
+  register and reach the consent page: Notion, Linear, Airtable, Buffer,
+  Atlassian, monday.com, Sentry, PostHog, Vercel, Stripe, PayPal, Square,
+  Intercom, Klaviyo, Canva, Webflow, Wix, Jotform, Zapier. Not possible (no
+  self-registration): HubSpot, Slack, GitHub, Google, Box, Figma, Xero, Asana;
+  Calendly registers only http://localhost redirects, not this app's
+  127.0.0.1. The Agency Engineer picks the way in by what the person has to
+  do: no account, then sign-in, then a key from a settings page, and a
+  developer app or OAuth client only when nothing else will do.
+- **No sign-in at all** (`auth: { type: none }`, DeepWiki): its tools are found
+  as it's saved - there is nothing to connect.
+- An old `.../sse` address (the deprecated SSE transport, which this client
+  doesn't speak) is tried at `.../mcp` beside it.
+- **One OAuth client per provider**: connections that sign in at the same
+  place (Gmail, Google Calendar, Drive) reuse the client the person already
+  saved for one of them; they only turn on that API and sign in.
 - **On this computer** (`integrations/mcp-stdio.ts`): a `command` the app
   starts and talks to over stdin/stdout (most MCP servers, e.g.
   `npx -y @modelcontextprotocol/server-filesystem C:/notes`), or a `url` on
