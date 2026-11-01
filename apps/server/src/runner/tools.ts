@@ -444,9 +444,11 @@ const WHY = 'For the person approving: one or two plain sentences on why this, w
 
 // The email of the person an agent works for: its owner, or with none the agency's
 // own person (the host, or its only person). Null: nobody known.
+// "Email me" is the agency owner's inbox (decided 2026-11-02) - the person running
+// the agency, not the mailbox's owner nor a teammate who made the agent.
 export async function ownerEmail(agentId: string): Promise<string | null> {
   const meta = await readMeta(agentId);
-  let name = meta?.owner ?? getSetting<string | null>('host_person', null);
+  let name = getSetting<string | null>('host_person', null) ?? meta?.owner ?? null;
   if (!name) {
     const people = (await readdir(join(DATA_DIR, 'people')).catch(() => [] as string[])).filter(f => f.endsWith('.json'));
     if (people.length === 1) name = people[0].replace(/\.json$/, '');
@@ -683,7 +685,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
       counted: 0,
     });
   try {
-    // A report goes to the person this agent works for, whatever the agent passed.
+    // A report goes to the agency owner, whatever the agent passed.
     if (id === 'gmail.send_to_me') call = { ...call, args: { ...call.args, _to: (await ownerEmail(ctx.agent.id)) ?? undefined } };
     let content = await impl.impl(call.args, ctx);
     healthOk(ctx.agent.id, id, ctx.now());
