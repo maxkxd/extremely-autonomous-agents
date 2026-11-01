@@ -2,10 +2,11 @@ import { stringify } from 'yaml';
 import { listIds, readMeta, save } from '../files.js';
 import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER } from './agent.js';
-import { getSetting, run as exec } from './db.js';
+import { all, getSetting, run as exec } from './db.js';
+import { fileRequest } from './tools.js';
 import { availableModels } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
-import { choiceKey, type Health } from '../models/health.js';
+import { brokenModel, choiceKey, type Health } from '../models/health.js';
 import { pickDefaults, type Want } from './defaults.js';
 import { DOCTOR } from './doctor.js';
 
@@ -80,7 +81,7 @@ export function rescued(
 // a broken one (a key revoked, Claude Code signed out, a model gone) moves every
 // agent on it to what still works, without anyone switching each by hand. A
 // model "doesn't work" when its connection is gone, its check failed, or it has
-// failed 3 times in a row; one that recovers is kept behind the new ones while
+// failed 3 times in a row other than busy; one that recovers is kept behind the new ones while
 // there's room. While any of an agent's models works, they're left alone.
 export async function fillBuiltInModels() {
   const avail = await availableModels().catch(() => []);
@@ -88,10 +89,15 @@ export async function fillBuiltInModels() {
   const checks = await allChecks().catch(() => ({}) as Record<string, { ok: boolean }>);
   const health = getSetting<Health>('model_health', {});
   const has = (c: Pick<ModelChoice, 'connection' | 'model'>) => !!avail.find(a => a.connection === c.connection)?.models.includes(c.model);
-  const works = (c: Pick<ModelChoice, 'connection' | 'model'>) => has(c) && checks[choiceKey(c)]?.ok !== false && (health[choiceKey(c)]?.failures ?? 0) < 3;
+  const works = (c: Pick<ModelChoice, 'connection' | 'model'>) => has(c) && checks[choiceKey(c)]?.ok !== false && !brokenModel(health, c);
+  // One that's back: its notice closes.
+  for (const r of openLost())
+    if (avail.some(a => a.connection === r.service))
+      exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", `${nameOf(r.service)} is connected again.`, Date.now(), r.id);
   const working = avail.map(a => ({ ...a, models: a.models.filter(m => works({ connection: a.connection, model: m })) })).filter(a => a.models.length);
   if (!working.length) return;
   const chosen = await allChoices();
+  const moved = new Map<string, Set<string>>(); // a connection that went -> where its agents went
   for (const id of await listIds()) {
     const mine = chosen[id] ?? [];
     const next = rescued(mine, working, works, WANTS[id] ?? 'strong');
@@ -100,5 +106,28 @@ export async function fillBuiltInModels() {
     if (!meta || meta.status === 'setting-up') continue;
     await setChoices(id, next);
     if (mine.length) console.log(`${id}: none of its models worked (${mine.map(choiceKey).join(', ')}); now ${next.map(choiceKey).join(', ')}`);
+    const to = next.map(n => avail.find(a => a.connection === n.connection)?.name ?? n.connection);
+    for (const c of mine) if (!avail.some(a => a.connection === c.connection)) moved.set(c.connection, new Set([...(moved.get(c.connection) ?? []), ...to]));
+  }
+  // Moved off a connection that went (Claude Code signed out): said, since its
+  // agents may now be on a pay-per-use key instead of a plan.
+  for (const [connection, to] of moved) {
+    if (openLost().some(r => r.service === connection)) continue;
+    fileRequest(
+      FLEET_ENGINEER,
+      null,
+      {
+        what: `${LOST} (${nameOf(connection)})`,
+        why: `${nameOf(connection)} isn't connected any more, so the agents that ran on it moved to ${[...to].join(' and ')} to keep working. To move them back, reconnect ${nameOf(connection)} in Settings -> Connectors, then pick it on their cards.`,
+        service: connection,
+      },
+      Date.now(),
+      () => {},
+    );
   }
 }
+
+const LOST = "Your AI connection isn't connected any more";
+const openLost = () => all<{ id: number; service: string }>("SELECT id, service FROM requests WHERE what LIKE ? AND status = 'open' AND service IS NOT NULL", `${LOST}%`);
+const NAMES: Record<string, string> = { 'claude-code': 'Claude (Claude Code)', copilot: 'GitHub Copilot', chatgpt: 'ChatGPT', openai: 'OpenAI', xai: 'xAI', deepseek: 'DeepSeek', openrouter: 'OpenRouter' };
+const nameOf = (connection: string) => NAMES[connection] ?? connection.charAt(0).toUpperCase() + connection.slice(1);

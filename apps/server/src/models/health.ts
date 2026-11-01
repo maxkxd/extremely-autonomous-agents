@@ -11,7 +11,8 @@ import type { ModelChoice } from './choice.js';
 export const FIRST_BENCH_MS = 2 * 60_000;
 export const MAX_BENCH_MS = 60 * 60_000;
 
-export type Health = Record<string, { failures: number; benchedUntil: number }>;
+// kind: the last failure's (a ModelError's) - busy ('rate') isn't broken.
+export type Health = Record<string, { failures: number; benchedUntil: number; kind?: string }>;
 
 export const choiceKey = (c: Pick<ModelChoice, 'connection' | 'model'>) => `${c.connection}/${c.model}`;
 
@@ -20,11 +21,15 @@ export function benchFor(failures: number): number {
   return Math.min(FIRST_BENCH_MS * 2 ** (failures - 1), MAX_BENCH_MS);
 }
 
-export function recordFailure(h: Health, c: ModelChoice, now = Date.now()): Health {
+export function recordFailure(h: Health, c: ModelChoice, now = Date.now(), kind?: string): Health {
   const key = choiceKey(c);
   const failures = (h[key]?.failures ?? 0) + 1;
-  return { ...h, [key]: { failures, benchedUntil: now + benchFor(failures) } };
+  return { ...h, [key]: { failures, benchedUntil: now + benchFor(failures), ...(kind ? { kind } : {}) } };
 }
+
+// Failing for real: 3 in a row, the last not just busy (a rate limit shared by
+// eight runs at once read as three failures in seconds).
+export const brokenModel = (h: Health, c: Pick<ModelChoice, 'connection' | 'model'>) => (h[choiceKey(c)]?.failures ?? 0) >= 3 && h[choiceKey(c)]?.kind !== 'rate';
 
 export function recordSuccess(h: Health, c: ModelChoice): Health {
   const key = choiceKey(c);

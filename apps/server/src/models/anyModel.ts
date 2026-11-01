@@ -2,7 +2,7 @@ import * as z from 'zod/v4';
 import { availableModels } from './connections.js';
 import { allChecks } from './check.js';
 import { choiceKey, isBenched, recordFailure, recordSuccess } from './health.js';
-import { adapterFor, type Msg } from '../runner/providers.js';
+import { adapterFor, ModelError, type Msg } from '../runner/providers.js';
 import { harnessFor } from '../runner/harness.js';
 import { pickDefaults } from '../runner/defaults.js';
 import { getHealth, putHealth } from '../runner/run.js';
@@ -79,7 +79,7 @@ export async function jsonFromAnyModel<T extends z.ZodType>(schema: T, system: s
       }
       failed.push(`${choiceKey(c)}: its answer didn't fit, twice`);
     } catch (e) {
-      putHealth(recordFailure(getHealth(), c));
+      putHealth(recordFailure(getHealth(), c, Date.now(), e instanceof ModelError ? e.kind : undefined));
       failed.push(`${choiceKey(c)}: ${(e as Error).message.slice(0, 160)}`);
     }
   }

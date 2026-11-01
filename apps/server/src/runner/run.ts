@@ -373,7 +373,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
             harnessDone = true;
           } catch (e) {
             if (signal?.aborted) throw e;
-            health = recordFailure(health, c, deps.now());
+            health = recordFailure(health, c, deps.now(), e instanceof ModelError ? e.kind : undefined);
             putHealth(health);
             if (!(e instanceof ModelError)) throw e;
             error = `${c.connection}/${c.model}: ${e.message}`;
@@ -396,7 +396,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
           used = c;
         } catch (e) {
           if (signal?.aborted) throw e;
-          health = recordFailure(health, c, deps.now());
+          health = recordFailure(health, c, deps.now(), e instanceof ModelError ? e.kind : undefined);
           putHealth(health);
           if (!(e instanceof ModelError)) throw e;
           error = `${c.connection}/${c.model}: ${e.message}`;
