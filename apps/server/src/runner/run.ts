@@ -19,7 +19,7 @@ import { canStillCount, execute, fileRequest, requestConnections, runEnded, tool
 // tool loop on its first working model, the floor and its nudges, then the
 // record and its post in the agent's DM channel.
 
-export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'turned down' | 'connected' | 'event';
+export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'turned down' | 'connected' | 'event' | 'task done';
 
 // What a run needs from outside, so tests can stand it up without a network.
 export type RunDeps = {
@@ -134,6 +134,8 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
   );
   exec("UPDATE requests SET delivered_at = ? WHERE agent_id = ? AND status != 'open' AND delivered_at IS NULL", now, agent.id);
   exec("UPDATE tasks SET delivered_at = ? WHERE from_agent = ? AND status = 'done' AND delivered_at IS NULL", now, agent.id);
+  // Told now, so a wake still waiting to tell it has nothing left to say.
+  if (results.length) exec("DELETE FROM bookings WHERE agent_id = ? AND trigger = 'task done'", agent.id);
   const news = [
     ...answered.map(r => `- Your request #${r.id} ("${r.what}") was ${r.status === 'done' ? 'answered' : 'turned down'}: ${r.answer ?? '(no note)'}`),
     ...results.map(t => `- Task #${t.id} you handed to ${t.agent_id} is done: ${t.result ?? '(no result given)'}`),
@@ -229,6 +231,8 @@ function opening(agent: AgentDef, trigger: Trigger, task: string | null): string
     }
     case 'approval':
       return task ?? 'An approval you were waiting on was decided. Carry on.';
+    case 'task done':
+      return 'Work you handed to another agent is done - its result is under "Since your last run". Carry on with what you needed it for, then anything else your job needs.';
     // The Agency Engineer's (runner/engineer.ts).
     case 'request':
       return `A new request came to you. ${task}

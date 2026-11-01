@@ -117,6 +117,8 @@ export function dropStaleRequestRuns() {
 export function book(agentId: string, trigger: Trigger, task: string | null, dueAt = Date.now()) {
   // Decisions made together wake it once, with all of them (six approvals had
   // made six runs in a row).
+  // Results that come in together, likewise: one run hears them all.
+  if (trigger === 'task done' && one<{ id: number }>("SELECT id FROM bookings WHERE agent_id = ? AND trigger = 'task done'", agentId)) return;
   if (trigger === 'approval' && task) {
     const waiting = one<{ id: number }>("SELECT id FROM bookings WHERE agent_id = ? AND trigger = 'approval' ORDER BY id LIMIT 1", agentId);
     if (waiting) {

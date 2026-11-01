@@ -312,6 +312,9 @@ const BUILTIN: ToolDef[] = [
         ctx.agent.id,
       );
       if (!r.changes) throw new Error(`You have no open task #${String(a.task_id)}.`);
+      // Whoever handed it over hears the result now, not on its next scheduled run.
+      const from = one<{ from_agent: string | null }>('SELECT from_agent FROM tasks WHERE id = ?', Number(a.task_id))?.from_agent;
+      if (from && from !== ctx.agent.id) ctx.wake(from, 'task done', `Task #${String(a.task_id)} from ${ctx.agent.name} is done.`);
       return `Task #${String(a.task_id)} closed.`;
     },
   },

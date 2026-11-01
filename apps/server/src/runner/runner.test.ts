@@ -210,6 +210,19 @@ test('approvals decided together wake the agent once, with all of them', () => {
   assert.match(b[0].task, /one\.[\s\S]*two\./);
 });
 
+test('closing a handed-over task wakes whoever handed it, once for results that come in together', async () => {
+  exec("DELETE FROM bookings WHERE agent_id = 'zz-sender'");
+  const woken: { agent: string; trigger: string }[] = [];
+  const ctx = { agent: agent(), runId: 'r_done', level: 0, now: () => Date.now(), fleet: async () => [], wake: (a: string, t: string, k: string) => (woken.push({ agent: a, trigger: t }), book(a, t as 'task done', k)) };
+  const ids = new Map([['tasks__complete_task', 'tasks.complete_task']]);
+  for (const n of [1, 2]) {
+    const t = exec('INSERT INTO tasks (agent_id, from_agent, task, created_at) VALUES (?, ?, ?, ?)', ID, 'zz-sender', `job ${n}`, Date.now());
+    await execute(ctx, { id: `d${n}`, name: 'tasks__complete_task', args: { task_id: Number(t.lastInsertRowid), result: 'done' } }, ids);
+  }
+  assert.deepEqual(woken.map(w => w.trigger), ['task done', 'task done']);
+  assert.equal(all("SELECT id FROM bookings WHERE agent_id = 'zz-sender' AND trigger = 'task done'").length, 1);
+});
+
 test('a registered tool the agent does not hold is refused', async () => {
   setLevel(CHILL);
   registerTools([{ id: 'zztest.other', tier: 'T0', description: 'x', schema: { type: 'object' }, impl: () => 'ran' }]);
