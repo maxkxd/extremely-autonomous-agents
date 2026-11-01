@@ -13,7 +13,7 @@ import { forgetAgentRuns } from './forget.js';
 import { decideApproval } from './approvals.js';
 import { fleetReport } from './doctor.js';
 import { answerRequest } from './api.js';
-import { notWaitingAlready, rate, requestNotWaiting, withdrawProposal } from './engineer.js';
+import { dropGuesses, notWaitingAlready, rate, requestNotWaiting, withdrawProposal } from './engineer.js';
 import { actsIn, execute, registerTools, requestConnections, serviceLabel, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
@@ -603,6 +603,25 @@ test("a request names the service the agent's instructions use, not the catalogu
   assert.equal(serviceLabel('seo'), 'SEO'); // a made-up server: an acronym, not "Seo"
   assert.equal(serviceLabel('war_app'), 'War App'); // not "WAR APP"
   assert.equal(serviceLabel('search_console'), 'Google Search Console');
+});
+
+test("a sign-in MCP server going live replaces the tool names the builder guessed for it", async () => {
+  const { DATA } = await import('../files.js');
+  const { mkdir, readFile, writeFile } = await import('node:fs/promises');
+  const { parse } = await import('yaml');
+  const dir = join(DATA, 'zz-triage');
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, 'TOOLS.yaml'),
+    'tools_allowed: [files.read_file, sentry.list_issues, sentry.get_issue, sentry.search_issues]\ntool_tiers: { files.read_file: T0, sentry.list_issues: T0, sentry.get_issue: T0, sentry.search_issues: T0 }\nnew_tools:\n  - id: sentry.list_issues\n  - id: sentry.get_issue\n  - id: sentry.search_issues\n  - id: linear.list_issues\n',
+  );
+  assert.deepEqual(await dropGuesses('zz-triage', 'sentry', ['sentry.search_issues', 'sentry.find_projects']), ['sentry.list_issues', 'sentry.get_issue']);
+  const doc = parse(await readFile(join(dir, 'TOOLS.yaml'), 'utf8'));
+  assert.deepEqual(doc.tools_allowed, ['files.read_file', 'sentry.search_issues']);
+  assert.deepEqual(Object.keys(doc.tool_tiers), ['files.read_file', 'sentry.search_issues']);
+  assert.deepEqual(doc.new_tools.map((t: { id: string }) => t.id), ['sentry.search_issues', 'linear.list_issues']); // another service's stay
+  assert.deepEqual(await dropGuesses('zz-triage', 'sentry', ['sentry.search_issues']), []); // nothing left to replace
+  await rm(dir, { recursive: true, force: true });
 });
 
 test("busywork doesn't meet a target: past 5 workspace files a run, they don't count for an agent with real output", async () => {

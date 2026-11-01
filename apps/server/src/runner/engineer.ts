@@ -336,6 +336,25 @@ export async function giveTools(agentId: string, tools: { id: string; tier: Tier
 }
 
 
+// An MCP server's tools are its own, unknown until someone connects it: the names the
+// builder guessed for that service give way to the real ones when it goes live -
+// otherwise they show as missing for good, and the agent's request never closes.
+export async function dropGuesses(agentId: string, serverId: string, real: string[]) {
+  const file = join(DATA, slug(agentId), 'TOOLS.yaml');
+  const doc = parseDocument(await readFile(file, 'utf8'));
+  const get = <T>(key: string) => (doc.get(key) as { toJSON(): T } | undefined)?.toJSON();
+  const newTools = get<{ id: string }[]>('new_tools') ?? [];
+  const dropped = newTools.map(t => t.id).filter(id => id.startsWith(`${serverId}.`) && !real.includes(id));
+  if (!dropped.length) return [];
+  const tiers = get<Record<string, Tier>>('tool_tiers') ?? {};
+  for (const id of dropped) delete tiers[id];
+  doc.set('new_tools', newTools.filter(t => !dropped.includes(t.id)));
+  doc.set('tools_allowed', (get<string[]>('tools_allowed') ?? []).filter(id => !dropped.includes(id)));
+  doc.set('tool_tiers', tiers);
+  await writeFile(file, doc.toString());
+  return dropped;
+}
+
 const nameOf = async (agentId: string) => (await readMeta(agentId))?.name ?? agentId;
 
 // Who a publish_integration card gives the connection to: the agent it's for, then any grouped with it.
@@ -718,10 +737,12 @@ const TOOLS: ToolDef[] = [
       }
       const tested = out.test ? ` Its test as it went live: ${out.test}` : '';
       const said: string[] = [];
+      const isMcp = (await listIntegrations()).find(i => i.id === String(a.integration_id))?.kind === 'mcp';
       for (const [i, g] of grants.entries()) {
         const wanted = g.tools.filter(t => out.tools.some(x => x.id === t.id));
         const given = wanted.length ? wanted : out.tools;
         await giveTools(g.for_agent, given);
+        const replaced = isMcp ? await dropGuesses(g.for_agent, String(a.integration_id), out.tools.map(t => t.id)) : [];
         // Its events: for the agent the card was made for (the ones grouped with it get tools).
         const events = i === 0 && g.for_agent === String(a.for_agent) ? await eventsFor(g.for_agent, String(a.integration_id), a.events) : [];
         if (events.length) await giveEvents(g.for_agent, events);
@@ -739,7 +760,8 @@ const TOOLS: ToolDef[] = [
         }
         exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", `${String(a.summary)}\n\nYou now have: ${ids}.`, Date.now(), g.request_id);
         // Woken to use them now: an agent that was blocked runs only as Steady (scheduler).
-        ctx.wake(g.for_agent, 'self-booked', `Request #${g.request_id} is done - you now have ${ids}. Use them on your real work now.`);
+        const instead = replaced.length ? ` They are the service's own, in place of the ones you were written with (${replaced.join(', ')}): use these.` : '';
+        ctx.wake(g.for_agent, 'self-booked', `Request #${g.request_id} is done - you now have ${ids}.${instead} Use them on your real work now.`);
         said.push(g.for_agent);
       }
       return `Live: ${String(a.name ?? a.integration_id)} for ${said.join(', ') || 'nobody (their requests had closed)'}.${tested}`;
