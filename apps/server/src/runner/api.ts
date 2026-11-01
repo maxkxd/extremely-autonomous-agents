@@ -34,6 +34,7 @@ import { isPrivateIp } from './net.js';
 import { agencyState, stateOf, type AgencyState, type Trigger } from './run.js';
 import { abortAll, abortRun, book, isRunning } from './scheduler.js';
 import { AccessError, currentActor, requireAdmin, requireMakerOrAdmin } from '../access.js';
+import { scrub } from '../secrets.js';
 
 // The runner's routes for the app: each agent's card (ferocity, Drain/Stop,
 // real stats), its DM channel, requests, and spend caps (Settings -> Usage).
@@ -254,7 +255,8 @@ export const runnerRoutes: Record<string, Route> = {
     }));
   },
   'POST /api/dm': async (_req, _q, body) => {
-    const { id, text } = await body<{ id: string; text: string }>();
+    const { id, text: typed } = await body<{ id: string; text: string }>();
+    const text = typed && scrub(typed);
     if (!isId(id) || !text?.trim()) throw new Error('Nothing to send.');
     await requireMakerOrAdmin(id, null, currentActor(), 'message it');
     if ((await readMeta(id))?.service) throw new Error('This helper only records what it decides; it takes no messages.');
@@ -299,7 +301,8 @@ export const runnerRoutes: Record<string, Route> = {
 
   // A person writes to the Agency Engineer on a request; it's woken to answer.
   'POST /api/runner/requests/message': async (_req, _q, body) => {
-    const { id, text } = await body<{ id: number; text: string }>();
+    const { id, text: typed } = await body<{ id: number; text: string }>();
+    const text = typed && scrub(typed);
     const r = one<{ id: number; status: string; agent_id: string }>('SELECT id, status, agent_id FROM requests WHERE id = ?', Number(id));
     if (!r || r.status !== 'open') throw new Error('That request is closed.');
     await requireMakerOrAdmin(r.agent_id);
@@ -356,7 +359,8 @@ export const runnerRoutes: Record<string, Route> = {
   // A person's answer: done (with what they did or decided) or turned down.
   // The agent is told at the start of its next run.
   'POST /api/runner/requests/answer': async (_req, _q, body) => {
-    const { id, status, answer } = await body<{ id: number; status: 'done' | 'rejected'; answer?: string }>();
+    const { id, status, answer: typed } = await body<{ id: number; status: 'done' | 'rejected'; answer?: string }>();
+    const answer = typed && scrub(typed);
     const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', Number(id));
     if (r) await requireMakerOrAdmin(r.agent_id);
     if (await answerRequest(Number(id), status, answer)) {
@@ -369,7 +373,8 @@ export const runnerRoutes: Record<string, Route> = {
   // --- Approvals: T2 calls waiting on a person ---
   'GET /api/runner/approvals': async () => ({ approvals: await pendingApprovals() }),
   'POST /api/runner/approvals/decide': async (_req, _q, body) => {
-    const { id, decision, note } = await body<{ id: string; decision: 'approved' | 'rejected'; note?: string }>();
+    const { id, decision, note: typed } = await body<{ id: string; decision: 'approved' | 'rejected'; note?: string }>();
+    const note = typed && scrub(typed);
     if (decision !== 'approved' && decision !== 'rejected') throw new Error('Approve or reject.');
     const a = one<{ agent_id: string; request: number | null; about: string | null }>(
       "SELECT agent_id, json_extract(args, '$.request_id') AS request, json_extract(args, '$.agent_id') AS about FROM approvals WHERE id = ?",

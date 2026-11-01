@@ -136,8 +136,14 @@ export async function list(): Promise<ConnectionView[]> {
 // --- API keys and local servers ---------------------------------------------
 
 // What people paste: stray spaces and line breaks, quotes, a "Bearer " prefix.
+// Pasted with what was around it: spaces, quotes, "Bearer", or the whole .env
+// line ("ANTHROPIC_API_KEY=sk-ant-...", "export OPENAI_API_KEY=...").
 export const cleanKey = (key: string) =>
   key
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^export\s+/i, '')
+    .replace(/^[A-Z][A-Z0-9_]*(KEY|TOKEN)\s*[=:]\s*/, '')
     .replace(/\s+/g, '')
     .replace(/^["'`]+|["'`]+$/g, '')
     .replace(/^bearer/i, '');
@@ -154,30 +160,47 @@ const PREFIXES: [string, string][] = [
 function wrongProvider(id: string, key: string): string | null {
   const hit = PREFIXES.find(([prefix]) => key.startsWith(prefix));
   if (!hit || hit[1] === provider(id)?.name) return null;
-  return `This looks like a${/^[AEIOU]/.test(hit[1]) ? 'n' : ''} ${hit[1]} key, not a ${provider(id)?.name} one.`;
+  const name = provider(id)?.name ?? '';
+  return `This looks like a${/^[AEIOU]/.test(hit[1]) ? 'n' : ''} ${hit[1]} key, not a${/^[AEIOU]/.test(name) ? 'n' : ''} ${name} one.`;
+}
+// A key that failed and doesn't start the way this provider's do: probably another's.
+function ownPrefixMissing(id: string, key: string): string | null {
+  const own = PREFIXES.find(([, name]) => name === provider(id)?.name)?.[0];
+  return own && !key.startsWith(own) ? `${provider(id)?.name} keys start with ${own}, and this one doesn't - is it a key for another provider?` : null;
 }
 
-// Saves a key and checks it with the provider. A key that doesn't check out
-// is still saved, marked broken with the reason, so it shows up as needing
-// attention instead of vanishing; the error is also thrown to the caller.
+// Checks a key with the provider, then saves it. One that doesn't check out:
+// - while a working key is saved, the working one stays (a typo in Replace key
+//   used to overwrite it, and every agent on it stopped);
+// - with nothing working, it's saved marked broken with the reason, so it shows
+//   up as needing attention instead of vanishing (the provider may be down);
+// - not a key for this provider at all (another's, or not a key): nothing saved.
+// The error is thrown to the caller either way.
 export async function connectKey(id: string, key: string, baseUrl?: string) {
   const p = provider(id);
   if (!p || p.kind === 'plan') throw new ConnectError('Unknown provider.');
   const k = p.kind === 'key' ? cleanKey(key) : '';
   if (p.kind === 'key' && !k) throw new ConnectError('Paste the key first.');
+  if (p.kind === 'key' && k.length > 400) throw new ConnectError("That's much longer than a key - copy just the key itself.");
+  const wrong = p.kind === 'key' ? wrongProvider(id, k) : null;
+  if (wrong) throw new ConnectError(wrong);
   const url = p.editableBaseUrl ? baseUrl?.trim() || p.baseUrl : undefined;
-  if (p.kind === 'key') await setSecret(id, { key: k });
   try {
-    const wrong = wrongProvider(id, k);
-    if (wrong) throw new ConnectError(wrong);
     const models = await verify(id, k, url);
+    if (p.kind === 'key') await setSecret(id, { key: k });
     const label = p.kind === 'local' ? localLabel(models) : mask(k);
     await connected(id, label, models, url);
   } catch (e) {
-    const reason = e instanceof ConnectError ? e.message : "That key couldn't be checked.";
-    // A local server that isn't running isn't a broken key: just say so.
-    if (p.kind === 'key') await markBroken(id, mask(k), reason, url);
-    throw e instanceof ConnectError ? e : new ConnectError(reason);
+    let reason = e instanceof ConnectError ? e.message : "That key couldn't be checked.";
+    if (p.kind === 'key') {
+      reason = ownPrefixMissing(id, k) ?? reason;
+      const was = (await load()).connections[id];
+      // A local server that isn't running isn't a broken key: just say so.
+      if (was && !was.broken) throw new ConnectError(`${reason} Your saved key is still in use.`);
+      await setSecret(id, { key: k });
+      await markBroken(id, mask(k), reason, url);
+    }
+    throw new ConnectError(reason);
   }
 }
 

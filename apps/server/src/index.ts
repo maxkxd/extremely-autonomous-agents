@@ -30,6 +30,7 @@ import { SELF_HOSTED } from './selfhost.js';
 import { randomUUID } from 'node:crypto';
 import { forwardToHosted, HOSTED_ORG, HOSTED_PORT, hostingStatus, keepHostSecret, resumeHosting, startHosting, deleteHosting, stopHosting } from './hosting.js';
 import { setSetting } from './runner/db.js';
+import { scrub } from './secrets.js';
 import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, personFor, recordAction, requireAdmin, setAccessConfig } from './access.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
@@ -109,13 +110,15 @@ const notStopped = () => {
 };
 
 type Route = (req: IncomingMessage, query: URLSearchParams) => Promise<unknown>;
+// What the person typed to the builder, with any key taken out (secrets.ts).
+const scrubbed = (turns: Turn[]) => (turns ?? []).map(t => (t.role === 'person' ? { ...t, text: scrub(t.text) } : t));
 const routes: Record<string, Route> = {
   // --- The organisation profile ---
   'GET /api/org': async (_req, q) => ({ profile: await loadProfile(q.get('name') ?? '') }),
   'POST /api/org/turn': async req => {
     const { person, org, turns } = await body<{ person: string; org: string; turns: Turn[] }>(req);
     const me = personFor(person);
-    const out = await profileInterview(org, await loadPerson(me), turns, await loadProfile(org));
+    const out = await profileInterview(org, await loadPerson(me), scrubbed(turns), await loadProfile(org));
     if (me) await addPersonNotes(me, out.person_notes ?? []);
     return { ...out, confidence: clamp(out.confidence) };
   },
@@ -313,12 +316,12 @@ const routes: Record<string, Route> = {
   'POST /api/builder/match': async req => {
     notStopped();
     const { description, packs } = await body<{ description: string; packs: Pack[] }>(req);
-    return matchPack(description, packs);
+    return matchPack(scrub(description ?? ''), packs);
   },
   'POST /api/builder/turn': async req => {
     notStopped();
     const { person, org, members, turns, declinedPack } = await body<{ person: string; org: string | null; members: string[]; turns: Turn[]; declinedPack: string | null }>(req);
-    const out = await interview(await context(personFor(person), org, members), turns, declinedPack);
+    const out = await interview(await context(personFor(person), org, members), scrubbed(turns), declinedPack);
     return { ...out, confidence: clamp(out.confidence) };
   },
   // The files stay hidden: the app gets the card's details and an opaque
@@ -328,7 +331,7 @@ const routes: Record<string, Route> = {
     const { person, org, members, turns, takenIds } = await body<{ person: string; org: string | null; members: string[]; turns: Turn[]; takenIds: string[] }>(req);
     const me = personFor(person);
     const ctx = await context(me, org, members);
-    const b = await build(ctx, turns);
+    const b = await build(ctx, scrubbed(turns));
     if (org) await addNotes(org, b.profile_notes ?? []);
     if (me) await addPersonNotes(me, b.person_notes ?? []);
     return forApp(b, takenIds, new Set([...ctx.fleet.tools.map(t => t.id), ...integrationToolIds()]), ctx.models);
