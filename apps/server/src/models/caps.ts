@@ -20,8 +20,10 @@ export type ModelInfo = { id: string; efforts: Effort[]; native?: Native };
 // ones, and models that are agents themselves (deep research). Checked against
 // live lists and requests on 2026-10-28; "-search-" so "research" isn't caught.
 // Voxtral is Mistral's speech model (2026-11-01: agents moved onto it).
+// OpenRouter's ":batch" variants answer offline, in bulk (2026-11-02: the second
+// pick after the same model's live one); Gemini's robotics models drive robots.
 const NOT_CHAT =
-  /embed|tts|whisper|transcri|speech|voxtral|dall-e|gpt-image|imagen|image-gen|-image|nano-banana|imagine|veo|sora|moderation|realtime|audio|rerank|guard|ocr|aqa|-search-(preview|api)|computer-use|multi-agent|deep-research|antigravity|davinci|babbage|gpt-3\.5|lyria|native-audio|-live/i;
+  /embed|tts|whisper|transcri|speech|voxtral|dall-e|gpt-image|imagen|image-gen|-image|nano-banana|imagine|veo|sora|moderation|realtime|audio|rerank|guard|ocr|aqa|-search-(preview|api)|computer-use|multi-agent|deep-research|antigravity|:batch$|robotics|davinci|babbage|gpt-3\.5|lyria|native-audio|-live/i;
 export const isChatId = (id: string) => !NOT_CHAT.test(id);
 
 // A provider's own level names, mapped onto ours. low/medium/high as named;

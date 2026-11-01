@@ -27,6 +27,9 @@ test('drops models that are not chat models', () => {
     assert.equal(isChatId(id), false, id);
   for (const id of ['gpt-5.6-terra', 'claude-opus-5-5', 'gemini-3-pro-preview', 'meta-llama/llama-4-scout-17b-16e-instruct', 'mistral-large-latest', 'deepseek-chat', 'grok-4'])
     assert.equal(isChatId(id), true, id);
+  // Not for a live run: a batch variant, a robot's model (2026-11-02).
+  for (const id of ['anthropic/claude-sonnet-5.5:batch', 'gemini-robotics-er-2-preview']) assert.equal(isChatId(id), false, id);
+  assert.equal(isChatId('anthropic/claude-sonnet-5.5'), true);
   // Chat models that can't take our tools, found live on 2026-10-28.
   for (const id of ['gpt-5-search-api', 'gpt-3.5-turbo-16k', 'nano-banana-pro-preview', 'gemini-nano-banana-2.1', 'grok-imagine-video-1.5', 'grok-4.20-multi-agent-0309', 'antigravity-preview-latest', 'deep-research-preview-04-2026', 'deep-research-max-preview-04-2026'])
     assert.equal(isChatId(id), false, id);
