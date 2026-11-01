@@ -3,7 +3,7 @@
 // connecting is. The agent waits, stopped, until its person first resumes it -
 // that ends setup for good.
 import { listIntegrations } from '../integrations/index.js';
-import { all, run as exec } from './db.js';
+import { all, one, run as exec } from './db.js';
 
 // On the card a connector goes by what it is, not a product the person may not
 // use ("CRM", not "HubSpot" - they may be on Salesforce); its request says which.
@@ -94,8 +94,13 @@ export async function setups(): Promise<Record<string, AgentSetup>> {
 // Every connector connected (and none still being got ready): it starts by itself,
 // and its setup is over - as if its person had resumed it.
 export async function finishSetups(now = Date.now()): Promise<string[]> {
+  // Not when every one was turned down: nothing it needs is there, so it waits
+  // for its person to resume it (it had started with no tools at all).
+  const refusedAll = (id: string) =>
+    one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE agent_id = ? AND setup = 1 AND status = 'done'", id)?.n === 0 &&
+    (one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE agent_id = ? AND setup = 1 AND status = 'rejected'", id)?.n ?? 0) > 0;
   const done = Object.entries(await setups())
-    .filter(([, s]) => !s.building && s.items.every(i => i.connected))
+    .filter(([id, s]) => !s.building && s.items.every(i => i.connected) && !refusedAll(id))
     .map(([id]) => id);
   for (const id of done) exec("UPDATE agent_state SET state = 'active', setup = NULL, updated_at = ? WHERE agent_id = ? AND setup = 1", now, id);
   return done;

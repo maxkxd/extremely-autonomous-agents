@@ -735,3 +735,11 @@ test("with no AI connected, the person is told nothing can run - once, and it cl
   noAiRequest(true, Date.now());
   assert.equal(open().length, 0);
 });
+
+test("a new agent whose every connector was turned down doesn't start by itself", async () => {
+  const { finishSetups } = await import('./setup.js');
+  exec("INSERT INTO agent_state (agent_id, state, setup, updated_at) VALUES ('zz-refused', 'stopped', 1, 0)");
+  exec("INSERT INTO requests (agent_id, what, why, status, created_at, setup, service) VALUES ('zz-refused', 'Set up a CRM', 'x', 'rejected', 0, 1, 'crm')");
+  assert.deepEqual(await finishSetups(), []);
+  assert.equal(one<{ state: string }>("SELECT state FROM agent_state WHERE agent_id = 'zz-refused'")?.state, 'stopped');
+});
