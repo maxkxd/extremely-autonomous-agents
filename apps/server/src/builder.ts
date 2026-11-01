@@ -172,7 +172,7 @@ async function parse<T extends z.ZodType>(
     // With Claude's own reason, so a rejected request says why (logged, and shown).
     if (e instanceof Anthropic.APIError) throw new BuilderError(`Claude API error (${e.status}): ${String((e.error as { error?: { message?: string } } | undefined)?.error?.message ?? e.message).slice(0, 300)}`);
     // No credentials at all: the SDK throws before any request.
-    if (e instanceof Error && /api ?key|auth/i.test(e.message)) throw new BuilderError('No Anthropic API key. Add ANTHROPIC_API_KEY to apps/server/.env and restart the server.');
+    if (e instanceof Error && /api ?key|auth/i.test(e.message)) throw new BuilderError('No AI model is connected. Connect one in Settings > Connectors.');
     throw e;
   }
 }
