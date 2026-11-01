@@ -309,7 +309,7 @@ export const runnerRoutes: Record<string, Route> = {
     if (!text?.trim()) throw new Error('Nothing to send.');
     postToRequest(r.id, 'you', text.trim());
     exec("UPDATE requests SET stage = 'engineer' WHERE id = ?", r.id);
-    replyToEngineer(r.id, (await readMeta(r.agent_id))?.owner ?? 'The person', text.trim());
+    replyToEngineer(r.id, (await readMeta(r.agent_id))?.owner || 'The person', text.trim());
     return { ok: true };
   },
 

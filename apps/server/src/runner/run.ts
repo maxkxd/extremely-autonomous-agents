@@ -227,7 +227,7 @@ function opening(agent: AgentDef, trigger: Trigger, task: string | null): string
           const b = JSON.parse(r.body) as { text?: string };
           return `${r.kind === 'you' ? 'Them' : 'You (a run)'}: ${(b.text ?? '').slice(0, 600)}`;
         });
-      return `${agent.owner ?? 'A person'} wrote to you in your DM channel:\n\n"${task}"\n\nAnswer them: your final message is posted there as your reply. Do what they ask if it's part of your job.${recent.length ? `\n\nRecent messages in the channel, oldest first:\n${recent.join('\n')}` : ''}`;
+      return `${agent.owner || 'A person'} wrote to you in your DM channel:\n\n"${task}"\n\nAnswer them: your final message is posted there as your reply. Do what they ask if it's part of your job.${recent.length ? `\n\nRecent messages in the channel, oldest first:\n${recent.join('\n')}` : ''}`;
     }
     case 'approval':
       return task ?? 'An approval you were waiting on was decided. Carry on.';
@@ -264,7 +264,7 @@ ${task}
 
 Deal with it as your Charter says, then anything else you owe (tasks.list_my_tasks).`;
     case 'run now':
-      return `${agent.owner ?? 'A person'} started this run from the app. Start with what you owe (tasks.list_my_tasks), then do your job as your Charter says.`;
+      return `${agent.owner || 'A person'} started this run from the app. Start with what you owe (tasks.list_my_tasks), then do your job as your Charter says.`;
   }
 }
 

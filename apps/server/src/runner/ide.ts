@@ -34,7 +34,7 @@ const onPath = (command: string) =>
 
 async function brief(r: { id: number; agent_id: string; what: string; why: string; evidence: string | null; expected_effect: string | null }, mcpUrl: string) {
   const agent = await loadAgent(r.agent_id);
-  const owner = (await readMeta(r.agent_id))?.owner ?? 'the person';
+  const owner = (await readMeta(r.agent_id))?.owner || 'the person';
   const thread = all<{ from_who: string; text: string }>('SELECT from_who, text FROM request_messages WHERE request_id = ? ORDER BY id', r.id);
   return `# Agency request #${r.id}, from ${agent?.name ?? r.agent_id}
 
