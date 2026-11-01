@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import * as z from 'zod/v4';
 import { BASELINE, CATALOG_INDEX, catalogForPrompt } from './catalog.js';
-import { integrationEventsForPrompt, integrationToolsForPrompt } from './integrations/index.js';
+import { integrationEventsForPrompt, integrationToolIds, integrationToolsForPrompt } from './integrations/index.js';
 import { registeredToolIds } from './runner/tools.js';
 import { anthropicKey } from './models/connections.js';
 import { jsonFromAnyModel, NoModelError } from './models/anyModel.js';
@@ -500,15 +500,28 @@ const fromOutput = (o: z.infer<typeof BuildOutputSchema>): Build => ({
 });
 export const buildOutputForTests = { schema: BuildOutputSchema, fromOutput };
 
+// Email, chat and Drive documents are connections the person has to set up
+// (Gmail is a Google Cloud project). On a cheap model the build kept adding them
+// unasked - a weekly list "emailed" to someone who asked for a list - whatever
+// the instructions said, so a build holding one nobody asked for is redone once.
+const UNASKED: [RegExp, RegExp][] = [
+  [/^gmail\./, /e-?mail|gmail|inbox|\bmail/i],
+  [/^docs\./, /drive|google doc|\bdocs?\b|document|sheet/i],
+  [/^slack\./, /slack/i],
+];
+export function unaskedTools(b: Pick<Build, 'tools'>, turns: Turn[], live: Set<string>): string[] {
+  const said = turns.filter(t => t.role === 'person').map(t => t.text).join('\n');
+  return b.tools.filter(t => !live.has(t.id) && UNASKED.some(([tool, words]) => tool.test(t.id) && !words.test(said))).map(t => t.id);
+}
+
 export async function build(ctx: Context, turns: Turn[]): Promise<Build> {
-  return fromOutput(
-    await parse(
-      BuildOutputSchema,
-      ctx,
-      `The interview is over. Write this agent's files from the conversation, for this organisation. ${TIERING}`,
-      [...transcript(turns), { role: 'user', content: 'Build it.' }],
-      'high',
-    ),
+  const task = `The interview is over. Write this agent's files from the conversation, for this organisation. ${TIERING}`;
+  const once = async (ask: string) => fromOutput(await parse(BuildOutputSchema, ctx, task, [...transcript(turns), { role: 'user', content: ask }], 'high'));
+  const b = await once('Build it.');
+  const extra = unaskedTools(b, turns, new Set([...ctx.fleet.tools.map(t => t.id), ...integrationToolIds()]));
+  if (!extra.length) return b;
+  return once(
+    `Build it, without ${extra.join(', ')}: the person didn't ask for that and it isn't connected. What the agent tells them goes in its run's report; what it keeps goes in its own files (files.*). Leave it out of the instructions too.`,
   );
 }
 

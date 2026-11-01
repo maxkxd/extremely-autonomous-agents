@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildOutputForTests } from './builder.js';
+import { buildOutputForTests, unaskedTools } from './builder.js';
 
 // A build as Claude writes it (three lists as JSON text, to keep the
 // structured-output grammar under its size limit), turned back into a Build.
@@ -49,4 +49,18 @@ test("a higher ferocity level never runs less often than the one below it; the f
   const f = { chill_every_hours: 6, steady_every_hours: 4, driven_every_hours: 2, relentless_every_hours: 3, driven_soft_floor: 1, relentless_floor: 3, apocalyptic_floor: 9, counts: [], hint: '', extra_effort: '' };
   assert.deepEqual(ferocityPlan(f, {}).every_hours, [6, 4, 2, 2]);
   assert.equal(ferocityPlan({ ...f, relentless_every_hours: 0.05 }, {}).every_hours[3], 1 / 6);
+});
+
+test("a build holding email or Drive nobody asked for is caught: the person said neither, and neither is connected", () => {
+  const turns = [
+    { role: 'person' as const, text: "Each week, check our published posts in Sanity for missing SEO descriptions and give me a list to fix." },
+    { role: 'builder' as const, text: 'Should I email it to you?' },
+  ];
+  const tools = (ids: string[]) => ({ tools: ids.map(id => ({ id, tier: 'T1' as const, why: 'x' })) });
+  assert.deepEqual(unaskedTools(tools(['sanity.list_posts', 'gmail.send_to_me', 'docs.create_document', 'files.write_file']), turns, new Set()), ['gmail.send_to_me', 'docs.create_document']);
+  // Asked for (the builder's own question doesn't count as asking), or already connected: kept.
+  assert.deepEqual(unaskedTools(tools(['gmail.send_to_me']), [{ role: 'person', text: 'Email me the list each Monday.' }], new Set()), []);
+  assert.deepEqual(unaskedTools(tools(['gmail.send_to_me']), turns, new Set(['gmail.send_to_me'])), []);
+  // "docs" as a word only - not inside another one.
+  assert.deepEqual(unaskedTools(tools(['docs.append_to_document']), [{ role: 'person', text: 'Keep notes in a Google Doc.' }], new Set()), []);
 });
