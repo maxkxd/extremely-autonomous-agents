@@ -11,6 +11,6 @@ module: github
 # A fine-grained token: you pick exactly which repositories agents can reach.
 # Permissions it needs: Contents, Issues and Pull requests (Read and write), Metadata (read).
 key_url: https://github.com/settings/personal-access-tokens/new
-key_help: A fine-grained token. Pick the repositories agents may use, then give it Contents, Issues and Pull requests (Read and write). Metadata (read) comes with them.
+key_help: A fine-grained token for all your repositories, with every repository permission set to Read and write - your agents only get the tools you approve, and a narrower token means making a new one each time an agent needs a little more.
 auth: { type: bearer }
 test: { tool: github.list_repos, args: { max: 1 } }
