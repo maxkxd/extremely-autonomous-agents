@@ -201,5 +201,9 @@ export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, 
   } catch {
     // not JSON: keep the text
   }
+  // A failure sent as 200 ({"ok": false, "error": "invalid_auth"} - Slack's way):
+  // a refused key read as "Connected and working".
+  if (answer && typeof answer === 'object' && (answer as { ok?: unknown }).ok === false)
+    throw new Error(`${integration.name} refused it: ${errorText(redact(text, integration.auth, key)).slice(0, 300)}`);
   return shape(answer, tool.response);
 }

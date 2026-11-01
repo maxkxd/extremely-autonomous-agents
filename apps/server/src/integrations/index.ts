@@ -21,6 +21,8 @@ import { stopStdioServer } from './mcp-stdio.js';
 import { oauthAccessToken, oauthCallback, oauthSecret, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
 import { Integration, type EventDefT, type HttpIntegration, type McpIntegration, type AuthDef } from './schema.js';
 import { DATA_DIR } from '../paths.js';
+import { cleanKey } from '../models/connections.js';
+import { ConnectError } from '../models/providers.js';
 
 // Integrations (docs/integrations.md): the ones that ship with the app
 // (apps/server/integrations/*.yaml) and the ones added later - by a person,
@@ -295,9 +297,31 @@ async function test(integration: Integration): Promise<{ ok: boolean; message: s
   }
 }
 
+// The fields a definition puts in the host of an address it calls.
+function hostFields(integration: Integration): Set<string> {
+  const urls = integration.kind === 'http' ? [integration.base_url] : [];
+  if (integration.auth.type === 'fields' && integration.auth.token) urls.push(integration.auth.token.url);
+  const out = new Set<string>();
+  for (const url of urls) for (const [, name] of (/^https?:\/\/([^/?#]*)/.exec(url)?.[1] ?? '').matchAll(/\{\{(\w+)\}\}/g)) out.add(name);
+  return out;
+}
+
+// What the person typed, refused in their words (a plain Error is "Something went wrong").
 export async function connectIntegration(id: string, key?: string, fields?: Record<string, unknown>) {
+  try {
+    return await connectChecked(id, key, fields);
+  } catch (e) {
+    throw e instanceof ConnectError || !(e instanceof Error) ? e : new ConnectError(e.message);
+  }
+}
+
+async function connectChecked(id: string, key?: string, fields?: Record<string, unknown>) {
   const integration = find(id);
   if (!integration) throw new Error('Unknown integration.');
+  // What was saved before: a new key or new fields that fail don't replace it.
+  const before = await getSecret(secretKey(id));
+  const wasConnected = isConnected(id);
+  let replaced = false;
   const parent = keyFrom(integration);
   if (parent) {
     // An extension has nothing of its own to enter: it works once its parent is connected.
@@ -311,22 +335,39 @@ export async function connectIntegration(id: string, key?: string, fields?: Reco
         // A secret left blank keeps the one saved (it's never shown back to fill in).
         const v = typeof fields[f.name] === 'string' ? (fields[f.name] as string).trim() : '';
         if (v && f.options && !f.options.includes(v)) throw new Error(`${f.label} must be one of: ${f.options.join(', ')}.`);
+        // Part of an address's host (accounts.zoho.{{region}}) in a definition made before
+        // options were required: a host label, never "/", "@" or ":" that sends keys elsewhere.
+        if (v && hostFields(integration).has(f.name) && !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i.test(v)) throw new Error(`${f.label} can only be letters, numbers, dots and dashes (like com.au).`);
         if (v) next[f.name] = v;
         else if (had[f.name]) next[f.name] = had[f.name];
         else if (!f.optional && f.default === undefined) throw new Error(`Fill in ${f.label}.`);
       }
       await setSecret(secretKey(id), { fields: next });
+      replaced = true;
       for (const k of tokens.keys()) if (k.startsWith(`${id} `)) tokens.delete(k);
       await deleteSecret(tokenKey(id));
     } else if (!(await getSecret(secretKey(id)))) throw new Error('Fill in the fields first.');
   } else if (integration.auth.type === 'oauth2' || integration.auth.type === 'mcp_oauth') {
     if (!(await oauthSecret(id))?.accessToken) throw new Error('Sign in first.');
   } else if (integration.auth.type !== 'none') {
-    const k = key?.trim().replace(/^bearer\s+/i, '');
-    if (k) await setSecret(secretKey(id), { key: k });
-    else if (!(await keyOf(id))) throw new Error('Paste the key first.');
+    // A pasted "Bearer ...", quotes, or a .env line (SLACK_TOKEN=xoxb-...): the key.
+    const k = key ? cleanKey(key) : '';
+    if (k) {
+      await setSecret(secretKey(id), { key: k });
+      replaced = true;
+    } else if (!(await keyOf(id))) throw new Error('Paste the key first.');
   }
   const result = await test(integration);
+  // A typo in "Replace key" leaves the key that works (and the agents using it) alone.
+  if (!result.ok && replaced) {
+    if (before) {
+      await setSecret(secretKey(id), before);
+      for (const k of tokens.keys()) if (k.startsWith(`${id} `)) tokens.delete(k);
+      if (wasConnected) throw new Error(`${result.message} - your saved key is still in use.`);
+      throw new Error(`${result.message} - nothing was changed.`);
+    }
+    await deleteSecret(secretKey(id));
+  }
   const prev = states()[id] ?? {};
   putState(id, {
     ...prev,
