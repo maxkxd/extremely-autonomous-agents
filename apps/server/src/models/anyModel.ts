@@ -1,6 +1,6 @@
 import * as z from 'zod/v4';
 import { availableModels } from './connections.js';
-import { allChecks } from './check.js';
+import { allChecks, checkModel, classify } from './check.js';
 import { choiceKey, isBenched } from './health.js';
 import { adapterFor, type Msg } from '../runner/providers.js';
 import { harnessFor } from '../runner/harness.js';
@@ -21,13 +21,17 @@ export type Said = { role: 'user' | 'assistant'; text: string };
 
 export class NoModelError extends Error {}
 
-// The models to try: the strongest working ones, spread across connections.
+// The models to try: the strongest working ones, spread across connections,
+// then the cheap ones - a free Gemini key has no quota for any Pro model, and
+// the first "pro" it lists (gemini-2.5-pro) is retired for new keys, so three
+// strong picks all failed while Flash would have answered.
 export async function workingChoices(skip: (connection: string) => boolean = () => false) {
   const avail = (await availableModels().catch(() => [])).filter(a => !skip(a.connection));
   const checks = await allChecks().catch(() => ({}) as Record<string, { ok: boolean }>);
   const health = getHealth();
   const ok = avail.map(a => ({ ...a, models: a.models.filter(m => checks[`${a.connection}/${m}`]?.ok !== false) })).filter(a => a.models.length);
-  const picks = pickDefaults(ok, 'strong');
+  const strong = pickDefaults(ok, 'strong');
+  const picks = [...strong, ...pickDefaults(ok, 'cheap').filter(c => !strong.some(s => choiceKey(s) === choiceKey(c)))];
   // Benched ones last: better to try than to stop.
   return [...picks.filter(c => !isBenched(health, c)), ...picks.filter(c => isBenched(health, c))];
 }
@@ -77,7 +81,10 @@ export async function jsonFromAnyModel<T extends z.ZodType>(schema: T, system: s
       }
       failed.push(`its answer didn't fit, twice: ${problem.slice(0, 200)}`);
     } catch (e) {
-      failed.push((e as Error).message.slice(0, 160));
+      const message = (e as Error).message;
+      failed.push(message.slice(0, 160));
+      // Gone for good (retired, not on this plan): checked again, so it's skipped next time.
+      if (!classify({ status: 400, message }).unsure) void checkModel(c.connection, c.model, true).catch(() => {});
     }
   }
   // Said once, plainly: every model usually fails the same way (one per line read as noise).
