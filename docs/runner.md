@@ -13,9 +13,9 @@ the guide the builder works from, not fixed formulas.
 | Level | Schedule (builder sets) | Re-running itself | Minimum output per run | Every run also... |
 |---|---|---|---|---|
 | **Chill** | What gets the job done: bug triage 2x a day, outreach daily, an ISMS policy check weekly | Allowed, but told not to once its work is done | None | - |
-| **Steady** | About 1.5x Chill | Encouraged when there's work left | None | - |
-| **Driven** | About 2x Chill | Encouraged | Soft floor: **one** gentle nudge if a run ends with very little output | Looks for better ways to do its job, new tools and wider scope, and files requests for them. A run that doesn't is doing it wrong |
-| **Relentless** | About 4x Chill | Strongly encouraged | High floor (builder sets), up to 4 nudges | Same as Driven |
+| **Steady** | Somewhat more often than Chill, where more runs find more work | Encouraged when there's work left | None | - |
+| **Driven** | As often as there's usually new work to find | Encouraged | Soft floor: **one** gentle nudge if a run ends with very little output | Looks for better ways to do its job, new tools and wider scope, and files requests for them. A run that doesn't is doing it wrong |
+| **Relentless** | Set by the job, not by Chill: a stream of fresh work (lead research) every 10-30 min; event-driven work (bug triage on a Sentry alert) an idle sweep every 6-8 h, woken by its events. Very high effort, not constant runs | Strongly encouraged; woken by an event, it follows it to the bottom and books follow-ups | High floor (builder sets), up to 4 nudges | Same as Driven |
 | **Apocalyptic** | None: the next run starts as soon as one ends | Always (the runner books it) | Deliberately out of reach (builder sets); 4 nudges, then the run ends with whatever it made, and the next run starts | Same as Driven |
 
 How much each level **asks for** (resource requests) is in

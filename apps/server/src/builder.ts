@@ -376,14 +376,18 @@ export const BuildSchema = z.object({
     .object({
       chill_every_hours: z
         .number()
-        .describe('Chill: how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168)'),
-      steady_every_hours: z.number().describe('Steady: about 1.5x as often as Chill (Chill hours / 1.5), adjusted to what makes sense for the job'),
-      driven_every_hours: z.number().describe('Driven: about 2x as often as Chill'),
-      relentless_every_hours: z.number().describe('Relentless: about 4x as often as Chill'),
+        .describe('Chill ("the default: gets the job done"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168)'),
+      steady_every_hours: z.number().describe('Steady ("needle mover: goes above expectations"): somewhat more often than Chill where more runs find more work; the same where they would not'),
+      driven_every_hours: z.number().describe('Driven ("never leaves output on the table"): as often as there is usually new work to find'),
+      relentless_every_hours: z
+        .number()
+        .describe(
+          'Relentless ("inhuman, never rests" - very high effort, not constant runs), in hours: as often as this job can turn up new real outcomes, which depends on the job, not on Chill. A stream of fresh work to find (lead research, outreach, content ideas): minutes - 0.17 (10 min) to 0.5. Work that arrives as events (bug triage on a Sentry alert, incidents, tickets): its events wake it, so this schedule is only an idle sweep, e.g. 6-8 hours - its intensity is each run digging to the bottom and booking follow-up runs, a high floor, and asking for more tools. Never more often than new work can appear (a weekly report stays weekly).',
+        ),
       driven_soft_floor: z.number().describe('Driven: output actions a good run makes; a run ending below it gets one gentle nudge. Modest.'),
       relentless_floor: z
         .number()
-        .describe('Relentless: the minimum real outcomes per run - high for the job, but always reachable with real work in one run and never above its natural limits (a cap of 15 a day over ~4 runs is ~4 a run)'),
+        .describe('Relentless: the minimum real outcomes per run - high for the job (it never rests), but always reachable with real work in one run and never above its natural limits (a cap of 15 a day over ~4 runs is ~4 a run; at a 10-minute pace, a run is a few outcomes)'),
       apocalyptic_floor: z.number().describe('Apocalyptic: well above Relentless, still real outcomes and still within natural limits; runs go back to back and push toward it'),
       counts: z
         .array(z.string())

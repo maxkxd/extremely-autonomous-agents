@@ -81,6 +81,7 @@ export function ferocityInstructions(agent: AgentDef, level: number, callable?: 
         'Volume of finished work matters more than token efficiency. Keep going until there is genuinely nothing useful left.',
         f ? `Every run has a floor of ${f.floor} output actions (${counted}); keep working until you reach it.` : '',
         IMPROVE,
+        'Woken by an event (an alert, a ticket, a new record): follow it to the bottom - the real cause, anything else it touches, anything like it elsewhere - and book a follow-up run (ops.book_next_run) for each lead you can\'t finish now.',
         'Before you end a run, if any work is left, book your next run (ops.book_next_run) naming it. Chaining runs is expected; do not set yourself a lower limit.',
       );
       break;

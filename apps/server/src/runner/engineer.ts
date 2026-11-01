@@ -110,6 +110,7 @@ A no to the way you picked (HubSpot) is rarely a no to what the agent needs (som
 - Name tools by what they do ("Web search"), never their ids (web.web_search), and their levels as silent, logged or approval - never T0, T1 or T2.
 - Brevity is everything: the person reading may not be technical. Leave out what's implied or minor - no edge cases, no hypothetical risks, no testing details.
 - Each step on its own line, numbered (1. 2. 3.); points on their own lines starting with "- ". The app shows them as lists.
+- Steps for a service's own console (keys, scopes, tokens, sign-up) come from its current docs, read this run (web.fetch_page) - not memory. Never say it changed ("no longer needs a developer token") unless those docs say so. If you couldn't check, say "if it asks for X". A wrong step leaves the person stuck in another site.
 - When another request needs the same thing (the same repository, key or decision), point to it instead of asking again: write "request #41" - the person can click it. Do the shared work once and use it for both.
 - An agent asking again what one of its own requests already asks the person (missing files, a decision): don't give them a second item. Add anything new to that request (engineer.reply_to_request on it), then close this one (engineer.close_request) telling the agent which request it's in.
 
@@ -893,6 +894,13 @@ export async function checkCharterFiles(onlyAgent?: string): Promise<number> {
     if (!missing.length) continue;
     const what = `Files my instructions name aren't in ${repo}`;
     if (one("SELECT 1 FROM requests WHERE agent_id = ? AND what = ? AND status = 'open'", id, what)) continue;
+    // A near miss: the builder wrote agency/marketing/content/PLAN.md beside the
+    // real agency/marketing/content-seo/ - said, so the person needn't spot it.
+    const near = new Map<string, string>();
+    for (const path of missing) {
+      const found = await nearMiss(repo, path, call);
+      if (found) near.set(path, found);
+    }
     // What is there instead: each missing file's nearest existing folder.
     const seen: string[] = [];
     for (const folder of [...new Set(missing.map(p => p.split('/').slice(0, -1).join('/')))].slice(0, 5)) {
@@ -911,7 +919,7 @@ export async function checkCharterFiles(onlyAgent?: string): Promise<number> {
         "INSERT INTO requests (agent_id, run_id, what, why, evidence, created_at, stage) VALUES (?, NULL, ?, ?, ?, ?, 'person')",
         id,
         what,
-        `${meta.name}'s instructions point at files that aren't in ${repo}:\n${missing.map(p => `- ${p}`).join('\n')}\n\nReply with where they are, or what to use instead - or add them to the repo.`,
+        `${meta.name}'s instructions point at files that aren't in ${repo}:\n${missing.map(p => `- ${p}${near.has(p) ? ` (there's ${near.get(p)} - is it that?)` : ''}`).join('\n')}\n\nReply with where they are, or what to use instead - or add them to the repo.`,
         seen.length ? `What is there now:\n${seen.join('\n\n')}` : null,
         now,
       ).lastInsertRowid,
@@ -920,4 +928,27 @@ export async function checkCharterFiles(onlyAgent?: string): Promise<number> {
     filed++;
   }
   return filed;
+}
+
+// The file under a name close to the missing one, in the nearest folder that exists:
+// "content" for "content-seo", "LINKEDIN.md" for "LINKEDIN-OUTREACH.md". Only one
+// that really has the rest of the path.
+export async function nearMiss(repo: string, path: string, call: (tool: string, args: Record<string, unknown>) => Promise<string>): Promise<string | null> {
+  const parts = path.split('/');
+  for (let depth = parts.length - 1; depth >= 0; depth--) {
+    const listing = await call('github.read_file', { repo, path: parts.slice(0, depth).join('/') }).catch(() => null);
+    if (listing == null) continue;
+    const stem = (n: string) => n.toLowerCase().replace(/\/$/, '').replace(/\.[a-z]+$/, '');
+    const want = stem(parts[depth]);
+    const names = [...listing.matchAll(/^- ([^\s(]+)/gm)].map(m => m[1]);
+    const close = names.filter(n => stem(n) !== want && (stem(n).startsWith(want) || want.startsWith(stem(n)))).slice(0, 3);
+    for (const n of close) {
+      const candidate = [...parts.slice(0, depth), n.replace(/\/$/, ''), ...parts.slice(depth + 1)].join('/');
+      if (await call('github.read_file', { repo, path: candidate }).then(() => true, () => false)) return candidate;
+    }
+    // Not the file, but a folder by a near name: that's where to look.
+    const folder = close.find(n => n.endsWith('/') && depth < parts.length - 1);
+    return folder ? [...parts.slice(0, depth), folder].join('/') : null;
+  }
+  return null;
 }
