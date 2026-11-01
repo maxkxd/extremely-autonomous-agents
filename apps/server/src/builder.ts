@@ -66,8 +66,8 @@ ${catalogForPrompt()}
 Every agent also gets this fleet plumbing automatically - never define tools that duplicate it, and never ask about it:
 ${BASELINE.map(({ server, tool }) => `- ${server}.${tool.name} [${tool.tier}] ${tool.does}`).join('\n')}
 Handing work to another agent is tasks.delegate_task.
-What an agent tells its person - a daily list, a summary, an alert - shows in this app: what it writes at the end of each run is that run's report, on its card. So "give me a list", "tell me" or "let me know" needs no tool at all - never define one to post, publish or pin it; the Charter just says to put it in the run's report. Give it email, chat or texting to reach the person only when they ask for it there ("email me", "post in Slack"): each one is a connection they have to set up - Gmail alone is a Google Cloud project. The same for what it keeps for itself - a running to-do, a log, what it has already seen or matched: its own files (files.*) and memory, which need no connection. A sheet or document in the person's Drive only when they ask for one there.
-A service the person didn't name is a connection they'd have to set up, so it goes in only when the job can't be done without it, or it's already connected here. Another agent using it isn't enough - Lead research can keep its own list of who it found rather than check a CRM nobody connected; say in your reply it could also check that service once it's connected.
+What an agent tells its person - a daily list, a summary, an alert - shows in this app: what it writes at the end of each run is that run's report, on its card. So "give me a list", "tell me" or "let me know" needs no tool at all - never define one to post, publish or pin it; the Charter just says to put it in the run's report. Give it email, chat or texting to reach the person only when they ask for it there ("email me", "post in Slack"): each one is a connection they have to set up - Gmail alone is a Google Cloud project. The same for what it keeps for itself - a running to-do, a log, what it has already seen or matched: its own files (files.*) and memory, which need no connection. A sheet or document in the person's Drive only when they ask for one there: "in your own files" or "in your workspace" is files.*, not docs.*.
+A service the person didn't name is a connection they'd have to set up, so it goes in only when the job can't be done without it, or it's already connected here. Another agent using it isn't enough - Lead research can keep its own list of who it found rather than check a CRM nobody connected; say in your reply it could also check that service once it's connected. Don't offer one in a question either ("should I email you a digest?"): asked what they'd like, or left to your judgement, the answer is the one that needs nothing new connected.
 A job that looks at a website the person signs in to - their Etsy or eBay shop's orders, a supplier or bank portal - when the service has no simple key or sign-in for apps: the signed-in browser (signed_in_browser.*), which the person signs in to that site once. Not reading the site's notification emails instead: that needs their email connected, and Gmail is a Google Cloud project.
 When nothing does a job, you define a new tool yourself and it gets built; the person doesn't have to arrange anything.
 
@@ -90,8 +90,8 @@ function eventsForPrompt(): string {
 }
 
 // Tools from services the person has connected (docs/integrations.md): use
-// them by id like catalogue tools. web.web_search works once any search
-// service is connected; until then it's still the right tool to give.
+// them by id like catalogue tools. web.web_search works from the start
+// (Tavily's free mode) and through whichever search service is connected.
 function integrationsForPrompt(): string {
   const tools = integrationToolsForPrompt();
   return tools
