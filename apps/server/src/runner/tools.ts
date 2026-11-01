@@ -425,8 +425,8 @@ export async function runApproved(ctx: RunCtx, id: string, args: Record<string, 
     const message = (e as Error).message || 'It failed.';
     const pause = rateLimitPause(message);
     if (pause) {
-      pausedUntil.set(serviceOf(id), { until: ctx.now() + pause, why: message });
-      throw new Error(`${message} (${serviceOf(id)}'s limit is reached - not a broken tool. Queue it again after about ${clock(ctx.now() + pause)}.)`);
+      pausedUntil.set(limitOf(id), { until: ctx.now() + pause, why: message });
+      throw new Error(`${message} (${limitOf(id)}'s limit is reached - not a broken tool. Queue it again after about ${clock(ctx.now() + pause)}.)`);
     }
     healthFail(ctx.agent.id, id, ctx.now(), message);
     // Approved writes fail too: Lead Researcher re-worded one note six times for a
@@ -545,6 +545,10 @@ export function rateLimitPause(message: string): number | null {
   return /24 hours|daily|per day|a day|today/i.test(message) ? 3_600_000 : 60_000;
 }
 const serviceOf = (id: string) => id.split('.')[0];
+// What a limit pauses: a service's tools together - but the web tools each on its
+// own, since each is served by something else (search hitting Tavily's free cap
+// paused reading pages, which never touches Tavily).
+const limitOf = (id: string) => (serviceOf(id) === 'web' ? id : serviceOf(id));
 const clock = (t: number) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 // A connection's tool that keeps failing (3 times in an hour, any agents, and not
 // working for anyone in between) goes straight to the Agency Engineer to
@@ -648,10 +652,10 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
       approvalId,
     });
   }
-  const paused = pausedUntil.get(serviceOf(id));
+  const paused = pausedUntil.get(limitOf(id));
   if (paused && paused.until > ctx.now())
     return record({
-      content: `Not called: ${serviceOf(id)}'s limit was reached (${paused.why.slice(0, 200)}). Its tools are paused for every agent until about ${clock(paused.until)}. That isn't a broken tool and doesn't count against you - do the rest of your work meanwhile.`,
+      content: `Not called: ${limitOf(id)}'s limit was reached (${paused.why.slice(0, 200)}). Its tools are paused for every agent until about ${clock(paused.until)}. That isn't a broken tool and doesn't count against you - do the rest of your work meanwhile.`,
       error: true,
       outcome: 'refused',
       counted: 0,
@@ -697,9 +701,9 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     const message = (e as Error).message || 'It failed.';
     const pause = rateLimitPause(message);
     if (pause) {
-      pausedUntil.set(serviceOf(id), { until: ctx.now() + pause, why: message });
+      pausedUntil.set(limitOf(id), { until: ctx.now() + pause, why: message });
       return record({
-        content: `${message}\n(${serviceOf(id)}'s limit is reached: its tools are paused for every agent until about ${clock(ctx.now() + pause)}. Not a broken tool - do the rest of your work meanwhile.)`,
+        content: `${message}\n(${limitOf(id)}'s limit is reached: its tools are paused for every agent until about ${clock(ctx.now() + pause)}. Not a broken tool - do the rest of your work meanwhile.)`,
         error: true,
         outcome: 'refused',
         counted: 0,

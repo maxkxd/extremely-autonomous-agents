@@ -746,6 +746,20 @@ test("a service's limit reached pauses its tools for every agent: not a failure,
   assert.equal(all("SELECT 1 FROM tool_health WHERE tool LIKE 'zzlimit%' AND last_fail IS NOT NULL").length, 0);
 });
 
+test("a web tool's limit pauses only that tool: search out for the hour still reads pages", async () => {
+  registerTools([
+    { id: 'web.zz_search', tier: 'T0', description: 'x', schema: { type: 'object' }, impl: async () => { throw new Error('Tavily answered 429: its free no-key limit (shared, per hour) is used up for now.'); } },
+    { id: 'web.zz_read', tier: 'T0', description: 'x', schema: { type: 'object' }, impl: async () => 'the page' },
+  ]);
+  const now = Date.now();
+  const ctx = { agent: agent({ id: 'zz-web', tiers: { 'web.zz_search': 'T0', 'web.zz_read': 'T0' } }), runId: 'r_lim_web', level: 0, now: () => now, fleet: async () => [], wake: () => {} };
+  const ids = new Map([['web__zz_search', 'web.zz_search'], ['web__zz_read', 'web.zz_read']]);
+  assert.equal((await execute(ctx, { id: '1', name: 'web__zz_search', args: {} }, ids)).outcome, 'refused');
+  const read = await execute(ctx, { id: '2', name: 'web__zz_read', args: {} }, ids);
+  assert.equal(read.outcome, 'ok');
+  assert.equal(read.content, 'the page');
+});
+
 test("with no AI connected, the person is told nothing can run - once, and it closes when one is connected", async () => {
   const { noAiRequest } = await import('./scheduler.js');
   const open = () => all<{ id: number }>("SELECT id FROM requests WHERE what LIKE 'Connect an AI model%' AND status = 'open'");
