@@ -476,6 +476,11 @@ createServer(async (req, res) => {
     if (e instanceof BuilderError) return send(res, 502, { error: e.message });
     if (e instanceof ConnectError) return send(res, 400, { error: e.message });
     console.error(e);
+    // A plain Error with a short message is one written for the person ("That request
+    // is closed.", "Fill in Store address."); bugs (TypeError...), file and database
+    // errors (they carry a code) stay "Something went wrong".
+    if (e instanceof Error && e.constructor === Error && !(e as { code?: unknown }).code && e.message && e.message.length < 400 && !e.message.includes('\n'))
+      return send(res, 400, { error: e.message });
     send(res, 500, { error: 'Something went wrong on the server.' });
   }
   // An organisation's agency is reached through the person's own (hosting.ts), so only from this computer.
