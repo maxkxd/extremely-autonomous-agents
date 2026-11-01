@@ -215,7 +215,8 @@ is forced under `agent/`. Approving a review is for people.
   no OAuth client - they choose Sign in, and sign in. Checked 2026-11-01 to
   register and reach the consent page: Notion, Linear, Airtable, Buffer,
   Atlassian, monday.com, Sentry, PostHog, Vercel, Stripe, PayPal, Square,
-  Intercom, Klaviyo, Canva, Webflow, Wix, Jotform, Zapier, Calendly. Not
+  Intercom, Klaviyo, Canva, Webflow, Wix, Jotform, Zapier, Calendly - and on
+  2026-11-02 Sanity and DataForSEO. Not
   possible (no self-registration): HubSpot, Slack, GitHub, Google, Box, Figma,
   Xero, Asana. A service that refuses the 127.0.0.1 redirect when the app
   registers (Calendly: "must start with https") is registered again with
