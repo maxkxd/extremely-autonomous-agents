@@ -487,9 +487,10 @@ export type CallOutcome = {
   approvalId?: string;
 };
 
-// How many output acts one call is: a batch counts once per item.
+// How many output acts one call is: a batch counts once per item - a list of
+// records or rows, not of words (an issue with 6 labels was counted as 6 issues).
 export function actsIn(args: Record<string, unknown>): number {
-  for (const v of Object.values(args)) if (Array.isArray(v) && v.length) return Math.min(v.length, 50);
+  for (const v of Object.values(args)) if (Array.isArray(v) && v.length && v.every(x => x !== null && typeof x === 'object')) return Math.min(v.length, 50);
   return 1;
 }
 

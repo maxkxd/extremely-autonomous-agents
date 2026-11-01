@@ -14,7 +14,7 @@ import { decideApproval } from './approvals.js';
 import { fleetReport } from './doctor.js';
 import { answerRequest } from './api.js';
 import { notWaitingAlready, rate, requestNotWaiting, withdrawProposal } from './engineer.js';
-import { execute, registerTools, requestConnections, serviceLabel, WORKSPACES } from './tools.js';
+import { actsIn, execute, registerTools, requestConnections, serviceLabel, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
 
@@ -683,4 +683,11 @@ test('the Agency Engineer works a few requests at once, never two on the same on
   assert.equal(engineerCanJoin(going, { trigger: 'scheduled', task: null }), false); // names no request: runs alone
   assert.equal(engineerCanJoin(going, { trigger: 'your message', task: 'hi' }), true); // a person never waits
   assert.equal(engineerCanJoin([engineerScope(null)], { trigger: 'request', task: task(crm) }), false); // nothing beside one that runs alone
+});
+
+test('a batch counts per record, not per word: labels, tags and recipients are one act', () => {
+  assert.equal(actsIn({ title: 'Bug', labels: ['bug', 'billing', 'p1', 'auth', 'ui', 'api'] }), 1);
+  assert.equal(actsIn({ rows: [['a', 1], ['b', 2], ['c', 3]] }), 3);
+  assert.equal(actsIn({ leads: [{ company: 'A' }, { company: 'B' }] }), 2);
+  assert.equal(actsIn({ to: ['a@x.com', 'b@x.com'], body: 'hi' }), 1);
 });
