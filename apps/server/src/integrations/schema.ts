@@ -31,6 +31,9 @@ export const Auth = z.discriminatedUnion('type', [
     token_url: z.string().url().startsWith('https://'),
     revoke_url: z.string().url().startsWith('https://').optional(), // ends the sign-in on Disconnect
     resource: z.string().optional(), // the resource the tokens are for (RFC 8707), sent with token requests
+    // Lands at http://localhost:<port> instead of 127.0.0.1 - for a service that only
+    // registers apps with "localhost" (Calendly). Only this: never another address.
+    loopback: z.literal('localhost').optional(),
     scopes: z.array(z.string()).min(1),
     params: z.record(z.string(), z.string()).optional(), // extra authorize params (Google: access_type=offline)
     client_url: z.string().url().optional(), // where to make the OAuth client

@@ -206,10 +206,12 @@ is forced under `agent/`. Approving a review is for people.
   no OAuth client - they choose Sign in, and sign in. Checked 2026-11-01 to
   register and reach the consent page: Notion, Linear, Airtable, Buffer,
   Atlassian, monday.com, Sentry, PostHog, Vercel, Stripe, PayPal, Square,
-  Intercom, Klaviyo, Canva, Webflow, Wix, Jotform, Zapier. Not possible (no
-  self-registration): HubSpot, Slack, GitHub, Google, Box, Figma, Xero, Asana;
-  Calendly registers only http://localhost redirects, not this app's
-  127.0.0.1. The Agency Engineer picks the way in by what the person has to
+  Intercom, Klaviyo, Canva, Webflow, Wix, Jotform, Zapier, Calendly. Not
+  possible (no self-registration): HubSpot, Slack, GitHub, Google, Box, Figma,
+  Xero, Asana. A service that refuses the 127.0.0.1 redirect when the app
+  registers (Calendly: "must start with https") is registered again with
+  http://localhost:<port>, and that sign-in lands there (`loopback:
+  localhost` - the only other address allowed). The Agency Engineer picks the way in by what the person has to
   do: no account, then sign-in, then a key from a settings page, and a
   developer app or OAuth client only when nothing else will do.
 - **No sign-in at all** (`auth: { type: none }`, DeepWiki): its tools are found

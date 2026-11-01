@@ -16,6 +16,8 @@ import type { OAuthDef } from './schema.js';
 
 const PORT = Number(process.env.PORT ?? 5175);
 export const OAUTH_REDIRECT = `http://127.0.0.1:${PORT}`;
+export const LOCALHOST_REDIRECT = `http://localhost:${PORT}`;
+const redirectOf = (auth: OAuthDef) => (auth.loopback === 'localhost' ? LOCALHOST_REDIRECT : OAUTH_REDIRECT);
 
 export type OAuthSecret = {
   clientId: string;
@@ -48,7 +50,7 @@ export async function oauthStart(id: string, auth: OAuthDef, client?: { clientId
   for (const [k, v] of Object.entries({
     client_id: clientId,
     response_type: 'code',
-    redirect_uri: OAUTH_REDIRECT,
+    redirect_uri: redirectOf(auth),
     ...(auth.scopes.length ? { scope: auth.scopes.join(' ') } : {}),
     state,
     code_challenge: createHash('sha256').update(verifier).digest('base64url'),
@@ -86,7 +88,7 @@ export async function oauthCallback(q: URLSearchParams): Promise<string> {
   const t = await tokenRequest(p.auth, {
     grant_type: 'authorization_code',
     code,
-    redirect_uri: OAUTH_REDIRECT,
+    redirect_uri: redirectOf(p.auth),
     client_id: s.clientId,
     code_verifier: p.verifier,
     ...(s.clientSecret ? { client_secret: s.clientSecret } : {}),

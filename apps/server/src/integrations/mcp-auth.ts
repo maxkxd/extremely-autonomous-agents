@@ -1,5 +1,5 @@
 import { safeFetch } from '../runner/net.js';
-import { OAUTH_REDIRECT } from './oauth.js';
+import { LOCALHOST_REDIRECT, OAUTH_REDIRECT } from './oauth.js';
 import type { OAuthDef } from './schema.js';
 
 // Signing in to a remote MCP server that needs it (the MCP authorization spec):
@@ -47,17 +47,25 @@ export async function discoverMcpSignIn(serverUrl: string, name: string): Promis
   if (!issuer) throw new Error("The server didn't say where to sign in.");
   const as = await serverMetadata(issuer);
   if (!as.registration_endpoint) throw new Error(`${name} needs an OAuth client made by hand; it doesn't let apps register themselves.`);
-  const { res, body } = await json(String(as.registration_endpoint), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({
-      client_name: 'Extremely Autonomous Agents',
-      redirect_uris: [OAUTH_REDIRECT],
-      grant_types: ['authorization_code', 'refresh_token'],
-      response_types: ['code'],
-      token_endpoint_auth_method: 'none',
-    }),
-  });
+  const register = (redirect: string) =>
+    json(String(as.registration_endpoint), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        client_name: 'Extremely Autonomous Agents',
+        redirect_uris: [redirect],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+      }),
+    });
+  let { res, body } = await register(OAUTH_REDIRECT);
+  // Some only take "localhost" (Calendly: "must start with https"): the same computer, by name.
+  let loopback: 'localhost' | undefined;
+  if (res.status === 400) {
+    const again = await register(LOCALHOST_REDIRECT);
+    if (again.res.ok) ({ res, body } = again), (loopback = 'localhost');
+  }
   if (!res.ok || typeof body.client_id !== 'string') throw new Error(`${name} wouldn't register this app (${res.status}).`);
   const scopes = (rm.scopes_supported ?? (as.scopes_supported as string[] | undefined) ?? []).filter(s => typeof s === 'string');
   return {
@@ -70,6 +78,7 @@ export async function discoverMcpSignIn(serverUrl: string, name: string): Promis
       // The resource this sign-in is for (RFC 8707), as the MCP spec asks.
       params: { resource: rm.resource ?? serverUrl },
       resource: rm.resource ?? serverUrl,
+      ...(loopback ? { loopback } : {}),
     },
     clientId: body.client_id,
     clientSecret: typeof body.client_secret === 'string' ? body.client_secret : undefined,
