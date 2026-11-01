@@ -22,7 +22,8 @@ const PREFER: Record<Want, [string, RegExp][]> = {
     ['openrouter', /anthropic\/claude-sonnet|openai\/gpt-5/],
     ['xai', /grok-4/],
     ['deepseek', /pro|reasoner/],
-    ['mistral', /large|medium/],
+    // Mistral's own, not Magistral (reasoning: none on its free plan).
+    ['mistral', /^mistral-(large|medium)/],
   ],
   // One quick judgement (routing a request).
   cheap: [
@@ -36,7 +37,7 @@ const PREFER: Record<Want, [string, RegExp][]> = {
     ['groq', /./],
     ['deepseek', /flash|chat/],
     ['xai', /mini|fast/],
-    ['mistral', /small/],
+    ['mistral', /^(mistral-small|ministral)/],
     ['openrouter', /haiku|mini|flash/],
   ],
   // Reading code for what could go wrong.
@@ -50,7 +51,8 @@ const PREFER: Record<Want, [string, RegExp][]> = {
     ['openrouter', /anthropic\/claude-sonnet|openai\/gpt-5/],
     ['deepseek', /pro|reasoner/],
     ['xai', /grok-4/],
-    ['mistral', /large|medium/],
+    // Mistral's own, not Magistral (reasoning: none on its free plan).
+    ['mistral', /^mistral-(large|medium)/],
   ],
 };
 

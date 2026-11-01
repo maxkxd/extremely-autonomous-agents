@@ -57,3 +57,9 @@ test("an agent whose models all stopped working moves to working ones; one still
   // Nothing works anywhere: left as it is.
   assert.equal(rescued(mine, [], () => false, 'strong'), null);
 });
+
+test("defaults: Mistral's own models, not Magistral (reasoning) or Voxtral (speech)", () => {
+  const avail = [{ connection: 'mistral', models: ['magistral-medium-latest', 'voxtral-small-latest', 'mistral-medium-latest', 'mistral-large-latest', 'mistral-small-latest', 'ministral-8b-latest'] }];
+  assert.deepEqual(picked(avail, 'strong').slice(0, 2), ['mistral/mistral-medium-latest', 'mistral/mistral-large-latest']);
+  assert.equal(picked(avail, 'cheap')[0], 'mistral/mistral-small-latest');
+});

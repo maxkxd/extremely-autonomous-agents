@@ -117,8 +117,8 @@ export async function fillBuiltInModels() {
       FLEET_ENGINEER,
       null,
       {
-        what: `${LOST} (${nameOf(connection)})`,
-        why: `${nameOf(connection)} isn't connected any more, so the agents that ran on it moved to ${[...to].join(' and ')} to keep working. To move them back, reconnect ${nameOf(connection)} in Settings -> Connectors, then pick it on their cards.`,
+        what: `${nameOf(connection)} ${LOST}`,
+        why: `${nameOf(connection)} isn't connected any more, so the agents that ran on it moved to ${[...to].join(' and ')} to keep working. To move them back, reconnect it in Settings -> Connectors, then pick it on their cards.`,
         service: connection,
       },
       Date.now(),
@@ -127,7 +127,7 @@ export async function fillBuiltInModels() {
   }
 }
 
-const LOST = "Your AI connection isn't connected any more";
-const openLost = () => all<{ id: number; service: string }>("SELECT id, service FROM requests WHERE what LIKE ? AND status = 'open' AND service IS NOT NULL", `${LOST}%`);
-const NAMES: Record<string, string> = { 'claude-code': 'Claude (Claude Code)', copilot: 'GitHub Copilot', chatgpt: 'ChatGPT', openai: 'OpenAI', xai: 'xAI', deepseek: 'DeepSeek', openrouter: 'OpenRouter' };
+const LOST = "isn't connected any more - your agents moved";
+const openLost = () => all<{ id: number; service: string }>("SELECT id, service FROM requests WHERE what LIKE ? AND status = 'open' AND service IS NOT NULL", `%${LOST}`);
+const NAMES: Record<string, string> = { 'claude-code': 'Your Claude plan', copilot: 'GitHub Copilot', chatgpt: 'ChatGPT', openai: 'OpenAI', xai: 'xAI', deepseek: 'DeepSeek', openrouter: 'OpenRouter' };
 const nameOf = (connection: string) => NAMES[connection] ?? connection.charAt(0).toUpperCase() + connection.slice(1);

@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { CopilotClient } from '@github/copilot-sdk';
 import { copilotConnection, copilotRuntimeError, copilotRuntimeProgress } from './copilotRuntime.js';
 import { deleteSecret, getSecret, mask, setSecret } from '../vault.js';
-import { chatGptModels as chatGptList, keepChat, knownModel, type ModelInfo, type Native } from './caps.js';
+import { chatGptModels as chatGptList, isChatId, keepChat, knownModel, type ModelInfo, type Native } from './caps.js';
 import type { Effort } from './choice.js';
 import { ConnectError, PROVIDERS, provider, verify } from './providers.js';
 import { DATA_DIR } from '../paths.js';
@@ -688,7 +688,8 @@ export async function availableModels(): Promise<Available[]> {
     .map(c => {
       const saved = cached[c.id];
       if (c.id === 'copilot') return { connection: c.id, name: c.name, kind: c.kind, models: ['auto'], efforts: {} };
-      return { connection: c.id, name: c.name, kind: c.kind, models: saved?.models ?? [], efforts: saved?.efforts ?? {} };
+      // Filtered again here: a list saved before a model was known not to chat (Voxtral) keeps it.
+      return { connection: c.id, name: c.name, kind: c.kind, models: (saved?.models ?? []).filter(isChatId), efforts: saved?.efforts ?? {} };
     })
     .filter(a => a.models.length);
 }
