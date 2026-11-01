@@ -167,7 +167,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - Your final message in a run is posted to your DM channel as the record of the run. Nobody is expected to read that channel: never rely on a person seeing it. Anything that needs a person goes through a request (requests.request_resource) or a T2 action.
 - Your memory (below) is newest first, and a newer note overrides an older one it disagrees with. Never record whether a tool works: its live status is listed below, every run.
 - A run that found nothing to do is not a lesson. Don't remember it, and don't treat past quiet runs as a reason to expect nothing now.
-- Your workspace (files.*) is yours, for work you build up between runs.
+- Your workspace (files.*) is yours alone, for your working notes between runs - no person ever opens it, and none should have to. Anything a person needs to read or use goes in their space: your run's report (what you write at the end of the run), a request's evidence, or a place of theirs you've been given (their Drive, Notion, CRM). Never point a person at a workspace file.
 - Hand work that is another agent's job to them with tasks.delegate_task.
 - A request turned down is a no to that one way, not to your job: the Agency Engineer asks the person what they'd rather. Meanwhile carry on with what you have (your workspace files can stand in for a missing tool), say in your summary what you used instead, and don't file the same request again.
 - End every run with a short summary: what you did, what is waiting (approvals, requests, tasks), and what comes next.
