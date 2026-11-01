@@ -94,8 +94,24 @@ async function connect(integration: McpIntegration, key: string | undefined): Pr
   }
   if (!integration.url) throw new Error(`${integration.name} has no address or command.`);
   const s = new Session(integration, key);
-  await s.open();
-  return s;
+  try {
+    await s.open();
+    return s;
+  } catch (e) {
+    // An .../sse address is the old SSE transport, which this client doesn't speak
+    // (Asana, Square, Webflow, Wix still list one; it answers a post with 405). The
+    // same server's streamable address is usually .../mcp beside it.
+    const u = new URL(integration.url);
+    if (!/\/sse\/?$/.test(u.pathname) || !/answered (404|405|410)\b/.test((e as Error).message)) throw e;
+    u.pathname = u.pathname.replace(/\/sse\/?$/, '/mcp');
+    const moved = new Session({ ...integration, url: u.toString() }, key);
+    try {
+      await moved.open();
+      return moved;
+    } catch {
+      throw new Error(`${integration.name}'s address (${integration.url}) is the old SSE kind of MCP server, which this app can't use - its current address usually ends in /mcp.`);
+    }
+  }
 }
 
 export async function listMcpTools(integration: McpIntegration, key: string | undefined): Promise<McpTool[]> {
