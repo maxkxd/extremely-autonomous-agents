@@ -137,8 +137,19 @@ export const runnerRoutes: Record<string, Route> = {
         "SELECT AVG(ended_at - started_at) AS ms FROM (SELECT ended_at, started_at FROM runs WHERE agent_id = ? AND status = 'succeeded' AND ended_at IS NOT NULL ORDER BY started_at DESC LIMIT 20)",
         id,
       )?.ms;
+      // Back to back only while its runs reach their target: one that falls short
+      // waits for Relentless's schedule (scheduler.ts), so the share of recent
+      // Apocalyptic runs that reached it says how often (half, with none yet). An
+      // SRE agent's runs fell short and its card still said 3,491 a week.
+      const apoc = all<{ met: number }>(
+        "SELECT (acts >= floor) AS met FROM runs WHERE agent_id = ? AND trigger = 'apocalyptic' AND status = 'succeeded' AND floor IS NOT NULL ORDER BY started_at DESC LIMIT 10",
+        id,
+      );
+      const reached = apoc.length ? apoc.filter(r => r.met).length / apoc.length : 0.5;
+      const relentless = agent ? 24 / agent.ferocity.every_hours[3] : 4;
+      const backToBack = Math.min(1000, 86_400_000 / ((avg ?? 120_000) + APOCALYPTIC_GAP_MS));
       const runsPerDay = agent
-        ? [...agent.ferocity.every_hours.map(h => 24 / h), Math.min(1000, 86_400_000 / ((avg ?? 120_000) + APOCALYPTIC_GAP_MS))]
+        ? [...agent.ferocity.every_hours.map(h => 24 / h), relentless + reached * Math.max(0, backToBack - relentless)]
         : [1, 1.5, 2, 4, 100];
       const perRun = one<{ acts: number | null }>(
         "SELECT AVG(acts) AS acts FROM (SELECT acts FROM runs WHERE agent_id = ? AND status = 'succeeded' ORDER BY started_at DESC LIMIT 20)",
