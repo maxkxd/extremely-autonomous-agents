@@ -418,6 +418,11 @@ export async function runApproved(ctx: RunCtx, id: string, args: Record<string, 
     return out;
   } catch (e) {
     const message = (e as Error).message || 'It failed.';
+    const pause = rateLimitPause(message);
+    if (pause) {
+      pausedUntil.set(serviceOf(id), { until: ctx.now() + pause, why: message });
+      throw new Error(`${message} (${serviceOf(id)}'s limit is reached - not a broken tool. Queue it again after about ${clock(ctx.now() + pause)}.)`);
+    }
     healthFail(ctx.agent.id, id, ctx.now(), message);
     // Approved writes fail too: Lead Researcher re-worded one note six times for a
     // plugin that sent it as the query string, and nothing told the engineer.
@@ -525,6 +530,17 @@ const FAILS_PER_RUN = 3;
 const REPEATS_PER_RUN = 10;
 const repeatsInRun = new Map<string, number>();
 const failedInRun = new Map<string, { n: number; last: string }>();
+// A service that says its limit is reached (429, "rate limit"): its tools pause for
+// every agent until it should have reset - an hour for a daily limit, a minute
+// otherwise - rather than each agent spending calls to find out, and it isn't a
+// broken tool (Zoho's 24-hour limit read as one).
+const pausedUntil = new Map<string, { until: number; why: string }>();
+export function rateLimitPause(message: string): number | null {
+  if (!/\b429\b|rate limit|too many requests|many requests fired/i.test(message)) return null;
+  return /24 hours|daily|per day|a day|today/i.test(message) ? 3_600_000 : 60_000;
+}
+const serviceOf = (id: string) => id.split('.')[0];
+const clock = (t: number) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 // A connection's tool that keeps failing (3 times in an hour, any agents, and not
 // working for anyone in between) goes straight to the Agency Engineer to
 // diagnose and fix - once per tool while that's open - instead of waiting for
@@ -627,6 +643,14 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
       approvalId,
     });
   }
+  const paused = pausedUntil.get(serviceOf(id));
+  if (paused && paused.until > ctx.now())
+    return record({
+      content: `Not called: ${serviceOf(id)}'s limit was reached (${paused.why.slice(0, 200)}). Its tools are paused for every agent until about ${clock(paused.until)}. That isn't a broken tool and doesn't count against you - do the rest of your work meanwhile.`,
+      error: true,
+      outcome: 'refused',
+      counted: 0,
+    });
   const failKey = `${ctx.runId}|${id}`;
   if (!n && (tier !== 'T0' || id === 'files.write_file') && !/^(tasks|requests|memory|ops|engineer|doctor)\./.test(id)) {
     const made = (repeatsInRun.get(failKey) ?? 0) + 1;
@@ -666,6 +690,16 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     return record({ content, error: false, outcome: 'ok', counted });
   } catch (e) {
     const message = (e as Error).message || 'It failed.';
+    const pause = rateLimitPause(message);
+    if (pause) {
+      pausedUntil.set(serviceOf(id), { until: ctx.now() + pause, why: message });
+      return record({
+        content: `${message}\n(${serviceOf(id)}'s limit is reached: its tools are paused for every agent until about ${clock(ctx.now() + pause)}. Not a broken tool - do the rest of your work meanwhile.)`,
+        error: true,
+        outcome: 'refused',
+        counted: 0,
+      });
+    }
     healthFail(ctx.agent.id, id, ctx.now(), message);
     failedInRun.set(failKey, { n: (failed?.n ?? 0) + 1, last: message });
     // Three failures of it in the last hour, from any agent (each agent may hit it once a run).

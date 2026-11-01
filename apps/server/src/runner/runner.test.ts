@@ -691,3 +691,23 @@ test('a batch counts per record, not per word: labels, tags and recipients are o
   assert.equal(actsIn({ leads: [{ company: 'A' }, { company: 'B' }] }), 2);
   assert.equal(actsIn({ to: ['a@x.com', 'b@x.com'], body: 'hi' }), 1);
 });
+
+test("a service's limit reached pauses its tools for every agent: not a failure, not a broken tool", async () => {
+  let calls = 0;
+  registerTools([
+    { id: 'zzlimit.search', tier: 'T0', description: 'x', schema: { type: 'object' }, impl: async () => { calls++; throw new Error('Zoho CRM answered 429: Many requests fired than the allowed limit for the past 24 hours.'); } },
+    { id: 'zzlimit.read', tier: 'T0', description: 'x', schema: { type: 'object' }, impl: async () => { calls++; return 'ok'; } },
+  ]);
+  const now = Date.now();
+  const ctx = (a: string) => ({ agent: agent({ id: a, tiers: { 'zzlimit.search': 'T0', 'zzlimit.read': 'T0' } }), runId: `r_lim_${a}`, level: 0, now: () => now, fleet: async () => [], wake: () => {} });
+  const ids = new Map([['zzlimit__search', 'zzlimit.search'], ['zzlimit__read', 'zzlimit.read']]);
+  const first = await execute(ctx('zz-a'), { id: '1', name: 'zzlimit__search', args: {} }, ids);
+  assert.equal(first.outcome, 'refused');
+  assert.match(first.content, /paused for every agent/);
+  // Another agent, another of its tools: not called at all.
+  const other = await execute(ctx('zz-b'), { id: '2', name: 'zzlimit__read', args: {} }, ids);
+  assert.equal(other.outcome, 'refused');
+  assert.equal(calls, 1);
+  assert.equal(all("SELECT 1 FROM requests WHERE what LIKE 'Fix the tool zzlimit%'").length, 0);
+  assert.equal(all("SELECT 1 FROM tool_health WHERE tool LIKE 'zzlimit%' AND last_fail IS NOT NULL").length, 0);
+});
