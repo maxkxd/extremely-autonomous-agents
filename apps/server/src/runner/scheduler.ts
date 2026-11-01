@@ -13,11 +13,11 @@ import { choiceKey } from '../models/health.js';
 import type { ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals } from './approvals.js';
-import { all, one, run as exec } from './db.js';
+import { all, getSetting, one, run as exec } from './db.js';
 import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, RELENTLESS, scheduledDue, STEADY } from './ferocity.js';
 import { fileRequest, toolsFor } from './tools.js';
 import { finishSetups } from './setup.js';
-import { costOf, startOfDay } from './pricing.js';
+import { costOf, isFree, spentThisMonth, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
 import { adapterFor } from './providers.js';
 import { eligibleModels, runAgent, stateOf, type RunDeps, type Trigger } from './run.js';
@@ -143,6 +143,7 @@ export async function tick(deps: RunDeps = liveDeps) {
     // New agents whose connectors are all connected start by themselves (setup.ts).
     await finishSetups().catch(() => {});
     noAiRequest(models.length > 0, deps.now());
+    capRequest(models.map(m => m.connection), deps.now());
     const now = deps.now();
     expireApprovals(now, book);
     dropStaleRequestRuns();
@@ -211,6 +212,31 @@ export function noAiRequest(connected: boolean, now: number) {
     {
       what: NO_AI_WHAT,
       why: `No AI model is connected, so none of your agents can run, and the Agency Engineer can't set up what they're waiting on${waiting ? ` (${waiting} request${waiting === 1 ? '' : 's'})` : ''}. Connect one in Settings -> Connectors: your Claude, ChatGPT or Copilot plan, or an API key. Everything starts again by itself once one works.`,
+    },
+    now,
+    () => {},
+  );
+}
+
+// The agency's monthly spending limit reached with only pay-per-use AI connected
+// (a $0 limit "to be safe"): nothing runs - not the Agency Engineer either, so a
+// new agent's setup sat at "Setting up" - and only each card said why.
+const CAP_WHAT = "This month's AI spending limit is reached - nothing can run";
+export function capRequest(connections: string[], now: number) {
+  const cap = getSetting<number | null>('spend_cap_org_usd', null);
+  const blocked = cap != null && spentThisMonth(now) >= cap && connections.length > 0 && !connections.some(isFree);
+  const open = one<{ id: number }>("SELECT id FROM requests WHERE what = ? AND status = 'open'", CAP_WHAT);
+  if (!blocked) {
+    if (open) exec("UPDATE requests SET status = 'done', answer = 'Agents can run again.', answered_at = ?, stage = NULL WHERE id = ?", now, open.id);
+    return;
+  }
+  if (open) return;
+  fileRequest(
+    FLEET_ENGINEER,
+    null,
+    {
+      what: CAP_WHAT,
+      why: `The agency's limit of $${cap!.toFixed(2)} for this month is reached, and every AI connected is pay-per-use, so no agent can run - the Agency Engineer included. Raise or remove the limit (Settings -> Usage), or connect an AI plan you already pay for (Claude, ChatGPT or Copilot), which the limit doesn't apply to. Otherwise everything starts again next month.`,
     },
     now,
     () => {},

@@ -743,3 +743,16 @@ test("a new agent whose every connector was turned down doesn't start by itself"
   assert.deepEqual(await finishSetups(), []);
   assert.equal(one<{ state: string }>("SELECT state FROM agent_state WHERE agent_id = 'zz-refused'")?.state, 'stopped');
 });
+
+test("a spending limit that stops everything is said once; a plan connected (or the limit raised) closes it", async () => {
+  const { capRequest } = await import('./scheduler.js');
+  const { setSetting } = await import('./db.js');
+  const open = () => all("SELECT 1 FROM requests WHERE what LIKE 'This month''s AI spending limit%' AND status = 'open'");
+  setSetting('spend_cap_org_usd', 0);
+  capRequest(['mistral'], Date.now());
+  capRequest(['mistral'], Date.now());
+  assert.equal(open().length, 1);
+  capRequest(['mistral', 'claude-code'], Date.now()); // a plan: agents still run on it
+  assert.equal(open().length, 0);
+  setSetting('spend_cap_org_usd', null);
+});
