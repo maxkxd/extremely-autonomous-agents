@@ -110,8 +110,15 @@ const notStopped = () => {
 };
 
 type Route = (req: IncomingMessage, query: URLSearchParams) => Promise<unknown>;
-// What the person typed to the builder, with any key taken out (secrets.ts).
-const scrubbed = (turns: Turn[]) => (turns ?? []).map(t => (t.role === 'person' ? { ...t, text: scrub(t.text) } : t));
+// What the person typed to the builder, with any key taken out (secrets.ts) -
+// and not a paste no model can take (3 MB came back as every model's raw error).
+const MAX_TYPED = 100_000;
+const scrubbed = (turns: Turn[]) =>
+  (turns ?? []).map(t => {
+    if (t.role !== 'person') return t;
+    if (t.text.length > MAX_TYPED) throw new BuilderError(`That message is too long (${Math.round(t.text.length / 1000)}k characters). Paste the part that matters - up to about 100k.`);
+    return { ...t, text: scrub(t.text) };
+  });
 const routes: Record<string, Route> = {
   // --- The organisation profile ---
   'GET /api/org': async (_req, q) => ({ profile: await loadProfile(q.get('name') ?? '') }),

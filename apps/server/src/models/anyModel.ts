@@ -1,11 +1,11 @@
 import * as z from 'zod/v4';
 import { availableModels } from './connections.js';
 import { allChecks } from './check.js';
-import { choiceKey, isBenched, recordFailure, recordSuccess } from './health.js';
-import { adapterFor, ModelError, type Msg } from '../runner/providers.js';
+import { choiceKey, isBenched } from './health.js';
+import { adapterFor, type Msg } from '../runner/providers.js';
 import { harnessFor } from '../runner/harness.js';
 import { pickDefaults } from '../runner/defaults.js';
-import { getHealth, putHealth } from '../runner/run.js';
+import { getHealth } from '../runner/run.js';
 
 // One structured answer from whatever AI is connected - the agent builder's
 // route when there's no working Anthropic key. A packaged app has no .env key,
@@ -14,7 +14,8 @@ import { getHealth, putHealth } from '../runner/run.js';
 //
 // The JSON Schema goes in the instructions; the answer is checked against it,
 // and a model that gets it wrong is told what and asked once more. A model that
-// fails to answer is benched like any agent's, and the next connection tries.
+// fails to answer: the next one tries. Its health (the agents' benching) is read,
+// never written - a 3 MB paste failing on every model isn't the models failing.
 
 export type Said = { role: 'user' | 'assistant'; text: string };
 
@@ -67,21 +68,19 @@ export async function jsonFromAnyModel<T extends z.ZodType>(schema: T, system: s
         let problem: string;
         try {
           const r = schema.safeParse(jsonIn(text));
-          if (r.success) {
-            putHealth(recordSuccess(getHealth(), c));
-            return r.data;
-          }
+          if (r.success) return r.data;
           problem = r.error.issues.slice(0, 5).map(i => `${i.path.join('.') || '(top)'}: ${i.message}`).join('; ');
         } catch (e) {
           problem = (e as Error).message;
         }
         convo = [...convo, { role: 'assistant', text }, { role: 'user', text: `That didn't fit the schema (${problem}). Answer again with the corrected JSON object only.` }];
       }
-      failed.push(`${choiceKey(c)}: its answer didn't fit, twice`);
+      failed.push("its answer didn't fit, twice");
     } catch (e) {
-      putHealth(recordFailure(getHealth(), c, Date.now(), e instanceof ModelError ? e.kind : undefined));
-      failed.push(`${choiceKey(c)}: ${(e as Error).message.slice(0, 160)}`);
+      failed.push((e as Error).message.slice(0, 160));
     }
   }
-  throw new Error(`None of the connected AI models could answer. ${failed.join(' | ')}`);
+  // Said once, plainly: every model usually fails the same way (one per line read as noise).
+  console.error(`builder: no model answered: ${choices.map((c, i) => `${choiceKey(c)}: ${failed[i]}`).join(' | ')}`);
+  throw new Error(`Your AI didn't answer (${failed[0]}). Try again in a moment, or connect another AI in Settings > Connectors.`);
 }
