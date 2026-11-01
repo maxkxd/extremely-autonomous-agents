@@ -605,7 +605,7 @@ test("a request names the service the agent's instructions use, not the catalogu
   assert.equal(serviceLabel('search_console'), 'Google Search Console');
 });
 
-test("a sign-in MCP server going live replaces the tool names the builder guessed for it", async () => {
+test("a sign-in MCP server going live replaces the builder's names for it: its guesses and the catalogue's stand-in", async () => {
   const { DATA } = await import('../files.js');
   const { mkdir, readFile, writeFile } = await import('node:fs/promises');
   const { parse } = await import('yaml');
@@ -613,14 +613,16 @@ test("a sign-in MCP server going live replaces the tool names the builder guesse
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, 'TOOLS.yaml'),
-    'tools_allowed: [files.read_file, sentry.list_issues, sentry.get_issue, sentry.search_issues]\ntool_tiers: { files.read_file: T0, sentry.list_issues: T0, sentry.get_issue: T0, sentry.search_issues: T0 }\nnew_tools:\n  - id: sentry.list_issues\n  - id: sentry.get_issue\n  - id: sentry.search_issues\n  - id: linear.list_issues\n',
+    'tools_allowed: [files.read_file, sentry.list_issues, sentry.get_issue, sentry.search_issues, analytics.query, web.browse]\ntool_tiers: { files.read_file: T0, sentry.list_issues: T0, sentry.get_issue: T0, sentry.search_issues: T0, analytics.query: T0, web.browse: T1 }\nnew_tools:\n  - id: sentry.list_issues\n  - id: sentry.get_issue\n  - id: sentry.search_issues\n  - id: linear.list_issues\n',
   );
-  assert.deepEqual(await dropGuesses('zz-triage', 'sentry', ['sentry.search_issues', 'sentry.find_projects']), ['sentry.list_issues', 'sentry.get_issue']);
+  const real = (id: string) => ['sentry.search_issues', 'sentry.find_projects'].includes(id);
+  // A request filed for the catalogue's analytics.query, answered by an MCP server: the stand-in goes too.
+  assert.deepEqual(await dropGuesses('zz-triage', ['sentry', 'analytics'], real), ['sentry.list_issues', 'sentry.get_issue', 'analytics.query']);
   const doc = parse(await readFile(join(dir, 'TOOLS.yaml'), 'utf8'));
-  assert.deepEqual(doc.tools_allowed, ['files.read_file', 'sentry.search_issues']);
-  assert.deepEqual(Object.keys(doc.tool_tiers), ['files.read_file', 'sentry.search_issues']);
+  assert.deepEqual(doc.tools_allowed, ['files.read_file', 'sentry.search_issues', 'web.browse']);
+  assert.deepEqual(Object.keys(doc.tool_tiers), ['files.read_file', 'sentry.search_issues', 'web.browse']);
   assert.deepEqual(doc.new_tools.map((t: { id: string }) => t.id), ['sentry.search_issues', 'linear.list_issues']); // another service's stay
-  assert.deepEqual(await dropGuesses('zz-triage', 'sentry', ['sentry.search_issues']), []); // nothing left to replace
+  assert.deepEqual(await dropGuesses('zz-triage', ['sentry', 'web'], id => real(id) || id === 'web.browse'), []); // what something serves stays
   await rm(dir, { recursive: true, force: true });
 });
 
