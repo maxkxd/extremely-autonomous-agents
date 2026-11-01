@@ -38,8 +38,13 @@ for (const name of fs.existsSync(gh) ? fs.readdirSync(gh) : [])
   if (/^copilot-sdk-(darwin|linux|linuxmusl|win32)-/.test(name)) fs.rmSync(path.join(gh, name), { recursive: true, force: true });
 
 // --- ui ---
-run('npm ci --no-audit --no-fund', path.join(ROOT, 'desktop'));
-run('npm run build', path.join(ROOT, 'desktop'));
-fs.cpSync(path.join(ROOT, 'desktop', 'dist'), path.join(STAGE, 'ui'), { recursive: true });
+// Built from a copy: a running development server holds apps/desktop's esbuild.exe
+// open, and npm ci there can't replace it (EPERM).
+const desktop = path.join(__dirname, '..', 'build', 'desktop');
+fs.rmSync(desktop, { recursive: true, force: true });
+fs.cpSync(path.join(ROOT, 'desktop'), desktop, { recursive: true, filter: src => !/[\\/](node_modules|dist)([\\/]|$)/.test(path.relative(path.join(ROOT, 'desktop'), src)) });
+run('npm ci --no-audit --no-fund', desktop);
+run('npm run build', desktop);
+fs.cpSync(path.join(desktop, 'dist'), path.join(STAGE, 'ui'), { recursive: true });
 
 console.log(`Staged in ${STAGE}.`);
