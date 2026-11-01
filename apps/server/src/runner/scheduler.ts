@@ -15,7 +15,7 @@ import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals } from './approvals.js';
 import { all, one, run as exec } from './db.js';
 import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, RELENTLESS, scheduledDue, STEADY } from './ferocity.js';
-import { toolsFor } from './tools.js';
+import { fileRequest, toolsFor } from './tools.js';
 import { finishSetups } from './setup.js';
 import { costOf, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
@@ -140,6 +140,7 @@ export async function tick(deps: RunDeps = liveDeps) {
     await fillBuiltInModels().catch(() => {});
     // New agents whose connectors are all connected start by themselves (setup.ts).
     await finishSetups().catch(() => {});
+    noAiRequest(models.length > 0, deps.now());
     const now = deps.now();
     expireApprovals(now, book);
     dropStaleRequestRuns();
@@ -185,6 +186,33 @@ export async function tick(deps: RunDeps = liveDeps) {
   } finally {
     ticking = false;
   }
+}
+
+// No AI connected at all (skipped on the first screen, or the only one removed):
+// nothing can run - not the agents, not the Agency Engineer setting their
+// connectors up, which otherwise just said "Setting up" for ever. One request to
+// the person while it lasts, once there's something waiting on it.
+const NO_AI_WHAT = 'Connect an AI model - nothing can run without one';
+export function noAiRequest(connected: boolean, now: number) {
+  const open = one<{ id: number }>("SELECT id FROM requests WHERE what = ? AND status = 'open'", NO_AI_WHAT);
+  if (connected) {
+    if (open) exec("UPDATE requests SET status = 'done', answer = 'An AI model is connected.', answered_at = ?, stage = NULL WHERE id = ?", now, open.id);
+    return;
+  }
+  if (open) return;
+  const waiting = one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE status = 'open' AND stage = 'engineer'")?.n ?? 0;
+  const agents = one<{ n: number }>(`SELECT COUNT(*) AS n FROM agent_state WHERE agent_id NOT IN (${BUILT_IN_IDS.map(() => '?').join(', ')})`, ...BUILT_IN_IDS)?.n ?? 0;
+  if (!waiting && !agents) return;
+  fileRequest(
+    FLEET_ENGINEER,
+    null,
+    {
+      what: NO_AI_WHAT,
+      why: `No AI model is connected, so none of your agents can run, and the Agency Engineer can't set up what they're waiting on${waiting ? ` (${waiting} request${waiting === 1 ? '' : 's'})` : ''}. Connect one in Settings -> Connectors: your Claude, ChatGPT or Copilot plan, or an API key. Everything starts again by itself once one works.`,
+    },
+    now,
+    () => {},
+  );
 }
 
 type Next = { trigger: Trigger; task: string | null; bookingId?: number };

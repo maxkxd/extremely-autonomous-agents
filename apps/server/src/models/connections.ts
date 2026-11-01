@@ -755,6 +755,9 @@ export async function recheckCapabilities() {
 }
 
 // For the builder: an Anthropic key from the connections, else the server's own.
+// Not one marked broken: a bad key typed on the first screen was saved (to show
+// "Key not working") and the builder kept using it after a working AI was connected.
 export async function anthropicKey(): Promise<string | undefined> {
-  return (await getSecret<{ key: string }>('anthropic'))?.key ?? process.env.ANTHROPIC_API_KEY;
+  const broken = !!(await load()).connections.anthropic?.broken;
+  return (broken ? undefined : (await getSecret<{ key: string }>('anthropic'))?.key) ?? process.env.ANTHROPIC_API_KEY;
 }

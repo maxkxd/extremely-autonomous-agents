@@ -5,6 +5,7 @@ import { BASELINE, CATALOG_INDEX, catalogForPrompt } from './catalog.js';
 import { integrationEventsForPrompt, integrationToolsForPrompt } from './integrations/index.js';
 import { registeredToolIds } from './runner/tools.js';
 import { anthropicKey } from './models/connections.js';
+import { jsonFromAnyModel, NoModelError } from './models/anyModel.js';
 import { fleetForPrompt, type Fleet } from './fleet.js';
 import type { Available } from './models/connections.js';
 import { personForPrompt, profileForPrompt, type PersonProfile, type Profile } from './org.js';
@@ -14,7 +15,7 @@ import { personForPrompt, profileForPrompt, type PersonProfile, type Profile } f
 // their organisation, and reusing the tools their fleet already has.
 
 // The Anthropic key: from Settings > Connectors if there is one, else the server's own.
-const clientFor = async () => new Anthropic({ apiKey: await anthropicKey() });
+const clientFor = (apiKey: string) => new Anthropic({ apiKey });
 const MODEL = 'claude-opus-5-5';
 // On a policy decline, rerun the request on Anthropic's recommended fallback
 // model instead of returning the refusal.
@@ -127,8 +128,11 @@ async function parse<T extends z.ZodType>(
   messages: Anthropic.Beta.BetaMessageParam[],
   effort: 'low' | 'medium' | 'high',
 ): Promise<z.infer<T>> {
+  // No working Anthropic key (a packaged app has no .env one): whatever AI is connected.
+  const key = await anthropicKey();
+  if (!key) return viaAnyModel(schema, ctx, task, messages);
   try {
-    const client = await clientFor();
+    const client = clientFor(key);
     const res = await client.beta.messages.parse({
       model: MODEL,
       // Just under where the SDK insists on streaming; a build writes a whole Charter.
@@ -150,7 +154,19 @@ async function parse<T extends z.ZodType>(
       if (effort !== 'low') return parse(schema, ctx, task, messages, effort === 'high' ? 'medium' : 'low');
       throw new BuilderError('The reply was cut off. Try again.');
     }
-    if (e instanceof Anthropic.AuthenticationError) throw new BuilderError('The Anthropic key was refused. Check it in Settings > Connectors, or connect another AI model.');
+    // The key refused or out of credit: another connected AI may still do it.
+    const refused =
+      e instanceof Anthropic.AuthenticationError ||
+      e instanceof Anthropic.PermissionDeniedError ||
+      (e instanceof Anthropic.APIError && /credit balance|billing|quota/i.test(String((e.error as { error?: { message?: string } } | undefined)?.error?.message ?? e.message)));
+    if (refused) {
+      try {
+        return await viaAnyModel(schema, ctx, task, messages, c => c === 'anthropic');
+      } catch (other) {
+        if (!(other instanceof BuilderError && /No AI model/.test(other.message))) throw other;
+        throw new BuilderError('The Anthropic key was refused (or is out of credit). Check it in Settings > Connectors, or connect another AI model.');
+      }
+    }
     if (e instanceof Anthropic.RateLimitError) throw new BuilderError('Rate limited by the Claude API. Wait a moment and try again.');
     if (e instanceof Anthropic.APIConnectionError) throw new BuilderError('Could not reach the Claude API.');
     // With Claude's own reason, so a rejected request says why (logged, and shown).
@@ -158,6 +174,30 @@ async function parse<T extends z.ZodType>(
     // No credentials at all: the SDK throws before any request.
     if (e instanceof Error && /api ?key|auth/i.test(e.message)) throw new BuilderError('No Anthropic API key. Add ANTHROPIC_API_KEY to apps/server/.env and restart the server.');
     throw e;
+  }
+}
+
+// The same answer from any connected AI (models/anyModel.ts): the instructions
+// as one text, the conversation as it is.
+async function viaAnyModel<T extends z.ZodType>(
+  schema: T,
+  ctx: Context | null,
+  task: string,
+  messages: Anthropic.Beta.BetaMessageParam[],
+  skip?: (connection: string) => boolean,
+): Promise<z.infer<T>> {
+  const text = system(ctx, task)
+    .map(b => b.text)
+    .join('\n\n');
+  const said = messages.map(m => ({
+    role: m.role === 'assistant' ? ('assistant' as const) : ('user' as const),
+    text: typeof m.content === 'string' ? m.content : (m.content ?? []).map(b => ('text' in b ? b.text : '')).join('\n'),
+  }));
+  try {
+    return await jsonFromAnyModel(schema, text, said, skip);
+  } catch (e) {
+    if (e instanceof NoModelError) throw new BuilderError('No AI model is connected and working. Connect one in Settings > Connectors.');
+    throw new BuilderError((e as Error).message);
   }
 }
 

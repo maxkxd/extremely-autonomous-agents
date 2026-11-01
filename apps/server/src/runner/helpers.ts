@@ -1,9 +1,11 @@
 import { stringify } from 'yaml';
-import { readMeta, save } from '../files.js';
-import { allChoices, setChoices } from '../models/choice.js';
+import { listIds, readMeta, save } from '../files.js';
+import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER } from './agent.js';
-import { run as exec } from './db.js';
+import { getSetting, run as exec } from './db.js';
 import { availableModels } from '../models/connections.js';
+import { allChecks } from '../models/check.js';
+import { choiceKey, type Health } from '../models/health.js';
 import { pickDefaults, type Want } from './defaults.js';
 import { DOCTOR } from './doctor.js';
 
@@ -59,18 +61,44 @@ export async function ensureHelpers() {
   await fillBuiltInModels();
 }
 
-// A built-in with no model it can use gets three from what's connected - at
-// start and on every tick, so connecting the first AI model sets them all
-// straight away, and disconnecting the ones it had moves it to what's left.
-// While any of its models is still connected, its models are left alone.
+// An agent's models when none of them works: the best working ones first, its
+// own behind them while there's room. Null: one of them still works, or nothing does.
+export function rescued(
+  mine: ModelChoice[],
+  working: { connection: string; models: string[] }[],
+  works: (c: Pick<ModelChoice, 'connection' | 'model'>) => boolean,
+  want: Want,
+): ModelChoice[] | null {
+  if (mine.some(works)) return null;
+  const fresh = pickDefaults(working, want);
+  if (!fresh.length) return null;
+  return [...fresh, ...mine.filter(c => !fresh.some(f => choiceKey(f) === choiceKey(c)))].slice(0, 3);
+}
+
+// An agent none of whose models works gets working ones - at start and on every
+// tick, so connecting the first AI model sets the built-ins straight away, and
+// a broken one (a key revoked, Claude Code signed out, a model gone) moves every
+// agent on it to what still works, without anyone switching each by hand. A
+// model "doesn't work" when its connection is gone, its check failed, or it has
+// failed 3 times in a row; one that recovers is kept behind the new ones while
+// there's room. While any of an agent's models works, they're left alone.
 export async function fillBuiltInModels() {
   const avail = await availableModels().catch(() => []);
   if (!avail.length) return;
-  const connected = new Set(avail.map(a => a.connection));
+  const checks = await allChecks().catch(() => ({}) as Record<string, { ok: boolean }>);
+  const health = getSetting<Health>('model_health', {});
+  const has = (c: Pick<ModelChoice, 'connection' | 'model'>) => !!avail.find(a => a.connection === c.connection)?.models.includes(c.model);
+  const works = (c: Pick<ModelChoice, 'connection' | 'model'>) => has(c) && checks[choiceKey(c)]?.ok !== false && (health[choiceKey(c)]?.failures ?? 0) < 3;
+  const working = avail.map(a => ({ ...a, models: a.models.filter(m => works({ connection: a.connection, model: m })) })).filter(a => a.models.length);
+  if (!working.length) return;
   const chosen = await allChoices();
-  for (const [id, want] of Object.entries(WANTS)) {
-    if ((chosen[id] ?? []).some(c => connected.has(c.connection)) || !(await readMeta(id))) continue;
-    const models = pickDefaults(avail, want);
-    if (models.length) await setChoices(id, models);
+  for (const id of await listIds()) {
+    const mine = chosen[id] ?? [];
+    const next = rescued(mine, working, works, WANTS[id] ?? 'strong');
+    if (!next) continue;
+    const meta = await readMeta(id);
+    if (!meta || meta.status === 'setting-up') continue;
+    await setChoices(id, next);
+    if (mine.length) console.log(`${id}: none of its models worked (${mine.map(choiceKey).join(', ')}); now ${next.map(choiceKey).join(', ')}`);
   }
 }

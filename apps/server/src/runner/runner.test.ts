@@ -711,3 +711,14 @@ test("a service's limit reached pauses its tools for every agent: not a failure,
   assert.equal(all("SELECT 1 FROM requests WHERE what LIKE 'Fix the tool zzlimit%'").length, 0);
   assert.equal(all("SELECT 1 FROM tool_health WHERE tool LIKE 'zzlimit%' AND last_fail IS NOT NULL").length, 0);
 });
+
+test("with no AI connected, the person is told nothing can run - once, and it closes when one is connected", async () => {
+  const { noAiRequest } = await import('./scheduler.js');
+  const open = () => all<{ id: number }>("SELECT id FROM requests WHERE what LIKE 'Connect an AI model%' AND status = 'open'");
+  exec("INSERT INTO agent_state (agent_id, state, updated_at) VALUES ('zz-noai', 'stopped', 0) ON CONFLICT(agent_id) DO NOTHING");
+  noAiRequest(false, Date.now());
+  noAiRequest(false, Date.now());
+  assert.equal(open().length, 1);
+  noAiRequest(true, Date.now());
+  assert.equal(open().length, 0);
+});

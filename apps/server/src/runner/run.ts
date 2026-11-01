@@ -485,15 +485,34 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
 // when a run works again.
 const OUT_OF_ALLOWANCE = /exceeded your (monthly )?quota|insufficient_quota|credit balance is too low|out of credits?|quota exceeded|usage limit/i;
 const ALLOWANCE_WHAT = 'Your AI has run out of its allowance';
+// Its sign-in or key stopped working after it was set up (a key revoked, Claude
+// Code signed out or uninstalled): every run on it failed, and nothing said why.
+const SIGNED_OUT = /isn't installed|not signed in|no key saved|\b40[13]\b|invalid (x-)?api[ -]?key|please run \/login|authenticat|unauthori[sz]ed|not logged in|oauth token/i;
+const SIGNED_OUT_WHAT = 'Your AI connection stopped working';
 function allowance(status: string, error: string | undefined, now: number) {
-  const open = one<{ id: number }>("SELECT id FROM requests WHERE what LIKE ? AND status = 'open'", `${ALLOWANCE_WHAT}%`);
+  const open = one<{ id: number }>("SELECT id FROM requests WHERE (what LIKE ? OR what LIKE ?) AND status = 'open'", `${ALLOWANCE_WHAT}%`, `${SIGNED_OUT_WHAT}%`);
   if (status === 'succeeded' && open) {
     exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", 'Working again - agents are running.', now, open.id);
     return;
   }
-  if (status !== 'failed' || !error || !OUT_OF_ALLOWANCE.test(error) || open) return;
+  if (status !== 'failed' || !error || open) return;
   const conn = /Last: ([a-z0-9_-]+)\//i.exec(error)?.[1];
-  const name = conn ? (conn === 'copilot' ? 'GitHub Copilot' : conn.charAt(0).toUpperCase() + conn.slice(1)) : 'Your AI connection';
+  const name = conn ? (conn === 'copilot' ? 'GitHub Copilot' : conn === 'claude-code' ? 'Claude (Claude Code)' : conn.charAt(0).toUpperCase() + conn.slice(1)) : 'Your AI connection';
+  if (!OUT_OF_ALLOWANCE.test(error)) {
+    if (!SIGNED_OUT.test(error)) return;
+    fileRequest(
+      FLEET_ENGINEER,
+      null,
+      {
+        what: `${SIGNED_OUT_WHAT} (${name})`,
+        why: `${name} isn't accepting the agency's sign-in or key any more, so agents on it can't run. Reconnect it in Settings -> Connectors (sign in again, or replace the key) - or connect another AI there: agents move to one that works on their own.`,
+        evidence: error.replace(/\s*\(Request ID:[^)]*\)/i, '').slice(0, 500),
+      },
+      now,
+      () => {},
+    );
+    return;
+  }
   fileRequest(
     FLEET_ENGINEER,
     null,

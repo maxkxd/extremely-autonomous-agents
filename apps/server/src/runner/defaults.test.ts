@@ -41,3 +41,19 @@ test('built-in defaults: plans first, then the job\'s preference, then anything 
   assert.deepEqual(picked([{ connection: 'mycustom', models: ['house-model'] }], 'careful'), ['mycustom/house-model']);
   assert.deepEqual(picked([], 'strong'), []);
 });
+
+test("an agent whose models all stopped working moves to working ones; one still working is left alone", async () => {
+  const { rescued } = await import('./helpers.js');
+  const claude = (m: string) => ({ connection: 'claude-code', model: m, effort: 'high' as const });
+  const mine = [claude('claude-opus-5-5'), claude('claude-sonnet-5-5')];
+  const working = [{ connection: 'mistral', models: ['mistral-large-latest', 'mistral-medium-latest'] }];
+  const broken = (c: { connection: string }) => c.connection !== 'claude-code';
+  const next = rescued(mine, working, broken, 'strong')!;
+  assert.deepEqual(next.map(c => `${c.connection}/${c.model}`), ['mistral/mistral-large-latest', 'mistral/mistral-medium-latest', 'claude-code/claude-opus-5-5']);
+  // Claude Code still working for one of them: nothing changes.
+  assert.equal(rescued(mine, working, c => c.model === 'claude-sonnet-5-5' || broken(c), 'strong'), null);
+  // An agent with no models at all gets some.
+  assert.equal(rescued([], working, broken, 'cheap')!.length, 2);
+  // Nothing works anywhere: left as it is.
+  assert.equal(rescued(mine, [], () => false, 'strong'), null);
+});

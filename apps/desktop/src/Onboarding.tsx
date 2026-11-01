@@ -6,7 +6,8 @@ import { ModelConnectors } from './ModelConnectors';
 // works without - an AI model (a plan you already pay for, or an API key). Next
 // once one's connected and has really answered a test request (connected isn't
 // working: a plan's program missing, a key with no credit); Skip goes straight
-// to the dashboard (agents then say what's missing). Once either is pressed it's never shown again on this computer.
+// to the dashboard (agents then say what's missing) - with no working AI yet, after
+// saying what that means. Once either is pressed it's never shown again on this computer.
 
 const KEY = 'eaa.onboarded';
 export const onboarded = () => {
@@ -60,8 +61,37 @@ function useModelTests() {
   };
 }
 
+// Skipping with no AI that works: nothing can run, so say so first.
+function SkipDialog({ onCancel, onSkip }: { onCancel: () => void; onSkip: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCancel();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+  return (
+    <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && onCancel()}>
+      <div className="confirm" role="alertdialog" aria-labelledby="skip-title" aria-describedby="skip-body">
+        <h2 id="skip-title">Skip without an AI model?</h2>
+        <p id="skip-body">
+          Nothing runs without one: you can't build agents, and the built-in agents can't start. You can connect one any time in Settings, under
+          Connectors.
+        </p>
+        <div className="confirm-actions">
+          <button className="confirm-cancel" onClick={onCancel}>
+            Go back
+          </button>
+          <button className="confirm-resume" onClick={onSkip}>
+            Skip anyway
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const { ok, testing, failed } = useModelTests();
+  const [skipping, setSkipping] = useState(false);
   const done = () => {
     try {
       localStorage.setItem(KEY, '1');
@@ -94,13 +124,14 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             {failed.map(f => `${f.name} didn't work: ${f.reason}`).join(' ')}
           </p>
         )}
-        <button className="sbtn onboarding-skip" onClick={done}>
+        <button className="sbtn onboarding-skip" onClick={() => (ok ? done() : setSkipping(true))}>
           Skip
         </button>
         <button className="sbtn primary" disabled={!ok} onClick={done}>
           {!ok && testing ? 'Testing…' : 'Next'}
         </button>
       </footer>
+      {skipping && <SkipDialog onCancel={() => setSkipping(false)} onSkip={done} />}
     </div>
   );
 }
