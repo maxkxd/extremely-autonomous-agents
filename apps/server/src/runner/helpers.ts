@@ -83,13 +83,26 @@ export function rescued(
 // model "doesn't work" when its connection is gone, its check failed, or it has
 // failed 3 times in a row other than busy; one that recovers is kept behind the new ones while
 // there's room. While any of an agent's models works, they're left alone.
+export const ALLOWANCE_WHAT = 'Your AI has run out of its allowance';
 export async function fillBuiltInModels() {
   const avail = await availableModels().catch(() => []);
   if (!avail.length) return;
   const checks = await allChecks().catch(() => ({}) as Record<string, { ok: boolean }>);
   const health = getSetting<Health>('model_health', {});
   const has = (c: Pick<ModelChoice, 'connection' | 'model'>) => !!avail.find(a => a.connection === c.connection)?.models.includes(c.model);
-  const works = (c: Pick<ModelChoice, 'connection' | 'model'>) => has(c) && checks[choiceKey(c)]?.ok !== false && !brokenModel(health, c);
+  // One out of its allowance (a free Gemini key's quota) still answers, so it never
+  // looks broken - but every run on it fails while the request about it is open.
+  // Its agents moved off it, so no run on it closes that: a day on (a daily quota
+  // has reset by then), it closes, saying so; a monthly one asks again when it next fails.
+  exec(
+    "UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE what LIKE ? AND status = 'open' AND service IS NOT NULL AND created_at < ?",
+    'Agents moved to another working AI meanwhile. To move one back, pick this AI on its card.',
+    Date.now(),
+    `${ALLOWANCE_WHAT}%`,
+    Date.now() - 24 * 3_600_000,
+  );
+  const spent = new Set(all<{ service: string }>("SELECT service FROM requests WHERE what LIKE ? AND status = 'open' AND service IS NOT NULL", `${ALLOWANCE_WHAT}%`).map(r => r.service));
+  const works = (c: Pick<ModelChoice, 'connection' | 'model'>) => has(c) && !spent.has(c.connection) && checks[choiceKey(c)]?.ok !== false && !brokenModel(health, c);
   // One that's back: its notice closes.
   for (const r of openLost())
     if (avail.some(a => a.connection === r.service))

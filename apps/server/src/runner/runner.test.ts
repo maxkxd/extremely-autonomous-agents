@@ -275,7 +275,15 @@ test('an AI out of its allowance asks the person once, and closes when runs work
   assert.equal(asks.length, 1);
   assert.equal(asks[0].stage, 'person');
   assert.doesNotMatch(asks[0].evidence, /Request ID/);
+  // It names the connection, so its agents can move off it meanwhile - and a run that
+  // worked on another AI doesn't close it.
+  const conn = one<{ service: string }>('SELECT service FROM requests WHERE id = ?', asks[0].id)!.service;
+  assert.equal(conn, 'b'); // the last one tried
+  exec('UPDATE requests SET service = ? WHERE id = ?', 'zz-other-ai', asks[0].id);
   await runAgent(agent(), 'scheduled', null, deps(fake(1)));
+  assert.equal(one<{ status: string }>('SELECT status FROM requests WHERE id = ?', asks[0].id)!.status, 'open');
+  exec('UPDATE requests SET service = ? WHERE id = ?', conn, asks[0].id);
+  await runAgent(agent({ models: [{ connection: 'b', model: 'm2', effort: 'medium' }] }), 'scheduled', null, deps(fake(1)));
   assert.equal(one<{ status: string }>('SELECT status FROM requests WHERE id = ?', asks[0].id)!.status, 'done');
 });
 

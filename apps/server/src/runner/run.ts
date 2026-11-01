@@ -5,7 +5,7 @@ import { fitEffort } from '../models/caps.js';
 import type { Effort, ModelChoice } from '../models/choice.js';
 import { pickModel, recordFailure, recordSuccess, choiceKey, type Health } from '../models/health.js';
 import { FLEET_ENGINEER, type AgentDef } from './agent.js';
-import { BUILT_IN_IDS } from './helpers.js';
+import { ALLOWANCE_WHAT, BUILT_IN_IDS } from './helpers.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { backoffMs, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
@@ -477,7 +477,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
     exec('UPDATE agent_state SET fail_streak = ?, backoff_until = ?, updated_at = ? WHERE agent_id = ?', streak, streak ? endedAt + backoffMs(streak) : null, endedAt, agent.id);
   }
 
-  if (!stopped) allowance(status, error, endedAt);
+  if (!stopped) allowance(status, error, endedAt, used?.connection);
 
   if (deps.compact && used) void compactMemory(agent, used, deps).catch(() => {});
   return { id, status, acts, nudges, summary, error };
@@ -488,14 +488,14 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
 // each run doesn't say so. One request to the person while it lasts, closed
 // when a run works again.
 const OUT_OF_ALLOWANCE = /exceeded your (monthly )?quota|insufficient_quota|credit balance is too low|out of credits?|quota exceeded|usage limit/i;
-const ALLOWANCE_WHAT = 'Your AI has run out of its allowance';
 // Its sign-in or key stopped working after it was set up (a key revoked, Claude
 // Code signed out or uninstalled): every run on it failed, and nothing said why.
 const SIGNED_OUT = /isn't installed|not signed in|no key saved|\b40[13]\b|invalid (x-)?api[ -]?key|please run \/login|authenticat|unauthori[sz]ed|not logged in|oauth token/i;
 const SIGNED_OUT_WHAT = 'Your AI connection stopped working';
-function allowance(status: string, error: string | undefined, now: number) {
-  const open = one<{ id: number }>("SELECT id FROM requests WHERE (what LIKE ? OR what LIKE ?) AND status = 'open'", `${ALLOWANCE_WHAT}%`, `${SIGNED_OUT_WHAT}%`);
-  if (status === 'succeeded' && open) {
+function allowance(status: string, error: string | undefined, now: number, on?: string) {
+  const open = one<{ id: number; service: string | null }>("SELECT id, service FROM requests WHERE (what LIKE ? OR what LIKE ?) AND status = 'open'", `${ALLOWANCE_WHAT}%`, `${SIGNED_OUT_WHAT}%`);
+  // Closed by a run that worked on that AI - not one that moved to another meanwhile.
+  if (status === 'succeeded' && open && (!open.service || open.service === on)) {
     exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", 'Working again - agents are running.', now, open.id);
     return;
   }
@@ -522,8 +522,10 @@ function allowance(status: string, error: string | undefined, now: number) {
     null,
     {
       what: `${ALLOWANCE_WHAT} (${name})`,
-      why: `${name} says its allowance is used up, so every agent's runs fail until it's sorted. Either add another AI connection in Settings -> AI (agents switch to it on their own), or raise the plan's limit with ${name}. If it's a monthly allowance, agents start again by themselves when it resets.`,
+      why: `${name} says its allowance is used up, so agents that only run on it fail until it's sorted. Agents move to another working AI meanwhile - if there's none, add one in Settings -> AI (they switch to it on their own), or raise the plan's limit with ${name}. If it's a monthly allowance, agents start again by themselves when it resets.`,
       evidence: error.replace(/\s*\(Request ID:[^)]*\)/i, '').slice(0, 500),
+      // Which connection: while this is open its agents run on another working AI (helpers.ts).
+      service: conn,
     },
     now,
     () => {},
