@@ -321,6 +321,8 @@ export type IntegrationView = {
   connected: boolean;
   draft: boolean; // the Agency Engineer's, not live until approved
   approvalId: string | null; // its go-live, waiting on you
+  unused: boolean; // a draft nobody will connect (its request closed): not shown
+  free: boolean; // working already with nothing entered (Tavily's free mode); a key replaces it
   by: string | null;
   test: { ok: boolean; at: number; message: string } | null;
   tools: { id: string; tier: string }[];

@@ -55,8 +55,9 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
   }, [focus, !!view]);
   if (error && !view) return <p className="custom-error">{error}</p>;
   if (!view) return <SkelRows n={4} h={54} what="integrations" />;
-  const search = view.integrations.filter(i => i.tools.some(t => t.id === 'web.web_search'));
-  const others = view.integrations.filter(i => !search.includes(i));
+  const shown = view.integrations.filter(i => !i.unused);
+  const search = shown.filter(i => i.tools.some(t => t.id === 'web.web_search'));
+  const others = shown.filter(i => !search.includes(i));
   return (
     <>
       <div className="sgroup">
@@ -146,9 +147,11 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
     ? i.draft
       ? i.approvalId ? 'Tested · waiting for your approval' : 'The Agency Engineer is testing it'
       : [i.test?.message, tools].filter(Boolean).join(' · ')
-    : i.test && !i.test.ok
-      ? i.test.message
-      : '';
+    : i.free
+      ? 'Working now - free, no key needed · add a key for more searches'
+      : i.test && !i.test.ok
+        ? i.test.message
+        : '';
   return (
     <li className={open || error ? 'with-form' : undefined} data-integration={i.id}>
       <span className="sconn-name">
@@ -168,7 +171,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
           </>
         ) : open ? null : i.needsKey || i.fields ? (
           <button className="sbtn" onClick={() => setOpen(true)}>
-            Connect
+            {i.free ? 'Add a key' : 'Connect'}
           </button>
         ) : (
           <SpinButton spinning={busy} onClick={() => run(() => connectIntegration(i.id))}>

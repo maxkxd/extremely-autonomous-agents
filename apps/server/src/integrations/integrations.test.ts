@@ -109,3 +109,20 @@ test('web search works with nothing connected: Tavily in its free keyless mode, 
   // Only the keyless one serves for free: the others still need their key.
   assert.equal((await listIntegrations()).find(i => i.id === 'brave-search')?.free, false);
 });
+
+test("a draft nobody will connect - its request closed, nothing connected - is marked unused, so Settings hides it", async () => {
+  const { resetDbForTests, run } = await import('../runner/db.js');
+  const { discardDraft, listIntegrations, loadIntegrations, writeDraftIntegration } = await import('./index.js');
+  resetDbForTests();
+  await loadIntegrations();
+  const open = Number(run("INSERT INTO requests (agent_id, what, why, created_at, status) VALUES ('zz', 'Set up Zz', 'x', 0, 'open')").lastInsertRowid);
+  const def = (id: string) => `kind: http\nid: ${id}\nname: ${id}\nwhat: x\nauth: { type: bearer }\nbase_url: https://api.example.com\ntest: { tool: ${id}.list, args: {} }\ntools:\n  - { id: ${id}.list, tier: T0, description: x, input: { type: object }, request: { method: GET, path: /items } }\n`;
+  await writeDraftIntegration(def('zz-wanted'), 'fleet', open);
+  await writeDraftIntegration(def('zz-stale'), 'fleet', open + 1000);
+  const list = await listIntegrations();
+  assert.equal(list.find(i => i.id === 'zz-wanted')?.unused, false);
+  assert.equal(list.find(i => i.id === 'zz-stale')?.unused, true);
+  assert.equal(list.find(i => i.id === 'tavily')?.unused, false);
+  await discardDraft('zz-wanted');
+  await discardDraft('zz-stale');
+});

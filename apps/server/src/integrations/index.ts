@@ -523,6 +523,8 @@ export async function listIntegrations() {
       Date.now(),
     ).map(a => [a.integration, a.id]),
   );
+  // Requests still open, for drafts that no longer answer one.
+  const openRequests = new Set(all<{ id: number }>("SELECT id FROM requests WHERE status = 'open'").map(r => r.id));
   // Which have a webhook signing secret saved (events whose posts are signed).
   const secrets = new Set<string>();
   for (const { integration } of loaded) if (await webhookSecret(integration.id)) secrets.add(integration.id);
@@ -566,6 +568,13 @@ export async function listIntegrations() {
     keyFrom: keyFrom(integration) ? { id: keyFrom(integration)!, name: find(keyFrom(integration)!)?.name ?? keyFrom(integration)! } : null,
     draft: !!st[integration.id]?.draft,
     approvalId: waiting.get(integration.id) ?? null,
+    // A draft nobody will connect: its request is closed (or it had none), nothing
+    // connected, no go-live waiting. Hidden in Settings - it was clutter.
+    unused:
+      !!st[integration.id]?.draft &&
+      !isConnected(integration.id) &&
+      !waiting.has(integration.id) &&
+      !(st[integration.id]?.request && openRequests.has(st[integration.id]!.request!)),
     by: st[integration.id]?.by ?? null,
     test: st[integration.id]?.test ?? null,
     disconnectedAt: st[integration.id]?.connectedAt ? null : (st[integration.id]?.disconnectedAt ?? null),
