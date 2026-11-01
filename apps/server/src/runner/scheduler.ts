@@ -1,19 +1,20 @@
 import { listIds, readMeta } from '../files.js';
-import { loadIntegrations } from '../integrations/index.js';
+import { liveEvents, loadIntegrations } from '../integrations/index.js';
 import './web.js'; // registers the web tools
 import './browser.js'; // registers the browser tools
 import { ensureFleetEngineer, startEngineer } from './engineer.js';
 import { ensureDoctor } from './doctor.js';
 import './conductor.js'; // routes new requests
 import { BUILT_IN_IDS, ensureHelpers, fillBuiltInModels, HELPER_IDS } from './helpers.js';
-import { pollEvents } from './events.js';
+import { hookToken, pollEvents } from './events.js';
+import { hooksBase } from './hooks.js';
 import { availableModels, nativeEffortSync } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';
 import type { ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals } from './approvals.js';
-import { all, getSetting, one, run as exec } from './db.js';
+import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, RELENTLESS, scheduledDue, STEADY } from './ferocity.js';
 import { fileRequest, toolsFor } from './tools.js';
 import { finishSetups } from './setup.js';
@@ -144,6 +145,7 @@ export async function tick(deps: RunDeps = liveDeps) {
     await finishSetups().catch(() => {});
     noAiRequest(models.length > 0, deps.now());
     capRequest(models.map(m => m.connection), deps.now());
+    hookAddressRequest(hooksBase(), liveEvents().filter(e => e.event.webhook).map(e => ({ service: e.integration.name, id: e.event.id })), deps.now());
     const now = deps.now();
     expireApprovals(now, book);
     dropStaleRequestRuns();
@@ -237,6 +239,31 @@ export function capRequest(connections: string[], now: number) {
     {
       what: CAP_WHAT,
       why: `The agency's limit of $${cap!.toFixed(2)} for this month is reached, and every AI connected is pay-per-use, so no agent can run - the Agency Engineer included. Raise or remove the limit (Settings -> Usage), or connect an AI plan you already pay for (Claude, ChatGPT or Copilot), which the limit doesn't apply to. Otherwise everything starts again next month.`,
+    },
+    now,
+    () => {},
+  );
+}
+
+// The tunnel's address changes each time it starts (a quick tunnel: no account), and every
+// service posting events was given the old one - so they all stop arriving, silently. Said
+// to the person once per change, with each new address and where it goes.
+const HOOK_WHAT = 'The address for your webhooks changed - paste the new one into each service';
+export function hookAddressRequest(base: string, hooks: { service: string; id: string }[], now: number) {
+  const known = getSetting<string | null>('hooks_base_known', null);
+  if (base === known) return;
+  setSetting('hooks_base_known', base);
+  const open = one<{ id: number }>("SELECT id FROM requests WHERE what = ? AND status = 'open'", HOOK_WHAT);
+  if (open) exec("UPDATE requests SET status = 'done', answer = 'The address changed again; see the newer request.', answered_at = ?, stage = NULL WHERE id = ?", now, open.id);
+  // Only a public address that replaced another, with services set up to post to it.
+  if (!known || !base.startsWith('https://') || !hooks.length) return;
+  const lines = hooks.map(h => `- ${h.service}: ${base}/hooks/${hookToken(h.id)}`).join('\n');
+  fileRequest(
+    FLEET_ENGINEER,
+    null,
+    {
+      what: HOOK_WHAT,
+      why: `The webhook address changes each time the app starts its tunnel (after a restart, say), so these services are still posting to the old one and their events aren't arriving. In each service's webhook settings, replace the address with the new one:\n${lines}\nEvents they also poll for are still caught meanwhile, just later. Mark this done once they're replaced.`,
     },
     now,
     () => {},

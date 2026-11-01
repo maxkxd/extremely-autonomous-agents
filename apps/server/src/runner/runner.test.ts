@@ -756,3 +756,20 @@ test("a spending limit that stops everything is said once; a plan connected (or 
   assert.equal(open().length, 0);
   setSetting('spend_cap_org_usd', null);
 });
+
+test("the tunnel's address changing (a restart) tells the person which services to give the new one, once", async () => {
+  const { hookAddressRequest } = await import('./scheduler.js');
+  const reqs = () => all<{ why: string; status: string }>("SELECT why, status FROM requests WHERE what LIKE 'The address for your webhooks changed%' ORDER BY id");
+  const hooks = [{ service: 'Stripe', id: 'stripe.payment_failed' }];
+  hookAddressRequest('https://first-one.trycloudflare.com', hooks, Date.now()); // the first address: nothing to replace
+  hookAddressRequest('https://first-one.trycloudflare.com', hooks, Date.now());
+  assert.equal(reqs().length, 0);
+  hookAddressRequest('https://second-one.trycloudflare.com', hooks, Date.now());
+  hookAddressRequest('https://second-one.trycloudflare.com', hooks, Date.now());
+  assert.equal(reqs().length, 1);
+  assert.match(reqs()[0].why, /Stripe: https:\/\/second-one\.trycloudflare\.com\/hooks\//);
+  hookAddressRequest('https://third-one.trycloudflare.com', hooks, Date.now()); // again before it was done: the newer one stands
+  assert.deepEqual(reqs().map(r => r.status), ['done', 'open']);
+  hookAddressRequest('http://127.0.0.1:5176', hooks, Date.now()); // the tunnel turned off: nothing to paste
+  assert.equal(reqs().filter(r => r.status === 'open').length, 0);
+});

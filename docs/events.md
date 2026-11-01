@@ -71,6 +71,11 @@ into services are always the ones Settings shows. Without it, the addresses
 are this computer's, for tools on it and for testing. Once the hosted backend
 exists it can relay webhooks instead.
 
+When the address changes and live connections take webhooks, one request
+lists each service with its new address (`hookAddressRequest`,
+`runner/scheduler.ts`); a newer change replaces it. The Agency Engineer polls
+first and adds a webhook only when minutes matter or nothing can be polled.
+
 ## Who adds them
 
 - **The agent builder**: gives an agent existing events by id, and defines
