@@ -281,6 +281,7 @@ export type ResourceRequest = {
   busy?: boolean; // the engineer is running right now
   approvalId?: string | null; // the approval it waits on, to go straight to
   waitingOn?: { id: string; name: string } | null; // the connection it waits for you to connect
+  joinedTo?: number | null; // folded into this request (the same connection): its card covers both
   closedAs?: 'done' | 'rejected'; // closed elsewhere (the Agency Engineer, another device): plays its exit, then goes
   summary: string; // one sentence: what the agent needs
   detail: string; // the agent's fuller explanation

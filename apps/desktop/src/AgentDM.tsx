@@ -99,9 +99,11 @@ export function AgentDM({
   approvalOutcomes,
   loading = false,
   stopped = false,
+  sendError = null,
 }: {
   agentId: string;
-  stopped?: boolean; // it or the agency is stopped: a message waits until it's resumed
+  stopped?: boolean; // it or the agency is stopped: it won't answer until it's resumed
+  sendError?: string | null; // the message wasn't taken (e.g. it's stopped): why
   loading?: boolean; // its history isn't in yet: placeholders, not "No agent activity yet"
   entries: StampedEntry[];
   thinking: boolean;
@@ -173,10 +175,10 @@ export function AgentDM({
               ) : (
                 <div className="dm-post">
                   {/* Who wrote it (a teammate's message showed under the viewer's name). */}
-                  <div className="dm-avatar you">{(e.from || ACCOUNT.name).charAt(0)}</div>
+                  <div className="dm-avatar you">{(e.by || ACCOUNT.name).charAt(0)}</div>
                   <div className="dm-post-main">
                     <div className="dm-post-head">
-                      <span className="dm-author">{e.from || ACCOUNT.name}</span>
+                      <span className="dm-author">{e.by || ACCOUNT.name}</span>
                       <span className="dm-time">{clock(e.at)}</span>
                     </div>
                     <p className="dm-text">
@@ -201,8 +203,8 @@ export function AgentDM({
             </div>
           </div>
         )}
-        {stopped && (
-          <div className="dm-stopped">{agent.name} is stopped, so it won't answer until it's resumed.</div>
+        {(sendError || stopped) && (
+          <div className="dm-stopped">{sendError ?? `${agent.name} is stopped, so it won't answer until it's resumed.`}</div>
         )}
         <div ref={end} />
       </div>

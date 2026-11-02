@@ -370,11 +370,16 @@ function connectionGroups<T extends Pick<ResourceRequest, 'stage' | 'waitingOn' 
   return by;
 }
 
+// Folded into another request for the same connection (runner: joined_to) that's on the page
+// too, past waiting on you: that one's card covers it, so it isn't a card of its own.
+const folded = <T extends Pick<ResourceRequest, 'stage' | 'joinedTo' | 'live'>>(r: T, list: T[]) =>
+  r.stage !== 'waiting_you' && !!r.joinedTo && list.some(x => x.live === r.joinedTo);
+
 // How many items the page shows: the same-connection ones count once (the badge
 // said 39 for a page of 16).
-export function requestItems<T extends Pick<ResourceRequest, 'stage' | 'waitingOn' | 'closedAs'>>(list: T[]) {
+export function requestItems<T extends Pick<ResourceRequest, 'stage' | 'waitingOn' | 'closedAs' | 'joinedTo' | 'live'>>(list: T[]) {
   const extra = [...connectionGroups(list).values()].reduce((n, g) => n + Math.max(0, g.length - 1), 0);
-  return list.length - extra;
+  return list.length - extra - list.filter(r => folded(r, list)).length;
 }
 
 function ConnectGroup({ name, members, row, refs, focus }: { name: string; members: ResourceRequest[]; row: (r: ResourceRequest) => React.ReactNode; refs: RequestRefs; focus: number | null }) {
@@ -496,6 +501,7 @@ export function Requests({
   return (
     <div className="requests">
       {shown.map(r => {
+        if (folded(r, shown)) return null;
         if (!grouped.has(r.id)) return row(r);
         const { id, name } = r.waitingOn!;
         if (placed.has(id)) return null;

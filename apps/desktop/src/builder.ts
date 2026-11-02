@@ -283,6 +283,7 @@ export type LiveRequest = {
   needsYou: boolean; // shown on the Requests page only once it needs the person
   approvalId: string | null;
   waitingOn: { id: string; name: string } | null; // the connection it waits for the person to connect
+  joinedTo?: number | null; // the request for the same connection it was folded into (one card per connection)
 };
 export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
 

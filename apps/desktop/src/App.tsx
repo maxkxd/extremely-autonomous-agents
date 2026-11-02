@@ -291,6 +291,7 @@ function Agency() {
                 busy: r.engineerBusy,
                 approvalId: r.approvalId,
                 waitingOn: r.waitingOn,
+                joinedTo: r.joinedTo ?? null,
                 closedAs: r.status === 'open' ? undefined : r.status === 'rejected' ? ('rejected' as const) : ('done' as const),
               })),
           );

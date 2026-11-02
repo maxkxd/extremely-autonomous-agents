@@ -107,7 +107,7 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
   };
   const submit = () =>
     run(async () => {
-      if (dev) return void (await devSignIn(email, name), onDone());
+      if (dev) return void (await devSignIn(email, name, mode), onDone());
       if (finish) return void (await finish(code.trim()), onDone());
       const next = await emailCode(email.trim());
       setFinish(() => next);

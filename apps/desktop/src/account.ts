@@ -99,8 +99,9 @@ async function backend<T>(path: string, init: { method?: string; body?: unknown 
 }
 
 // Development: sign in by email alone (the backend only allows it without Clerk).
-export async function devSignIn(email: string, name: string) {
-  const { token } = await backend<{ token: string }>('/dev/sign-in', { body: { email, name } });
+// mode 'up': a new account (an email that has one is refused, not signed into and renamed).
+export async function devSignIn(email: string, name: string, mode: 'in' | 'up' = 'in') {
+  const { token } = await backend<{ token: string }>('/dev/sign-in', { body: { email, name, mode } });
   write(SESSION_KEY, token);
   await refreshMe();
 }

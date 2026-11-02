@@ -13,6 +13,7 @@ export function LiveDM({ agentId, approvalOutcomes }: { agentId: string; approva
   // Stopped (it, or the whole agency): a message waits, so the channel says so
   // instead of showing it running (it showed "running…" for ten minutes).
   const [stopped, setStopped] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const waiting = useRef<number | null>(null);
   waiting.current = waitingSince;
 
@@ -42,14 +43,22 @@ export function LiveDM({ agentId, approvalOutcomes }: { agentId: string; approva
       window.clearInterval(t);
     };
   }, [agentId]);
-  useEffect(() => setWaitingSince(null), [agentId]);
+  useEffect(() => {
+    setWaitingSince(null);
+    setSendError(null);
+  }, [agentId]);
 
   const send = (text: string) => {
     const at = Date.now();
     setEntries(prev => [...prev, { kind: 'you', minutesAgo: 0, text, at }]);
     setWaitingSince(at);
-    sendDm(agentId, text).catch(() => setWaitingSince(null));
+    setSendError(null);
+    // Refused (it's stopped, or not yours to message): say why instead of showing it running.
+    sendDm(agentId, text).catch(e => {
+      setWaitingSince(null);
+      setSendError((e as Error).message);
+    });
   };
 
-  return <AgentDM agentId={agentId} entries={entries} loading={!loaded} thinking={waitingSince != null && !stopped} stopped={stopped} onSend={send} approvalOutcomes={approvalOutcomes} />;
+  return <AgentDM agentId={agentId} entries={entries} loading={!loaded} thinking={waitingSince != null && !stopped} stopped={stopped} sendError={sendError} onSend={send} approvalOutcomes={approvalOutcomes} />;
 }
