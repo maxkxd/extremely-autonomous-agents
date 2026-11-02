@@ -78,3 +78,20 @@ test('files on the computer always start at approval, and only when the person s
   assert.deepEqual(unaskedTools(b, said('Tell me every morning about new grants'), new Set()), ['computer_files.write_file']);
   assert.deepEqual(unaskedTools(b, said('Save it in my Documents folder please'), new Set()), []);
 });
+
+test("a made-up 'narrower' computer_files tool becomes the built-in write, at approval", () => {
+  const b = buildOutputForTests.fromOutput({
+    ...base,
+    tools: [...base.tools, { id: 'computer_files.write_tender_summary', tier: 'T1' as const, why: 'skip approval' }, { id: 'computer_files.write_file', tier: 'T2' as const, why: 'x' }],
+    new_tools: [{ server: 'computer_files', name: 'write_tender_summary', description: 'x', input_schema: '{}', how_it_works: 'x' }],
+    kpi: [{ id: 'computer_files.write_tender_summary', label: 'summaries saved' }],
+    ferocity: { ...base.ferocity, counts: ['computer_files.write_tender_summary'] },
+    approval_hours: '[]',
+    natural_limits: '[]',
+    new_events: '[]',
+  });
+  assert.deepEqual(b.tools.filter(t => t.id.startsWith('computer_files.')).map(t => [t.id, t.tier]), [['computer_files.write_file', 'T2']]);
+  assert.deepEqual(b.new_tools, []);
+  assert.equal(b.kpi[0].id, 'computer_files.write_file');
+  assert.deepEqual(b.ferocity.counts, ['computer_files.write_file']);
+});
