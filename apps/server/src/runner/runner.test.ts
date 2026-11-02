@@ -14,7 +14,7 @@ import { decideApproval } from './approvals.js';
 import { fleetReport } from './doctor.js';
 import { answerRequest } from './api.js';
 import { dropGuesses, notWaitingAlready, rate, requestNotWaiting, withdrawProposal } from './engineer.js';
-import { actsIn, execute, registerTools, requestConnections, serviceLabel, WORKSPACES } from './tools.js';
+import { actsIn, execute, MAX_WAITING_ON_PERSON, registerTools, requestConnections, serviceLabel, tooManyWaiting, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
 
@@ -871,4 +871,15 @@ test("'You' (no name given yet) isn't written about as a name", () => {
   assert.equal(realName(' you '), null);
   assert.equal(realName(''), null);
   assert.equal(realName('Max'), 'Max');
+});
+
+test('an agent with a pile of requests waiting on the person files no more until some are answered', () => {
+  exec("DELETE FROM requests WHERE agent_id = 'zz-asker'");
+  const add = (stage: string) => exec("INSERT INTO requests (agent_id, what, why, status, created_at, stage) VALUES ('zz-asker', 'q', 'x', 'open', 1, ?)", stage);
+  for (let i = 0; i < MAX_WAITING_ON_PERSON - 1; i++) add(i % 2 ? 'person' : 'waiting_you');
+  add('engineer'); // not in front of the person yet: doesn't count
+  assert.equal(tooManyWaiting('zz-asker'), null);
+  add('person');
+  assert.match(tooManyWaiting('zz-asker') ?? '', /Not filed: 5 of your requests are already waiting on the person/);
+  exec("DELETE FROM requests WHERE agent_id = 'zz-asker'");
 });

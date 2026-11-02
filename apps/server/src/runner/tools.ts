@@ -193,6 +193,18 @@ function inWorkspace(agentId: string, path: unknown): string {
   return full;
 }
 
+// The person can only take in so much: an agent with a pile already waiting on
+// them files no more until they've answered some (Paid Ads, blocked at
+// Apocalyptic, had filed ten - a Bing account, a "please check" - each run another).
+// Refused, not failed: the tool works.
+export const MAX_WAITING_ON_PERSON = 5;
+export function tooManyWaiting(agentId: string): string | null {
+  const waiting = all<{ id: number }>("SELECT id FROM requests WHERE agent_id = ? AND status = 'open' AND stage IN ('person', 'waiting_you') ORDER BY id", agentId);
+  return waiting.length < MAX_WAITING_ON_PERSON
+    ? null
+    : `Not filed: ${waiting.length} of your requests are already waiting on the person (${waiting.map(r => `#${r.id}`).join(', ')}), and they haven't got to them yet. Don't add more for now: put this in your end-of-run summary, and ask it once one of those is answered. Carry on with what you have.`;
+}
+
 const BUILTIN: ToolDef[] = [
   {
     id: 'memory.remember',
@@ -601,7 +613,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
   if (!impl || (!BUILTIN_IDS.has(id) && !(id in heldTools(ctx.agent)))) return record({ content: `There is no tool "${call.name}" you can use.`, error: true, outcome: 'refused', counted: 0 });
   if (impl.ready && !impl.ready()) return record({ content: `${id} isn't connected right now.`, error: true, outcome: 'refused', counted: 0 });
 
-  const hit = limitHit(ctx.agent, id, ctx.now());
+  const hit = limitHit(ctx.agent, id, ctx.now()) ?? (id === 'requests.request_resource' ? tooManyWaiting(ctx.agent.id) : null);
   if (hit) return record({ content: hit, error: true, outcome: 'refused', counted: 0 });
 
   // A required input left out or empty is refused here, before anything runs
