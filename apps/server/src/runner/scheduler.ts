@@ -299,6 +299,10 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
     const b = due.find(x => PERSON_DRIVEN.has(x.trigger));
     return b ? { trigger: b.trigger, task: b.task, bookingId: b.id } : null;
   }
+  // Run now is a person asking for a run this minute: not held back by a failure
+  // backoff or the runaway backstop (it spun, then did nothing, after a few failures).
+  const runNow = due.find(b => b.trigger === 'run now');
+  if (runNow) return { trigger: runNow.trigger, task: runNow.task, bookingId: runNow.id };
   if (st.backoff_until && st.backoff_until > now) return null;
   // The runaway backstop - never the pace. Built-ins have none: their work comes
   // from requests, and failure backoff still stops one that keeps failing.
@@ -369,6 +373,8 @@ export function startScheduler() {
   // Runs left 'running' by a server that stopped mid-run. One a person or an
   // event set off (a message, a connection, an approval...) is booked again,
   // or it would be lost; scheduled ones simply come round again.
+  // Run now on a helper was booked and never ran (they work only when called).
+  exec(`DELETE FROM bookings WHERE trigger = 'run now' AND agent_id IN (${HELPER_IDS.map(() => '?').join(', ')})`, ...HELPER_IDS);
   const cut = all<{ id: string; agent_id: string; trigger: Trigger; task: string | null }>("SELECT id, agent_id, trigger, task FROM runs WHERE status = 'running'");
   exec("UPDATE runs SET status = 'failed', error = 'The server stopped during this run.', ended_at = started_at WHERE status = 'running'");
   // A helper's call isn't a run to start again: whoever called it already moved on.

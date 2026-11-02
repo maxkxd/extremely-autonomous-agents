@@ -399,6 +399,12 @@ test('schedule: stopped runs nothing at all; backoff and the backstop hold every
   setLevel(CHILL);
   for (let i = 0; i < 40; i++) exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES (?, ?, 'scheduled', 0, 'succeeded', ?)", `r${i}`, ID, now - i);
   assert.equal(nextRun(a, stateOf(ID), now), null); // past the backstop for today
+  // ...but a person's Run now isn't held back by either.
+  exec('UPDATE agent_state SET backoff_until = ? WHERE agent_id = ?', now + 60_000, ID);
+  exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'run now', NULL, ?, ?)", ID, now, now);
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'run now');
+  exec("UPDATE agent_state SET state = 'stopped' WHERE agent_id = ?", ID);
+  assert.equal(nextRun(a, stateOf(ID), now), null); // stopped is still stopped
 });
 
 test('schedule: draining starts nothing itself, but runs what a person sets off', () => {

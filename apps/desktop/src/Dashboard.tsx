@@ -471,7 +471,17 @@ export function AgentCard({
             {onRunNow && !preview && (
               <RunNowButton
                 running={outcome === 'running'}
-                why={agencyStopped ? 'The agency is stopped' : state === 'stopped' ? "It's stopped" : agent.settingUp ? "It's still being set up" : null}
+                why={
+                  agent.service
+                    ? 'It works only when an agent needs it - it has no runs of its own'
+                    : agencyStopped
+                      ? 'The agency is stopped'
+                      : state === 'stopped'
+                        ? "It's stopped"
+                        : agent.settingUp
+                          ? "It's still being set up"
+                          : null
+                }
                 onRun={onRunNow}
               />
             )}

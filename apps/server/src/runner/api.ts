@@ -24,7 +24,7 @@ import { decideApproval, pendingApprovals } from './approvals.js';
 import { openProfileForSignIn, profileStatus } from './browser.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS, STEADY } from './ferocity.js';
-import { BUILT_IN_IDS } from './helpers.js';
+import { BUILT_IN_IDS, HELPER_IDS } from './helpers.js';
 import { spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
 import { mcpUrlFor } from './agency-mcp.js';
@@ -244,6 +244,10 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/runner/run-now': async (_req, _q, body) => {
     const { id } = await body<{ id: string }>();
     if (!isId(id)) throw new Error('Unknown agent.');
+    // What the scheduler would never start: refused, not left waiting as a booking for ever.
+    if (HELPER_IDS.includes(id)) throw new Error('It works only when an agent needs it - it has no runs of its own.');
+    if (stateOf(id).state === 'stopped') throw new Error("It's stopped - resume it first.");
+    if ((await readMeta(id))?.status === 'setting-up') throw new Error("It's still being set up.");
     book(id, 'run now', null);
     return { ok: true };
   },
