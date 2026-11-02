@@ -20,6 +20,7 @@ import { discoverMcpSignIn } from './mcp-auth.js';
 import { stopStdioServer } from './mcp-stdio.js';
 import { oauthAccessToken, oauthCallback, oauthSecret, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
 import { Integration, type EventDefT, type HttpIntegration, type McpIntegration, type AuthDef } from './schema.js';
+import { sharedClient } from './shared-clients.js';
 import { DATA_DIR } from '../paths.js';
 import { cleanKey } from '../models/connections.js';
 import { ConnectError } from '../models/providers.js';
@@ -438,9 +439,15 @@ async function siblingClient(id: string): Promise<{ clientId: string; clientSecr
   for (const { integration: other } of loaded) {
     if (other.id === id || other.auth.type !== 'oauth2' || new URL(other.auth.authorize_url).host !== host) continue;
     const s = await oauthSecret(other.id);
-    if (s?.clientId) return { clientId: s.clientId, clientSecret: s.clientSecret };
+    if (s?.clientId && !s.shared) return { clientId: s.clientId, clientSecret: s.clientSecret };
   }
   return undefined;
+}
+
+// Our own client (shared-clients.ts), for a built-in that signs in with one.
+function ourClient(id: string) {
+  const l = loaded.find(x => x.integration.id === id);
+  return l?.shipped && l.integration.auth.type === 'oauth2' && l.integration.auth.shared ? sharedClient(l.integration.auth.shared) : undefined;
 }
 
 // Signing in (OAuth): the person's OAuth client in, the service's sign-in page out.
@@ -453,8 +460,14 @@ export async function startIntegrationSignIn(id: string, client: { clientId?: st
     return { url: await oauthStart(id, found.auth, { clientId: found.clientId, clientSecret: found.clientSecret }, { discovered: found.auth }) };
   }
   if (integration?.auth.type !== 'oauth2') throw new Error("That integration doesn't sign in.");
-  const own = client.clientId?.trim() || (await oauthSecret(id))?.clientId;
-  return { url: await oauthStart(id, integration.auth, own ? client : ((await siblingClient(id)) ?? client)) };
+  const prev = await oauthSecret(id);
+  if (client.clientId?.trim() || (prev?.clientId && !prev.shared)) return { url: await oauthStart(id, integration.auth, client) };
+  // None of the person's own here: the one they made for another Google
+  // connection, else ours - its secret stays in the app, not the vault.
+  const sibling = await siblingClient(id);
+  const ours = sibling ? undefined : ourClient(id);
+  if (ours) return { url: await oauthStart(id, integration.auth, { clientId: ours.clientId }, { shared: integration.auth.shared }) };
+  return { url: await oauthStart(id, integration.auth, sibling ?? client) };
 }
 
 // The sign-in landed: test it straight away, so it's live only if it works.
@@ -532,10 +545,10 @@ export async function listIntegrations() {
   const savedFields = new Map<string, Record<string, string>>();
   for (const { integration } of loaded)
     if (integration.auth.type === 'fields') savedFields.set(integration.id, (await getSecret<{ fields: Record<string, string> }>(secretKey(integration.id)))?.fields ?? {});
-  // Which signed-in integrations already have the person's OAuth client saved.
+  // Which signed-in integrations already have an OAuth client: the person's saved, or ours.
   const clients = new Set<string>();
   for (const { integration } of loaded)
-    if (integration.auth.type === 'oauth2' && ((await oauthSecret(integration.id))?.clientId || (await siblingClient(integration.id)))) clients.add(integration.id);
+    if (integration.auth.type === 'oauth2' && ((await oauthSecret(integration.id))?.clientId || (await siblingClient(integration.id)) || ourClient(integration.id))) clients.add(integration.id);
   return loaded.map(({ integration, shipped }) => ({
     id: integration.id,
     name: integration.name,

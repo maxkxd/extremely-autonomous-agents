@@ -16,6 +16,9 @@ auth:
   scopes: [https://www.googleapis.com/auth/gmail.modify]
   # offline + consent: Google only returns a refresh token that way.
   params: { access_type: offline, prompt: consent }
+  # Signs in with our Google client where the app has one: nothing to make.
+  # The steps below are for an organization using its own Google project.
+  shared: google
   client_url: https://console.cloud.google.com/auth/clients
   client_help: |
     1. In Google Cloud (console.cloud.google.com), create a project, or pick one.

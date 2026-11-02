@@ -31,6 +31,9 @@ lands back on this server at 127.0.0.1. Tokens are kept in the vault and
 refreshed when they run out. Disconnect revokes the sign-in at the service
 and keeps only the client, so signing back in is one click. Any definition
 can use it, so the Agency Engineer can add OAuth services the same way.
+A built-in with `shared: google` (Gmail) signs in with **our** Google client
+when the app was built with one and the person has none of their own - just
+a sign-in (`integrations/shared-clients.ts`, [shared-sign-ins.md](shared-sign-ins.md)).
 
 A tool either **provides a standard agency tool** - `web.web_search` - which
 several integrations can provide (agents use whichever is connected, so
@@ -230,7 +233,8 @@ is forced under `agent/`. Approving a review is for people.
   doesn't speak) is tried at `.../mcp` beside it.
 - **One OAuth client per provider**: connections that sign in at the same
   place (Gmail, Google Calendar, Drive) reuse the client the person already
-  saved for one of them; they only turn on that API and sign in.
+  saved for one of them; they only turn on that API and sign in. Our own
+  client is never reused this way: it's only for built-ins.
 - **On this computer** (`integrations/mcp-stdio.ts`): a `command` the app
   starts and talks to over stdin/stdout (most MCP servers, e.g.
   `npx -y @modelcontextprotocol/server-filesystem C:/notes`), or a `url` on

@@ -31,6 +31,11 @@ for (const item of ['src', 'integrations', 'packs', 'package.json', 'package-loc
     filter: src => !/\.test\.ts$/.test(src) && !/[\\/](data|node_modules)([\\/]|$)/.test(path.relative(from, src)),
   });
 run('npm ci --omit=dev --no-audit --no-fund', server);
+// Our own OAuth clients (apps/server/src/integrations/shared-clients.ts), from the
+// release environment: people sign in with them and make nothing. Never in git.
+const google = process.env.EAA_GOOGLE_CLIENT_ID?.trim();
+if (google) fs.writeFileSync(path.join(server, 'shared-clients.json'), JSON.stringify({ google: { clientId: google, clientSecret: process.env.EAA_GOOGLE_CLIENT_SECRET?.trim() || undefined } }));
+else console.warn("No EAA_GOOGLE_CLIENT_ID: Gmail sign-in will ask for the person's own Google client.");
 // Copilot's runtime (about 160 MB, most of the app) is fetched the first time
 // someone connects Copilot (apps/server/src/models/copilotRuntime.ts), not shipped.
 const gh = path.join(server, 'node_modules', '@github');

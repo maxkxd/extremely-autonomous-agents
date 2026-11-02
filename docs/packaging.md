@@ -77,8 +77,14 @@ Run workflow, with a version). It runs in the protected `release` environment
 the draft is what makes it the update. In that environment:
 
 - variables: `EAA_BACKEND_URL`, `CLERK_PUBLISHABLE_KEY`; for signing,
-  `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_CERTIFICATE_PROFILE`
-- secrets (signing): `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`
+  `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_CERTIFICATE_PROFILE`;
+  our Google client, `EAA_GOOGLE_CLIENT_ID`
+- secrets (signing): `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`;
+  `EAA_GOOGLE_CLIENT_SECRET`
+
+`stage.cjs` writes the Google client into the server as `shared-clients.json`
+(never in git), so Gmail is just a sign-in ([shared-sign-ins.md](shared-sign-ins.md)).
+Without it, Gmail asks for the person's own Google client, as before.
 
 Without the Azure secrets the installer is built unsigned, with a warning.
 

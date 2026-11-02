@@ -1,13 +1,15 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { ConnectError } from '../models/providers.js';
 import { safeFetch } from '../runner/net.js';
-import { getSecret, setSecret } from '../vault.js';
+import { deleteSecret, getSecret, setSecret } from '../vault.js';
 import type { OAuthDef } from './schema.js';
+import { sharedClient, type SharedProvider } from './shared-clients.js';
 
 // Signing in to an integration with OAuth 2 (authorization code + PKCE), for
 // any definition with `auth: oauth2` - shipped ones (Gmail) and ones the Fleet
-// Engineer writes. The person brings their own OAuth client; the sign-in runs
-// in their browser and lands back on this server at http://127.0.0.1:<port>,
+// Engineer writes. The person brings their own OAuth client, or a built-in
+// uses ours (shared-clients.ts); the sign-in runs in their browser and lands
+// back on this server at http://127.0.0.1:<port>,
 // exactly that - no path: Google's desktop clients match the loopback address
 // exactly and document it without one. The server's root takes the landing.
 //
@@ -27,10 +29,21 @@ export type OAuthSecret = {
   expiresAt?: number;
   account?: string; // who signed in, when the service says
   discovered?: OAuthDef; // an MCP server's sign-in, as found when it was set up (mcp-auth.ts)
+  // Signed in with our client: its secret isn't kept here but read from the app,
+  // and the client is never handed on to a connection that isn't built in.
+  shared?: SharedProvider;
 };
 
 const secretKey = (id: string) => `integration:${id}`;
 export const oauthSecret = (id: string) => getSecret<OAuthSecret>(secretKey(id));
+
+// Who a token request is from: our client, its secret read from the app (only
+// while it's still the client that signed in), or the person's own.
+export const clientParams = (s: OAuthSecret): Record<string, string> => {
+  const ours = s.shared && sharedClient(s.shared);
+  const secret = s.shared ? (ours && ours.clientId === s.clientId ? ours.clientSecret : undefined) : s.clientSecret;
+  return { client_id: s.clientId, ...(secret ? { client_secret: secret } : {}) };
+};
 
 const pending = new Map<string, { id: string; auth: OAuthDef; verifier: string; at: number }>();
 
@@ -89,9 +102,8 @@ export async function oauthCallback(q: URLSearchParams): Promise<string> {
     grant_type: 'authorization_code',
     code,
     redirect_uri: redirectOf(p.auth),
-    client_id: s.clientId,
     code_verifier: p.verifier,
-    ...(s.clientSecret ? { client_secret: s.clientSecret } : {}),
+    ...clientParams(s),
   });
   await setSecret(secretKey(p.id), {
     ...s,
@@ -116,8 +128,7 @@ export async function oauthAccessToken(id: string, auth: OAuthDef): Promise<stri
   const t = await tokenRequest(auth, {
     grant_type: 'refresh_token',
     refresh_token: s.refreshToken,
-    client_id: s.clientId,
-    ...(s.clientSecret ? { client_secret: s.clientSecret } : {}),
+    ...clientParams(s),
   });
   await setSecret(secretKey(id), {
     ...s,
@@ -129,7 +140,8 @@ export async function oauthAccessToken(id: string, auth: OAuthDef): Promise<stri
 }
 
 // Signing out: the service forgets the sign-in (where it can), and only the
-// person's OAuth client is kept, so signing back in is one click.
+// person's OAuth client is kept, so signing back in is one click. Ours isn't
+// kept: signing back in uses whichever the app has then.
 export async function oauthSignOut(id: string, auth: OAuthDef) {
   const s = await oauthSecret(id);
   if (!s) return;
@@ -140,5 +152,6 @@ export async function oauthSignOut(id: string, auth: OAuthDef) {
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ token }).toString(),
     }).catch(() => {});
-  await setSecret(secretKey(id), { clientId: s.clientId, clientSecret: s.clientSecret, discovered: s.discovered } satisfies OAuthSecret);
+  if (s.shared) await deleteSecret(secretKey(id));
+  else await setSecret(secretKey(id), { clientId: s.clientId, clientSecret: s.clientSecret, discovered: s.discovered } satisfies OAuthSecret);
 }
