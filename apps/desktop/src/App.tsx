@@ -69,7 +69,14 @@ function writeStored(key: string, value: unknown) {
 const clamp = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
 
 // Below this window width the sidebar is just its icons (at 800px it took a third of the window).
-const NARROW_QUERY = '(max-width: 999px)';
+// Above it the sidebar grows with the window - 200px at the switch, ~300px by 1250px, more on
+// big screens - up to the width you've dragged it to, so there's no big jump at the switch
+// (it went 68px -> 300px from 999px to 1000px).
+const NARROW_QUERY = '(max-width: 759px)';
+const FLUID_MIN = 200;
+const fluidCap = (vw: number) => FLUID_MIN + Math.max(0, vw - 760) * 0.2;
+const windowWidth = () => window.innerWidth;
+const onWindowWidth = (cb: () => void) => (window.addEventListener('resize', cb), () => window.removeEventListener('resize', cb));
 const RAIL_WIDTH = 68;
 const isNarrow = () => window.matchMedia(NARROW_QUERY).matches;
 const onNarrowChange = (cb: () => void) => {
@@ -529,6 +536,8 @@ function Agency() {
   useEffect(() => writeStored(SHUT_KEY, shut), [shut]);
   // A narrow window gets just the sidebar's icons; the full one opens over the page.
   const narrow = useSyncExternalStore(onNarrowChange, isNarrow);
+  const vw = useSyncExternalStore(onWindowWidth, windowWidth);
+  const sideWidth = Math.round(Math.min(width, fluidCap(vw)));
   const [railOpen, setRailOpen] = useState(false);
   useEffect(() => {
     if (!narrow) setRailOpen(false);
@@ -573,7 +582,7 @@ function Agency() {
         <Sidebar
           view={view}
           onSelect={setView}
-          width={narrow ? RAIL_WIDTH : width}
+          width={narrow ? RAIL_WIDTH : sideWidth}
           onResizeStart={startDrag}
           approvalsBadge={approvalsReady ? visibleApprovals(pending, 'mine').length : null}
           requestsBadge={requestsReady ? requestItems(visibleApprovals(openRequests, 'mine')) : null}

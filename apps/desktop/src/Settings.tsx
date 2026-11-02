@@ -1303,7 +1303,8 @@ const capProblem = (v: string) => {
 };
 const parseCap = (v: string) => (v.trim() === '' ? null : Math.round(Number(v.replace(/[$,\s]/g, '')) * 100) / 100);
 
-// A monthly dollar limit that saves when you leave it (or press Enter).
+// A monthly dollar limit that saves when you leave it (or press Enter). One that isn't
+// a limit turns red and says why on hover - never a box stuck under it.
 function CapInput({ value, onSave, label, disabled }: { value: number | null; onSave: (v: string) => void; label: string; disabled?: boolean }) {
   const [text, setText] = useState(value == null ? '' : String(value));
   const [problem, setProblem] = useState<string | null>(null);
@@ -1330,7 +1331,6 @@ function CapInput({ value, onSave, label, disabled }: { value: number | null; on
         onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         disabled={disabled}
       />
-      {problem && <span className="slimit-problem">{problem}</span>}
     </label>
   );
 }

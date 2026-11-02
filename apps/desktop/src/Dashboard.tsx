@@ -466,7 +466,7 @@ export function AgentCard({
             )}
           </div>
           {/* Under the name: what's left to connect (each gone once it's connected). */}
-          {inSetup && <SetupList setup={setup!} onOpenRequest={id => onOpenRequest?.(id)} />}
+          {inSetup && <SetupList setup={setup!} onOpenRequest={id => onOpenRequest?.(id)} someoneElse={viewOnly ? agent.owner || 'Its owner' : null} />}
         </header>
         <div className="card-charts">
           <Donut caption="output" slices={output} format={count} loading={loading} />
@@ -586,7 +586,8 @@ function RunNowButton({ running, queued, why, onRun }: { running: boolean; queue
   return (
     <button
       className={`run-now${busy ? ' busy' : ''}`}
-      title={why ? `Run now: ${why.toLowerCase()}` : busy ? (running ? 'Running' : queued ? 'Queued - it starts as soon as one of the agents running now finishes' : 'Starting...') : 'Run now'}
+      // Only its first letter lower-cased (the whole reason was: 'no ai model... settings > connectors').
+      title={why ? `Run now: ${why.charAt(0).toLowerCase()}${why.slice(1)}` : busy ? (running ? 'Running' : queued ? 'Queued - it starts as soon as one of the agents running now finishes' : 'Starting...') : 'Run now'}
       disabled={!!why || busy}
       onClick={() => {
         setStarting(true);

@@ -11,13 +11,15 @@ export function AgencyControls({ state, onChange }: { state: AgencyState; onChan
     <div className="agency-controls">
       <button
         className={`ctl-btn agency-btn${state === 'standby' ? ' resume' : ''}`}
+        // Its name on hover: in a narrow window the button is just its icon (styles.css).
+        title={state === 'standby' ? 'Resume agency' : 'Standby'}
         disabled={state === 'stopped'}
         onClick={() => onChange(state === 'standby' ? 'active' : 'standby')}
       >
         {state === 'standby' ? <Play size={15} /> : <Pause size={15} />}
         {state === 'standby' ? 'Resume agency' : 'Standby'}
       </button>
-      <button className={`ctl-btn agency-btn ${state === 'stopped' ? 'resume' : 'stop'}`} onClick={() => onChange(state === 'stopped' ? 'active' : 'stopped')}>
+      <button className={`ctl-btn agency-btn ${state === 'stopped' ? 'resume' : 'stop'}`} title={state === 'stopped' ? 'Resume agency' : 'Stop agency'} onClick={() => onChange(state === 'stopped' ? 'active' : 'stopped')}>
         {state === 'stopped' ? <Play size={15} /> : <Square size={13} fill="currentColor" />}
         {state === 'stopped' ? 'Resume agency' : 'Stop agency'}
       </button>

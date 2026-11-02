@@ -24,7 +24,9 @@ const Stars = ({ n }: { n: number }) => (
   </span>
 );
 
-export function SetupList({ setup, onOpenRequest }: { setup: AgentSetup; onOpenRequest: (id: number) => void }) {
+// someoneElse: a member looking at a teammate's agent - its requests are its owner's, not on their
+// Requests page, so Go to request is greyed (an admin opens them under Everyone).
+export function SetupList({ setup, onOpenRequest, someoneElse = null }: { setup: AgentSetup; onOpenRequest: (id: number) => void; someoneElse?: string | null }) {
   // Connected ones stay, marked Complete - seeing them tick off is the point. Once
   // all are, it starts by itself and the list goes (runner/setup.ts).
   if (!setup.items.length) return null;
@@ -46,7 +48,12 @@ export function SetupList({ setup, onOpenRequest }: { setup: AgentSetup; onOpenR
                   Setting up
                 </span>
               ) : (
-                <button className="setup-go" onClick={() => onOpenRequest(i.requestId)}>
+                <button
+                  className="setup-go"
+                  disabled={!!someoneElse}
+                  title={someoneElse ? `${someoneElse}'s request - only they or an admin can open it` : undefined}
+                  onClick={() => onOpenRequest(i.requestId)}
+                >
                   Go to request
                 </button>
               )}

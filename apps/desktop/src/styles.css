@@ -2084,10 +2084,9 @@ a.sbtn { text-decoration: none; color: inherit; }
 .option-with-avatar { min-width: 0; }
 .option-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .dropdown-option > svg { flex-shrink: 0; margin-left: 8px; }
-/* A spending limit that isn't one says why, under its box. */
+/* A spending limit that isn't one turns red (it says why on hover). */
 .slimit-input { position: relative; }
 .slimit-input.bad { border-color: #e5484d; }
-.slimit-problem { position: absolute; top: 100%; right: 0; z-index: 5; width: 240px; margin-top: 4px; padding: 6px 8px; border-radius: 6px; font-size: 12px; line-height: 1.4; color: #f0a2a4; background: #2a1517; border: 1px solid #5c2629; }
 /* A stopped agent's channel says so where its reply would appear. */
 .dm-stopped { margin: 6px 0 0 48px; padding: 9px 12px; border-radius: 8px; font-size: 13px; color: var(--muted); background: var(--surface-hover); }
 .dash-no-ai { margin-bottom: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--sidebar); }
@@ -2098,3 +2097,34 @@ textarea:focus-visible, input:focus-visible { outline: none; }
 /* Your AI assistant: its buttons on their own row, so the description isn't squeezed. */
 .sconnectors li.sint-wide > .sint-actions { grid-column: 1 / -1; grid-row: auto; justify-content: flex-start; flex-wrap: wrap; margin-top: 8px; }
 .sint-actions .sbtn svg { flex-shrink: 0; }
+/* The sidebar slides to its new width as the window changes, rather than jumping (not while dragged). */
+.sidebar { transition: width 0.22s ease, padding 0.22s ease; container-type: inline-size; }
+.resizing .sidebar { transition: none; }
+/* A narrow sidebar: smaller nav buttons, so its agents keep their room. */
+@container (max-width: 250px) {
+  .nav-square { height: 54px; padding: 0 12px; gap: 10px; font-size: 18px; }
+  .nav-square svg { width: 24px; height: 24px; }
+}
+/* A narrow page: the header's buttons are just their icons (their names on hover), so it stays one or two rows. */
+.main { container-type: inline-size; container-name: main; }
+@container main (max-width: 760px) {
+  .header-tools .agency-btn, .header-tools .builtins-toggle { font-size: 0; gap: 0; padding: 0 10px; }
+  .header-tools .range-picker { width: 128px; }
+  .main-header { padding: 12px 18px; }
+}
+.range-btn { white-space: nowrap; overflow: hidden; }
+/* Someone else's request (a member looking at a teammate's agent): greyed, not a dead link. */
+.setup-go:disabled { background: var(--surface-hover); color: #6b6b6b; cursor: default; filter: none; }
+/* Small windows: Settings fills the window with a narrower menu, and its rows squeeze rather than run off the edge. */
+@media (max-width: 760px) {
+  .settings { width: calc(100vw - 16px); height: calc(100vh - 16px); }
+  .settings-nav { width: 150px; padding: 14px 6px 10px; }
+  .settings-nav-item { font-size: 13px; gap: 8px; padding: 7px 8px; }
+  .settings-body { padding: 18px 16px 24px; }
+  .susage li { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 56px 54px 92px; gap: 6px; }
+  .speople li { grid-template-columns: 26px 1fr 1fr auto; }
+  .stool-name { flex-wrap: wrap; row-gap: 0; }
+  .stool-source { white-space: normal; }
+  .sinline { flex-wrap: wrap; }
+  .sinline input { flex-basis: 100%; }
+}

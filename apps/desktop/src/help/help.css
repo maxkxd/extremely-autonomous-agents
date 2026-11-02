@@ -345,3 +345,10 @@
   border: 1px dashed rgba(63, 123, 214, 0.6); background: rgba(63, 123, 214, 0.06);
   box-shadow: 0 0 28px rgba(63, 123, 214, 0.15);
 }
+/* Small windows: Help fills the window, its menu narrower and its pictures scaled down to fit. */
+@media (max-width: 760px) {
+  .help-window.grown { top: 8px; left: 8px; width: calc(100vw - 16px); height: calc(100vh - 16px); }
+  .help-nav { width: 140px; padding: 14px 6px 10px; }
+  .help-body { padding: 16px 16px 22px; }
+  .help-section > :not(h3):not(.help-caption) { zoom: 0.7; }
+}
