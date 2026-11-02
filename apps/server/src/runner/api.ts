@@ -185,6 +185,8 @@ export const runnerRoutes: Record<string, Route> = {
         level: LEVELS[st.ferocity],
         state: st.state,
         running: isRunning(id),
+        // Run now pressed, waiting for one of the runs going now to finish (scheduler.ts MAX_PARALLEL).
+        queued: !!one("SELECT 1 AS x FROM bookings WHERE agent_id = ? AND trigger = 'run now'", id),
         runs: one<{ n: number }>('SELECT COUNT(*) AS n FROM runs WHERE agent_id = ? AND started_at >= ?', id, since)?.n ?? 0,
         lastRun: last ? { at: last.ended_at ?? last.started_at, outcome: last.status === 'running' ? 'running' : last.status } : null,
         output: outputs.map(o => ({ tool: o.tool, label: labels.get(o.tool) ?? outputLabel(o.tool), value: o.n })),

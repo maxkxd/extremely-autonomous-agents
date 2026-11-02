@@ -471,6 +471,7 @@ export function AgentCard({
             {onRunNow && !preview && (
               <RunNowButton
                 running={outcome === 'running'}
+                queued={!!agent.queued}
                 why={
                   agent.service
                     ? 'It works only when an agent needs it - it has no runs of its own'
@@ -554,19 +555,21 @@ export function AgentCard({
 // setting it off), never while it or the agency is stopped - then it's greyed
 // and can't be clicked. Spins from the click until the run is under way, and
 // while it runs.
-function RunNowButton({ running, why, onRun }: { running: boolean; why: string | null; onRun: () => void }) {
+// Queued: pressed while the agency already runs as many as it can at once - it starts
+// when one finishes (it used to spin ten seconds and look as if nothing happened).
+function RunNowButton({ running, queued, why, onRun }: { running: boolean; queued: boolean; why: string | null; onRun: () => void }) {
   const [starting, setStarting] = useState(false);
   useEffect(() => {
     if (!starting) return;
-    if (running) return setStarting(false);
+    if (running || queued) return setStarting(false);
     const t = setTimeout(() => setStarting(false), 10_000);
     return () => clearTimeout(t);
-  }, [starting, running]);
-  const busy = starting || running;
+  }, [starting, running, queued]);
+  const busy = starting || running || queued;
   return (
     <button
       className={`run-now${busy ? ' busy' : ''}`}
-      title={why ? `Run now: ${why.toLowerCase()}` : busy ? (running ? 'Running' : 'Starting...') : 'Run now'}
+      title={why ? `Run now: ${why.toLowerCase()}` : busy ? (running ? 'Running' : queued ? 'Queued - it starts as soon as one of the agents running now finishes' : 'Starting...') : 'Run now'}
       disabled={!!why || busy}
       onClick={() => {
         setStarting(true);
@@ -574,7 +577,7 @@ function RunNowButton({ running, why, onRun }: { running: boolean; why: string |
       }}
     >
       {busy ? <LoaderCircle size={12} strokeWidth={2} className="spin" /> : <Play size={12} strokeWidth={2} />}
-      {running ? 'Running' : 'Run now'}
+      {running ? 'Running' : queued ? 'Queued' : 'Run now'}
     </button>
   );
 }
@@ -762,6 +765,7 @@ export function Dashboard({
       runsPerDay: l.runsPerDay,
       perRun: l.perRun,
       waitingOnTools: l.waitingOnTools,
+      queued: l.queued,
     };
   };
   const changeModels = (id: string, next: ModelChoice[]) => {

@@ -238,6 +238,7 @@ export type LiveAgent = {
   ferocity: number;
   state: RunState;
   running: boolean;
+  queued: boolean; // Run now pressed, waiting for a free slot
   runs: number;
   lastRun: { at: number; outcome: 'succeeded' | 'failed' | 'running' | 'stopped' } | null;
   output: { tool: string; label: string; value: number }[];
