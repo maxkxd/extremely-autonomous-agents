@@ -203,7 +203,7 @@ function Tuning({
   const perRun = agent.live ? agent.perRun : agent.output.reduce((n, s) => n + s.value, 0) / Math.max(agent.runs, 1);
   const perDay = agent.live && agent.runsPerDay ? agent.runsPerDay[level] : FEROCITY[level].runsPerDay;
   const estimate = perRun == null ? null : Math.round(perRun * perDay * rangeDays(range));
-  const cadence = agent.live ? runsLabel(perDay) : `${FEROCITY[level].cadence} (placeholder schedule)`;
+  const cadence = agent.live ? `${runsLabel(perDay)}${agent.waitingOnTools ? ' until its tools are connected' : ''}` : `${FEROCITY[level].cadence} (placeholder schedule)`;
 
   return (
     <div className="tuning">
@@ -751,6 +751,7 @@ export function Dashboard({
       decisions: l.decisions,
       runsPerDay: l.runsPerDay,
       perRun: l.perRun,
+      waitingOnTools: l.waitingOnTools,
     };
   };
   const changeModels = (id: string, next: ModelChoice[]) => {

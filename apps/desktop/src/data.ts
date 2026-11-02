@@ -29,6 +29,7 @@ export type Agent = {
   // time frame already (not placeholder monthly figures to scale).
   live?: boolean;
   runsPerDay?: number[]; // expected runs a day at each ferocity level
+  waitingOnTools?: boolean; // runs no faster than Steady until its tools are connected
   perRun?: number | null; // output actions per run, recently
   // A pack agent still being customized for the organisation: it isn't run,
   // and DMs to it wait, until this clears.

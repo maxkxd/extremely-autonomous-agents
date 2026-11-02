@@ -246,6 +246,7 @@ export type LiveAgent = {
   decisions: { approved: number; rejected: number; expired: number };
   spendCapUsd: number | null;
   runsPerDay: number[]; // expected at each ferocity level
+  waitingOnTools: boolean; // none of what it's counted by is connected: it runs slowly until it is
   perRun: number | null; // output actions per run, recently
 };
 export const getLiveAgents = (days: number) => request<Record<string, LiveAgent>>(`/api/runner/agents?days=${days}`);

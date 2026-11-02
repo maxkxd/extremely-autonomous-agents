@@ -326,7 +326,7 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   return scheduled != null && scheduled <= now ? { trigger: 'scheduled', task: null } : null;
 }
 
-function blockedOnConnections(agent: AgentDef) {
+export function blockedOnConnections(agent: AgentDef) {
   const real = agent.ferocity.counts.filter(c => !c.startsWith('files.'));
   if (!real.length) return false;
   const callable = new Set(toolsFor(agent).ids.values());

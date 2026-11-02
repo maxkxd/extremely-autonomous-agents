@@ -23,7 +23,8 @@ import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals } from './approvals.js';
 import { openProfileForSignIn, profileStatus } from './browser.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
-import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
+import { APOCALYPTIC_GAP_MS, LEVELS, STEADY } from './ferocity.js';
+import { BUILT_IN_IDS } from './helpers.js';
 import { spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
 import { mcpUrlFor } from './agency-mcp.js';
@@ -32,7 +33,7 @@ import { hooksBase, setTunnel, tunnelState } from './hooks.js';
 import { resume as resumeJobs } from '../jobs.js';
 import { isPrivateIp } from './net.js';
 import { agencyState, stateOf, type AgencyState, type Trigger } from './run.js';
-import { abortAll, abortRun, book, isRunning } from './scheduler.js';
+import { abortAll, abortRun, blockedOnConnections, book, isRunning } from './scheduler.js';
 import { AccessError, currentActor, requireAdmin, requireMakerOrAdmin } from '../access.js';
 import { scrub } from '../secrets.js';
 
@@ -149,9 +150,13 @@ export const runnerRoutes: Record<string, Route> = {
       const reached = apoc.length ? apoc.filter(r => r.met).length / apoc.length : 0.5;
       const relentless = agent ? 24 / agent.ferocity.every_hours[3] : 4;
       const backToBack = Math.min(1000, 86_400_000 / ((avg ?? 120_000) + APOCALYPTIC_GAP_MS));
-      const runsPerDay = agent
+      const levels = agent
         ? [...agent.ferocity.every_hours.map(h => 24 / h), relentless + reached * Math.max(0, backToBack - relentless)]
         : [1, 1.5, 2, 4, 100];
+      // Nothing it's counted by is connected yet: it runs as Steady until it is (scheduler.ts),
+      // so Apocalyptic's card said 312 a day while it ran every few hours.
+      const waitingOnTools = !!agent && !BUILT_IN_IDS.includes(id) && blockedOnConnections(agent);
+      const runsPerDay = waitingOnTools ? levels.map((n, i) => (i > STEADY ? levels[STEADY] : n)) : levels;
       const perRun = one<{ acts: number | null }>(
         "SELECT AVG(acts) AS acts FROM (SELECT acts FROM runs WHERE agent_id = ? AND status = 'succeeded' ORDER BY started_at DESC LIMIT 20)",
         id,
@@ -188,6 +193,7 @@ export const runnerRoutes: Record<string, Route> = {
         decisions: { approved: decisions?.approved ?? 0, rejected: decisions?.rejected ?? 0, expired: decisions?.expired ?? 0 },
         spendCapUsd: st.spend_cap_usd,
         runsPerDay,
+        waitingOnTools,
         perRun: perRun ?? null, // output actions per run, recently (null: never run)
       };
     }
