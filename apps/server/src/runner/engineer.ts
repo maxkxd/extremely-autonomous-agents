@@ -26,7 +26,7 @@ import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { toolTitle, toolsForPeople, type Tier } from '../catalog.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { all, builtInLevels, one, run as exec } from './db.js';
-import { reportDefault, reportDefaultForPrompt, setReportDefault } from './reports.js';
+import { reportDefault, reportDefaultsForPrompt, setReportDefault } from './reports.js';
 import { fileRequest, heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
 
 // The Agency Engineer (docs/requests.md, docs/integrations.md): the built-in
@@ -90,10 +90,10 @@ What the person says on one request is true for all of them: one waiting on a qu
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
 
 ## Where agents' reports go
-The agency has one default place for reports (engineer.list_requests says which, at the top). An agent asking where its reports should go:
-- A default exists: don't ask the person. Give the agent the default's tool (engineer.give_tools - a person approves it once) and say exactly where, in its why (the folder's full path, or "email to the owner"), so the agent knows; close the request once it's given.
-- None yet: engineer.hand_to_person, asking where: emailed to them, a Google Drive folder, a Notion page, a folder on this computer, or kept here in the app. Their answer is that agent's place and also becomes the default (engineer.set_report_default) - unless it was "kept in the app", which never is.
-- The person names a place for one agent ("send the bug triage ones to my email instead"): that agent only - give it that tool and leave the default. A place that suits all reports better than the current default - a general one like an "Agent stuff" folder, or they say it's for everything - becomes the default (engineer.set_report_default); agents already delivering somewhere keep their place.
+Each person has their own default place for their agents' reports (engineer.list_requests says whose, at the top); an agent goes by its owner's. In an organization a teammate can't open a folder on the host's computer, so one teammate's place is never another's. An agent asking where its reports should go:
+- Its owner has a default: don't ask them. Give the agent the default's tool (engineer.give_tools - a person approves it once) and say exactly where, in its why (the folder's full path, or "email to the owner"), so the agent knows; close the request once it's given.
+- None yet: engineer.hand_to_person, asking where: emailed to them, a Google Drive folder, a Notion page, a folder on this computer, or kept here in the app. Their answer is that agent's place and also becomes their default (engineer.set_report_default, for that person) - unless it was "kept in the app", which never is. A teammate who isn't on the host's computer choosing a folder on it: fine if they say so, but mention they can only open it on that computer.
+- The person names a place for one agent ("send the bug triage ones to my email instead"): that agent only - give it that tool and leave the default. A place that suits all their reports better than their current default - a general one like an "Agent stuff" folder, or they say it's for everything - becomes their default (engineer.set_report_default); their agents already delivering somewhere keep their place.
 
 ## When a tool is failing
 Find the cause before you tell anyone what to do. The agent's report is where you start, not the diagnosis: it saw one error, at one moment.
@@ -478,7 +478,7 @@ const TOOLS: ToolDef[] = [
         ...(one_ ? [one_] : []),
       );
       if (!rows.length) return one_ ? `Request #${one_} isn't open.` : 'No open requests.';
-      const out: string[] = one_ ? [] : [reportDefaultForPrompt()];
+      const out: string[] = one_ ? [] : [reportDefaultsForPrompt()];
       // With fifty open the full list was too big to read: those waiting on a person
       // are one line each (request_id for the rest of one).
       const waiting = one_ ? [] : rows.filter(r => r.stage === 'waiting_you' || r.stage === 'person' || r.stage === 'approval');
@@ -882,19 +882,21 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.set_report_default',
     tier: 'T0',
     description:
-      "Set the agency's default place for reports: where agents that report deliver unless the person names another place for one of them. Set it from the person's first answer, or when a place that suits all reports better comes up - never to a place they named for one agent, and never 'kept in the app'.",
+      "Set a person's default place for reports: where their agents that report deliver unless they name another place for one of them. Each person has their own (in an organization, a teammate can't open a folder on the host's computer). Set it from their first answer, or when a place that suits all their reports better comes up - never to a place they named for one agent, and never 'kept in the app'.",
     schema: obj(
       {
+        for_person: str("Whose: the name of the agent's owner (the person who answered)"),
         where: str('Exactly where: the folder\'s full path, "email to the owner", the Drive folder or the Notion page'),
         tool: str('The tool that delivers there, e.g. computer_files.write_file or gmail.send_to_me'),
         why: str('In a few words: why this is the default now'),
       },
-      ['where', 'tool', 'why'],
+      ['for_person', 'where', 'tool', 'why'],
     ),
     impl: a => {
-      const was = reportDefault();
-      const d = setReportDefault(String(a.where), String(a.tool), String(a.why));
-      return `The agency's default place for reports is now ${d.where} (${d.tool})${was ? `, in place of ${was.where}` : ''}. Agents already delivering somewhere keep their place.`;
+      const who = String(a.for_person ?? '');
+      const was = reportDefault(who);
+      const d = setReportDefault(String(a.where), String(a.tool), String(a.why), who);
+      return `${who}'s default place for reports is now ${d.where} (${d.tool})${was ? `, in place of ${was.where}` : ''}. Their agents already delivering somewhere keep their place; other people's defaults are unchanged.`;
     },
   },
   {

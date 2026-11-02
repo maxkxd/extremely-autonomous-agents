@@ -68,7 +68,7 @@ ${catalogForPrompt()}
 Every agent also gets this fleet plumbing automatically - never define tools that duplicate it, and never ask about it:
 ${BASELINE.map(({ server, tool }) => `- ${server}.${tool.name} [${tool.tier}] ${tool.does}`).join('\n')}
 Handing work to another agent is tasks.delegate_task.
-Where an agent's reports go - a daily list, a summary, figures, an alert - is the person's call, and it belongs in their space, not this app: the agent's run report is a record in its DM channel, which nobody is expected to read. So when the job produces something for them to read and they haven't said where: the agency's default place for reports (said with the organisation below), when there is one - build it in, with its tool, and say in your reply that's where they'll go; otherwise ask where they'd like it (one question): emailed to them, a Notion page, a Google Drive folder, a dashboard they use (PostHog), a folder on this computer (their Documents or Desktop) - or kept here in the app. Build in what they pick: its tool (a folder on this computer is computer_files.write_file, with the folder's path in the Charter - those three computer_files tools are all there is: never define a narrower one, since each save waits for the person's OK until they lower it themselves on the Tools page, and your reply says so), and the Charter says to deliver each report there. They don't mind, don't know, or leave it to you: the Charter says to keep each report in its run's report for now and ask them once, with a request, where they'd rather have them - never just leave it in the app. Never define a tool to post, publish or pin a report inside this app. Chat or texting only when they ask for it there ("post in Slack"): each one is a connection they have to set up - Gmail alone is a Google Cloud project. The same for what it keeps for itself - a running to-do, a log, what it has already seen or matched: its own files (files.*) and memory, which need no connection. A sheet or document in the person's Drive only when they ask for one there: "in your own files" or "in your workspace" is files.*, not docs.*. Those files are the agent's private notes - no person ever opens them - so whatever the person reads (the running summary, the list) goes where their reports go, and a document they keep and use goes in a real place of theirs (Drive, Notion...), never the agent's files; the Charter says so.
+Where an agent's reports go - a daily list, a summary, figures, an alert - is the person's call, and it belongs in their space, not this app: the agent's run report is a record in its DM channel, which nobody is expected to read. So when the job produces something for them to read and they haven't said where: this person's default place for reports (said with what you know about them, above), when they have one - build it in, with its tool, and say in your reply that's where they'll go; otherwise ask where they'd like it (one question): emailed to them, a Notion page, a Google Drive folder, a dashboard they use (PostHog), a folder on this computer (their Documents or Desktop) - or kept here in the app. Build in what they pick: its tool (a folder on this computer is computer_files.write_file, with the folder's path in the Charter - those three computer_files tools are all there is: never define a narrower one, since each save waits for the person's OK until they lower it themselves on the Tools page, and your reply says so), and the Charter says to deliver each report there. They don't mind, don't know, or leave it to you: the Charter says to keep each report in its run's report for now and ask them once, with a request, where they'd rather have them - never just leave it in the app. Never define a tool to post, publish or pin a report inside this app. Chat or texting only when they ask for it there ("post in Slack"): each one is a connection they have to set up - Gmail alone is a Google Cloud project. The same for what it keeps for itself - a running to-do, a log, what it has already seen or matched: its own files (files.*) and memory, which need no connection. A sheet or document in the person's Drive only when they ask for one there: "in your own files" or "in your workspace" is files.*, not docs.*. Those files are the agent's private notes - no person ever opens them - so whatever the person reads (the running summary, the list) goes where their reports go, and a document they keep and use goes in a real place of theirs (Drive, Notion...), never the agent's files; the Charter says so.
 A service the person didn't name is a connection they'd have to set up, so it goes in only when the job can't be done without it, or it's already connected here. Another agent using it isn't enough - Lead research can keep its own list of who it found rather than check a CRM nobody connected; say in your reply it could also check that service once it's connected. Don't offer one in a question either ("should I email you a digest?") - except where its reports go, asked as above: otherwise, asked what they'd like, or left to your judgement, the answer is the one that needs nothing new connected.
 A job that looks at a website the person signs in to - their Etsy or eBay shop's orders, a supplier or bank portal - when the service has no simple key or sign-in for apps: the signed-in browser (signed_in_browser.*), which the person signs in to that site once. Not reading the site's notification emails instead: that needs their email connected, and Gmail is a Google Cloud project.
 When nothing does a job, you define a new tool yourself and it gets built; the person doesn't have to arrange anything.
@@ -76,7 +76,7 @@ When nothing does a job, you define a new tool yourself and it gets built; the p
 Events: an agent runs on its schedule, and can also be woken by events - something happening at a service it watches (a new error report, a support ticket, an alarm). When the job is reacting to something ("triage each new bug", "answer tickets as they come in", "act when an alarm fires"), give it the event: an existing one by id, or a new event you define, which gets set up like a new tool. The schedule stays as a slow sweep for anything missed.`;
 
 function contextBlock(ctx: Context): string {
-  const me = `You are talking to the person who owns these agents. What you know about them:\n${personForPrompt(ctx.person)}\nTheir time zone is ${hostZone()}: schedules and "a day" run on it, so never ask for it.\n${reportDefaultForPrompt()}`;
+  const me = `You are talking to the person who owns these agents. What you know about them:\n${personForPrompt(ctx.person)}\nTheir time zone is ${hostZone()}: schedules and "a day" run on it, so never ask for it.\n${reportDefaultForPrompt(ctx.person.name)}`;
   const org = ctx.profile
     ? `The organisation these agents work for:\n${profileForPrompt(ctx.profile, ctx.person.name)}`
     : "They aren't set up as an organisation: the agents work for them personally. Keep organisation-specific details general rather than inventing them - they get filled in over time.";
@@ -538,14 +538,14 @@ export function unaskedTools(b: Pick<Build, 'tools'>, turns: Turn[], live: Set<s
   return b.tools.filter(t => !live.has(t.id) && UNASKED.some(([tool, words]) => tool.test(t.id) && !words.test(said))).map(t => t.id);
 }
 
-// The first place the person names for any agent's reports becomes the agency's
+// The first place a person names for any of their agents' reports becomes their
 // default (runner/reports.ts) - the builder told them so, and nothing else made it true.
-export function firstReportPlace(b: Pick<Build, 'report_place'>) {
-  if (reportDefault()) return;
+export function firstReportPlace(b: Pick<Build, 'report_place'>, person?: string | null) {
+  if (reportDefault(person)) return;
   const [where, tool] = (b.report_place ?? '').split(' | ').map(s => s.trim());
   if (!where || !tool) return;
   try {
-    setReportDefault(where, tool, 'The first place the person named for reports, while building an agent');
+    setReportDefault(where, tool, 'The first place they named for reports, while building an agent', person);
   } catch {
     // "kept in the app", or no tool named: not a default.
   }
@@ -555,9 +555,9 @@ export async function build(ctx: Context, turns: Turn[]): Promise<Build> {
   const task = `The interview is over. Write this agent's files from the conversation, for this organisation. ${TIERING}`;
   const once = async (ask: string) => fromOutput(await parse(BuildOutputSchema, ctx, task, [...transcript(turns), { role: 'user', content: ask }], 'high'));
   const b = await once('Build it.');
-  firstReportPlace(b);
+  firstReportPlace(b, ctx.person.name);
   // The agency's default place for reports was asked for once already: its tool isn't unasked.
-  const reportTool = reportDefault()?.tool;
+  const reportTool = reportDefault(ctx.person.name)?.tool;
   const extra = unaskedTools(b, turns, new Set([...ctx.fleet.tools.map(t => t.id), ...integrationToolIds(), ...(reportTool ? [reportTool] : [])]));
   if (!extra.length) return b;
   return once(
