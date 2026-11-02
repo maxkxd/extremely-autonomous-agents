@@ -596,6 +596,22 @@ export const createInvite = (orgId: string, email: string, role: 'admin' | 'memb
 // Invites waiting for you (by your email), and turning one down.
 export const myInvites = () => (state.me ? backend<WaitingInvite[]>('/me/invites') : Promise.resolve([]));
 export const declineInvite = (code: string) => backend(`/invites/${encodeURIComponent(code)}/decline`, { method: 'POST' });
+
+// How many invites are waiting for you: a dot on your profile, on Settings in its
+// menu and on Organization in Settings (decided 2026-11-02) - only Settings >
+// Organization showed one, so a teammate signed in and never saw it. Checked while
+// signed in, every 30 seconds and whenever one is answered.
+let waitingCount = 0;
+const waitingListeners = new Set<() => void>();
+export const waitingInvites = () => waitingCount;
+export const onWaitingInvites = (l: () => void) => (waitingListeners.add(l), () => void waitingListeners.delete(l));
+export async function checkWaitingInvites() {
+  const n = state.me ? ((await myInvites().catch(() => null))?.length ?? waitingCount) : 0;
+  if (n === waitingCount) return;
+  waitingCount = n;
+  waitingListeners.forEach(l => l());
+}
+setInterval(() => void checkWaitingInvites(), 30_000);
 export const revokeInvite = (code: string) =>
   isSelf(state.agency) ? viaHost('/api/self/invites/revoke', { code }) : backend(`/invites/${encodeURIComponent(code)}`, { method: 'DELETE' });
 // The address a self-hosted organisation's members reach it at (its owner sets it).

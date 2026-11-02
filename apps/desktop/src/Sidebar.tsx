@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -22,7 +22,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { ACCOUNT, AGENTS, type Department } from './data';
-import { currentOrg, isAdmin, myAccountId, myName, onMyName, ownOrg, state, switchAgency, teamOrgs } from './account';
+import { checkWaitingInvites, currentOrg, isAdmin, myAccountId, myName, onMyName, onWaitingInvites, ownOrg, state, switchAgency, teamOrgs, waitingInvites } from './account';
 import { openSignIn } from './SignIn';
 import { useDismiss } from './useDismiss';
 import { usePhoto } from './photo';
@@ -59,7 +59,9 @@ function Avatar({ label, size = 28, personal = false }: { label: string; size?: 
 // Your own avatar: your profile photo once you've set one (Settings > Account).
 function MyAvatar({ size }: { size: number }) {
   const photo = usePhoto();
-  if (!photo) return <Avatar label={ACCOUNT.name} size={size} />;
+  // The live name, as beside it: ACCOUNT.name kept the last person's initial after signing in as someone else.
+  const name = useSyncExternalStore(onMyName, myName);
+  if (!photo) return <Avatar label={name} size={size} />;
   return <img className="avatar" src={photo} alt="" style={{ width: size, height: size, objectFit: 'cover' }} />;
 }
 
@@ -237,6 +239,8 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
   const [open, setOpen] = useState(false);
   // The name you go by (Settings > Account), kept in step as it changes.
   const name = useSyncExternalStore(onMyName, myName);
+  const invited = useSyncExternalStore(onWaitingInvites, waitingInvites) > 0;
+  useEffect(() => void checkWaitingInvites(), [state.me?.user.email]);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, open, () => setOpen(false));
 
@@ -251,12 +255,14 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
                 className="dropdown-option"
                 onClick={() => {
                   setOpen(false);
-                  onOpenSettings(section);
+                  // An invite waiting: Settings opens where it is.
+                  onOpenSettings(invited && section === 'account' ? 'organization' : section);
                 }}
               >
                 <span className="option-with-avatar">
                   <Icon size={15} className="option-icon" />
                   {label}
+                  {invited && section === 'account' && <span className="notify-dot" aria-label="An invitation is waiting" />}
                 </span>
               </button>
             </li>
@@ -286,7 +292,10 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
         aria-expanded={open}
         onClick={() => setOpen(o => !o)}
       >
-        <MyAvatar size={34} />
+        <span className="avatar-with-dot">
+          <MyAvatar size={34} />
+          {invited && <span className="notify-dot on-avatar" aria-label="An invitation is waiting" title="An invitation is waiting - open Settings" />}
+        </span>
         <span className="switcher-text">
           <span className="switcher-title">{name}</span>
           <span className="switcher-sub">{ACCOUNT.org ? `${{ owner: 'Owner', admin: 'Admin', member: 'Member' }[currentOrg()?.role ?? 'member']} of ${ACCOUNT.org.name}` : (state.me?.user.email ?? 'Not signed in')}</span>

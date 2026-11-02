@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Building2, Check, ChevronDown, ChevronRight, Gauge, LoaderCircle, LogOut, Plug, Plus, Trash2, User, Wrench, X } from 'lucide-react';
 import { ACCOUNT, AGENTS } from './data';
 import {
@@ -20,6 +20,9 @@ import {
   joinWithCode,
   myInvites,
   declineInvite,
+  checkWaitingInvites,
+  onWaitingInvites,
+  waitingInvites,
   type WaitingInvite,
   leaveOrganisation,
   members as listMembers,
@@ -96,6 +99,7 @@ export function Settings({
   onOrgChange: () => void; // the account just became an organization
   onLogOut: () => void;
 }) {
+  const invited = useSyncExternalStore(onWaitingInvites, waitingInvites) > 0;
   // The organization chat sits above Settings; Escape closes it first.
   const chatOpen = useRef(false);
   useEffect(() => {
@@ -113,6 +117,7 @@ export function Settings({
             <button key={id} className={`settings-nav-item${section === id ? ' on' : ''}`} onClick={() => onSection(id)}>
               <Icon size={16} strokeWidth={1.8} />
               {label}
+              {id === 'organization' && invited && <span className="notify-dot" aria-label="An invitation is waiting" />}
             </button>
           ))}
           <div className="settings-nav-foot">
@@ -841,6 +846,7 @@ function InvitesForMe() {
                 act(i.code, async () => {
                   await declineInvite(i.code);
                   setList(l => l.filter(x => x.code !== i.code));
+                  void checkWaitingInvites();
                   setBusy(null);
                 })
               }

@@ -2042,3 +2042,8 @@ a.sbtn { text-decoration: none; color: inherit; }
 .handoff-page { min-height: 100vh; display: grid; place-content: center; text-align: center; gap: 8px; padding: 24px; }
 .handoff-page h1 { margin: 0; font-size: 24px; font-weight: 600; }
 .handoff-page p { margin: 0; color: var(--muted); }
+
+/* An invitation waiting for you: on your profile, on Settings in its menu, on Organization in Settings. */
+.notify-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--attention); margin-left: 8px; flex: none; }
+.avatar-with-dot { position: relative; display: inline-flex; flex: none; }
+.notify-dot.on-avatar { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; margin: 0; box-shadow: 0 0 0 2px var(--sidebar); }
