@@ -92,7 +92,7 @@ export function fileRequest(
 // For an agent whose instructions name exactly one of the examples, that one -
 // "Xero", not "accounting (Xero, QuickBooks)" - so the Agency Engineer builds the
 // service the organisation uses, not every example.
-const ACRONYMS = new Set(['seo', 'crm', 'api', 'aws', 'gcp', 'sql', 'sms', 'cdn', 'dns', 'erp', 'kpi', 'mcp', 'cms', 'ssl', 'tls', 'url', 'pdf', 'csv', 'llm']);
+export const ACRONYMS = new Set(['seo', 'crm', 'api', 'aws', 'gcp', 'sql', 'sms', 'cdn', 'dns', 'erp', 'kpi', 'mcp', 'cms', 'ssl', 'tls', 'url', 'pdf', 'csv', 'llm']);
 export function serviceLabel(server: string, agentId?: string) {
   // A server the builder made up ("search_console") reads as words, not an id -
   // acronyms as acronyms ("seo" is SEO, not "Seo"; "app" stays App).

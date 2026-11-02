@@ -5,6 +5,7 @@ import { CATALOG_INDEX, type Tier } from './catalog.js';
 import { DATA, listIds, readMeta } from './files.js';
 import { setBuiltInLevel } from './runner/db.js';
 import { integrationToolInfo } from './integrations/index.js';
+import { ACRONYMS } from './runner/tools.js';
 
 // Settings > Tools: every tool the agency's agents use, by a plain name, and how
 // much a person is involved when one is used (catalog.ts):
@@ -33,6 +34,14 @@ const words = (s: string) => {
   const w = s.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim().toLowerCase();
   return w.charAt(0).toUpperCase() + w.slice(1);
 };
+
+// A service's name: "seo_data" -> "SEO Data", "cms" -> "CMS" (as its card says), not "Seo data".
+const service = (s: string) =>
+  s
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map(w => (ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
 
 export type ToolView = {
   id: string;
@@ -74,7 +83,7 @@ export async function listTools(): Promise<ToolView[]> {
           id,
           name: builtIn?.name ?? words(rest.join(' ') || id),
           // The catalogue's own tools by their area (Web); others by the service they come through (Gmail); a built-in's by the agent.
-          source: builtIn ? agent.name : known ? words(server) : via?.via || words(server),
+          source: builtIn ? agent.name : known ? service(server) : via?.via || service(server),
           does: (builtIn?.does ?? known?.does ?? via?.description ?? '').split('\n')[0].slice(0, 200),
           tier,
           agents: [],

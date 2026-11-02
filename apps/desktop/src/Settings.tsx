@@ -1213,7 +1213,7 @@ function UsageSection() {
             <span className="susage-bar">
               <span style={{ width: total > 0 ? '100%' : '0%' }} />
             </span>
-            <span className="susage-runs">{runs.toLocaleString()} runs</span>
+            <span className="susage-runs">{runs.toLocaleString()} run{runs === 1 ? '' : 's'}</span>
             <span className="susage-spend">
               {money(total)}
               {unknown > 0 && '*'}
@@ -1232,7 +1232,7 @@ function UsageSection() {
               <span className="susage-bar">
                 <span style={{ width: `${(spend / top) * 100}%` }} />
               </span>
-              <span className="susage-runs">{a.monthRuns.toLocaleString()} runs</span>
+              <span className="susage-runs">{a.monthRuns.toLocaleString()} run{a.monthRuns === 1 ? '' : 's'}</span>
               <span className="susage-spend">
                 {money(spend)}
                 {a.monthUnknownRuns > 0 && '*'}
