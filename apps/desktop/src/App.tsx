@@ -267,7 +267,9 @@ function Agency() {
                 id: `live-${r.id}`,
                 live: r.id,
                 agentId: r.agent_id,
-                summary: r.what,
+                // "Set up Media", "Set up Indexnow" are the tool's server, not a service anyone
+                // knows: once the Agency Engineer picked the service, it's named, as a group of them is.
+                summary: r.waitingOn && /^(set up|connect) /i.test(r.what) ? `Connect ${r.waitingOn.name}` : r.what,
                 // A tool's input schema is for the Agency Engineer, not the person reading.
                 detail: [r.why, personEvidence(r.evidence) && `Details: ${personEvidence(r.evidence)}`, r.expected_effect && `What changes once I have it: ${r.expected_effect}`]
                   .filter(Boolean)
