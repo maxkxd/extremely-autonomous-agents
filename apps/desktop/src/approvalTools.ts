@@ -72,6 +72,38 @@ export const APPROVAL_TOOLS = {
     body: '{rule}',
     expiresAfterHours: 168,
   },
+  // Files on this computer (runner/computer.ts): every use waits for approval by default.
+  'computer_files.write_file': {
+    wantsTo: 'save a file on this computer',
+    headers: [{ label: 'Path', value: '{path}' }],
+    body: '{content}',
+    expiresAfterHours: 24,
+  },
+  'computer_files.read_file': {
+    wantsTo: 'read a file on this computer',
+    headers: [{ label: 'Path', value: '{path}' }],
+    body: null,
+    expiresAfterHours: 24,
+  },
+  'computer_files.list_folder': {
+    wantsTo: 'look in a folder on this computer',
+    headers: [{ label: 'Folder', value: '{path}' }],
+    body: null,
+    expiresAfterHours: 24,
+  },
+  // The agents' signed-in browser: acting as the person.
+  'signed_in_browser.click': {
+    wantsTo: 'click something as you, in the signed-in browser',
+    headers: [],
+    body: null,
+    expiresAfterHours: 24,
+  },
+  'signed_in_browser.type': {
+    wantsTo: 'type something as you, in the signed-in browser',
+    headers: [],
+    body: '{text}',
+    expiresAfterHours: 24,
+  },
   'github.merge_pull_request': {
     wantsTo: 'merge pull request #{number} in {repo}',
     headers: [
@@ -138,6 +170,12 @@ function fill(template: string, args: ToolArgs, tool: string): string {
   });
 }
 
+// "cms.publish_post" -> "Publish post": a tool by what it does, never its id.
+const plainTool = (toolId: string) => {
+  const w = (toolId.split('.').pop() ?? toolId).replace(/[_-]+/g, ' ').trim();
+  return w.charAt(0).toUpperCase() + w.slice(1);
+};
+
 // What an approval card shows, built from the tool's definition + the call's args.
 // A tool without its own card (an MCP server's, one the Agency Engineer added):
 // every argument as a line, the longest text as the body.
@@ -146,7 +184,7 @@ function generic(toolId: string, args: ToolArgs): ApprovalTool {
   const own = Object.entries(args).filter(([k]) => !k.startsWith('_'));
   const long = own.filter(([, v]) => typeof v === 'string' && v.length > 120).sort((a, b) => String(b[1]).length - String(a[1]).length)[0]?.[0];
   return {
-    wantsTo: `use ${toolId}`,
+    wantsTo: `use its "${plainTool(toolId)}" tool`,
     headers: own
       .map(([k]) => k)
       .filter(k => k !== long)
