@@ -487,7 +487,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
 // every agent fails until a person sorts it out, and a raw provider error on
 // each run doesn't say so. One request to the person while it lasts, closed
 // when a run works again.
-const OUT_OF_ALLOWANCE = /exceeded your (monthly )?quota|insufficient_quota|credit balance is too low|out of credits?|quota exceeded|usage limit/i;
+const OUT_OF_ALLOWANCE = /exceeded your (current |monthly )?quota|insufficient_quota|credit balance is too low|out of credits?|quota exceeded|usage limit|key limit exceeded|exceed your available credits|add (more )?credits|insufficient credits/i;
 // Its sign-in or key stopped working after it was set up (a key revoked, Claude
 // Code signed out or uninstalled): every run on it failed, and nothing said why.
 const SIGNED_OUT = /isn't installed|not signed in|no key saved|\b40[13]\b|invalid (x-)?api[ -]?key|please run \/login|authenticat|unauthori[sz]ed|not logged in|oauth token/i;

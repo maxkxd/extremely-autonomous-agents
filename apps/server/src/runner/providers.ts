@@ -81,9 +81,12 @@ const key = async (id: string) => {
   return k;
 };
 
+const OUT_OF_CREDIT = /credits?|key limit exceeded|quota|billing|spend(ing)? limit/i;
 function fail(status: number, message: string): never {
   const m = message.replace(/\s+/g, ' ').slice(0, 300);
   if (status === 429) throw new ModelError(m, 'rate', status);
+  // Out of credit, not a bad key: OpenRouter says so with 402, and 403 for a key's own spending limit.
+  if (status === 402 || (status === 403 && OUT_OF_CREDIT.test(m))) throw new ModelError(m, 'rate', status);
   if (status === 401 || status === 403) throw new ModelError(m, 'auth', status);
   if (status >= 500 || status === 529) throw new ModelError(m, 'server', status);
   throw new ModelError(m, 'bad', status);

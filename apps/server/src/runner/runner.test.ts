@@ -287,6 +287,18 @@ test('an AI out of its allowance asks the person once, and closes when runs work
   assert.equal(one<{ status: string }>('SELECT status FROM requests WHERE id = ?', asks[0].id)!.status, 'done');
 });
 
+test("a key's spending limit is out of allowance, not signed out", async () => {
+  setLevel(CHILL);
+  exec("UPDATE requests SET status = 'done' WHERE status = 'open'");
+  const capped: Adapter = async () => {
+    throw new ModelError('Key limit exceeded (monthly limit). $10.26 of $10.00 used; resets 2026-12-01', 'rate', 403);
+  };
+  await runAgent(agent(), 'scheduled', null, deps(capped));
+  const open = all<{ what: string }>("SELECT what FROM requests WHERE status = 'open'");
+  assert.equal(open.length, 1);
+  assert.match(open[0].what, /run out of its allowance/);
+});
+
 test('the run posts to its DM channel with argument names only', async () => {
   setLevel(CHILL);
   await runAgent(agent(), 'scheduled', null, deps(fake(1)));
