@@ -2,6 +2,7 @@ import { listIds, readMeta } from '../files.js';
 import { liveEvents, loadIntegrations } from '../integrations/index.js';
 import './web.js'; // registers the web tools
 import './browser.js'; // registers the browser tools
+import './computer.js'; // registers the tools for files on this computer
 import { ensureFleetEngineer, startEngineer } from './engineer.js';
 import { ensureDoctor } from './doctor.js';
 import './conductor.js'; // routes new requests

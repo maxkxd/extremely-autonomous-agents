@@ -64,3 +64,17 @@ test("a build holding email or Drive nobody asked for is caught: the person said
   // "docs" as a word only - not inside another one.
   assert.deepEqual(unaskedTools(tools(['docs.append_to_document']), [{ role: 'person', text: 'Keep notes in a Google Doc.' }], new Set()), []);
 });
+
+test('files on the computer always start at approval, and only when the person spoke of a folder or the computer', () => {
+  const b = buildOutputForTests.fromOutput({
+    ...base,
+    tools: [...base.tools, { id: 'computer_files.write_file', tier: 'T0' as const, why: 'reports' }],
+    approval_hours: '[]',
+    natural_limits: '[]',
+    new_events: '[]',
+  });
+  assert.equal(b.tools.find(t => t.id === 'computer_files.write_file')?.tier, 'T2');
+  const said = (text: string) => [{ role: 'person' as const, text }];
+  assert.deepEqual(unaskedTools(b, said('Tell me every morning about new grants'), new Set()), ['computer_files.write_file']);
+  assert.deepEqual(unaskedTools(b, said('Save it in my Documents folder please'), new Set()), []);
+});

@@ -84,6 +84,7 @@ What the person says on one request is true for all of them: one waiting on a qu
    c. It's saved as a draft: it shows in Settings -> Connectors so the person can connect it, and no agent can call it. Then tell them it's ready with engineer.ask_for_connection - exact steps (including making an account, if it needs one), and that the key goes in Settings, never in the chat. You're woken the moment they connect it. Other agents' requests already waiting on the same connection (engineer.list_requests): one key serves them all. Ask for full access, always - more than any agent needs today: a key with every permission the service offers (or its full-access / admin kind), every scope ticked, every group ticked on a sign-in's consent page (Sentry's tool groups). Narrow keys had people making new keys over and over as agents needed slightly more (decided 2026-11-02); the agents are held to their jobs by the tools they're given and their tiers, not by the key. Say so in the steps ("tick everything - your agents only get the tools you approve").
    d. Test it like a careful person: the real call with real-looking inputs, then the edge cases - empty and missing inputs, a limit, nonsense - and read what an agent would see. Results must be clean, plain text; errors one readable line. Fix the definition and test again until they are. A code plugin not yet approved can be tried too, but only its silent (T0) tools, reading from its own service: try one before you propose it, so a wrong address, region or sign-in shows up now and not at go-live.
    e. Connecting it was the person's yes to the connection itself; what they approve is which agents get which tools. engineer.publish_integration - and when other agents' open requests need the same connection, put them in also, so it's one card. A short summary for the person approving: what it lets the agent do, and its limits (which account, which repository, read-only...). Not how you tested it, and no risks unless one is obvious and significant to someone who isn't technical (it costs money, emails people outside, deletes their files) - never technical or hypothetical ones. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
+3b. A folder on this computer ("save my reports in Documents", a shared folder, a server set aside for agents): the built-in computer_files tools (read_file, write_file, list_folder) - engineer.give_tools, nothing to connect. Each use waits for the person's approval unless they lower it on the Tools page; the agency's own data and key or password stores are always off limits. Put the folder's full path in your note to the agent.
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
 
 ## When a tool is failing
@@ -340,7 +341,9 @@ export async function giveTools(agentId: string, tools: { id: string; tier: Tier
   const servers = new Set(((doc.get('servers') as { toJSON(): string[] } | undefined)?.toJSON() ?? []) as string[]);
   for (const t of tools) {
     allowed.add(t.id);
-    tiers[t.id] ??= t.tier; // the builder's tier for a tool it defined wins
+    // The builder's tier for a tool it defined wins. Files on the computer always
+    // start at approval: only the person lowers them, on the Tools page.
+    tiers[t.id] ??= t.id.startsWith('computer_files.') ? 'T2' : t.tier;
     servers.add(t.id.split('.')[0]);
   }
   doc.set('tools_allowed', [...allowed]);

@@ -35,6 +35,15 @@ export const CATALOG: CatalogServer[] = [
     ],
   },
   {
+    server: 'computer_files',
+    what: "Files and folders on this computer, outside the agents' own workspaces (the person's Documents, a shared folder, a server set aside for agents)",
+    tools: [
+      t('read_file', 'T2', 'Read a text file on this computer'),
+      t('write_file', 'T2', 'Save a file on this computer - a report into their Documents folder, say'),
+      t('list_folder', 'T2', "List a folder's files"),
+    ],
+  },
+  {
     server: 'gmail',
     what: 'Email (Gmail or Outlook)',
     tools: [
