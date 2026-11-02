@@ -13,6 +13,7 @@ import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
 import type { Harness } from './harness.js';
 import { ModelError, type Adapter, type Msg } from './providers.js';
+import { provider } from '../models/providers.js';
 import { canStillCount, execute, fileRequest, requestConnections, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js';
 
 // One run of one agent (docs/runner.md, "One run"): its instructions, the
@@ -511,7 +512,7 @@ function allowance(status: string, error: string | undefined, now: number, on?: 
   }
   if (status !== 'failed' || !error || open) return;
   const conn = /Last: ([a-z0-9_-]+)\//i.exec(error)?.[1];
-  const name = conn ? (conn === 'copilot' ? 'GitHub Copilot' : conn === 'claude-code' ? 'Claude (Claude Code)' : conn.charAt(0).toUpperCase() + conn.slice(1)) : 'Your AI connection';
+  const name = conn ? (conn === 'claude-code' ? 'Claude (Claude Code)' : (provider(conn)?.name ?? conn.charAt(0).toUpperCase() + conn.slice(1))) : 'Your AI connection';
   if (!OUT_OF_ALLOWANCE.test(error)) {
     if (!SIGNED_OUT.test(error)) return;
     fileRequest(
