@@ -253,9 +253,10 @@ const local = async <T>(path: string, body?: unknown): Promise<T> => {
 // --- Your name ---
 //
 // The one you go by everywhere: signed in, the one on your account with us
-// (your organisations see it); otherwise the one in your own agency.
+// (your organisations see it); signed out, only a name you gave yourself here -
+// not whoever last signed in on this computer ("Sam Rivera · Not signed in").
 const accountEmail = () => state.me?.user.email ?? null;
-export const myName = () => state.me?.user.name || state.localFullName || state.localName || 'You';
+export const myName = () => state.me?.user.name || state.localFullName || 'You';
 const nameListeners = new Set<() => void>();
 export const onMyName = (l: () => void) => (nameListeners.add(l), () => void nameListeners.delete(l));
 export async function setMyName(name: string) {

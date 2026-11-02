@@ -404,7 +404,7 @@ function AccountSignIn() {
         <Row label={state.me.user.email}>{null}</Row>
       ) : (
         <Row label="Not signed in" sub="Your own agency needs no account. One is for organisations.">
-          <button className="sbtn primary" onClick={e => openSignIn('up', e.currentTarget)}>
+          <button className="sbtn signup-btn" onClick={e => openSignIn('up', e.currentTarget)}>
             SIGN UP
           </button>
         </Row>
@@ -636,7 +636,7 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
       {!state.me ? (
         <div className="sorg-row">
           <span>Sign up to create or join one with us</span>
-          <button className="sbtn primary" onClick={e => openSignIn('up', e.currentTarget)}>
+          <button className="sbtn signup-btn" onClick={e => openSignIn('up', e.currentTarget)}>
             Sign up
           </button>
         </div>

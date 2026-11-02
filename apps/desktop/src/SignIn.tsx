@@ -174,7 +174,7 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
           <button type="button" className="confirm-cancel" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
-          <button type="submit" className="sbtn primary" disabled={busy || (finish ? !code.trim() : !email.trim())}>
+          <button type="submit" className="sbtn signup-btn" disabled={busy || (finish ? !code.trim() : !email.trim())}>
             {busy ? 'One moment...' : finish || dev ? (mode === 'up' ? 'Sign up' : 'Sign in') : 'Continue'}
           </button>
         </div>
