@@ -192,7 +192,7 @@ export const HELP_TOPICS = {
         caption: [
           [
             'It works while this app is open, on this computer. Close the app and your AI assistant can’t reach the agency until you open it again.',
-            'In an organization, it connects on the computer the organization runs on. A teammate on another computer can’t connect theirs yet.',
+            'In an organization, everyone can connect their own. It acts as them, with what they’re allowed to do - and on a teammate’s own computer it works while their app is open and the organization’s host is online.',
             'ChatGPT, claude.ai in a browser and Microsoft Copilot can’t connect yet: they can only reach addresses on the internet, and your agency stays on your computer.',
           ],
         ],
