@@ -19,7 +19,7 @@ import {
 } from '../integrations/index.js';
 import { readPlugin, writePlugin } from '../integrations/plugins.js';
 import { all, resetDbForTests, run as exec } from './db.js';
-import { giveTools, moveSharedWaits } from './engineer.js';
+import { giveTools, moveSharedWaits, withdrawStale } from './engineer.js';
 
 const MOD = 'zz-test-plugin';
 const ID = 'zz-test-integration';
@@ -214,4 +214,15 @@ test('requests that shared a connection follow one switched to another', () => {
   assert.equal(on(other), 'buffer');
   assert.equal(on(notYet), 'posthog'); // still with the engineer: it decides that one itself
   assert.match(all<{ text: string }>('SELECT text FROM request_messages WHERE request_id = ?', shared)[0].text, new RegExp(`Wix Analytics instead of PostHog \\(see request #${mine}\\)`));
+});
+
+test("a go-live card is withdrawn when its connection changes under it, so nobody approves a stale one", async () => {
+  const req = Number(exec("INSERT INTO requests (agent_id, what, why, status, created_at, stage) VALUES ('a', 'Set up Watch', 'x', 'open', 1, 'approval')").lastInsertRowid);
+  const card = (id: string, integration: string) =>
+    exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, status, created_at, expires_at) VALUES (?, 'fleet', 'r', 'engineer.publish_integration', ?, 'pending', 1, 9e15)", id, JSON.stringify({ integration_id: integration, request_id: req }));
+  card('apv_stale', 'watch');
+  assert.deepEqual(await withdrawStale(id => id === 'other'), []);
+  assert.deepEqual(await withdrawStale(id => id === 'watch'), [req]);
+  assert.equal(all<{ status: string }>("SELECT status FROM approvals WHERE id = 'apv_stale'")[0].status, 'withdrawn');
+  assert.equal(all<{ stage: string }>('SELECT stage FROM requests WHERE id = ?', req)[0].stage, 'engineer');
 });

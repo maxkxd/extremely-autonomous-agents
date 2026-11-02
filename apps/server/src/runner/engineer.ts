@@ -259,6 +259,22 @@ export function withdrawProposal(requestId: number, why: string) {
   for (const id of on) exec("UPDATE requests SET stage = 'engineer' WHERE id = ? AND status = 'open'", id);
   return on;
 }
+// A connection or its plugin rewritten while its go-live card waits: the card
+// shows what was reviewed, so it's withdrawn - left up, a person approved it five
+// hours later and it failed ("changed after it was approved"). The requests it
+// was for, which go back to the engineer to propose again.
+export async function withdrawStale(matches: (integrationId: string) => boolean | Promise<boolean>): Promise<number[]> {
+  const cards = all<{ args: string }>("SELECT args FROM approvals WHERE status = 'pending' AND agent_id = ? AND tool = 'engineer.publish_integration'", FLEET_ENGINEER);
+  const out: number[] = [];
+  for (const c of cards) {
+    const a = JSON.parse(c.args) as { integration_id?: string; request_id?: number };
+    if (a.request_id && (await matches(String(a.integration_id ?? '')))) out.push(...withdrawProposal(Number(a.request_id), 'Changed after it was proposed - an updated card replaces it.'));
+  }
+  return out;
+}
+const withdrawnNote = (ids: number[]) =>
+  ids.length ? ` Its card waiting for approval was withdrawn, as it no longer matches (requests ${ids.map(i => `#${i}`).join(', ')}): test the change, then propose it again (engineer.publish_integration).` : '';
+
 export const notWaitingAlready = (tool: string, a: Record<string, unknown>, key: string) => {
   const same = one<{ created_at: number }>(
     `SELECT created_at FROM approvals WHERE status = 'pending' AND agent_id = ? AND tool = ? AND json_extract(args, '$.for_agent') = ? AND CAST(json_extract(args, '$.${key}') AS TEXT) = ?`,
@@ -593,7 +609,8 @@ const TOOLS: ToolDef[] = [
         integration.auth.type === 'none' || connected
           ? `${connected ? "It's still connected - its key or sign-in carries over" : 'It needs no key'}: test it now (engineer.test_integration). Don't ask the person to connect it again.`
           : 'It needs a key or sign-in: ask the person with engineer.ask_for_connection.';
-      return `Saved "${integration.id}" (${integration.name}) as a draft${wasLive ? ' - the live version keeps working for the agents that have it until this change is approved' : ''}. It shows in Settings -> Connectors. ${needs}${found}`;
+      const withdrawn = await withdrawStale(id => id === integration.id);
+      return `Saved "${integration.id}" (${integration.name}) as a draft${wasLive ? ' - the live version keeps working for the agents that have it until this change is approved' : ''}. It shows in Settings -> Connectors. ${needs}${found}${withdrawnNote(withdrawn)}`;
     },
   },
   {
@@ -607,7 +624,9 @@ const TOOLS: ToolDef[] = [
       if (['gmail', 'github'].includes(module)) throw new Error(`"${module}" is the built-in ${module === 'gmail' ? 'Gmail' : 'GitHub'} connection's: pick another name, like "${module}-actions".`);
       if (!/^[a-z0-9-]+$/.test(module)) throw new Error('Pick another module name: lowercase letters, digits and dashes.');
       await writePlugin(module, String(a.code));
-      return `Saved plugin "${module}". It runs only once the independent review passes it and a person approves giving it to an agent (engineer.publish_integration).`;
+      const usesIt = new RegExp(`^module:\\s*["']?${module}["']?\\s*$`, 'm');
+      const withdrawn = await withdrawStale(async id => usesIt.test((await integrationSource(id))?.yaml ?? ''));
+      return `Saved plugin "${module}". It runs only once the independent review passes it and a person approves giving it to an agent (engineer.publish_integration).${withdrawnNote(withdrawn)}`;
     },
   },
   {
@@ -789,6 +808,9 @@ const TOOLS: ToolDef[] = [
           setStage(g.request_id, 'engineer');
           const rest = missing.map(t => t.id).join(', ');
           ctx.wake(FLEET_ENGINEER, 'request', `${ids} went live for ${g.for_agent}. Request #${g.request_id} still needs: ${rest}.`);
+          // What it has now is usable now: it isn't left waiting on the rest (Market
+          // Research got the Census tools and didn't touch them until its next scheduled run).
+          ctx.wake(g.for_agent, 'self-booked', `You now have ${ids} (request #${g.request_id} stays open for: ${rest}). Use them on your real work now.`);
           said.push(`${g.for_agent} (request #${g.request_id} stays open for: ${rest})`);
           continue;
         }
