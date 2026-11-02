@@ -226,7 +226,8 @@ function Tuning({
         />
         <div className="ferocity-est" title={cadence}>
           <span className="stat-label">Est. Output:</span>
-          <span className="est-value">{estimate == null ? '-' : count(estimate)}</span>
+          {/* Before its first run there's no output to go by: how often it will run, then. */}
+          <span className="est-value">{estimate == null ? cadence : count(estimate)}</span>
         </div>
       </div>
     </div>

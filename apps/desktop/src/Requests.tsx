@@ -445,9 +445,16 @@ export function Requests({
   onFocused: () => void;
   loading?: boolean; // the list isn't in yet: placeholders, not "nothing waiting"
 }) {
-  const shown = visibleApprovals(pending, scope)
+  // In the order they reached the page, oldest first among those that came
+  // together: the Agency Engineer hands over older requests while you're reading
+  // or answering a newer one, and each used to push it down under your cursor.
+  const seen = useRef(new Map<string, number>());
+  const oldestFirst = visibleApprovals(pending, scope)
     .filter(r => !agentFilter || r.agentId === agentFilter)
-    .sort((a, b) => b.minutesAgo - a.minutesAgo); // oldest first
+    // Filed in the same minute (a pack's setup files a dozen at once): by number.
+    .sort((a, b) => b.minutesAgo - a.minutesAgo || (a.live ?? 0) - (b.live ?? 0));
+  for (const r of oldestFirst) if (!seen.current.has(r.id)) seen.current.set(r.id, seen.current.size);
+  const shown = oldestFirst.sort((a, b) => seen.current.get(a.id)! - seen.current.get(b.id)!);
 
   if (loading && shown.length === 0)
     return (
