@@ -156,6 +156,9 @@ export async function createInvite(db: Db, orgId: string, userId: string, opts: 
   if (role === 'admin' && me.role !== 'owner') fail(403, 'Only the owner can invite admins.');
   const email = typeof opts.email === 'string' && opts.email.trim() ? opts.email.trim().toLowerCase() : null;
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(400, "That isn't an email address.");
+  // Already in it: an invite they could never use would only sit there pending.
+  if (email && (await db.query('SELECT 1 FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = $1 AND LOWER(u.email) = $2', [orgId, email])).rows.length)
+    fail(409, `${email} is already a member of ${me.name}.`);
   // Inviting the same person again: a fresh invite replaces the one still waiting.
   if (email) await db.query('DELETE FROM invites WHERE org_id = $1 AND email = $2 AND used_by IS NULL', [orgId, email]);
   const code = randomBytes(12).toString('base64url');

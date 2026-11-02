@@ -25,7 +25,7 @@ import {
   setDisplayName,
   setRole,
 } from './directory.js';
-import { signInTicket, type Auth } from './tokens.js';
+import { devUserId, signInTicket, type Auth } from './tokens.js';
 import { sendInvite } from './mail.js';
 
 // Our backend's API (docs/architecture.md, "Accounts and organisations").
@@ -55,7 +55,11 @@ const ROUTES: Route[] = [
       if (!c.auth.devSignIn) throw new ApiError(404, 'Not found.');
       const email = typeof c.body.email === 'string' ? c.body.email.trim() : '';
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new ApiError(400, "That isn't an email address.");
-      return c.auth.devSignIn(email, typeof c.body.name === 'string' ? c.body.name.slice(0, 80) : '');
+      // Signing up is for a new account; signing in never renames one - the name
+      // typed (or the email's first part) is only for an account made now.
+      const had = (await c.db.query<{ name: string }>('SELECT name FROM users WHERE id = $1', [devUserId(email)])).rows[0];
+      if (had && c.body.mode === 'up') throw new ApiError(409, 'That email already has an account - sign in instead.');
+      return c.auth.devSignIn(email, had ? had.name : typeof c.body.name === 'string' ? c.body.name.slice(0, 80) : '');
     },
   },
   // The keys hosts check org access tokens against.

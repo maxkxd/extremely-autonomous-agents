@@ -30,6 +30,8 @@ export type Auth = {
 // No Clerk set up and not production: the development sign-in. Lets the app's
 // whole flow (several people, invites, roles) be tried before Clerk exists.
 export const devSignInOn = (env = process.env) => !env.CLERK_JWKS_URL && env.NODE_ENV !== 'production';
+// A development account's id: the same email is always the same person.
+export const devUserId = (email: string) => `dev_${createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 16)}`;
 
 type Signer = { key: CryptoKey; jwk: JWK };
 
@@ -155,7 +157,7 @@ export async function createAuth(opts: {
     ...(dev && {
       async devSignIn(email: string, name: string) {
         const e = email.trim().toLowerCase();
-        const id = `dev_${createHash('sha256').update(e).digest('hex').slice(0, 16)}`;
+        const id = devUserId(e);
         const token = await new SignJWT({ email: e, name: name.trim() || e.split('@')[0] })
           .setProtectedHeader({ alg: 'HS256' })
           .setSubject(id)

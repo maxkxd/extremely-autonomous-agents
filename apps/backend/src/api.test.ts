@@ -116,6 +116,10 @@ test('invites: preview, email lock, single use, revoke', async () => {
   assert.equal((await call('ana', 'DELETE', `/invites/${spare.body.code}`)).status, 200);
   assert.equal((await call('ana', 'GET', `/invites/${spare.body.code}`)).status, 404);
   assert.equal((await call('ana', 'POST', `/orgs/${org}/invites`, { email: 'not an email' })).status, 400);
+  // Ben is in it now: inviting him again is refused, not left pending.
+  const twice = await call('ana', 'POST', `/orgs/${org}/invites`, { email: 'Ben@Example.com' });
+  assert.deepEqual([twice.status, twice.body.error], [409, 'ben@example.com is already a member of Ana Co.']);
+  assert.equal((await call('ana', 'GET', `/orgs/${org}/invites`)).body.length, 0);
 });
 
 test('roles: who can invite, promote and remove whom', async () => {
@@ -214,7 +218,17 @@ test('development sign-in: only when asked for, and a session like any other', a
     assert.equal(me.orgs[0].name, "Dee's agency");
     // Same email, same person.
     const again = (await (await fetch(`${url}/dev/sign-in`, { method: 'POST', body: JSON.stringify({ email: 'dee@example.com' }) })).json()) as any;
-    assert.equal(((await (await fetch(`${url}/me`, { headers: { authorization: `Bearer ${again.token}` } })).json()) as any).user.id, me.user.id);
+    const meAgain = ((await (await fetch(`${url}/me`, { headers: { authorization: `Bearer ${again.token}` } })).json()) as any).user;
+    assert.equal(meAgain.id, me.user.id);
+    // Signing in with the name box empty, or another name, never renames them.
+    assert.equal(meAgain.name, 'Dee');
+    const renamed = (await (await fetch(`${url}/dev/sign-in`, { method: 'POST', body: JSON.stringify({ email: 'dee@example.com', name: 'Someone Else' }) })).json()) as any;
+    assert.equal(((await (await fetch(`${url}/me`, { headers: { authorization: `Bearer ${renamed.token}` } })).json()) as any).user.name, 'Dee');
+    // Signing up with an email that has an account is refused.
+    const up = await fetch(`${url}/dev/sign-in`, { method: 'POST', body: JSON.stringify({ email: 'dee@example.com', name: 'Dee 2', mode: 'up' }) });
+    assert.deepEqual([up.status, ((await up.json()) as any).error], [409, 'That email already has an account - sign in instead.']);
+    const fresh = await fetch(`${url}/dev/sign-in`, { method: 'POST', body: JSON.stringify({ email: 'eve@example.com', name: 'Eve', mode: 'up' }) });
+    assert.equal(fresh.status, 200);
   } finally {
     dev.close();
   }
