@@ -67,6 +67,7 @@ You are the agency's engineer. Every request an agent files comes to you first. 
 - Something is broken: a tool the agent already holds is failing. That is a fault to diagnose, not something to build - see "When a tool is failing" first.
 
 ## How you handle a request (engineer.list_requests shows them, with the asking agent's missing tools)
+What the person says on one request is true for all of them: one waiting on a question they've since answered elsewhere ("we have a Wix website", "we use Xero") - act on that answer there too, instead of leaving them a question they've already answered.
 0. Questions only the person can answer - their budget or spend, targets, prices, policies, who to contact, what they prefer: engineer.hand_to_person straight away, as asked. Never answer them yourself or suggest numbers - the agent already said what it does meanwhile.
 1. Another agent in the fleet can already do it (it holds the tool, it's its job)? Hand the work over with tasks.delegate_task, then engineer.close_request saying who does it now. Only genuinely related agents - not, say, customer support for an outreach email.
    Two agents asking for the same connection is not a duplicate: never close one agent's request because another asked first. Each needs its own tools. Handle it with the other (engineer.ask_for_connection on both, so the person sees one item and connecting wakes both; publish_integration's also for the second agent).
@@ -190,6 +191,18 @@ const setStage = (id: number, stage: string) => exec('UPDATE requests SET stage 
 // grow as tools are added ("DataForSEO Keyword Research" -> "... and SERP"), so
 // the name is matched to the connection it became.
 const ASKED_TO_CONNECT = /Settings\s*->\s*Connectors\s*->\s*Integrations\s*->\s*(.+?)\s*$/m;
+// A request switched to another service (the person uses Wix, not PostHog): the
+// ones still waiting on the old one shared the need, so they move too - left
+// behind, they'd still show "Connect PostHog". Each says why. The ones moved.
+export function moveSharedWaits(requestId: number, from: { id: string; name: string }, to: { id: string; name: string }): number[] {
+  const ids = all<{ id: number }>("SELECT id FROM requests WHERE status = 'open' AND stage = 'waiting_you' AND waiting_on = ? AND id <> ?", from.id, requestId).map(r => r.id);
+  for (const id of ids) {
+    postToRequest(id, 'engineer', `Changed: ${to.name} instead of ${from.name} (see request #${requestId}) - the same connection covers this one too.\n\nSettings -> Connectors -> Integrations -> ${to.name}`);
+    exec('UPDATE requests SET waiting_on = ? WHERE id = ?', to.id, id);
+  }
+  return ids;
+}
+
 export function waitingOn(requestId: number, connections: { id: string; name: string }[]): { id: string; name: string } | null {
   const recorded = one<{ waiting_on: string | null }>('SELECT waiting_on FROM requests WHERE id = ?', requestId)?.waiting_on;
   const byId = recorded ? connections.find(c => c.id === recorded) : undefined;
@@ -458,8 +471,17 @@ const TOOLS: ToolDef[] = [
             .join('\n') + (await missingTools(r.agent_id)) + namedToolHistory(r),
         );
       }
+      // What the person last said on each: an answer on one ("we use Wix") often settles another.
+      const lastSaid = (id: number) => one<{ text: string }>("SELECT text FROM request_messages WHERE request_id = ? AND from_who = 'you' ORDER BY id DESC LIMIT 1", id)?.text;
       if (waiting.length)
-        out.push(`Waiting on a person (${waiting.length}) - engineer.list_requests with request_id for one in full:\n${waiting.map(r => `#${r.id} ${r.agent_id} · ${r.stage}: ${r.what.slice(0, 120)}`).join('\n')}`);
+        out.push(
+          `Waiting on a person (${waiting.length}) - engineer.list_requests with request_id for one in full:\n${waiting
+            .map(r => {
+              const said = lastSaid(r.id);
+              return `#${r.id} ${r.agent_id} · ${r.stage}: ${r.what.slice(0, 120)}${said ? `\n    they said: ${said.replace(/\s+/g, ' ').slice(0, 200)}` : ''}`;
+            })
+            .join('\n')}`,
+        );
       return out.join('\n\n');
     },
   },
@@ -612,7 +634,10 @@ const TOOLS: ToolDef[] = [
       postToRequest(r.id, 'engineer', `${said}\n\n${i.keyUrl && !said.includes(i.keyUrl) ? `Get the key here: ${i.keyUrl}\n` : ''}Settings -> Connectors -> Integrations -> ${i.name}`);
       setStage(r.id, 'waiting_you');
       exec('UPDATE requests SET waiting_on = ? WHERE id = ?', i.id, r.id);
-      return `Asked. Request #${r.id} waits on the person; you'll be woken when ${i.name} is connected.`;
+      const old = was?.waiting_on && was.waiting_on !== i.id ? was.waiting_on : null;
+      const oldName = old ? ((await listIntegrations()).find(x => x.id === old)?.name ?? old) : '';
+      const moved = old ? moveSharedWaits(r.id, { id: old, name: oldName }, { id: i.id, name: i.name }) : [];
+      return `Asked. Request #${r.id} waits on the person; you'll be woken when ${i.name} is connected.${moved.length ? ` Requests ${moved.map(m => `#${m}`).join(', ')} waited on ${oldName} too and now wait on ${i.name}, with a note saying so.` : ''}`;
     },
   },
   {

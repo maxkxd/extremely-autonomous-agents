@@ -18,8 +18,8 @@ import {
   writeDraftIntegration,
 } from '../integrations/index.js';
 import { readPlugin, writePlugin } from '../integrations/plugins.js';
-import { resetDbForTests } from './db.js';
-import { giveTools } from './engineer.js';
+import { all, resetDbForTests, run as exec } from './db.js';
+import { giveTools, moveSharedWaits } from './engineer.js';
 
 const MOD = 'zz-test-plugin';
 const ID = 'zz-test-integration';
@@ -202,4 +202,16 @@ test: { tool: zztry.peek, args: {} }
   await assert.rejects(testIntegrationTool(id, 'zztry.act', {}), /only silent \(T0\) tools/);
   await assert.rejects(testIntegrationTool(id, 'zztry.peek', {}), /may only read: POST/);
   await discardDraft(id);
+});
+
+test('requests that shared a connection follow one switched to another', () => {
+  const add = (waiting: string, stage = 'waiting_you') =>
+    Number(exec("INSERT INTO requests (agent_id, what, why, status, created_at, stage, waiting_on) VALUES ('a', 'Set up analytics', 'x', 'open', 1, ?, ?)", stage, waiting).lastInsertRowid);
+  const [mine, shared, other, notYet] = [add('wix'), add('posthog'), add('buffer'), add('posthog', 'engineer')];
+  assert.deepEqual(moveSharedWaits(mine, { id: 'posthog', name: 'PostHog' }, { id: 'wix', name: 'Wix Analytics' }), [shared]);
+  const on = (id: number) => all<{ waiting_on: string }>('SELECT waiting_on FROM requests WHERE id = ?', id)[0].waiting_on;
+  assert.equal(on(shared), 'wix');
+  assert.equal(on(other), 'buffer');
+  assert.equal(on(notYet), 'posthog'); // still with the engineer: it decides that one itself
+  assert.match(all<{ text: string }>('SELECT text FROM request_messages WHERE request_id = ?', shared)[0].text, new RegExp(`Wix Analytics instead of PostHog \\(see request #${mine}\\)`));
 });
