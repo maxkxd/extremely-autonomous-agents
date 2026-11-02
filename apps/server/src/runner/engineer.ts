@@ -26,6 +26,7 @@ import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { toolTitle, toolsForPeople, type Tier } from '../catalog.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { all, builtInLevels, one, run as exec } from './db.js';
+import { reportDefault, reportDefaultForPrompt, setReportDefault } from './reports.js';
 import { fileRequest, heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
 
 // The Agency Engineer (docs/requests.md, docs/integrations.md): the built-in
@@ -53,6 +54,7 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'engineer.give_tools': 'T2',
   'engineer.withdraw_proposal': 'T1',
   'engineer.give_events': 'T2',
+  'engineer.set_report_default': 'T0',
   'web.web_search': 'T0',
   'web.fetch_page': 'T0',
 };
@@ -86,6 +88,12 @@ What the person says on one request is true for all of them: one waiting on a qu
    e. Connecting it was the person's yes to the connection itself; what they approve is which agents get which tools. engineer.publish_integration - and when other agents' open requests need the same connection, put them in also, so it's one card. A short summary for the person approving: what it lets the agent do, and its limits (which account, which repository, read-only...). Not how you tested it, and no risks unless one is obvious and significant to someone who isn't technical (it costs money, emails people outside, deletes their files) - never technical or hypothetical ones. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
 3b. A folder on this computer ("save my reports in Documents", a shared folder, a server set aside for agents): the built-in computer_files tools (read_file, write_file, list_folder) - engineer.give_tools, nothing to connect. Each use waits for the person's approval unless they lower it on the Tools page; the agency's own data and key or password stores are always off limits. Put the folder's full path in your note to the agent.
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
+
+## Where agents' reports go
+The agency has one default place for reports (engineer.list_requests says which, at the top). An agent asking where its reports should go:
+- A default exists: don't ask the person. Give the agent the default's tool (engineer.give_tools - a person approves it once) and say exactly where, in its why (the folder's full path, or "email to the owner"), so the agent knows; close the request once it's given.
+- None yet: engineer.hand_to_person, asking where: emailed to them, a Google Drive folder, a Notion page, a folder on this computer, or kept here in the app. Their answer is that agent's place and also becomes the default (engineer.set_report_default) - unless it was "kept in the app", which never is.
+- The person names a place for one agent ("send the bug triage ones to my email instead"): that agent only - give it that tool and leave the default. A place that suits all reports better than the current default - a general one like an "Agent stuff" folder, or they say it's for everything - becomes the default (engineer.set_report_default); agents already delivering somewhere keep their place.
 
 ## When a tool is failing
 Find the cause before you tell anyone what to do. The agent's report is where you start, not the diagnosis: it saw one error, at one moment.
@@ -470,7 +478,7 @@ const TOOLS: ToolDef[] = [
         ...(one_ ? [one_] : []),
       );
       if (!rows.length) return one_ ? `Request #${one_} isn't open.` : 'No open requests.';
-      const out: string[] = [];
+      const out: string[] = one_ ? [] : [reportDefaultForPrompt()];
       // With fifty open the full list was too big to read: those waiting on a person
       // are one line each (request_id for the rest of one).
       const waiting = one_ ? [] : rows.filter(r => r.stage === 'waiting_you' || r.stage === 'person' || r.stage === 'approval');
@@ -868,6 +876,25 @@ const TOOLS: ToolDef[] = [
       const on = withdrawProposal(Number(a.request_id), String(a.why));
       for (const id of on) postToRequest(id, 'engineer', `I took my proposal off the Approvals page: ${String(a.why)} An updated one follows.`);
       return `Withdrawn. Requests back with you: ${on.map(id => `#${id}`).join(', ')}. Propose the updated card now.`;
+    },
+  },
+  {
+    id: 'engineer.set_report_default',
+    tier: 'T0',
+    description:
+      "Set the agency's default place for reports: where agents that report deliver unless the person names another place for one of them. Set it from the person's first answer, or when a place that suits all reports better comes up - never to a place they named for one agent, and never 'kept in the app'.",
+    schema: obj(
+      {
+        where: str('Exactly where: the folder\'s full path, "email to the owner", the Drive folder or the Notion page'),
+        tool: str('The tool that delivers there, e.g. computer_files.write_file or gmail.send_to_me'),
+        why: str('In a few words: why this is the default now'),
+      },
+      ['where', 'tool', 'why'],
+    ),
+    impl: a => {
+      const was = reportDefault();
+      const d = setReportDefault(String(a.where), String(a.tool), String(a.why));
+      return `The agency's default place for reports is now ${d.where} (${d.tool})${was ? `, in place of ${was.where}` : ''}. Agents already delivering somewhere keep their place.`;
     },
   },
   {
