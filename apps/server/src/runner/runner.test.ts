@@ -143,6 +143,20 @@ test('a natural limit refuses the call, and refused calls never count', async ()
   assert.ok(refused > 0);
 });
 
+test('a save the person turned down leaves the weekly limit for the corrected one', async () => {
+  registerTools([{ id: 'zztest.save_week', tier: 'T2', description: 'Save the weekly list', schema: { type: 'object', properties: { path: { type: 'string' } } }, impl: () => 'saved' }]);
+  const weekly = agent({ tiers: { 'zztest.save_week': 'T2' }, limits: [{ tool: 'zztest.save_week', max: 1, per_hours: 168, why: 'one list a week' }] });
+  const ctx = { agent: weekly, runId: 'r_week', level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} };
+  const ids = new Map([['zztest__save_week', 'zztest.save_week']]);
+  const first = await execute(ctx, { id: 'w1', name: 'zztest__save_week', args: { path: '~/Documents/Wrong/list.md' } }, ids);
+  assert.equal(first.outcome, 'queued');
+  exec("UPDATE approvals SET status = 'rejected' WHERE tool = 'zztest.save_week'");
+  const again = await execute(ctx, { id: 'w2', name: 'zztest__save_week', args: { path: 'C:/Right/list.md' } }, ids);
+  assert.equal(again.outcome, 'queued'); // not "limited to 1 per 7 days"
+  const third = await execute(ctx, { id: 'w3', name: 'zztest__save_week', args: { path: 'C:/Right/other.md' } }, ids);
+  assert.equal(third.outcome, 'refused'); // the corrected one does count
+});
+
 test('T2 actions are queued for approval, never run, the run carries on, and they count', async () => {
   setLevel(RELENTLESS);
   let sent = 0;

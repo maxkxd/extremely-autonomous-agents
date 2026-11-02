@@ -534,8 +534,11 @@ export function limitHit(agent: AgentDef, id: string, now: number): string | nul
   const limit = agent.limits.find(l => l.tool === id);
   if (!limit) return null;
   const since = now - limit.per_hours * 3_600_000;
+  // One a person turned down (or let expire) didn't happen, so it doesn't use the limit up:
+  // Event Scout's save to the wrong folder was rejected, and its corrected one refused for the week.
   const done = one<{ n: number }>(
-    "SELECT COUNT(*) AS n FROM actions WHERE agent_id = ? AND tool = ? AND at >= ? AND outcome IN ('ok', 'queued')",
+    `SELECT COUNT(*) AS n FROM actions a WHERE a.agent_id = ? AND a.tool = ? AND a.at >= ? AND (a.outcome = 'ok' OR (a.outcome = 'queued'
+       AND NOT EXISTS (SELECT 1 FROM approvals p WHERE p.id = a.approval_id AND p.status IN ('rejected', 'expired', 'withdrawn'))))`,
     agent.id,
     id,
     since,
