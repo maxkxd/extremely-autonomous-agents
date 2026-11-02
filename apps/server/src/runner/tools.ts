@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, relative, sep } from 'node:path';
 import { CATALOG, CONNECT_LABEL, type Tier } from '../catalog.js';
-import { FLEET_ENGINEER, type AgentDef } from './agent.js';
+import { FLEET_ENGINEER, realName, type AgentDef } from './agent.js';
 import { all, getSetting, one, run } from './db.js';
 import { readMeta } from '../files.js';
 import { loadPerson } from '../org.js';
@@ -466,11 +466,12 @@ const WHY = 'For the person approving: one or two plain sentences on why this, w
 
 // The email of the person an agent works for: its owner, or with none the agency's
 // own person (the host, or its only person). Null: nobody known.
-// "Email me" is the agency owner's inbox (decided 2026-11-02) - the person running
-// the agency, not the mailbox's owner nor a teammate who made the agent.
+// "Email me" is the agent's owner's inbox (decided 2026-11-02): in an organization,
+// Jo's agent emails Jo, not Sam who hosts it; in your own agency that's you. Never
+// the mailbox's owner. An owner with no email on file gets null, not someone else's.
 export async function ownerEmail(agentId: string): Promise<string | null> {
   const meta = await readMeta(agentId);
-  let name = getSetting<string | null>('host_person', null) ?? meta?.owner ?? null;
+  let name = realName(meta?.owner) ?? getSetting<string | null>('host_person', null);
   if (!name) {
     const people = (await readdir(join(DATA_DIR, 'people')).catch(() => [] as string[])).filter(f => f.endsWith('.json'));
     if (people.length === 1) name = people[0].replace(/\.json$/, '');
@@ -707,7 +708,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
       counted: 0,
     });
   try {
-    // A report goes to the agency owner, whatever the agent passed.
+    // A report goes to the agent's owner (ownerEmail), whatever the agent passed.
     if (id === 'gmail.send_to_me') call = { ...call, args: { ...call.args, _to: (await ownerEmail(ctx.agent.id)) ?? undefined } };
     let content = await impl.impl(call.args, ctx);
     healthOk(ctx.agent.id, id, ctx.now());
