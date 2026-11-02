@@ -308,6 +308,28 @@ function Agency() {
   const [realIds, setRealIds] = useState<Set<string>>(new Set());
   // Only the built-in agents so far (once the server has said so, so it never flashes on).
   const firstAgent = realIds.size > 0 && AGENTS.every(a => a.builtIn);
+  // The crayon tip only where it fits: in a narrower window it ran under Stop agency
+  // and Built-ins. Its width is kept from when it was last shown.
+  const headerRef = useRef<HTMLElement>(null);
+  const tipRef = useRef<HTMLSpanElement>(null);
+  const tipWidth = useRef(0);
+  const [tipFits, setTipFits] = useState(true);
+  useEffect(() => {
+    const h = headerRef.current;
+    if (!firstAgent || !h) return;
+    const check = () => {
+      if (tipRef.current) tipWidth.current = tipRef.current.offsetWidth;
+      const title = h.querySelector<HTMLElement>('.header-title');
+      const right = h.querySelector<HTMLElement>('.header-right');
+      if (!title || !right) return;
+      const rest = [...title.children].filter(c => c !== tipRef.current).reduce((n, c) => n + (c as HTMLElement).offsetWidth + 20, 0);
+      setTipFits(rest + tipWidth.current + right.scrollWidth + 48 <= h.clientWidth);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(h);
+    return () => ro.disconnect();
+  }, [firstAgent, view]);
   useEffect(() => {
     const sync = () =>
       agentStatuses().then(s => {
@@ -533,7 +555,7 @@ function Agency() {
             Host offline since {new Date(offlineSince).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. Showing what you last saw; changes wait until it's back.
           </div>
         )}
-        <header className="main-header">
+        <header className="main-header" ref={headerRef}>
           <div className="header-title">
             <h1>{viewLabel(view)}</h1>
             {view === 'approvals' && <DecisionTally approved={decidedToday.approved} rejected={decidedToday.rejected} />}
@@ -544,8 +566,8 @@ function Agency() {
                   New agent
                 </button>
                 {/* Nothing but the built-ins yet: where to begin, in crayon like the tip in Settings. */}
-                {firstAgent && (
-                  <span className="first-agent-tip">
+                {firstAgent && tipFits && (
+                  <span className="first-agent-tip" ref={tipRef}>
                     <Crayon className="first-agent-arrow" viewBox="0 0 60 50" shaft="M57 30 C 44 21, 26 20, 8 28" head="M17 19 C 14 22, 11 25, 6 29 C 11 32, 14 34, 18 38" />
                     <span className="mtip-text">Start here to build your first agent</span>
                   </span>

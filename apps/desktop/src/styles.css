@@ -334,7 +334,11 @@ ul { list-style: none; margin: 0; padding: 0; }
    menu join into one panel of the same width, flush on the background. */
 .range-picker { position: relative; width: 156px; }
 .header-tools { display: flex; align-items: center; gap: 10px; }
-.agency-controls { display: flex; gap: 8px; }
+/* Never squeezed: Standby and Stop ran under Built-ins in a narrower window. The header wraps instead. */
+.agency-controls { display: flex; gap: 8px; flex: none; }
+.header-tools > * { flex-shrink: 0; }
+.header-right { flex-shrink: 0; }
+.main-header { flex-wrap: wrap; row-gap: 10px; }
 .ctl-btn.agency-btn { height: 34px; padding: 0 14px; flex: none; }
 /* Outside a card there's no level colour: Resume takes the plain attention blue. */
 .ctl-btn.agency-btn { --fx: var(--attention); }
