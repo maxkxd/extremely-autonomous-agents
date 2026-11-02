@@ -18,6 +18,7 @@ const base = {
   ferocity: { chill_every_hours: 24, steady_every_hours: 16, driven_every_hours: 12, relentless_every_hours: 6, driven_soft_floor: 3, relentless_floor: 20, apocalyptic_floor: 80, counts: ['web.web_search'], hint: '', extra_effort: '' },
   profile_notes: [],
   person_notes: [],
+  report_place: '',
 };
 
 test('the JSON-text lists come back as lists', () => {

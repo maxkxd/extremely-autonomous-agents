@@ -5,7 +5,7 @@ import { BASELINE, CATALOG_INDEX, catalogForPrompt } from './catalog.js';
 import { integrationEventsForPrompt, integrationToolIds, integrationToolsForPrompt } from './integrations/index.js';
 import { registeredToolIds } from './runner/tools.js';
 import { hostZone } from './runner/clock.js';
-import { reportDefault, reportDefaultForPrompt } from './runner/reports.js';
+import { reportDefault, reportDefaultForPrompt, setReportDefault } from './runner/reports.js';
 import { anthropicKey } from './models/connections.js';
 import { jsonFromAnyModel, NoModelError } from './models/anyModel.js';
 import { fleetForPrompt, type Fleet } from './fleet.js';
@@ -464,6 +464,12 @@ export const BuildSchema = z.object({
   person_notes: z
     .array(z.string())
     .describe(`New facts about the person you're talking to. ${DURABLE}`),
+  report_place: z
+    .string()
+    .optional()
+    .describe(
+      "Where this agent's reports go when the person named a place in this conversation: exactly where (a folder's full path, \"email to the owner\", the Drive folder or Notion page), then \" | \" and the tool that delivers there - e.g. \"C:\\\\Users\\\\sam\\\\Documents\\\\Reports | computer_files.write_file\". Empty when they named none, or chose to keep them in the app.",
+    ),
 });
 
 export type Build = z.infer<typeof BuildSchema>;
@@ -482,6 +488,7 @@ const TEXT_LISTS = ['approval_hours', 'natural_limits', 'new_events'] as const;
 const asJsonText = (k: (typeof TEXT_LISTS)[number]) =>
   z.string().describe(`${BuildSchema.shape[k].description ?? ''} As JSON text: an array of {${Object.keys((BuildSchema.shape[k].element as z.ZodObject).shape).join(', ')}}, or [] for none.`);
 const BuildOutputSchema = BuildSchema.extend({
+  report_place: BuildSchema.shape.report_place.unwrap(), // always said, empty for none
   approval_hours: asJsonText('approval_hours'),
   natural_limits: asJsonText('natural_limits'),
   new_events: asJsonText('new_events'),
@@ -531,10 +538,24 @@ export function unaskedTools(b: Pick<Build, 'tools'>, turns: Turn[], live: Set<s
   return b.tools.filter(t => !live.has(t.id) && UNASKED.some(([tool, words]) => tool.test(t.id) && !words.test(said))).map(t => t.id);
 }
 
+// The first place the person names for any agent's reports becomes the agency's
+// default (runner/reports.ts) - the builder told them so, and nothing else made it true.
+export function firstReportPlace(b: Pick<Build, 'report_place'>) {
+  if (reportDefault()) return;
+  const [where, tool] = (b.report_place ?? '').split(' | ').map(s => s.trim());
+  if (!where || !tool) return;
+  try {
+    setReportDefault(where, tool, 'The first place the person named for reports, while building an agent');
+  } catch {
+    // "kept in the app", or no tool named: not a default.
+  }
+}
+
 export async function build(ctx: Context, turns: Turn[]): Promise<Build> {
   const task = `The interview is over. Write this agent's files from the conversation, for this organisation. ${TIERING}`;
   const once = async (ask: string) => fromOutput(await parse(BuildOutputSchema, ctx, task, [...transcript(turns), { role: 'user', content: ask }], 'high'));
   const b = await once('Build it.');
+  firstReportPlace(b);
   // The agency's default place for reports was asked for once already: its tool isn't unasked.
   const reportTool = reportDefault()?.tool;
   const extra = unaskedTools(b, turns, new Set([...ctx.fleet.tools.map(t => t.id), ...integrationToolIds(), ...(reportTool ? [reportTool] : [])]));
