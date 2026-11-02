@@ -17,7 +17,7 @@ import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals } from './approvals.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, APOCALYPTIC_GAP_MS, backstop, RELENTLESS, scheduledDue, STEADY } from './ferocity.js';
-import { fileRequest, toolsFor } from './tools.js';
+import { fileRequest, settleJoined, toolsFor } from './tools.js';
 import { finishSetups } from './setup.js';
 import { costOf, isFree, spentThisMonth, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
@@ -150,6 +150,8 @@ export async function tick(deps: RunDeps = liveDeps) {
     const now = deps.now();
     expireApprovals(now, book);
     dropStaleRequestRuns();
+    // Requests that joined another agent's (one per connection), once it's settled.
+    settleJoined((agentId, trigger, task) => book(agentId, trigger as Trigger, task), now);
     // Events due a check (events.ts): in the background, so a slow service never holds up a tick.
     void pollEvents(book).catch(e => console.error('Polling events failed:', (e as Error).message));
     for (const id of await listIds()) {

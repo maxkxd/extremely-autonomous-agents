@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import { currentActor, personFor } from './access.js';
-import { BASELINE, CATALOG_INDEX, toolId, type Tier } from './catalog.js';
+import { BASELINE, CATALOG_INDEX, toolId, toolTitle, type Tier } from './catalog.js';
 import { kpiLabels, readMeta, remove, save, type AgentFiles } from './files.js';
 import { scanFleet } from './fleet.js';
 import { integrationToolIds, liveEventIds } from './integrations/index.js';
@@ -84,7 +84,10 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
     if (!mine && (registered.has(id) || CATALOG_INDEX.has(id) || BASELINE.some(b => toolId(b.server, b.tool.name) === id))) continue;
     const t = fleet.tools.find(x => x.id === id);
     const server = id.split('.')[0];
-    missing.set(server, [...(missing.get(server) ?? []), { id, does: mine?.description ?? t?.description ?? '', input: mine?.input_schema, usedBy: t?.usedBy }]);
+    // Its own reason for its own tools; for one it shares with another agent, the tool's
+    // plain name - that agent's description says what *it* uses it for ("to find which
+    // bike they ride" turned up on Workshop Overstays' request).
+    missing.set(server, [...(missing.get(server) ?? []), { id, does: mine?.description ?? toolTitle(id), input: mine?.input_schema, usedBy: t?.usedBy }]);
   }
   // Events nothing provides yet: with that service's tools when it has some to
   // build (one job, one connection - Infrastructure SRE filed 13 requests), else

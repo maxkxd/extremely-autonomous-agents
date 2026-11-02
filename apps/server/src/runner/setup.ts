@@ -60,7 +60,9 @@ export async function setups(): Promise<Record<string, AgentSetup>> {
   const out: Record<string, AgentSetup> = {};
   for (const id of agents) {
     const rows = all<{ id: number; what: string; status: string; stage: string | null; waiting_on: string | null; service: string | null; stars: number | null }>(
-      "SELECT id, what, status, stage, waiting_on, service, stars FROM requests WHERE agent_id = ? AND setup = 1 AND status IN ('open', 'done') ORDER BY id",
+      // One joined to another agent's (one request per connection) stands as that one does.
+      `SELECT r.id, r.what, r.status, CASE WHEN r.stage = 'joined' THEN p.stage ELSE r.stage END AS stage, COALESCE(r.waiting_on, p.waiting_on) AS waiting_on, r.service, COALESCE(r.stars, p.stars) AS stars
+       FROM requests r LEFT JOIN requests p ON p.id = r.joined_to WHERE r.agent_id = ? AND r.setup = 1 AND r.status IN ('open', 'done') ORDER BY r.id`,
       id,
     );
     // One line per kind of service (its tools and its events are one connector).

@@ -43,6 +43,9 @@ export function openDb(path = FILE): DatabaseSync {
     'ALTER TABLE requests ADD COLUMN service TEXT',
     'ALTER TABLE requests ADD COLUMN stars INTEGER',
     'ALTER TABLE agent_state ADD COLUMN setup INTEGER',
+    // One request per connection (tools.ts): another agent's ask for a service that
+    // already has an open request joins it - the request it joined (its stage 'joined').
+    'ALTER TABLE requests ADD COLUMN joined_to INTEGER',
   ])
     try {
       db.exec(sql);

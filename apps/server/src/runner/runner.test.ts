@@ -12,9 +12,9 @@ import { book, dropStaleRequestRuns, engineerCanJoin, engineerScope, nextRun } f
 import { forgetAgentRuns } from './forget.js';
 import { decideApproval } from './approvals.js';
 import { fleetReport } from './doctor.js';
-import { answerRequest } from './api.js';
+import { answerRequest, evidenceForPeople } from './api.js';
 import { dropGuesses, notWaitingAlready, rate, requestNotWaiting, withdrawProposal } from './engineer.js';
-import { actsIn, execute, MAX_WAITING_ON_PERSON, registerTools, requestConnections, serviceLabel, tooManyWaiting, WORKSPACES } from './tools.js';
+import { actsIn, execute, MAX_WAITING_ON_PERSON, registerTools, requestConnections, serviceLabel, settleJoined, tooManyWaiting, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
 
@@ -533,6 +533,53 @@ test('tools that need a service nobody connected are asked for, once per service
   connected = true;
   requestConnections(ID, 'Test Agent', tiers, now + 3, () => {});
   assert.deepEqual(all<{ status: string }>("SELECT status FROM requests WHERE status = 'open'"), []); // closed once connected
+});
+
+test('one request per connection: a second agent needing it joins the first, with its own reason, and is settled with it', () => {
+  const now = Date.now();
+  registerTools([{ id: 'gmail.list_messages', tier: 'T0', description: 'Search', schema: {}, impl: () => '', ready: () => false }]);
+  const woke: string[] = [];
+  const wake = (a: string, _t: string, task: string) => woke.push(`${a}: ${task}`);
+  requestConnections('parts-pull', 'Parts Pull List', { 'gmail.list_messages': 'T0' }, now, wake);
+  requestConnections('overstays', 'Workshop Overstays', { 'gmail.list_messages': 'T0' }, now, wake);
+  requestConnections('overstays', 'Workshop Overstays', { 'gmail.list_messages': 'T0' }, now + 1, wake); // not again while joined
+  const rows = all<{ id: number; agent_id: string; stage: string; joined_to: number | null }>('SELECT id, agent_id, stage, joined_to FROM requests ORDER BY id');
+  assert.deepEqual(
+    rows.map(r => [r.agent_id, r.stage, r.joined_to]),
+    [
+      ['parts-pull', 'engineer', null],
+      ['overstays', 'joined', rows[0].id],
+    ],
+  );
+  assert.equal(woke.length, 1, 'only the first goes to the Agency Engineer');
+  // Settled: every agent waiting on it is answered and woken.
+  exec("UPDATE requests SET status = 'done', answer = 'Gmail is connected.' WHERE id = ?", rows[0].id);
+  woke.length = 0;
+  assert.deepEqual(settleJoined(wake, now + 2), [rows[1].id]);
+  assert.equal(one<{ status: string; answer: string }>('SELECT status, answer FROM requests WHERE id = ?', rows[1].id)?.answer, 'Gmail is connected.');
+  assert.deepEqual(woke, [`overstays: Request #${rows[1].id} is answered: Gmail is connected.`]);
+});
+
+test("one request per connection: turned down for the first agent, the next carries it on", () => {
+  const add = (agentId: string, joined: number | null = null) =>
+    Number(exec("INSERT INTO requests (agent_id, what, why, status, created_at, stage, service, joined_to) VALUES (?, 'Set up Square', 'x', 'open', 1, ?, 'square', ?)", agentId, joined ? 'joined' : 'engineer', joined).lastInsertRowid);
+  const lead = add('parts-pull');
+  const [b, c] = [add('overstays', lead), add('bike-fit', lead)];
+  exec("UPDATE requests SET status = 'rejected' WHERE id = ?", lead);
+  const woke: string[] = [];
+  settleJoined(a => woke.push(a));
+  const row = (id: number) => one<{ status: string; stage: string; joined_to: number | null }>('SELECT status, stage, joined_to FROM requests WHERE id = ?', id);
+  assert.deepEqual({ ...row(b) }, { status: 'open', stage: 'engineer', joined_to: null });
+  assert.deepEqual({ ...row(c) }, { status: 'open', stage: 'joined', joined_to: b });
+  assert.deepEqual(woke, ['fleet']);
+});
+
+test("a request shows people its reasons, not the tool ids for the Agency Engineer", () => {
+  assert.equal(
+    evidenceForPeople('Tools: square.list_bookings, square.search_inventory\nEvents: square.new_booking\nsquare.list_bookings expects: {"type":"object"}\nAlso used by Parts Pull List.'),
+    'Also used by Parts Pull List.',
+  );
+  assert.equal(evidenceForPeople('Tools: square.list_bookings'), null);
 });
 
 test('the agency on standby: nothing starts by itself, a person is still answered, and an agent stopped on its own stays stopped', () => {

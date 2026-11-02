@@ -128,7 +128,7 @@ A no to the way you picked (HubSpot) is rarely a no to what the agent needs (som
 - Brevity is everything: the person reading may not be technical. Leave out what's implied or minor - no edge cases, no hypothetical risks, no testing details.
 - Each step on its own line, numbered (1. 2. 3.); points on their own lines starting with "- ". The app shows them as lists.
 - Steps for a service's own console (keys, scopes, tokens, sign-up) come from its current docs, read this run (web.fetch_page) - not memory. Never say it changed ("no longer needs a developer token") unless those docs say so. If you couldn't check, say "if it asks for X". A wrong step leaves the person stuck in another site.
-- When another request needs the same thing (the same repository, key or decision), point to it instead of asking again: write "request #41" - the person can click it. Do the shared work once and use it for both.
+- When another request needs the same thing (the same repository, key or decision), do the shared work once and use it for both. Point to it ("request #41" - the person can click it) only when both agents have the same owner (engineer.list_requests says whose each is): in an organisation people see only their own agents' requests, so for anyone else say in full what they need to do. Requests for the same connection are joined into one for you - they show under it as "Also waiting on this".
 - An agent asking again what one of its own requests already asks the person (missing files, a decision): don't give them a second item. Add anything new to that request (engineer.reply_to_request on it), then close this one (engineer.close_request) telling the agent which request it's in.
 
 ## Rules
@@ -188,7 +188,7 @@ export async function ensureFleetEngineer() {
 
 // --- Requests ------------------------------------------------------------------------
 
-type RequestRow = { id: number; agent_id: string; what: string; why: string; evidence: string | null; expected_effect: string | null; status: string; stage: string | null; created_at: number; setup: number | null; stars: number | null };
+type RequestRow = { id: number; joined_to?: number | null; agent_id: string; what: string; why: string; evidence: string | null; expected_effect: string | null; status: string; stage: string | null; created_at: number; setup: number | null; stars: number | null };
 
 export function postToRequest(id: number, from: 'engineer' | 'you', text: string, now = Date.now()) {
   exec('INSERT INTO request_messages (request_id, from_who, text, at) VALUES (?, ?, ?, ?)', id, from, text.slice(0, 6000), now);
@@ -203,10 +203,14 @@ const ASKED_TO_CONNECT = /Settings\s*->\s*Connectors\s*->\s*Integrations\s*->\s*
 // A request switched to another service (the person uses Wix, not PostHog): the
 // ones still waiting on the old one shared the need, so they move too - left
 // behind, they'd still show "Connect PostHog". Each says why. The ones moved.
-export function moveSharedWaits(requestId: number, from: { id: string; name: string }, to: { id: string; name: string }): number[] {
+// It names the request it followed only for the same owner's: in an organisation,
+// people see only their own agents' requests.
+export async function moveSharedWaits(requestId: number, from: { id: string; name: string }, to: { id: string; name: string }): Promise<number[]> {
   const ids = all<{ id: number }>("SELECT id FROM requests WHERE status = 'open' AND stage = 'waiting_you' AND waiting_on = ? AND id <> ?", from.id, requestId).map(r => r.id);
+  const lead = await ownerOfRequest(requestId);
   for (const id of ids) {
-    postToRequest(id, 'engineer', `Changed: ${to.name} instead of ${from.name} (see request #${requestId}) - the same connection covers this one too.\n\nSettings -> Connectors -> Integrations -> ${to.name}`);
+    const see = (await ownerOfRequest(id)) === lead ? ` (see request #${requestId})` : '';
+    postToRequest(id, 'engineer', `Changed: ${to.name} instead of ${from.name}${see} - the same connection covers this one too.\n\nSettings -> Connectors -> Integrations -> ${to.name}`);
     exec('UPDATE requests SET waiting_on = ? WHERE id = ?', to.id, id);
   }
   return ids;
@@ -399,6 +403,21 @@ export async function dropGuesses(agentId: string, servers: string[], provided: 
 }
 
 const nameOf = async (agentId: string) => (await readMeta(agentId))?.name ?? agentId;
+// Whose an agent is: its maker in an organisation, by id where there is one.
+const ownerOf = async (agentId: string) => {
+  const m = await readMeta(agentId);
+  return m?.ownerId ?? m?.owner ?? null;
+};
+async function ownerOfRequest(id: number) {
+  const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', id);
+  return r ? ownerOf(r.agent_id) : null;
+}
+// Requests that joined this one (one per connection, tools.ts), still open.
+const joinedTo = (id: number) =>
+  all<{ id: number; agent_id: string; why: string; service: string | null }>("SELECT id, agent_id, why, service FROM requests WHERE joined_to = ? AND status = 'open' ORDER BY id", id);
+// This request, and any joined to it, join another (the same connection, already asked of the person).
+const joinRequest = (id: number, into: number, waitingOnId: string | null) =>
+  exec("UPDATE requests SET joined_to = ?, stage = 'joined', waiting_on = COALESCE(?, waiting_on) WHERE id = ? OR joined_to = ?", into, waitingOnId, id, id);
 
 // Who a publish_integration card gives the connection to: the agent it's for, then any grouped with it.
 type Grant = { for_agent: string; request_id: number; tools: { id: string; tier: Tier }[] };
@@ -406,6 +425,24 @@ const grantsOf = (a: Record<string, unknown>): (Grant & { stars?: unknown })[] =
   { for_agent: String(a.for_agent), request_id: Number(a.request_id), tools: (a.tools as Grant['tools']) ?? [], stars: a.stars },
   ...((a.also as (Grant & { stars?: unknown })[] | undefined) ?? []).map(g => ({ for_agent: String(g.for_agent), request_id: Number(g.request_id), tools: g.tools ?? [], stars: g.stars })),
 ];
+
+// A card's grants, and the agents joined to their requests (one request per
+// connection): each with the tools it holds from that service - none known
+// (the service's own names differ), and it gets what the connection provides.
+async function withJoined(grants: Grant[]): Promise<Grant[]> {
+  const out = [...grants];
+  for (const g of grants)
+    for (const j of joinedTo(g.request_id)) {
+      if (out.some(x => x.for_agent === j.agent_id)) continue;
+      const agent = await loadAgent(j.agent_id);
+      if (!agent) continue;
+      const tools = Object.entries(heldTools(agent))
+        .filter(([t]) => !!j.service && t.split('.')[0] === j.service)
+        .map(([id, tier]) => ({ id, tier }));
+      out.push({ for_agent: j.agent_id, request_id: j.id, tools });
+    }
+  return out;
+}
 
 // --- Tool history --------------------------------------------------------------------
 // How tools have actually done for the agents holding them, from the action log
@@ -473,7 +510,7 @@ const TOOLS: ToolDef[] = [
       // what's yours to do (not waiting on a person), oldest first.
       const one_ = Number(a.request_id) || 0;
       const rows = all<RequestRow>(
-        `SELECT * FROM requests WHERE status = 'open' AND agent_id != ?${one_ ? ' AND id = ?' : ''} ORDER BY (what LIKE 'Fix the tool %') DESC, (stage = 'engineer') DESC, id`,
+        `SELECT * FROM requests WHERE status = 'open' AND agent_id != ?${one_ ? ' AND id = ?' : ' AND joined_to IS NULL'} ORDER BY (what LIKE 'Fix the tool %') DESC, (stage = 'engineer') DESC, id`,
         FLEET_ENGINEER,
         ...(one_ ? [one_] : []),
       );
@@ -485,14 +522,22 @@ const TOOLS: ToolDef[] = [
       for (const r of rows) {
         if (waiting.includes(r)) continue;
         const thread = all<{ from_who: string; text: string }>('SELECT from_who, text FROM request_messages WHERE request_id = ? ORDER BY id', r.id);
+        const also = joinedTo(r.id);
         out.push(
           [
-            `#${r.id} from ${await nameOf(r.agent_id)} (${r.agent_id}) · stage: ${r.stage ?? 'new'}`,
+            `#${r.id} from ${await nameOf(r.agent_id)} (${r.agent_id}) · owner: ${(await readMeta(r.agent_id))?.owner ?? 'the host'} · stage: ${r.stage ?? 'new'}`,
+            r.joined_to && `  Joined request #${r.joined_to} (the same connection): it settles with that one - act on #${r.joined_to}.`,
             `  Needs: ${r.what}`,
             `  Why: ${r.why}`,
             r.evidence && `  Tried / shows: ${r.evidence}`,
             r.expected_effect && `  Once it has it: ${r.expected_effect}`,
             thread.length && `  Conversation:\n${thread.map(m => `    ${m.from_who === 'you' ? 'Person' : 'You'}: ${m.text}`).join('\n')}`,
+            also.length &&
+              `  Also waiting on this (one request for all: giving the connection, or closing this, settles them too - don't ask their people separately; publish_integration adds them to the card):\n${(
+                await Promise.all(
+                  also.map(async j => `    #${j.id} ${await nameOf(j.agent_id)} (${j.agent_id}), owner: ${(await readMeta(j.agent_id))?.owner ?? 'the host'}: ${j.why.replace(/\s+/g, ' ').slice(0, 300)}${(await missingTools(j.agent_id)).replace(/\s+/g, ' ')}`),
+                )
+              ).join('\n')}`,
           ]
             .filter(Boolean)
             .join('\n') + (await missingTools(r.agent_id)) + namedToolHistory(r),
@@ -505,7 +550,8 @@ const TOOLS: ToolDef[] = [
           `Waiting on a person (${waiting.length}) - engineer.list_requests with request_id for one in full:\n${waiting
             .map(r => {
               const said = lastSaid(r.id);
-              return `#${r.id} ${r.agent_id} · ${r.stage}: ${r.what.slice(0, 120)}${said ? `\n    they said: ${said.replace(/\s+/g, ' ').slice(0, 200)}` : ''}`;
+              const also = joinedTo(r.id);
+              return `#${r.id} ${r.agent_id} · ${r.stage}: ${r.what.slice(0, 120)}${also.length ? `\n    also waiting on it: ${also.map(j => `${j.agent_id} (#${j.id})`).join(', ')}` : ''}${said ? `\n    they said: ${said.replace(/\s+/g, ' ').slice(0, 200)}` : ''}`;
             })
             .join('\n')}`,
         );
@@ -658,15 +704,31 @@ const TOOLS: ToolDef[] = [
       // Asked already: the person has the steps - saying them again is noise.
       const was = one<{ waiting_on: string | null; stage: string | null }>('SELECT waiting_on, stage FROM requests WHERE id = ?', r.id);
       if (was?.waiting_on === i.id && was.stage === 'waiting_you') return `Request #${r.id} is already waiting on the person to connect ${i.name}, with the steps. Nothing more to say on it; you'll be woken when it's connected.`;
+      // Another agent's request already asks for this connection: one card for both (tools.ts).
+      const lead = one<{ id: number }>(
+        "SELECT id FROM requests WHERE status = 'open' AND stage = 'waiting_you' AND waiting_on = ? AND joined_to IS NULL AND id <> ? AND agent_id <> ? ORDER BY id LIMIT 1",
+        i.id,
+        r.id,
+        r.agent_id,
+      );
+      if (lead) {
+        joinRequest(r.id, lead.id, i.id);
+        return `Request #${r.id} joined request #${lead.id}, which already asks the person to connect ${i.name}: one card, listing every agent waiting on it. Nothing to post on #${r.id}; both settle when ${i.name} is connected.`;
+      }
       // Added here, not left to the message: the real key page, and the place in
       // Settings (the app shows it as a button that opens it, glowing).
+      // One that uses another connection's key (key_from: "Serper (more tools)" on
+      // "Serper (Google)"): the place is that one - where the key or sign-in goes -
+      // not the extension, or the app's button opens a connector with nothing to fill in.
       const said = String(a.message).trim();
-      postToRequest(r.id, 'engineer', `${said}\n\n${i.keyUrl && !said.includes(i.keyUrl) ? `Get the key here: ${i.keyUrl}\n` : ''}Settings -> Connectors -> Integrations -> ${i.name}`);
+      const place = (i.keyFrom && (await listIntegrations()).find(x => x.id === i.keyFrom!.id)) || i;
+      const keyUrl = place.keyUrl ?? i.keyUrl;
+      postToRequest(r.id, 'engineer', `${said}\n\n${keyUrl && !said.includes(keyUrl) ? `Get the key here: ${keyUrl}\n` : ''}Settings -> Connectors -> Integrations -> ${place.name}`);
       setStage(r.id, 'waiting_you');
       exec('UPDATE requests SET waiting_on = ? WHERE id = ?', i.id, r.id);
       const old = was?.waiting_on && was.waiting_on !== i.id ? was.waiting_on : null;
       const oldName = old ? ((await listIntegrations()).find(x => x.id === old)?.name ?? old) : '';
-      const moved = old ? moveSharedWaits(r.id, { id: old, name: oldName }, { id: i.id, name: i.name }) : [];
+      const moved = old ? await moveSharedWaits(r.id, { id: old, name: oldName }, { id: i.id, name: i.name }) : [];
       return `Asked. Request #${r.id} waits on the person; you'll be woken when ${i.name} is connected.${moved.length ? ` Requests ${moved.map(m => `#${m}`).join(', ')} waited on ${oldName} too and now wait on ${i.name}, with a note saying so.` : ''}`;
     },
   },
@@ -754,7 +816,9 @@ const TOOLS: ToolDef[] = [
         // At most one warning, and only one a non-technical person would clearly care about.
         bullets = [...r.canDo.slice(0, 4), ...(r.warn ? [`Worth knowing: ${r.warn}`] : [])];
       }
-      const names = await Promise.all(grants.map(g => nameOf(g.for_agent)));
+      // The agents joined to these requests get it on the same card (one request per connection).
+      const shown = await withJoined(grants);
+      const names = await Promise.all(shown.map(g => nameOf(g.for_agent)));
       const who = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
       for (const g of grants) {
         setStage(g.request_id, 'approval');
@@ -764,7 +828,7 @@ const TOOLS: ToolDef[] = [
       return {
         name: p.name,
         for_agent_name: who,
-        tools_list: grants.length > 1 ? grants.map((g, i) => `${names[i]}: ${toolsForPeople(g.tools)}`).join('; ') : toolsForPeople(grants[0].tools),
+        tools_list: shown.length > 1 ? shown.map((g, i) => `${names[i]}: ${g.tools.length ? toolsForPeople(g.tools) : 'its tools from it'}`).join('; ') : toolsForPeople(shown[0].tools),
         events_list: (await eventsFor(String(a.for_agent), String(a.integration_id), a.events)).map(toolTitle).join(', '),
         review: [String(a.summary).trim(), p.usesKeyOf && `Uses your ${p.usesKeyOf} connection - nothing new to connect.`, bullets.map(x => `- ${x}`).join('\n')].filter(Boolean).join('\n\n'),
         code_hash: p.codeHash,
@@ -782,7 +846,7 @@ const TOOLS: ToolDef[] = [
         a = { ...a, name: p.name, code_hash: p.codeHash };
       }
       // Requests closed since it was queued (answered another way) are left alone.
-      const grants = grantsOf(a).filter(g => one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE id = ? AND status = 'open'", g.request_id)?.n);
+      const grants = await withJoined(grantsOf(a).filter(g => one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE id = ? AND status = 'open'", g.request_id)?.n));
       const out = await publishIntegration(String(a.integration_id), (a.code_hash as string | null) ?? null);
       if (out.kept) {
         const why = `The new version of ${String(a.name ?? a.integration_id)} failed its test going live (${out.test}), so the version that was working stays live and nobody lost anything. The new one is still a draft.`;
@@ -813,7 +877,8 @@ const TOOLS: ToolDef[] = [
         // it goes back to the engineer for the rest.
         const { missing } = await stillMissing(g.for_agent);
         if (missing.length) {
-          setStage(g.request_id, 'engineer');
+          // Its own now (a joined one too): what's left is for its agent alone.
+          exec("UPDATE requests SET joined_to = NULL, stage = 'engineer' WHERE id = ?", g.request_id);
           const rest = missing.map(t => t.id).join(', ');
           ctx.wake(FLEET_ENGINEER, 'request', `${ids} went live for ${g.for_agent}. Request #${g.request_id} still needs: ${rest}.`);
           // What it has now is usable now: it isn't left waiting on the rest (Market
@@ -966,7 +1031,8 @@ export function startEngineer(book: (agentId: string, trigger: 'request' | 'conn
     exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE agent_id = ? AND service = ? AND what LIKE ? AND status = 'open'", `${name}'s key is in - web search uses it now.`, Date.now(), FLEET_ENGINEER, id, `${FREE_LIMIT}%`);
     const tools = new Set(toolIdsOf(id));
     const rest: number[] = [];
-    for (const r of waitingFor(id, list)) {
+    const waiting = waitingFor(id, list);
+    for (const r of [...waiting, ...waiting.flatMap(w => joinedTo(w).map(j => j.id))]) {
       const req = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', r);
       const agent = req ? await loadAgent(req.agent_id) : null;
       const has = agent ? Object.keys(heldTools(agent)).filter(t => tools.has(t)) : [];

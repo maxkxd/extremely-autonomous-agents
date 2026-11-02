@@ -68,9 +68,10 @@ export function fileRequest(
   direct = false,
 ): number {
   const toEngineer = agentId !== FLEET_ENGINEER;
+  const joins = toEngineer && r.service && CONNECTION_ASK.test(r.what) ? sharedConnectionRequest(agentId, r.service) : null;
   const id = Number(
     run(
-      'INSERT INTO requests (agent_id, run_id, what, why, evidence, expected_effect, created_at, stage, service) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO requests (agent_id, run_id, what, why, evidence, expected_effect, created_at, stage, service, joined_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       agentId,
       runId,
       r.what.slice(0, 500),
@@ -78,14 +79,63 @@ export function fileRequest(
       r.evidence ? r.evidence.slice(0, 4000) : null,
       r.expected_effect ? r.expected_effect.slice(0, 1000) : null,
       now,
-      toEngineer ? 'engineer' : 'person',
+      joins ? 'joined' : toEngineer ? 'engineer' : 'person',
       r.service ?? null,
+      joins,
     ).lastInsertRowid,
   );
-  if (!toEngineer) return id;
+  // Joined another agent's: that one is being worked on, so nobody is woken for this one.
+  if (!toEngineer || joins) return id;
   if (router && !direct) void router(id, wake);
   else wake(FLEET_ENGINEER, 'request', `Request #${id} from ${agentId}: ${r.what.slice(0, 300)}`);
   return id;
+}
+
+// One request per connection (decided 2026-11-02). Two agents needing the same
+// service (both need Square, both need Gmail) filed one "Connect Square" each, and
+// the Agency Engineer wrote "same as request #6" on the second - a request its
+// person, in an organisation, may not even be able to see. Now the second joins the
+// first: one card, listing every agent waiting on it (api.ts), and connecting it
+// once settles it for all (settleJoined, below). Each keeps its own row with
+// its own reason. Within one agency, which is one organisation's.
+const CONNECTION_ASK = /^(Connect|Set up) (?!.* events$)/;
+export function sharedConnectionRequest(agentId: string, service: string): number | null {
+  return (
+    one<{ id: number }>(
+      "SELECT id FROM requests WHERE status = 'open' AND joined_to IS NULL AND service = ? AND agent_id NOT IN (?, ?) AND (what LIKE 'Connect %' OR what LIKE 'Set up %') AND what NOT LIKE '% events' ORDER BY id LIMIT 1",
+      service,
+      agentId,
+      FLEET_ENGINEER,
+    )?.id ?? null
+  );
+}
+
+// Joined requests whose request is settled. Done: so are they, with its answer, and
+// their agents are woken to use it. Turned down or withdrawn (its agent deleted):
+// that was about its agent, not theirs - the first of them carries the ask on, to
+// the Agency Engineer, and the rest join that one. Run every tick (scheduler.ts).
+export function settleJoined(wake: Wake, now = Date.now()): number[] {
+  const rows = all<{ id: number; agent_id: string; what: string; lead: number; status: string; answer: string | null }>(
+    "SELECT j.id, j.agent_id, j.what, p.id AS lead, p.status, p.answer FROM requests j JOIN requests p ON p.id = j.joined_to WHERE j.status = 'open' AND p.status != 'open' ORDER BY j.id",
+  );
+  const next = new Map<number, number>();
+  for (const r of rows) {
+    if (r.status === 'done') {
+      const answer = r.answer?.trim() || 'Done.';
+      run("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, now, r.id);
+      wake(r.agent_id, 'self-booked', `Request #${r.id} is answered: ${answer.slice(0, 600)}`);
+      continue;
+    }
+    const lead = next.get(r.lead);
+    if (lead) {
+      run('UPDATE requests SET joined_to = ? WHERE id = ?', lead, r.id);
+      continue;
+    }
+    next.set(r.lead, r.id);
+    run("UPDATE requests SET joined_to = NULL, stage = 'engineer' WHERE id = ?", r.id);
+    wake(FLEET_ENGINEER, 'request', `Request #${r.id} from ${r.agent_id}: ${r.what.slice(0, 300)}`);
+  }
+  return rows.map(r => r.id);
 }
 
 // What a person calls a tool's service: "a CRM (HubSpot, Zoho, Salesforce)", "Ads".

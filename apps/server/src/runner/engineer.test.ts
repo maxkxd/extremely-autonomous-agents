@@ -204,11 +204,11 @@ test: { tool: zztry.peek, args: {} }
   await discardDraft(id);
 });
 
-test('requests that shared a connection follow one switched to another', () => {
+test('requests that shared a connection follow one switched to another', async () => {
   const add = (waiting: string, stage = 'waiting_you') =>
     Number(exec("INSERT INTO requests (agent_id, what, why, status, created_at, stage, waiting_on) VALUES ('a', 'Set up analytics', 'x', 'open', 1, ?, ?)", stage, waiting).lastInsertRowid);
   const [mine, shared, other, notYet] = [add('wix'), add('posthog'), add('buffer'), add('posthog', 'engineer')];
-  assert.deepEqual(moveSharedWaits(mine, { id: 'posthog', name: 'PostHog' }, { id: 'wix', name: 'Wix Analytics' }), [shared]);
+  assert.deepEqual(await moveSharedWaits(mine, { id: 'posthog', name: 'PostHog' }, { id: 'wix', name: 'Wix Analytics' }), [shared]);
   const on = (id: number) => all<{ waiting_on: string }>('SELECT waiting_on FROM requests WHERE id = ?', id)[0].waiting_on;
   assert.equal(on(shared), 'wix');
   assert.equal(on(other), 'buffer');

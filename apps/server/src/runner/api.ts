@@ -53,6 +53,27 @@ const outputLabel = (tool: string) => {
 };
 const connName = (id: string | null) => PROVIDERS.find(p => p.id === id)?.name ?? id ?? 'Unknown';
 
+// A monthly spend limit as typed (Settings > Usage): dollars above 0, to the cent,
+// up to a million; empty clears it. Anything else is refused, never saved as
+// something else ("-5" was dropped, "abc-5" kept as text, a 20-digit number rounded).
+export const MAX_CAP_USD = 1_000_000;
+export function capUsd(v: unknown): number | null {
+  if (v == null || (typeof v === 'string' && !v.trim())) return null;
+  const s = typeof v === 'number' ? String(v) : typeof v === 'string' ? v.trim().replace(/^\$/, '').replace(/,/g, '') : '';
+  const n = Number(s);
+  if (!/^\d+(\.\d{1,2})?$/.test(s) || !(n > 0) || n > MAX_CAP_USD)
+    throw new Error('A monthly limit is a dollar amount above 0, to the cent at most, like 25 or 12.50 - up to 1,000,000. Leave it empty for no limit.');
+  return n;
+}
+
+// The words of a typed command that could start a server here: a program
+// (npx, uvx, docker...) or a path to one. Plain words ("not a url at all") aren't one.
+const RUNNERS = /^(npx|npm|pnpm|pnpx|yarn|bunx?|node|deno|uvx?|pipx|python[\d.]*|py|docker|podman|java|go|dotnet|ruby|php|cmd|powershell|pwsh|bash|sh)(\.exe|\.cmd)?$/i;
+export const looksLikeCommand = (words: string[]) => {
+  const first = words[0] ?? '';
+  return RUNNERS.test(first) || /[\\/]/.test(first) || /^[a-z]:/i.test(first) || /\.(exe|cmd|bat|sh|py|js|mjs|ts)$/i.test(first) || /^[\w.-]+-mcp(-server)?$|^mcp-[\w.-]+$/i.test(first);
+};
+
 // "npx -y @scope/server C:/My Notes" -> its words; quotes keep spaces together.
 const splitCommand = (s: string) => (s.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map(w => w.replace(/^["']|["']$/g, ''));
 // An address on this computer or its network (a local MCP server the person adds).
@@ -66,6 +87,19 @@ const isLocalAddress = (u: string) => {
 // what the Agency Engineer drafted for it goes, and so does its go-live card.
 // A run's task about request #N ("Request #4 from ...", "... replied on request #4: ...").
 const mentions = (task: string | null, id: number) => new RegExp(`request #${id}\\b`, 'i').test(task ?? '');
+
+// What an agent's request shows a person of its evidence: not the lines for the
+// Agency Engineer - the tool and event ids it names ("Tools: square.list_bookings,
+// ..."), their inputs, how a service signals - the why already says them in words.
+const FOR_ENGINEER = /^\s*((Tools|Events): |[\w-]+\.[\w.-]+ (expects: |- how the service tells it:)|Input it expects:)/;
+export const evidenceForPeople = (evidence: unknown) => {
+  const kept = String(evidence ?? '')
+    .split('\n')
+    .filter(l => !FOR_ENGINEER.test(l))
+    .join('\n')
+    .trim();
+  return kept || null;
+};
 
 // A person's reply on a request wakes the Agency Engineer. Replies sent while
 // that wake is still waiting join it, so one run answers them all, not one each.
@@ -157,10 +191,14 @@ export const runnerRoutes: Record<string, Route> = {
       // so Apocalyptic's card said 312 a day while it ran every few hours.
       const waitingOnTools = !!agent && !BUILT_IN_IDS.includes(id) && blockedOnConnections(agent);
       const runsPerDay = waitingOnTools ? levels.map((n, i) => (i > STEADY ? levels[STEADY] : n)) : levels;
-      const perRun = one<{ acts: number | null }>(
-        "SELECT AVG(acts) AS acts FROM (SELECT acts FROM runs WHERE agent_id = ? AND status = 'succeeded' ORDER BY started_at DESC LIMIT 20)",
+      // Nothing counted in any recent run (a first run with nothing new to report, or
+      // its counted tools not connected yet) says nothing about its rate: null, so the
+      // card shows how often it runs - not "Est. Output: 0" after one quiet run.
+      const recent = one<{ acts: number | null; total: number | null }>(
+        "SELECT AVG(acts) AS acts, SUM(acts) AS total FROM (SELECT acts FROM runs WHERE agent_id = ? AND status = 'succeeded' ORDER BY started_at DESC LIMIT 20)",
         id,
-      )?.acts;
+      );
+      const perRun = recent?.total ? recent.acts : null;
       const last = one<{ started_at: number; ended_at: number | null; status: string }>(
         'SELECT started_at, ended_at, status FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1',
         id,
@@ -196,7 +234,7 @@ export const runnerRoutes: Record<string, Route> = {
         spendCapUsd: st.spend_cap_usd,
         runsPerDay,
         waitingOnTools,
-        perRun: perRun ?? null, // output actions per run, recently (null: never run)
+        perRun: perRun ?? null, // output actions per run, recently (null: never run, or nothing counted yet)
       };
     }
     return out;
@@ -221,6 +259,11 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/runner/agent': async (_req, _q, body) => {
     const b = await body<{ id: string; ferocity?: number; state?: 'active' | 'draining' | 'stopped'; spendCapUsd?: number | null }>();
     if (!isId(b.id)) throw new Error('Unknown agent.');
+    // In an organisation, only the agent's maker or an admin controls it (access.ts).
+    if (b.ferocity !== undefined || b.state !== undefined)
+      await requireMakerOrAdmin(b.id, null, currentActor(), b.state === 'stopped' ? 'stop it' : b.state === 'draining' ? 'put it on standby' : b.state === 'active' ? 'resume it' : 'change its ferocity');
+    if (b.spendCapUsd !== undefined) requireAdmin(currentActor(), 'A spend limit');
+    const cap = b.spendCapUsd !== undefined ? capUsd(b.spendCapUsd) : undefined;
     stateOf(b.id);
     const now = Date.now();
     // Built-ins keep theirs: they work when there's work, with a daily look otherwise.
@@ -236,9 +279,7 @@ export const runnerRoutes: Record<string, Route> = {
       // Its first resume ends setup: its card's setup list is gone for good.
       if (state !== 'stopped') exec('UPDATE agent_state SET setup = NULL WHERE agent_id = ?', b.id);
     }
-    if (b.spendCapUsd !== undefined) requireAdmin(currentActor(), 'A spend cap');
-    if (b.spendCapUsd !== undefined)
-      exec('UPDATE agent_state SET spend_cap_usd = ? WHERE agent_id = ?', b.spendCapUsd == null || b.spendCapUsd < 0 ? null : b.spendCapUsd, b.id);
+    if (cap !== undefined) exec('UPDATE agent_state SET spend_cap_usd = ? WHERE agent_id = ?', cap, b.id);
     return { ok: true, state: stateOf(b.id) };
   },
 
@@ -248,6 +289,7 @@ export const runnerRoutes: Record<string, Route> = {
     if (!isId(id)) throw new Error('Unknown agent.');
     // What the scheduler would never start: refused, not left waiting as a booking for ever.
     if (HELPER_IDS.includes(id)) throw new Error('It works only when an agent needs it - it has no runs of its own.');
+    await requireMakerOrAdmin(id, null, currentActor(), 'run it');
     if (stateOf(id).state === 'stopped') throw new Error("It's stopped - resume it first.");
     if ((await readMeta(id))?.status === 'setting-up') throw new Error("It's still being set up.");
     book(id, 'run now', null);
@@ -258,8 +300,9 @@ export const runnerRoutes: Record<string, Route> = {
   'GET /api/dm': async (_req, q) => {
     const id = q.get('id');
     if (!isId(id)) return [];
-    // In an organisation, an agent's DMs are its maker's and the admins' (access.ts).
-    await requireMakerOrAdmin(id, null, currentActor(), 'see its DMs');
+    // In an organisation, an agent's DMs are its maker's and the admins' (access.ts);
+    // the Agency Engineer's are everyone's, as anyone may write to it.
+    if (id !== FLEET_ENGINEER) await requireMakerOrAdmin(id, null, currentActor(), 'see its DMs');
     return all<{ kind: string; body: string; at: number }>('SELECT kind, body, at FROM dm WHERE agent_id = ? ORDER BY at, id', id).map(r => ({
       ...(JSON.parse(r.body) as object),
       kind: r.kind,
@@ -270,9 +313,16 @@ export const runnerRoutes: Record<string, Route> = {
     const { id, text: typed } = await body<{ id: string; text: string }>();
     const text = typed && scrub(typed);
     if (!isId(id) || !text?.trim()) throw new Error('Nothing to send.');
-    await requireMakerOrAdmin(id, null, currentActor(), 'message it');
-    if ((await readMeta(id))?.service) throw new Error('This helper only records what it decides; it takes no messages.');
-    exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", id, JSON.stringify({ kind: 'you', text: text.trim() }), Date.now());
+    // Anyone in the organisation may write to the Agency Engineer; other agents are their maker's and the admins'.
+    if (id !== FLEET_ENGINEER) await requireMakerOrAdmin(id, null, currentActor(), 'message it');
+    const meta = await readMeta(id);
+    if (meta?.service) throw new Error('This helper only records what it decides; it takes no messages.');
+    // A stopped agent runs nothing, so a message would wait unanswered: refused, saying how to get a reply.
+    if (agencyState() === 'stopped') throw new Error('The agency is stopped - resume it to get a reply.');
+    if (stateOf(id).state === 'stopped') throw new Error(`${meta?.name ?? 'This agent'} is stopped - resume it to get a reply.`);
+    // Who wrote it (by, byId), so everyone sees the right name on it - not whoever's looking.
+    const by = currentActor();
+    exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", id, JSON.stringify({ kind: 'you', text: text.trim(), by: by.name, byId: by.id }), Date.now());
     book(id, 'your message', text.trim());
     return { ok: true };
   },
@@ -280,8 +330,13 @@ export const runnerRoutes: Record<string, Route> = {
   // --- Requests (docs/requests.md) ---
   'GET /api/runner/requests': async () => {
     const rows = all<Record<string, unknown> & { id: number }>(
-      'SELECT id, agent_id, run_id, what, why, evidence, expected_effect, status, stage, answer, created_at, answered_at FROM requests ORDER BY created_at DESC',
+      'SELECT id, agent_id, run_id, what, why, evidence, expected_effect, status, stage, answer, created_at, answered_at, joined_to FROM requests ORDER BY created_at DESC',
     );
+    // One request per connection (tools.ts): a joined one shows as the request it
+    // joined stands - its stage, the connection, the Agency Engineer's steps, its
+    // card - with its own agent's reason. Each of its people sees it on their own.
+    const byId = new Map(rows.map(r => [r.id, r]));
+    const leadOf = (r: Record<string, unknown>) => (r.joined_to != null && r.status === 'open' ? byId.get(Number(r.joined_to)) : undefined);
     const messages = all<{ request_id: number; from_who: string; text: string; at: number }>('SELECT request_id, from_who, text, at FROM request_messages ORDER BY id');
     // What the Agency Engineer is doing and has waiting, to tell which request it's on.
     const onIt = {
@@ -295,20 +350,31 @@ export const runnerRoutes: Record<string, Route> = {
       FLEET_ENGINEER,
     );
     const connections = (await listIntegrations()).map(i => ({ id: i.id, name: i.name }));
-    return rows.map(r => ({
+    return rows.map(row => {
+      const lead = leadOf(row);
+      // The lead's for what it stands at; its engineer's steps with this one's own conversation.
+      const r = lead ? { ...row, stage: row.stage === 'joined' ? lead.stage : row.stage } : row;
+      const said = messages.filter(m => m.request_id === r.id || (lead && m.request_id === lead.id && m.from_who === 'engineer')).sort((x, y) => x.at - y.at);
+      const on = lead ?? r;
+      return {
       ...r,
-      thread: messages.filter(m => m.request_id === r.id).map(m => ({ from: m.from_who === 'you' ? 'you' : 'engineer', text: m.text, at: m.at })),
+      evidence: evidenceForPeople(r.evidence),
+      // The request it joined, and the agents that joined it: one card for all of them.
+      joinedTo: lead?.id ?? null,
+      alsoFor: rows.filter(j => leadOf(j)?.id === r.id).map(j => ({ requestId: j.id, agentId: j.agent_id, why: j.why })),
+      thread: said.map(m => ({ from: m.from_who === 'you' ? 'you' : 'engineer', text: m.text, at: m.at })),
       // Its run for this request is going or waiting - not just any run of its.
-      engineerBusy: r.stage === 'engineer' && (onIt.running.some(t => mentions(t, r.id)) || onIt.queued.some(t => mentions(t, r.id))),
+      engineerBusy: r.stage === 'engineer' && (onIt.running.some(t => mentions(t, on.id)) || onIt.queued.some(t => mentions(t, on.id))),
       // The Requests page shows a request only once it needs the person: the
       // engineer asked them something, handed it to them, or its go-live waits
       // on them. While the engineer is still working it out, it isn't there.
       // Once they've joined in, it stays while the engineer works on their reply.
       needsYou: ['waiting_you', 'approval', 'person'].includes(String(r.stage)) || messages.some(m => m.request_id === r.id && m.from_who === 'you'),
-      approvalId: waiting.find(w => Number(w.request) === r.id)?.id ?? null,
+      approvalId: waiting.find(w => Number(w.request) === on.id)?.id ?? null,
       // The connection it waits for the person to connect, so the page can show one item per connection.
-      waitingOn: r.stage === 'waiting_you' ? waitingOn(r.id, connections) : null,
-    }));
+      waitingOn: r.stage === 'waiting_you' ? waitingOn(on.id, connections) : null,
+      };
+    });
   },
 
   // A person writes to the Agency Engineer on a request; it's woken to answer.
@@ -320,7 +386,8 @@ export const runnerRoutes: Record<string, Route> = {
     await requireMakerOrAdmin(r.agent_id);
     if (!text?.trim()) throw new Error('Nothing to send.');
     postToRequest(r.id, 'you', text.trim());
-    exec("UPDATE requests SET stage = 'engineer' WHERE id = ?", r.id);
+    // One joined to another's stays with it (one request per connection); the engineer reads it there.
+    exec("UPDATE requests SET stage = 'engineer' WHERE id = ? AND joined_to IS NULL", r.id);
     replyToEngineer(r.id, (await readMeta(r.agent_id))?.owner || 'The person', text.trim());
     return { ok: true };
   },
@@ -436,6 +503,14 @@ export const runnerRoutes: Record<string, Route> = {
     const where = b.url?.trim() ?? '';
     const isUrl = /^https?:\/\//i.test(where);
     const command = isUrl ? undefined : splitCommand(where);
+    // An address without https:// ("mcp.example.com/sse") isn't a command either.
+    const bareAddress = /^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(where) && !/\.(exe|cmd|bat|sh|py|js|mjs|ts)$/i.test(where);
+    if (!b.definition && !isUrl && (bareAddress || !looksLikeCommand(command ?? [])))
+      throw new Error(
+        bareAddress
+          ?"That isn't a web address or a command. A web address starts with https://."
+          : "That isn't a web address or a command. Paste the server's address (https://...) or the command that starts it (like npx -y ...).",
+      );
     const local = isUrl ? isLocalAddress(where) : undefined;
     // A command, or a server on the host's own network, runs on the host's computer.
     const def0 = b.definition as { command?: unknown; url?: unknown; local?: unknown } | undefined;
@@ -508,8 +583,8 @@ export const runnerRoutes: Record<string, Route> = {
     return { orgCapUsd: getSetting<number | null>('spend_cap_org_usd', null), spentTodayUsd: spentToday(now), agents };
   },
   'POST /api/usage': async (_req, _q, body) => {
-    const { orgCapUsd } = await body<{ orgCapUsd: number | null }>();
-    setSetting('spend_cap_org_usd', orgCapUsd == null || orgCapUsd < 0 ? null : orgCapUsd);
+    const { orgCapUsd } = await body<{ orgCapUsd: unknown }>();
+    setSetting('spend_cap_org_usd', capUsd(orgCapUsd));
     return { ok: true };
   },
 };
