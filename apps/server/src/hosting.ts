@@ -9,6 +9,7 @@ import { getSetting, setSetting } from './runner/db.js';
 import { deleteSecret, getSecret, setSecret } from './vault.js';
 import { HERE_HEADER } from './access.js';
 import { relayState, startRelay, stopRelay } from './relay.js';
+import { connectionBaseUrl, list as listConnections } from './models/connections.js';
 
 // Hosting an organisation (docs/architecture.md, "Accounts and organisations").
 // The person's own agency is this server. The organisation they own runs as a
@@ -44,6 +45,35 @@ async function hostKey(orgId: string) {
   return publicKey;
 }
 
+// A new organisation starts with the AI its owner already connected here (decided
+// 2026-11-02) - it used to start with none, every card saying "No model" right
+// after they'd connected their Claude plan. Once, when its agency first comes up:
+// the Claude plan (the same sign-in on this computer), keys from this vault, and
+// models on this computer. ChatGPT and Copilot sign-ins are connected there again.
+// Changed in the organisation's Connectors after that, never copied again.
+async function shareAi(orgId: string) {
+  const pending = `hosting:${orgId}:share_ai`; // set when it was first hosted here (startHosting)
+  if (!getSetting<boolean>(pending, false)) return;
+  const post = (path: string, body: unknown) =>
+    new Promise<number>((resolve, reject) => {
+      const out = request({ host: '127.0.0.1', port: HOSTED_PORT, method: 'POST', path, headers: { 'content-type': 'application/json' } }, r => {
+        r.resume();
+        resolve(r.statusCode ?? 0);
+      });
+      out.on('error', reject);
+      out.end(JSON.stringify(body));
+    });
+  for (const c of (await listConnections()).filter(c => c.connected)) {
+    if (c.id === 'claude-code') await post('/api/connections/claude-code/check', {});
+    else if (c.kind === 'key' || c.kind === 'local') {
+      const key = c.kind === 'key' ? (await getSecret<{ key: string }>(c.id))?.key : '';
+      if (c.kind === 'key' && !key) continue;
+      await post('/api/connections/key', { id: c.id, key, baseUrl: await connectionBaseUrl(c.id) });
+    }
+  }
+  setSetting(pending, false);
+}
+
 async function launch(h: Hosting) {
   const hostSecret = (await getSecret<string>(`hosting:${h.orgId}:secret`)) ?? '';
   const server = fileURLToPath(new URL('./index.ts', import.meta.url));
@@ -64,7 +94,11 @@ async function launch(h: Hosting) {
   });
   const tag = (d: Buffer) => String(d).replace(/^(?=.)/gm, `[${h.orgName}] `);
   child.stdout?.on('data', d => {
-    if (/eaa server on/.test(String(d))) (up = true), (restarts = 0);
+    if (/eaa server on/.test(String(d))) {
+      up = true;
+      restarts = 0;
+      void shareAi(h.orgId).catch(e => console.error(`[${h.orgName}] sharing your AI connections failed:`, (e as Error).message));
+    }
     process.stdout.write(tag(d));
   });
   child.stderr?.on('data', d => process.stderr.write(tag(d)));
@@ -83,6 +117,7 @@ export async function startHosting(h: Hosting) {
   if (HOSTED_ORG) throw new Error('An organisation’s agency doesn’t host another.');
   const was = hosting();
   if (was && was.orgId !== h.orgId) throw new Error(`This computer already hosts ${was.orgName}.`);
+  if (!was) setSetting(`hosting:${h.orgId}:share_ai`, true);
   setSetting('hosting', h);
   const publicKey = await hostKey(h.orgId);
   if (!child) {
