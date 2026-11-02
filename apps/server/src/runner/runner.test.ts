@@ -299,6 +299,23 @@ test("a key's spending limit is out of allowance, not signed out", async () => {
   assert.match(open[0].what, /run out of its allowance/);
 });
 
+test("a person's reply no AI could answer is booked again; a scheduled run isn't", async () => {
+  setLevel(CHILL);
+  exec('DELETE FROM bookings');
+  const down: Adapter = async () => {
+    throw new ModelError('Key limit exceeded (monthly limit)', 'rate', 403);
+  };
+  await runAgent(agent(), 'scheduled', null, deps(down));
+  assert.equal(all('SELECT id FROM bookings').length, 0);
+  await runAgent(agent(), 'request reply', 'You replied on request #17: "Wix"', deps(down));
+  const again = all<{ trigger: string; task: string; due_at: number }>('SELECT trigger, task, due_at FROM bookings');
+  assert.equal(again.length, 1);
+  assert.equal(again[0].trigger, 'request reply');
+  assert.match(again[0].task, /Wix/);
+  assert.ok(again[0].due_at > Date.now()); // after the backoff, not straight away
+  exec('DELETE FROM bookings');
+});
+
 test('the run posts to its DM channel with argument names only', async () => {
   setLevel(CHILL);
   await runAgent(agent(), 'scheduled', null, deps(fake(1)));

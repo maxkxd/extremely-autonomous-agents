@@ -338,7 +338,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
       while (!turn && !harnessDone) {
         const eligible = eligibleModels(agent, deps).filter(c => !tried.has(choiceKey(c)));
         const pick = pickModel(eligible, health, () => true, deps.now());
-        if (!pick) throw new Error(tried.size ? `Every model failed this turn. Last: ${error}` :noModelReason(agent, deps));
+        if (!pick) throw new Error(tried.size ? `${NO_MODEL_ANSWERED} Last: ${error}` :noModelReason(agent, deps));
         const c = pick.choice;
         tried.add(choiceKey(c));
         const info = deps.modelInfo(c);
@@ -479,6 +479,15 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
 
   if (!stopped) allowance(status, error, endedAt, used?.connection);
 
+  // No AI answered at all (out of credit, every model down): what a person or an
+  // event set off is booked again for after the backoff, as a run the server cut
+  // short is (scheduler.ts) - or a reply to the Agency Engineer was simply lost,
+  // and it sat until its next daily run, after another AI was connected.
+  if (status === 'failed' && error?.startsWith(NO_MODEL_ANSWERED) && !['scheduled', 'apocalyptic'].includes(trigger)) {
+    const due = stateOf(agent.id, endedAt).backoff_until ?? endedAt;
+    exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at, resume_from) VALUES (?, ?, ?, ?, ?, ?)', agent.id, trigger, task, due, endedAt, id);
+  }
+
   if (deps.compact && used) void compactMemory(agent, used, deps).catch(() => {});
   return { id, status, acts, nudges, summary, error };
 }
@@ -487,6 +496,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
 // every agent fails until a person sorts it out, and a raw provider error on
 // each run doesn't say so. One request to the person while it lasts, closed
 // when a run works again.
+export const NO_MODEL_ANSWERED = 'Every model failed this turn.';
 const OUT_OF_ALLOWANCE = /exceeded your (current |monthly )?quota|insufficient_quota|credit balance is too low|out of credits?|quota exceeded|usage limit|key limit exceeded|exceed your available credits|add (more )?credits|insufficient credits/i;
 // Its sign-in or key stopped working after it was set up (a key revoked, Claude
 // Code signed out or uninstalled): every run on it failed, and nothing said why.
