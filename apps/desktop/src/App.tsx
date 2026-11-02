@@ -1,6 +1,6 @@
 import { HelpButton } from './help/HelpButton';
 import { helpTopicFor } from './help/topics';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ChevronRight, Eye, EyeOff, Plus } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
@@ -47,6 +47,7 @@ const DEFAULT_WIDTH = 300;
 const SNAP_SHUT_BELOW = 160;
 const WIDTH_KEY = 'eaa.sidebarWidth';
 const SHUT_KEY = 'eaa.sidebarShut';
+const BUILDER_KEY = scoped('eaa.builderSession');
 
 function readStored<T>(key: string, fallback: T): T {
   try {
@@ -66,6 +67,16 @@ function writeStored(key: string, value: unknown) {
 }
 
 const clamp = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
+
+// Below this window width the sidebar is just its icons (at 800px it took a third of the window).
+const NARROW_QUERY = '(max-width: 999px)';
+const RAIL_WIDTH = 68;
+const isNarrow = () => window.matchMedia(NARROW_QUERY).matches;
+const onNarrowChange = (cb: () => void) => {
+  const mq = window.matchMedia(NARROW_QUERY);
+  mq.addEventListener('change', cb);
+  return () => mq.removeEventListener('change', cb);
+};
 
 // An organisation that can't be reached right now (its host offline, or not
 // hosted anywhere yet) gets a page saying so instead of the agency.
@@ -377,6 +388,11 @@ function Agency() {
   }, [AGENTS.length]);
   const mainBody = useRef<HTMLDivElement>(null);
   useElasticScroll(mainBody);
+  // Each page opens at its top (New agent opened at the bottom, where the last DM was).
+  // A DM scrolls itself to its newest post.
+  useLayoutEffect(() => {
+    if (!view.startsWith('agent:')) mainBody.current?.scrollTo({ top: 0 });
+  }, [view]);
 
   // Settings (a pop-up over the app), and signing out. There's no real sign-in
   // yet, so signing out just shows the signed-out screen.
@@ -438,7 +454,14 @@ function Agency() {
 
   // Creating an agent (docs/agent-creation.md). The conversation lives here so
   // it survives leaving the New agent page.
-  const [builder, setBuilder] = useState<BuilderSession>(NEW_SESSION);
+  // Kept on this computer, so a half-built agent's conversation survives a reload or restart
+  // (it came back empty, with nothing to say it had gone). Mid-thought or mid-build, it
+  // comes back as a conversation to carry on.
+  const [builder, setBuilder] = useState<BuilderSession>(() => {
+    const s = readStored<BuilderSession | null>(BUILDER_KEY, null);
+    return s?.turns?.length ? { ...s, phase: s.phase === 'building' || s.phase === 'matching' ? 'chat' : s.phase, open: false, thinking: false, error: null } : NEW_SESSION;
+  });
+  useEffect(() => writeStored(BUILDER_KEY, builder.turns.length ? builder : null), [builder]);
   // The new agents on the black screen: one you built, or a whole pack.
   const [reveal, setReveal] = useState<{ built: Built[]; leaving: boolean; error: string | null } | null>(null);
   const [arrivingIds, setArrivingIds] = useState<string[]>([]);
@@ -501,6 +524,12 @@ function Agency() {
 
   useEffect(() => writeStored(WIDTH_KEY, width), [width]);
   useEffect(() => writeStored(SHUT_KEY, shut), [shut]);
+  // A narrow window gets just the sidebar's icons; the full one opens over the page.
+  const narrow = useSyncExternalStore(onNarrowChange, isNarrow);
+  const [railOpen, setRailOpen] = useState(false);
+  useEffect(() => {
+    if (!narrow) setRailOpen(false);
+  }, [narrow]);
 
   // The sidebar's left edge is the window's left edge, so the pointer's x is the width.
   // onTap runs instead when the pointer is released without moving (click on the rail).
@@ -541,13 +570,37 @@ function Agency() {
         <Sidebar
           view={view}
           onSelect={setView}
-          width={width}
+          width={narrow ? RAIL_WIDTH : width}
           onResizeStart={startDrag}
           approvalsBadge={approvalsReady ? visibleApprovals(pending, 'mine').length : null}
           requestsBadge={requestsReady ? requestItems(visibleApprovals(openRequests, 'mine')) : null}
           onOpenSettings={setSettings}
           onLogOut={logInOut}
+          compact={narrow}
+          onExpand={() => setRailOpen(true)}
         />
+      )}
+      {narrow && railOpen && (
+        <>
+          <div className="sidebar-backdrop" onClick={() => setRailOpen(false)} />
+          <Sidebar
+            view={view}
+            onSelect={v => {
+              setRailOpen(false);
+              setView(v);
+            }}
+            width={DEFAULT_WIDTH}
+            onResizeStart={startDrag}
+            approvalsBadge={approvalsReady ? visibleApprovals(pending, 'mine').length : null}
+            requestsBadge={requestsReady ? requestItems(visibleApprovals(openRequests, 'mine')) : null}
+            onOpenSettings={s => {
+              setRailOpen(false);
+              setSettings(s);
+            }}
+            onLogOut={logInOut}
+            overlay
+          />
+        </>
       )}
       <main className="main">
         {offlineSince && (
@@ -669,7 +722,12 @@ function Agency() {
               }}
               onGone={id => setRequestGone(prev => ({ ...prev, [id]: true }))}
               onOpenApprovals={openApproval}
-              refs={{ onRequest: openRequest, canOpen: id => openRequests.some(r => r.live === id), onSettings: openIntegration }}
+              // A member opens only their own requests (someone else's showed as a link that did nothing).
+              refs={{
+                onRequest: openRequest,
+                canOpen: id => openRequests.some(r => r.live === id && (isAdmin() || visibleApprovals([r], 'mine').length > 0)),
+                onSettings: openIntegration,
+              }}
               focus={focusRequest}
               onFocused={() => setFocusRequest(null)}
             />
@@ -677,7 +735,11 @@ function Agency() {
             <NewAgent
               session={builder}
               setSession={setBuilder}
-              onBuilt={built => setReveal({ built, leaving: false, error: null })}
+              onBuilt={built => {
+                // The builder steps aside for what it built (it stayed open underneath).
+                setBuilder(s => ({ ...s, open: false }));
+                setReveal({ built, leaving: false, error: null });
+              }}
               agencyStopped={agency === 'stopped'}
               agentsReady={realIds.size > 0}
             />

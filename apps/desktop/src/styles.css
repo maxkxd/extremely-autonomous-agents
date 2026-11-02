@@ -337,7 +337,6 @@ ul { list-style: none; margin: 0; padding: 0; }
 /* Never squeezed: Standby and Stop ran under Built-ins in a narrower window. The header wraps instead. */
 .agency-controls { display: flex; gap: 8px; flex: none; }
 .header-tools > * { flex-shrink: 0; }
-.header-right { flex-shrink: 0; }
 .main-header { flex-wrap: wrap; row-gap: 10px; }
 .ctl-btn.agency-btn { height: 34px; padding: 0 14px; flex: none; }
 /* Outside a card there's no level colour: Resume takes the plain attention blue. */
@@ -1714,8 +1713,10 @@ a.sbtn { text-decoration: none; color: inherit; }
 }
 .model-row:hover:not(:disabled), .model-row.open { background: var(--surface-hover); border-color: var(--border); }
 .model-row:disabled { cursor: default; }
-.model-row-value { display: inline-flex; align-items: center; gap: 7px; min-width: 0; font-size: 13px; font-weight: 600; }
-.model-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+.model-row-value { flex: 1; justify-content: flex-end; display: inline-flex; align-items: center; gap: 7px; min-width: 0; font-size: 13px; font-weight: 600; }
+/* Takes the room the row has: "claude-sonnet-5-5" was cut to "claude-sonnet-…" on every card. */
+.model-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.model-row-effort { flex-shrink: 0; }
 .model-row-effort { font-weight: 500; color: var(--muted); }
 .model-row-chev { flex-shrink: 0; color: var(--muted); transition: transform 0.3s; }
 .model-row.open .model-row-chev { transform: rotate(180deg); }
@@ -2052,3 +2053,44 @@ a.sbtn { text-decoration: none; color: inherit; }
 .notify-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--attention); margin-left: 8px; flex: none; }
 .avatar-with-dot { position: relative; display: inline-flex; flex: none; }
 .notify-dot.on-avatar { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; margin: 0; box-shadow: 0 0 0 2px var(--sidebar); }
+
+/* A narrow window: the sidebar is just its icons (at 800px the full one took a third of the window). */
+.sidebar.compact { padding: 14px 10px; gap: 10px; align-items: stretch; }
+.sidebar.compact .switcher { justify-content: center; padding: 8px 0; }
+.sidebar.compact .nav-square { height: 48px; padding: 0; justify-content: center; }
+.sidebar.compact .nav-square svg { width: 24px; height: 24px; }
+.sidebar.compact .nav-square > span:not(.square-badge) { display: none; }
+.sidebar.compact .square-badge { position: absolute; top: 4px; right: 4px; min-width: 18px; padding: 0 5px; line-height: 18px; font-size: 11px; }
+.sidebar.compact .section-row { justify-content: center; padding: 0; }
+.sidebar.compact .section-toggle { display: none; }
+.sidebar.compact .dm-item { justify-content: center; padding: 8px 0; }
+.sidebar.compact .dm-name { display: none; }
+.sidebar.compact .account-switcher { margin-top: auto; border-top: 1px solid var(--border); }
+/* The full sidebar, opened over the page from the icons. */
+.sidebar.overlay { position: fixed; top: 0; bottom: 0; left: 0; z-index: 40; box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45); }
+.sidebar-backdrop { position: fixed; inset: 0; z-index: 39; background: rgba(0, 0, 0, 0.35); }
+/* The header's buttons wrap onto a second row rather than running off the window's edge. */
+.header-right { flex-shrink: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+.header-tools { flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
+/* Message boxes grow with what you type (up to a point), so a long reply or brief stays readable. */
+.dm-composer textarea, .builder-compose textarea, .custom-input textarea, .eng-composer textarea { field-sizing: content; }
+.builder-compose textarea, .eng-composer textarea { max-height: 200px; }
+.custom-input textarea { max-height: 320px; }
+/* A long link or a part number with no spaces wraps instead of running out of its bubble. */
+.bmsg, .eng-text, .request-detail, .dm-text, .rt-p, .rt-list { overflow-wrap: anywhere; }
+@media (max-width: 1100px) { .request-agent { width: 110px; } }
+/* A long name stays on one line (an 80-character name wrapped to four lines in two places at once). */
+.switcher-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.option-with-avatar { min-width: 0; }
+.option-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dropdown-option > svg { flex-shrink: 0; margin-left: 8px; }
+/* A spending limit that isn't one says why, under its box. */
+.slimit-input { position: relative; }
+.slimit-input.bad { border-color: #e5484d; }
+.slimit-problem { position: absolute; top: 100%; right: 0; z-index: 5; width: 240px; margin-top: 4px; padding: 6px 8px; border-radius: 6px; font-size: 12px; line-height: 1.4; color: #f0a2a4; background: #2a1517; border: 1px solid #5c2629; }
+/* A stopped agent's channel says so where its reply would appear. */
+.dm-stopped { margin: 6px 0 0 48px; padding: 9px 12px; border-radius: 8px; font-size: 13px; color: var(--muted); background: var(--surface-hover); }
+.dash-no-ai { margin-bottom: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--sidebar); }
+/* Keyboard focus in the app's own accent, not the browser's orange outline. */
+:focus-visible { outline: 2px solid var(--attention); outline-offset: 2px; }
+textarea:focus-visible, input:focus-visible { outline: none; }

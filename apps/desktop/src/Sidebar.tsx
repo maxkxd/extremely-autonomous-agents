@@ -22,7 +22,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { ACCOUNT, AGENTS, type Department } from './data';
-import { checkWaitingInvites, currentOrg, isAdmin, myAccountId, myName, onMyName, onWaitingInvites, ownOrg, state, switchAgency, teamOrgs, waitingInvites } from './account';
+import { checkWaitingInvites, currentOrg, myName, onMyName, onWaitingInvites, ownOrg, state, switchAgency, teamOrgs, waitingInvites } from './account';
 import { openSignIn } from './SignIn';
 import { useDismiss } from './useDismiss';
 import { usePhoto } from './photo';
@@ -65,6 +65,9 @@ function MyAvatar({ size }: { size: number }) {
   return <img className="avatar" src={photo} alt="" style={{ width: size, height: size, objectFit: 'cover' }} />;
 }
 
+// The agency you're in now, by name: your own goes by your display name.
+const currentOrgName = () => teamOrgs().find(o => o.id === state.agency)?.name ?? `${myName()}'s agency`;
+
 // Your own agency and each organisation you're in; picking one starts the app
 // in it. "New organization" (or joining one) opens Settings.
 function OrgPicker({ onNew }: { onNew: () => void }) {
@@ -87,7 +90,7 @@ function OrgPicker({ onNew }: { onNew: () => void }) {
       >
         <Avatar label={current} size={34} personal={state.agency === 'personal'} />
         <span className="switcher-text">
-          <span className="switcher-title">{current}</span>
+          <span className="switcher-title" title={current}>{current}</span>
           <span className="switcher-sub">{state.agency === 'personal' ? 'Personal' : 'Organization'}</span>
         </span>
         <ChevronsUpDown size={16} className="muted" />
@@ -107,7 +110,7 @@ function OrgPicker({ onNew }: { onNew: () => void }) {
               >
                 <span className="option-with-avatar">
                   <Avatar label={c.name} size={22} personal={c.id === 'personal'} />
-                  {c.name}
+                  <span className="option-name" title={c.name}>{c.name}</span>
                 </span>
                 {c.id === state.agency && <Check size={15} />}
               </button>
@@ -143,6 +146,9 @@ export function Sidebar({
   requestsBadge,
   onOpenSettings,
   onLogOut,
+  compact = false,
+  overlay = false,
+  onExpand,
 }: {
   view: View;
   onSelect: (v: View) => void;
@@ -152,17 +158,29 @@ export function Sidebar({
   requestsBadge: number | null; // pending requests waiting on this person
   onOpenSettings: (s: SettingsSection) => void;
   onLogOut: () => void;
+  // A narrow window: just the icons. The org and account buttons open the full sidebar over the page.
+  compact?: boolean;
+  overlay?: boolean; // the full sidebar opened over the page from the icons
+  onExpand?: () => void;
 }) {
   const [dmsOpen, setDmsOpen] = useState(true);
   // Clicking the already-selected nav button replays its icon animation: a new
   // key remounts the icon, which restarts the CSS animation.
   const [replay, setReplay] = useState<Record<string, number>>({});
+  const invited = useSyncExternalStore(onWaitingInvites, waitingInvites) > 0;
 
   return (
-    <aside className="sidebar" style={{ width }}>
-      <div className="resize-handle" title="Drag to resize" onPointerDown={onResizeStart} />
+    <aside className={`sidebar${compact ? ' compact' : ''}${overlay ? ' overlay' : ''}`} style={{ width }}>
+      {!compact && !overlay && <div className="resize-handle" title="Drag to resize" onPointerDown={onResizeStart} />}
       {/* Organizations are optional: signed out, or in none, there's no switcher. */}
-      {teamOrgs().length > 0 && <OrgPicker onNew={() => onOpenSettings('organization')} />}
+      {teamOrgs().length > 0 &&
+        (compact ? (
+          <button className="switcher org-switcher" title={`${currentOrgName()} - open the sidebar`} onClick={onExpand}>
+            <Avatar label={currentOrgName()} size={34} personal={state.agency === 'personal'} />
+          </button>
+        ) : (
+          <OrgPicker onNew={() => onOpenSettings('organization')} />
+        ))}
 
       <nav className="nav-squares">
         {NAV.map(({ view: v, label, Icon, badge: fixedBadge }) => {
@@ -171,6 +189,7 @@ export function Sidebar({
             <button
               key={v}
               className={`nav-square${view === v ? ' active' : ''}`}
+              title={compact ? label : undefined}
               onClick={() => {
                 if (view === v) setReplay(r => ({ ...r, [v]: (r[v] ?? 0) + 1 }));
                 onSelect(v);
@@ -202,14 +221,16 @@ export function Sidebar({
 
         {dmsOpen && (
           <ul className="dm-list">
-            {/* In an organisation, a member's own agents; the owner and admins see every one (the host checks too). */}
-            {AGENTS.filter(a => !currentOrg() || isAdmin() || (!!a.ownerId && a.ownerId === myAccountId())).map(a => {
+            {/* Everyone in an organisation sees every agent (and can talk to the Agency Engineer);
+                only an agent's owner or an admin changes it (Dashboard). */}
+            {AGENTS.map(a => {
               const v: View = `agent:${a.id}`;
               const DeptIcon = DEPARTMENT_ICON[a.department];
               return (
                 <li key={a.id}>
                   <button
                     className={`dm-item${view === v ? ' active' : ''}`}
+                    title={compact ? a.name : undefined}
                     onClick={() => onSelect(v)}
                   >
                     <DeptIcon size={15} strokeWidth={1.75} className="dept-icon" aria-label={a.department} />
@@ -222,7 +243,16 @@ export function Sidebar({
         )}
       </div>
 
-      <AccountMenu onOpenSettings={onOpenSettings} onLogOut={onLogOut} />
+      {compact ? (
+        <button className="switcher account-switcher" title={`${myName()} - open the sidebar`} onClick={onExpand}>
+          <span className="avatar-with-dot">
+            <MyAvatar size={34} />
+            {invited && <span className="notify-dot on-avatar" aria-label="An invitation is waiting" />}
+          </span>
+        </button>
+      ) : (
+        <AccountMenu onOpenSettings={onOpenSettings} onLogOut={onLogOut} />
+      )}
     </aside>
   );
 }
@@ -297,7 +327,7 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
           {invited && <span className="notify-dot on-avatar" aria-label="An invitation is waiting" title="An invitation is waiting - open Settings" />}
         </span>
         <span className="switcher-text">
-          <span className="switcher-title">{name}</span>
+          <span className="switcher-title" title={name}>{name}</span>
           <span className="switcher-sub">{ACCOUNT.org ? `${{ owner: 'Owner', admin: 'Admin', member: 'Member' }[currentOrg()?.role ?? 'member']} of ${ACCOUNT.org.name}` : (state.me?.user.email ?? 'Not signed in')}</span>
         </span>
         {state.me && <ChevronsUpDown size={16} className="muted" />}
