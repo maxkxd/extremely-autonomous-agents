@@ -540,14 +540,22 @@ export function unaskedTools(b: Pick<Build, 'tools'>, turns: Turn[], live: Set<s
 
 // The first place a person names for any of their agents' reports becomes their
 // default (runner/reports.ts) - the builder told them so, and nothing else made it true.
-export function firstReportPlace(b: Pick<Build, 'report_place'>, person?: string | null) {
+// Read loosely: the model doesn't always write "place | tool" (the first live build
+// left Sam with none) - the tool is whichever server.tool it names, else the agent's
+// own way of delivering, and the place is what's left.
+const DELIVERS = /^(computer_files\.write_file|gmail\.send_to_me|docs\.|notion\.)/;
+export function firstReportPlace(b: Pick<Build, 'report_place'> & Partial<Pick<Build, 'tools'>>, person?: string | null) {
   if (reportDefault(person)) return;
-  const [where, tool] = (b.report_place ?? '').split(' | ').map(s => s.trim());
-  if (!where || !tool) return;
+  const said = (b.report_place ?? '').trim();
+  if (!said) return;
+  const named = [...said.matchAll(/\b([a-z][a-z0-9_]*\.[a-z][a-z0-9_]*)\b/g)].map(m => m[1]).find(t => DELIVERS.test(t));
+  const tool = named ?? b.tools?.map(t => t.id).find(t => DELIVERS.test(t));
+  const where = (named ? said.replace(named, '') : said).replace(/[|()\s,-]+$/g, '').replace(/^[|()\s,-]+/g, '').trim();
+  if (!where || !tool) return void console.warn(`Builder: couldn't read where reports go from "${said.slice(0, 200)}"`);
   try {
     setReportDefault(where, tool, 'The first place they named for reports, while building an agent', person);
   } catch {
-    // "kept in the app", or no tool named: not a default.
+    // "kept in the app": not a default.
   }
 }
 

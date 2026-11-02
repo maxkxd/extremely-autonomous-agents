@@ -47,3 +47,13 @@ test('the first place a person names while building becomes theirs; a later one,
   assert.equal(reportDefault('Jo Nguyen')?.where, '~/Northside/Agent reports');
   assert.equal(reportDefault('Sam Rivera'), null);
 });
+
+test('where reports go is read however the builder wrote it', async () => {
+  const { firstReportPlace } = await import('../builder.js');
+  const tools = [{ id: 'web.web_search', tier: 'T0' as const, why: '' }, { id: 'computer_files.write_file', tier: 'T2' as const, why: '' }];
+  for (const said of ['C:/Reports (computer_files.write_file)', 'C:/Reports - computer_files.write_file', 'C:/Reports']) {
+    exec("DELETE FROM settings WHERE key IN ('report_defaults', 'report_default')");
+    firstReportPlace({ report_place: said, tools }, 'Sam Rivera');
+    assert.deepEqual([reportDefault('Sam Rivera')?.where, reportDefault('Sam Rivera')?.tool], ['C:/Reports', 'computer_files.write_file'], said);
+  }
+});
