@@ -2094,3 +2094,7 @@ a.sbtn { text-decoration: none; color: inherit; }
 /* Keyboard focus in the app's own accent, not the browser's orange outline. */
 :focus-visible { outline: 2px solid var(--attention); outline-offset: 2px; }
 textarea:focus-visible, input:focus-visible { outline: none; }
+.sconnectors li > .sint-help { grid-column: 1 / -1; margin-top: 6px; }
+/* Your AI assistant: its buttons on their own row, so the description isn't squeezed. */
+.sconnectors li.sint-wide > .sint-actions { grid-column: 1 / -1; grid-row: auto; justify-content: flex-start; flex-wrap: wrap; margin-top: 8px; }
+.sint-actions .sbtn svg { flex-shrink: 0; }

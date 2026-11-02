@@ -532,7 +532,7 @@ function AccountSection() {
 
       <div className="sgroup">
         <h3>Preferences</h3>
-        <Row label="AI IDE" sub='Where "Send to" on a request opens it.'>
+        <Row label="AI assistant" sub='The AI app you use. "Send to" on a request opens it there.'>
           <IdePicker
             value={ide}
             onChange={id => {

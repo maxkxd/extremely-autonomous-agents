@@ -19,6 +19,7 @@ import { DOCTOR } from './doctor.js';
 import { setups } from './setup.js';
 import { postToRequest, waitingOn } from './engineer.js';
 import { sendToIde, type Ide } from './ide.js';
+import { connectAssistant, type Assistant } from './assistant.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals } from './approvals.js';
 import { openProfileForSignIn, profileStatus } from './browser.js';
@@ -396,7 +397,7 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/runner/requests/ide': async (_req, _q, body) => {
     const { id, ide } = await body<{ id: number; ide: Ide }>();
     // It opens on the host computer, so for whoever's at it; for a request on an agent they made, or an admin.
-    if (!currentActor().here) throw new AccessError(403, 'Send to IDE opens on the host computer. Use your own agency MCP address (Settings > Connectors) instead.');
+    if (!currentActor().here) throw new AccessError(403, "Send to opens your AI assistant on the computer the organization runs on, so it only works there.");
     const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', Number(id));
     if (r) await requireMakerOrAdmin(r.agent_id);
     return sendToIde(Number(id), ide);
@@ -406,7 +407,14 @@ export const runnerRoutes: Record<string, Route> = {
   // The agency's own MCP server, for the person's AI IDE (agency-mcp.ts): its
   // address, and a new one (the old stops working) if it was shared by mistake.
   // Yours: the host computer's own person has the standing one; everyone else their own, acting as them.
-  'GET /api/settings/agency-mcp': async () => ({ url: mcpUrlFor() }),
+  // here: whether this person is at the computer the address is on (it only works there).
+  'GET /api/settings/agency-mcp': async () => ({ url: mcpUrlFor(), here: !!currentActor().here }),
+  // Your AI assistant (assistant.ts): opens its one-click install for the agency.
+  'POST /api/settings/assistant/connect': async (_req, _q, body) => {
+    const { app } = await body<{ app: Assistant }>();
+    if (!currentActor().here) throw new AccessError(403, "Your AI assistant connects on the computer the organization runs on, so it only works there.");
+    return connectAssistant(app);
+  },
   'POST /api/settings/agency-mcp': async () => ({ url: mcpUrlFor(currentActor(), true) }),
   // Who the host is (until orgs exist, whoever runs the app): agents made from the IDE are theirs.
   'POST /api/settings/host-person': async (_req, _q, body) => {

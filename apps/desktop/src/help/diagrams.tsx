@@ -465,7 +465,7 @@ function RequestActions({ numbered = false }: { numbered?: boolean }) {
   return (
     <div className={`request-actions${numbered ? ' hd-numbered' : ''}`}>
       <button className="rq-btn ide" disabled>
-        {/* As the real button reads, with your AI IDE (Settings > Account). */}
+        {/* As the real button reads, with your AI assistant (Settings > Account). */}
         <IdeLogo logo={AI_IDES[yourIde()].logo} />
         Send to {AI_IDES[yourIde()].name}
       </button>
@@ -556,7 +556,7 @@ function RequestAnswer() {
         </li>
         <li>
           <b>Send to {AI_IDES[yourIde()].name}</b>
-          <span>Opens your AI IDE on the request, with the agency's tools.</span>
+          <span>Opens your AI assistant on the request (Claude Desktop: a new chat with it typed in).</span>
         </li>
         <li>
           <b>DIY</b>

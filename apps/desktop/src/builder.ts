@@ -301,8 +301,10 @@ export const sendToIde = (id: number, ide: string) =>
 export const sendRequestMessage = (id: number, text: string) => post<{ ok: boolean }>('/api/runner/requests/message', { id, text });
 
 // Whether the Agency Engineer may write code plugins (Settings > Connectors).
-// The agency's own MCP server, for the person's AI IDE; and who the host is.
-export const getAgencyMcp = () => request<{ url: string }>('/api/settings/agency-mcp');
+// The agency's own MCP server, for the person's AI assistant (here: whether they're at the
+// computer it's on, the only place it works); its one-click connect; and who the host is.
+export const getAgencyMcp = () => request<{ url: string; here: boolean }>('/api/settings/agency-mcp');
+export const connectAssistant = (app: string) => post<{ opened: string; assistant: string }>('/api/settings/assistant/connect', { app });
 export const setHostPerson = (name: string, org: string | null) => post<{ ok: boolean }>('/api/settings/host-person', { name, org });
 export const getCodePlugins = () => request<{ allowed: boolean }>('/api/settings/code-plugins');
 export const setCodePlugins = (allowed: boolean) => post<{ allowed: boolean }>('/api/settings/code-plugins', { allowed });

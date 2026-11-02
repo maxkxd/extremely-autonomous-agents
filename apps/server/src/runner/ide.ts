@@ -7,6 +7,7 @@ import { loadAgent } from './agent.js';
 import { mcpUrlFor } from './agency-mcp.js';
 import { all, one } from './db.js';
 import { DATA_DIR } from '../paths.js';
+import { openWithSystem } from './assistant.js';
 
 // Send to your IDE (docs/requests.md): a request handed to the person's own AI
 // IDE. Its folder gets REQUEST.md (the request, its conversation, what to do)
@@ -16,6 +17,8 @@ import { DATA_DIR } from '../paths.js';
 // Antigravity open the folder.
 
 export const IDES = {
+  // Not a folder: a new Claude chat with the request typed in (assistant.ts connects the agency to it).
+  'claude-desktop': { name: 'Claude Desktop', command: '', terminal: false },
   'claude-code': { name: 'Claude Code', command: 'claude', terminal: true },
   codex: { name: 'Codex', command: 'codex', terminal: true },
   cursor: { name: 'Cursor', command: 'cursor', terminal: false },
@@ -67,7 +70,14 @@ export async function sendToIde(requestId: number, ide: Ide): Promise<{ opened: 
   );
   if (!r || r.status !== 'open') throw new Error('That request is closed.');
   const which = IDES[ide];
-  if (!which) throw new Error('Unknown IDE.');
+  if (!which) throw new Error('Unknown AI assistant.');
+  if (ide === 'claude-desktop') {
+    // Claude Desktop's own link opens a new chat with this typed in, for the person to send.
+    const agent = await loadAgent(r.agent_id);
+    const prompt = `Work on request #${r.id} in my agency (Extremely Autonomous Agents), from ${agent?.name ?? r.agent_id}: ${r.what}\n\nWhy: ${r.why}${r.expected_effect ? `\n\nWhat changes once it's done: ${r.expected_effect}` : ''}\n\nUse the Extremely Autonomous Agents connector: list_requests shows this request and its conversation with the Agency Engineer, and answer_request closes it when it's done (say what you did). Keys and sign-ins go in the app's Settings > Connectors, never in this chat.`.slice(0, 12_000);
+    openWithSystem(`claude://claude.ai/new?q=${encodeURIComponent(prompt)}`);
+    return { opened: true, folder: '', prompt, ide: which.name };
+  }
   // The IDE acts as whoever sent it (their own agency MCP address).
   const url = mcpUrlFor();
 

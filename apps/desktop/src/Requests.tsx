@@ -12,20 +12,18 @@ import { Loading, Skel } from './Skeleton';
 // Engineer settles is closed on the server.)
 export type RequestResolution = 'diy' | 'rejected';
 
-// AI IDEs a request can be handed to. Not built yet: needs a connector that
-// finds and opens the IDE, and this system's MCP inside it (docs/requests.md).
-// Logos are Simple Icons where they exist; Codex and Antigravity aren't in
-// that set, so they show a generic code icon until their logos are added.
+// The AI assistants a request can be handed to (runner/ide.ts), and that
+// Settings > Connectors connects the agency to in one click (runner/assistant.ts).
+// Apps people use, not terminals: ChatGPT, claude.ai and Microsoft Copilot
+// can't reach an address on this computer, so they aren't here.
 export const AI_IDES = {
-  'claude-code': { name: 'Claude Code', logo: siClaude },
+  'claude-desktop': { name: 'Claude Desktop', logo: siClaude },
   cursor: { name: 'Cursor', logo: siCursor },
-  codex: { name: 'Codex', logo: null },
-  antigravity: { name: 'Antigravity', logo: null },
 } satisfies Record<string, { name: string; logo: SimpleIcon | null }>;
 
 export type IdeId = keyof typeof AI_IDES;
 
-// Which AI IDE you use (Settings > Account); the button's name and logo follow it.
+// Which AI assistant you use (Settings > Account); the button's name and logo follow it.
 const IDE_KEY = 'eaa.ide';
 export function yourIde(): IdeId {
   try {
@@ -34,7 +32,7 @@ export function yourIde(): IdeId {
   } catch {
     // Storage unavailable - use the default.
   }
-  return 'claude-code';
+  return 'claude-desktop';
 }
 export function setYourIde(id: IdeId) {
   try {
@@ -47,7 +45,8 @@ export function setYourIde(id: IdeId) {
 export function IdeLogo({ logo }: { logo: SimpleIcon | null }) {
   if (!logo) return <Code2 size={15} strokeWidth={1.9} />;
   return (
-    <svg viewBox="0 0 24 24" width={15} height={15} role="img" aria-hidden fill={`#${logo.hex}`}>
+    // A black logo (Cursor's) takes the text colour: on the dark app it disappeared.
+    <svg viewBox="0 0 24 24" width={15} height={15} role="img" aria-hidden fill={logo.hex === '000000' ? 'currentColor' : `#${logo.hex}`}>
       <path d={logo.path} />
     </svg>
   );
@@ -159,18 +158,18 @@ function RequestRow({
     });
   };
 
-  // The IDE opens on the request; ones without a terminal start get the prompt
-  // on the clipboard to paste.
+  // Your AI assistant opens on the request: Claude Desktop as a new chat with it typed
+  // in; Cursor on the request's folder, with the prompt on the clipboard to paste.
   const [sending, setSending] = useState(false);
   const sendIde = async () => {
     if (!request.live) return;
     setSending(true);
     try {
       const r = await sendToIde(request.live, yourIde());
-      const terminal = yourIde() === 'claude-code' || yourIde() === 'codex';
-      if (!r.opened || !terminal) await navigator.clipboard?.writeText(r.prompt).catch(() => {});
+      if (yourIde() === 'claude-desktop') return; // a new chat, with the request typed in
+      await navigator.clipboard?.writeText(r.prompt).catch(() => {});
       if (!r.opened) window.alert(`${r.ide} isn't installed where the app can start it. The request is ready in ${r.folder} - open that folder in ${r.ide} and paste the prompt (copied).`);
-      else if (!terminal) window.alert(`${r.ide} is opening the request's folder. Paste the prompt (copied) into its chat.`);
+      else window.alert(`${r.ide} is opening the request's folder. Paste the prompt (copied) into its chat.`);
     } catch (e) {
       window.alert((e as Error).message);
     } finally {
@@ -281,11 +280,11 @@ function RequestRow({
               </div>
 
               <div className="request-actions">
-                {/* Your AI IDE, with this request and the agency's tools as you (runner/ide.ts). */}
+                {/* Your AI assistant, with this request and the agency's tools as you (runner/ide.ts). */}
                 <button
                   className="rq-btn ide"
                   disabled={!!leaving || sending}
-                  title={`Opens ${AI_IDES[yourIde()].name} on this request, with the agency's tools`}
+                  title={`Opens ${AI_IDES[yourIde()].name} on this request. Connect it to your agency in Settings > Connectors so it can work on it.`}
                   onClick={sendIde}
                 >
                   <IdeLogo logo={AI_IDES[yourIde()].logo} />

@@ -157,6 +157,48 @@ export const HELP_TOPICS = {
       },
     ],
   },
+  // Not a page's own help: a tab in the help window (Settings > Connectors > Your AI assistant).
+  assistant: {
+    title: 'Your AI assistant',
+    version: 1,
+    sections: [
+      {
+        heading: 'Your agency, in the AI app you already use',
+        caption: [
+          'Connect your AI assistant and you can run the whole agency from a chat there: ask what your agents are up to, work through [requests](requests), build or change agents, and check what’s waiting on your [approval](approvals).',
+          'It acts as you, so anything it changes changes straight away - the same as doing it in this app.',
+        ],
+      },
+      {
+        heading: 'Connecting it: one click',
+        caption: [
+          'Open Settings > Connectors, find "Your AI assistant", and click the button for yours:',
+          [
+            'Connect Claude Desktop: Claude Desktop asks to install "Extremely Autonomous Agents". Click Install. Nothing came up? Open Claude Desktop (update it if it’s old) and click the button again.',
+            'Connect Cursor: Cursor asks to install the agency. Click Install.',
+          ],
+          'Using another AI app that can add an MCP server by its address? Click Copy address and paste it into that app’s connector or MCP settings.',
+        ],
+      },
+      {
+        heading: 'Send a request to it',
+        caption: [
+          'Pick your AI assistant in Settings > Account. Every request then has a Send to button for it: Claude Desktop opens a new chat with the request typed in, ready to send.',
+          'Keys and passwords still go in Settings > Connectors, never in a chat.',
+        ],
+      },
+      {
+        heading: 'Good to know',
+        caption: [
+          [
+            'It works while this app is open, on this computer. Close the app and your AI assistant can’t reach the agency until you open it again.',
+            'In an organization, it connects on the computer the organization runs on. A teammate on another computer can’t connect theirs yet.',
+            'ChatGPT, claude.ai in a browser and Microsoft Copilot can’t connect yet: they can only reach addresses on the internet, and your agency stays on your computer.',
+          ],
+        ],
+      },
+    ],
+  },
 } satisfies Record<string, HelpTopic>;
 
 export type HelpTopicId = keyof typeof HELP_TOPICS;

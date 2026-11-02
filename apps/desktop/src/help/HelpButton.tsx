@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
-import { HELP_TOPICS, HELP_TOPIC_IDS, type HelpCaption, type HelpTopicId } from './topics';
+import { HELP_TOPICS, HELP_TOPIC_IDS, type HelpCaption, type HelpSection, type HelpTopicId } from './topics';
 import { DIAGRAMS } from './diagrams';
 import type { View } from '../Sidebar';
 import { markHelpRead, useHelpUnread } from './readState';
@@ -155,7 +155,7 @@ function HelpWindow({
               <X size={18} />
             </button>
           </header>
-          {topic.sections.map(s => {
+          {(topic.sections as HelpSection[]).map(s => {
             const Diagram = s.diagram && DIAGRAMS[s.diagram];
             return (
               <section key={s.heading} className="help-section">

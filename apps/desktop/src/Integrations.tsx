@@ -4,10 +4,12 @@ import { SpinButton } from './ModelConnectors';
 import { SkelRows } from './Skeleton';
 import { isAdmin } from './account';
 import { ACCOUNT } from './data';
+import { AI_IDES, IdeLogo, type IdeId } from './Requests';
 import {
   addMcpIntegration,
   connectIntegration,
   disconnectIntegration,
+  connectAssistant,
   getAgencyMcp,
   getEvents,
   getCodePlugins,
@@ -490,32 +492,56 @@ function CodePlugins() {
   );
 }
 
-// The agency in the person's AI IDE (Claude Code, Cursor...): its MCP server,
-// as Claude Code's add command or the bare address for any other.
+// Your AI assistant (runner/assistant.ts): the whole agency in the AI app you
+// use, in one click - Claude Desktop installs an extension, Cursor its MCP link.
+// The address is on the computer the agency runs on, so it works there (while
+// the app is open); a teammate on another computer can't use it yet.
 function AgencyMcp() {
-  const [url, setUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-  useEffect(() => void getAgencyMcp().then(r => setUrl(r.url), () => {}), []);
-  if (!url) return null;
-  const copy = (what: string, text: string) =>
-    navigator.clipboard?.writeText(text).then(() => {
-      setCopied(what);
-      window.setTimeout(() => setCopied(null), 1600);
+  const [mcp, setMcp] = useState<{ url: string; here: boolean } | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => void getAgencyMcp().then(setMcp, () => {}), []);
+  if (!mcp) return null;
+  const connect = async (app: IdeId) => {
+    setSaid(null);
+    try {
+      const r = await connectAssistant(app);
+      setSaid(
+        app === 'claude-desktop'
+          ? `${r.assistant} is asking to install "Extremely Autonomous Agents" - click Install. Nothing came up? Open Claude Desktop (update it if it's old), then try again.`
+          : `${r.assistant} is asking to install the agency - click Install. Nothing came up? Open ${r.assistant}, then try again.`,
+      );
+    } catch (e) {
+      setSaid((e as Error).message);
+    }
+  };
+  const copy = () =>
+    navigator.clipboard?.writeText(mcp.url).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
     }, () => {});
   return (
-    <li>
-      <span className="sconn-name">Your IDE</span>
+    <li className="sint-wide">
+      <span className="sconn-name">Your AI assistant</span>
       <span className="sconn-what">
-        {ACCOUNT.org ? 'Your own address for Claude Code, Cursor or any MCP client: it can do what you can here' : 'Run the whole agency from Claude Code, Cursor or any MCP client'}
+        {mcp.here
+          ? 'Use your agency from the AI app you already use - one click to connect it. Works while this app is open.'
+          : 'Works on the computer the organization runs on, so it can’t be connected from here yet.'}
       </span>
-      <span className="sint-actions">
-        <button className="sbtn" onClick={() => copy('claude', `claude mcp add --transport http agency ${url}`)}>
-          {copied === 'claude' ? 'Copied' : 'Copy for Claude Code'}
-        </button>
-        <button className="sbtn" onClick={() => copy('url', url)}>
-          {copied === 'url' ? 'Copied' : 'Copy address'}
-        </button>
-      </span>
+      {mcp.here && (
+        <span className="sint-actions">
+          {(Object.keys(AI_IDES) as IdeId[]).map(id => (
+            <button key={id} className="sbtn" onClick={() => connect(id)}>
+              <IdeLogo logo={AI_IDES[id].logo} />
+              Connect {AI_IDES[id].name}
+            </button>
+          ))}
+          <button className="sbtn" title="For another AI app that can add an MCP server by its address" onClick={copy}>
+            {copied ? 'Copied' : 'Copy address'}
+          </button>
+        </span>
+      )}
+      {said && <p className="sint-help">{said}</p>}
     </li>
   );
 }
