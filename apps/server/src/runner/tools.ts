@@ -193,6 +193,16 @@ function inWorkspace(agentId: string, path: unknown): string {
   return full;
 }
 
+// A task handed over, or its result: whole, or refused - never cut short in silence
+// (a 54-suburb list cut at 4,000 characters reached Paid Ads half there, and
+// Market Research ended up numbering its hand-offs to tell).
+export const MAX_TASK_TEXT = 30_000;
+const wholeTask = (text: string, what: string) => {
+  if (text.length > MAX_TASK_TEXT)
+    throw new Error(`Too long (${text.length.toLocaleString()} characters; up to ${MAX_TASK_TEXT.toLocaleString()}): split the ${what} into parts and send each.`);
+  return text;
+};
+
 // The person can only take in so much: an agent with a pile already waiting on
 // them files no more until they've answered some (Paid Ads, blocked at
 // Apocalyptic, had filed ten - a Bing account, a "please check" - each run another).
@@ -318,7 +328,7 @@ const BUILTIN: ToolDef[] = [
     impl: (a, ctx) => {
       const r = run(
         "UPDATE tasks SET status = 'done', result = ?, done_at = ? WHERE id = ? AND agent_id = ? AND status = 'open'",
-        String(a.result ?? '').slice(0, 4000),
+        wholeTask(String(a.result ?? ''), 'result'),
         ctx.now(),
         Number(a.task_id),
         ctx.agent.id,
@@ -347,7 +357,7 @@ const BUILTIN: ToolDef[] = [
         throw new Error(
           `${who.name} is ${state === 'stopped' ? 'stopped' : 'on standby'} - a person's choice - so it won't pick work up now. Do what you can another way, or leave it for when it's back on (note it with memory.remember); don't file a request about it.`,
         );
-      const task = String(a.task ?? '').slice(0, 4000);
+      const task = wholeTask(String(a.task ?? ''), 'task');
       const r = run('INSERT INTO tasks (agent_id, from_agent, task, created_at) VALUES (?, ?, ?, ?)', target, ctx.agent.id, task, ctx.now());
       ctx.wake(target, 'handoff', `Task #${r.lastInsertRowid} from ${ctx.agent.name}: ${task}`);
       return `Handed to ${who.name} as task #${r.lastInsertRowid}.`;

@@ -883,3 +883,15 @@ test('an agent with a pile of requests waiting on the person files no more until
   assert.match(tooManyWaiting('zz-asker') ?? '', /Not filed: 5 of your requests are already waiting on the person/);
   exec("DELETE FROM requests WHERE agent_id = 'zz-asker'");
 });
+
+test('a task handed over arrives whole, or is refused with why - never cut short in silence', async () => {
+  const fleet = async () => [{ id: 'zz-other', name: 'Other' }] as never;
+  const ctx = { agent: agent(), runId: 'r_handoff', level: 0, now: () => Date.now(), fleet, wake: () => {} };
+  const ids = new Map([['tasks__delegate_task', 'tasks.delegate_task']]);
+  const long = 'suburb, '.repeat(1500); // 12,000 characters: cut at 4,000 before
+  const ok = await execute(ctx, { id: 'h1', name: 'tasks__delegate_task', args: { agent_id: 'zz-other', task: long } }, ids);
+  assert.match(ok.content, /Handed to Other/);
+  assert.equal(one<{ task: string }>("SELECT task FROM tasks WHERE agent_id = 'zz-other' ORDER BY id DESC LIMIT 1")!.task.length, long.length);
+  const huge = await execute(ctx, { id: 'h2', name: 'tasks__delegate_task', args: { agent_id: 'zz-other', task: 'x'.repeat(40_000) } }, ids);
+  assert.match(huge.content, /Too long \(40,000 characters; up to 30,000\): split the task/);
+});

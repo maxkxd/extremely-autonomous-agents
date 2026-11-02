@@ -6,7 +6,7 @@ import { postToRequest } from './engineer.js';
 import { CONDUCTOR } from './helpers.js';
 import { stateOf } from './run.js';
 import { ask, HelperStopped, jsonIn } from './quick.js';
-import { setRequestRouter, type Wake } from './tools.js';
+import { MAX_TASK_TEXT, setRequestRouter, type Wake } from './tools.js';
 
 // The Agency Conductor (docs/requests.md): the first stop for a request, so the
 // common case doesn't cost a Agency Engineer run. One cheap model call reads
@@ -74,7 +74,7 @@ export async function conduct(requestId: number, wake: Wake): Promise<void> {
     const d = await decideRoute(r);
     const target = d.route === 'agent' && d.agent_id ? await readMeta(d.agent_id) : null;
     if (!target || !d.task?.trim() || d.agent_id === r.agent_id || target.builtIn || target.service || stateOf(d.agent_id!).state !== 'active') return toEngineer();
-    const task = d.task.trim().slice(0, 4000);
+    const task = d.task.trim().slice(0, MAX_TASK_TEXT);
     const t = exec('INSERT INTO tasks (agent_id, from_agent, task, created_at) VALUES (?, ?, ?, ?)', d.agent_id!, r.agent_id, task, Date.now());
     wake(d.agent_id!, 'handoff', `Task #${t.lastInsertRowid} from ${asker}: ${task}`);
     const answer = `${target.name} does this as part of its job, so it's been handed to it as task #${t.lastInsertRowid}. You'll be told the result when it's done.${d.why ? ` (${d.why})` : ''}`;
