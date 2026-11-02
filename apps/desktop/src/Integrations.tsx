@@ -512,10 +512,11 @@ function AgencyMcp() {
   const connect = async (app: IdeId) => {
     setSaid(null);
     try {
-      const r = mcp.remote ? await connectAssistantTo(app, mcp.url) : await connectAssistant(app);
+      const org = currentOrg();
+      const r = mcp.remote && org ? await connectAssistantTo(app, mcp.url, org.name) : await connectAssistant(app);
       setSaid(
-        app === 'claude-desktop'
-          ? `${r.assistant} is asking to install "Extremely Autonomous Agents" - click Install. Nothing came up? Open Claude Desktop (update it if it's old), then try again.`
+        r.restart
+          ? `Added to ${r.assistant}. Quit it (right-click its icon by the clock > Quit) and open it again - your agency is then in its connectors.`
           : `${r.assistant} is asking to install the agency - click Install. Nothing came up? Open ${r.assistant}, then try again.`,
       );
     } catch (e) {

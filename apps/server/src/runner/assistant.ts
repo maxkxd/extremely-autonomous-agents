@@ -1,15 +1,17 @@
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { crc32 } from 'node:zlib';
 import { mcpUrlFor } from './agency-mcp.js';
 import { DATA_DIR } from '../paths.js';
 
 // Your AI assistant (docs/requests.md): the agency in the AI app a person
 // already uses, connected in one click from Settings > Connectors.
-//   Claude Desktop - an extension file (.mcpb) the app opens, and Claude Desktop
-//     asks to install it. Inside, a tiny program that passes Claude's messages
-//     to this agency's MCP address (agency-mcp.ts) and back.
+//   Claude Desktop - added to its settings (claude_desktop_config.json), as a tiny
+//     program that passes Claude's messages to this agency's MCP address
+//     (agency-mcp.ts) and back; it shows once Claude Desktop restarts. (Its
+//     Windows Store app opens no .mcpb extension files, so not those.)
 //   Cursor - its MCP install link.
 // The address is on this computer, so it works while this app is running, and
 // only on this computer. ChatGPT, claude.ai and Microsoft Copilot can't reach
@@ -31,9 +33,9 @@ export function openWithSystem(target: string) {
   else spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [target], { detached: true, stdio: 'ignore' }).unref();
 }
 
-// The program inside the extension: newline-separated JSON-RPC from Claude on
-// stdin, each posted to the agency, its answer back on stdout. Plain Node, no
-// packages (Claude Desktop runs it with its own Node).
+// The program Claude Desktop starts for the agency: newline-separated JSON-RPC
+// from Claude on stdin, each posted to the agency, its answer back on stdout.
+// Plain Node, no packages: it runs on this app's own runtime, so nobody needs Node.
 const BRIDGE = `// Extremely Autonomous Agents: passes Claude's messages to your agency and back.
 const url = process.env.AGENCY_MCP_URL;
 let buf = '';
@@ -67,86 +69,78 @@ async function forward(line) {
 }
 `;
 
-// A zip with its files stored as they are (no compression): all an .mcpb needs.
-export function zip(files: { name: string; data: Buffer }[]): Buffer {
-  const parts: Buffer[] = [];
-  const central: Buffer[] = [];
-  let offset = 0;
-  for (const f of files) {
-    const name = Buffer.from(f.name, 'utf8');
-    const crc = crc32(f.data);
-    const local = Buffer.alloc(30);
-    local.writeUInt32LE(0x04034b50, 0);
-    local.writeUInt16LE(20, 4); // version needed
-    local.writeUInt16LE(0x0800, 6); // names are UTF-8
-    local.writeUInt16LE(0, 8); // stored
-    local.writeUInt32LE(crc, 14);
-    local.writeUInt32LE(f.data.length, 18);
-    local.writeUInt32LE(f.data.length, 22);
-    local.writeUInt16LE(name.length, 26);
-    parts.push(local, name, f.data);
-    const entry = Buffer.alloc(46);
-    entry.writeUInt32LE(0x02014b50, 0);
-    entry.writeUInt16LE(20, 4);
-    entry.writeUInt16LE(20, 6);
-    entry.writeUInt16LE(0x0800, 8);
-    entry.writeUInt32LE(crc, 16);
-    entry.writeUInt32LE(f.data.length, 20);
-    entry.writeUInt32LE(f.data.length, 24);
-    entry.writeUInt16LE(name.length, 28);
-    entry.writeUInt32LE(offset, 42);
-    central.push(entry, name);
-    offset += local.length + name.length + f.data.length;
+// Where Claude Desktop keeps its settings, newest layout first: the Windows
+// Store app (Claude-Data), the classic Windows one, and macOS. Only folders
+// that are there: an install that's never been opened has none.
+async function claudeConfigs(): Promise<string[]> {
+  const home = homedir();
+  const found: string[] = [];
+  if (process.platform === 'win32') {
+    const local = process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local');
+    const data = join(local, 'Claude-Data');
+    for (const d of await readdir(data).catch(() => [] as string[])) if (/^claude_/.test(d)) found.push(join(data, d, 'claude_desktop_config.json'));
+    // The classic app's folder, unless the Store one has moved out of it.
+    const roaming = join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'Claude');
+    const left = (await readdir(roaming).catch(() => null)) ?? null;
+    if (left && !left.some(f => f.startsWith('.user-data-left'))) found.push(join(roaming, 'claude_desktop_config.json'));
+  } else if (process.platform === 'darwin') {
+    const dir = join(home, 'Library', 'Application Support', 'Claude');
+    if (await readdir(dir).catch(() => null)) found.push(join(dir, 'claude_desktop_config.json'));
   }
-  const dir = Buffer.concat(central);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(files.length, 8);
-  end.writeUInt16LE(files.length, 10);
-  end.writeUInt32LE(dir.length, 12);
-  end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...parts, dir, end]);
+  return found;
 }
 
-// The Claude Desktop extension for this address (manifest spec 0.3).
-export function claudeExtension(url: string): Buffer {
-  const manifest = {
-    manifest_version: '0.3',
-    name: 'extremely-autonomous-agents',
-    display_name: 'Extremely Autonomous Agents',
-    version: '1.0.0',
-    description: 'Your agency: its agents, requests, approvals and tools. Works while the Extremely Autonomous Agents app is open on this computer.',
-    author: { name: 'Extremely Autonomous Agents' },
-    server: {
-      type: 'node',
-      entry_point: 'server/index.js',
-      mcp_config: { command: 'node', args: ['${__dirname}/server/index.js'], env: { AGENCY_MCP_URL: url } },
-    },
-  };
-  return zip([
-    { name: 'manifest.json', data: Buffer.from(JSON.stringify(manifest, null, 2)) },
-    { name: 'server/index.js', data: Buffer.from(BRIDGE) },
-  ]);
+type ClaudeServer = { command: string; args: string[]; env: Record<string, string> };
+
+// Its settings with the agency added (or its address updated), everything else
+// as it was. Unreadable settings are never written over.
+export function withAgency(text: string | null, key: string, server: ClaudeServer): string {
+  const config = text?.trim() ? (JSON.parse(text) as Record<string, unknown>) : {};
+  const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
+  return JSON.stringify({ ...config, mcpServers: { ...servers, [key]: server } }, null, 2);
+}
+
+// Adds the agency to Claude Desktop's settings. It shows once Claude Desktop is
+// quit and opened again (it reads them when it starts).
+async function addToClaudeDesktop(url: string, key: string) {
+  const files = await claudeConfigs();
+  if (!files.length) throw new Error("Claude Desktop isn't installed on this computer, or hasn't been opened yet. Install it from claude.com/download, open it once, then try again.");
+  await mkdir(ROOT, { recursive: true });
+  const bridge = join(ROOT, 'agency-bridge.js');
+  await writeFile(bridge, BRIDGE);
+  // This app's own runtime (Electron, run as Node), so nothing else is needed.
+  const server: ClaudeServer = { command: process.execPath, args: [bridge], env: { ELECTRON_RUN_AS_NODE: '1', AGENCY_MCP_URL: url } };
+  for (const file of files) {
+    const text = await readFile(file, 'utf8').catch(() => null);
+    let next: string;
+    try {
+      next = withAgency(text, key, server);
+    } catch {
+      throw new Error(`Claude Desktop's settings (${file}) couldn't be read, so they weren't changed.`);
+    }
+    // The first time, a copy of how they were.
+    if (text !== null) await copyFile(file, `${file}.before-agency`, constants.COPYFILE_EXCL).catch(() => {});
+    await writeFile(file, next);
+  }
 }
 
 // Cursor's one-click MCP install link for this address.
-export const cursorLink = (url: string) =>
-  `cursor://anysphere.cursor-deeplink/mcp/install?name=agency&config=${encodeURIComponent(Buffer.from(JSON.stringify({ url })).toString('base64'))}`;
+export const cursorLink = (url: string, name = 'agency') =>
+  `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodeURIComponent(name)}&config=${encodeURIComponent(Buffer.from(JSON.stringify({ url })).toString('base64'))}`;
 
-// Connects the agency to the person's AI assistant: opens the install for it.
-// Returns what was opened, so the app can say what to do if nothing appears.
-// url: another address than the agency's own (a teammate's, remote-mcp.ts); the caller checks it.
-export async function connectAssistant(app: Assistant, url = mcpUrlFor()): Promise<{ opened: string; assistant: string }> {
+// The name it goes by in the AI assistant: one per organization a teammate connects.
+const keyFor = (org?: string) => `extremely-autonomous-agents${org ? `-${org.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}` : ''}`;
+
+// Connects the agency to the person's AI assistant. url: another address than
+// the agency's own (a teammate's, remote-mcp.ts; the caller checks it), for org.
+export async function connectAssistant(app: Assistant, url = mcpUrlFor(), org?: string): Promise<{ opened: string; assistant: string; restart: boolean }> {
   const which = ASSISTANTS[app];
   if (!which) throw new Error('That AI assistant isn’t one the app can connect.');
   if (app === 'cursor') {
-    const link = cursorLink(url);
+    const link = cursorLink(url, keyFor(org));
     openWithSystem(link);
-    return { opened: link, assistant: which.name };
+    return { opened: link, assistant: which.name, restart: false };
   }
-  await mkdir(ROOT, { recursive: true });
-  const file = join(ROOT, 'Extremely Autonomous Agents.mcpb');
-  await writeFile(file, claudeExtension(url));
-  openWithSystem(file);
-  return { opened: file, assistant: which.name };
+  await addToClaudeDesktop(url, keyFor(org));
+  return { opened: 'settings', assistant: which.name, restart: true };
 }

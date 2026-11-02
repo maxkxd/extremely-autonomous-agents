@@ -174,7 +174,7 @@ export const HELP_TOPICS = {
         caption: [
           'Open Settings > Connectors, find "Your AI assistant", and click the button for yours:',
           [
-            'Connect Claude Desktop: Claude Desktop asks to install "Extremely Autonomous Agents". Click Install. Nothing came up? Open Claude Desktop (update it if it’s old) and click the button again.',
+            'Connect Claude Desktop: your agency is added to Claude Desktop. Quit Claude Desktop (right-click its icon by the clock, then Quit) and open it again - your agency is then one of its connectors.',
             'Connect Cursor: Cursor asks to install the agency. Click Install.',
           ],
           'Using another AI app that can add an MCP server by its address? Click Copy address and paste it into that app’s connector or MCP settings.',

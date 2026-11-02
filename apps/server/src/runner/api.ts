@@ -414,10 +414,10 @@ export const runnerRoutes: Record<string, Route> = {
   // Your AI assistant (assistant.ts): opens its one-click install for the agency.
   'POST /api/settings/assistant/connect': async (_req, _q, body) => {
     // url: a teammate's address for an organization hosted elsewhere (remote-mcp.ts), on their own computer.
-    const { app, url } = await body<{ app: Assistant; url?: string }>();
+    const { app, url, org } = await body<{ app: Assistant; url?: string; org?: string }>();
     if (!currentActor().here) throw new AccessError(403, "Your AI assistant connects on the computer the organization runs on, so it only works there.");
     if (url && !isRemoteMcpUrl(url)) throw new AccessError(403, 'That address isn’t one of this app’s.');
-    return connectAssistant(app, url);
+    return connectAssistant(app, url, url ? org : undefined);
   },
   // The organization's host: one MCP message from a teammate's AI assistant on another computer, as them.
   'POST /api/agency-mcp/rpc': async (_req, _q, body) => {
