@@ -36,7 +36,11 @@ const words = (s: string) => {
 };
 
 // A service's name: "seo_data" -> "SEO Data", "cms" -> "CMS" (as its card says), not "Seo data".
+// The agency's own areas say where they act: two tools both read "Write file",
+// one on the person's computer and one in the agent's workspace.
+const OWN_AREAS: Record<string, string> = { computer_files: 'This computer', files: "Agent's own files" };
 const service = (s: string) =>
+  OWN_AREAS[s] ??
   s
     .split(/[_-]+/)
     .filter(Boolean)
