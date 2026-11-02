@@ -2,7 +2,7 @@ import { stringify } from 'yaml';
 import { listIds, readMeta, save } from '../files.js';
 import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER } from './agent.js';
-import { all, getSetting, run as exec } from './db.js';
+import { all, getSetting, run as exec, setSetting } from './db.js';
 import { fileRequest } from './tools.js';
 import { availableModels } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
@@ -124,8 +124,11 @@ export async function fillBuiltInModels() {
   }
   // Moved off a connection that went (Claude Code signed out): said, since its
   // agents may now be on a pay-per-use key instead of a plan.
+  const byPerson = getSetting<string[]>(DISCONNECTED, []);
+  const stillOff = byPerson.filter(c => !avail.some(a => a.connection === c));
+  if (stillOff.length !== byPerson.length) setSetting(DISCONNECTED, stillOff);
   for (const [connection, to] of moved) {
-    if (openLost().some(r => r.service === connection)) continue;
+    if (openLost().some(r => r.service === connection) || stillOff.includes(connection)) continue;
     fileRequest(
       FLEET_ENGINEER,
       null,
@@ -138,6 +141,21 @@ export async function fillBuiltInModels() {
       () => {},
     );
   }
+}
+
+// A person disconnected an AI themselves: what was asked about it (out of
+// allowance, signed out) is moot, and "your agents moved" would tell them what
+// they just did. Remembered until it's connected again.
+const DISCONNECTED = 'ai_disconnected_by_person';
+export function aiDisconnected(connection: string) {
+  exec(
+    "UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE status = 'open' AND service = ? AND agent_id = ?",
+    `You disconnected ${nameOf(connection)}.`,
+    Date.now(),
+    connection,
+    FLEET_ENGINEER,
+  );
+  setSetting(DISCONNECTED, [...new Set([...getSetting<string[]>(DISCONNECTED, []), connection])]);
 }
 
 const LOST = "isn't connected any more - your agents moved";

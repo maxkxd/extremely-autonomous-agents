@@ -299,6 +299,20 @@ test("a key's spending limit is out of allowance, not signed out", async () => {
   assert.match(open[0].what, /run out of its allowance/);
 });
 
+test('disconnecting an AI yourself closes what was asked about it', async () => {
+  const { aiDisconnected } = await import('./helpers.js');
+  exec("UPDATE requests SET status = 'done' WHERE status = 'open'");
+  const add = (service: string) =>
+    Number(exec("INSERT INTO requests (agent_id, what, why, status, created_at, stage, service) VALUES ('fleet', 'Your AI has run out of its allowance', 'x', 'open', 1, 'person', ?)", service).lastInsertRowid);
+  const [mine, other] = [add('zz-gone'), add('zz-kept')];
+  aiDisconnected('zz-gone');
+  const status = (id: number) => one<{ status: string; answer: string | null }>('SELECT status, answer FROM requests WHERE id = ?', id)!;
+  assert.equal(status(mine).status, 'done');
+  assert.match(status(mine).answer!, /You disconnected/);
+  assert.equal(status(other).status, 'open');
+  exec("UPDATE requests SET status = 'done' WHERE status = 'open'");
+});
+
 test("a person's reply no AI could answer is booked again; a scheduled run isn't", async () => {
   setLevel(CHILL);
   exec('DELETE FROM bookings');

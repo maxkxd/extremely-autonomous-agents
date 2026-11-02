@@ -31,6 +31,7 @@ import { randomUUID } from 'node:crypto';
 import { forwardToHosted, HOSTED_ORG, HOSTED_PORT, hostingStatus, keepHostSecret, resumeHosting, startHosting, deleteHosting, stopHosting } from './hosting.js';
 import { setSetting } from './runner/db.js';
 import { scrub } from './secrets.js';
+import { aiDisconnected } from './runner/helpers.js';
 import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, personFor, recordAction, requireAdmin, setAccessConfig } from './access.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
@@ -277,6 +278,7 @@ const routes: Record<string, Route> = {
   'POST /api/connections/disconnect': async req => {
     const { id } = await body<{ id: string }>(req);
     await conn.disconnect(id);
+    aiDisconnected(id);
     return { ok: true };
   },
   // Returns the provider's sign-in page; the app opens it in a new window.
