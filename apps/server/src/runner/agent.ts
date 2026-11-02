@@ -67,6 +67,10 @@ type ToolsYaml = {
   natural_limits?: NaturalLimit[];
 };
 
+// "You" is the app's name for someone who hasn't given theirs: not a name to write
+// about them by ("until You confirms the list", "You's agency").
+export const realName = (n: string | null | undefined) => (n && n.trim() && n.trim().toLowerCase() !== 'you' ? n : null);
+
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : fallback);
 
 // Real outcomes only. Telling the person isn't output (a blocked Revenue Ops'
@@ -114,7 +118,7 @@ export async function loadAgent(id: string): Promise<AgentDef | null> {
       id: slug(id),
       name: meta.name,
       department: meta.department,
-      owner: meta.owner ?? meta.setup?.person ?? null,
+      owner: realName(meta.owner) ?? realName(meta.setup?.person) ?? null,
       org: meta.org ?? meta.setup?.org ?? null,
       charter,
       // The models picked on its card win; the builder's choice is the default.

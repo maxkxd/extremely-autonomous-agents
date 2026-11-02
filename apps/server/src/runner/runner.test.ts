@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
-import { DEFAULT_PLAN, planFrom, type AgentDef } from './agent.js';
+import { DEFAULT_PLAN, planFrom, realName, type AgentDef } from './agent.js';
 import { all, one, resetDbForTests, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './ferocity.js';
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
@@ -864,4 +864,11 @@ test("the tunnel's address changing (a restart) tells the person which services 
   assert.deepEqual(reqs().map(r => r.status), ['done', 'open']);
   hookAddressRequest('http://127.0.0.1:5176', hooks, Date.now()); // the tunnel turned off: nothing to paste
   assert.equal(reqs().filter(r => r.status === 'open').length, 0);
+});
+
+test("'You' (no name given yet) isn't written about as a name", () => {
+  assert.equal(realName('You'), null);
+  assert.equal(realName(' you '), null);
+  assert.equal(realName(''), null);
+  assert.equal(realName('Max'), 'Max');
 });

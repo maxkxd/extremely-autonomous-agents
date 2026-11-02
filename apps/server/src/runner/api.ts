@@ -14,7 +14,7 @@ import {
   setWebhookSecret,
   startIntegrationSignIn,
 } from '../integrations/index.js';
-import { FLEET_ENGINEER, loadAgent } from './agent.js';
+import { FLEET_ENGINEER, loadAgent, realName } from './agent.js';
 import { DOCTOR } from './doctor.js';
 import { setups } from './setup.js';
 import { postToRequest, waitingOn } from './engineer.js';
@@ -344,7 +344,7 @@ export const runnerRoutes: Record<string, Route> = {
   // Who the host is (until orgs exist, whoever runs the app): agents made from the IDE are theirs.
   'POST /api/settings/host-person': async (_req, _q, body) => {
     const { name, org } = await body<{ name: string; org?: string | null }>();
-    if (typeof name === 'string' && name.trim()) setSetting('host_person', name.trim().slice(0, 100));
+    if (typeof name === 'string' && realName(name)) setSetting('host_person', name.trim().slice(0, 100));
     // Their organisation, if they have one: agents made from the IDE work for it.
     if (org !== undefined) setSetting('host_org', typeof org === 'string' && org.trim() ? org.trim().slice(0, 200) : null);
     return { ok: true };
