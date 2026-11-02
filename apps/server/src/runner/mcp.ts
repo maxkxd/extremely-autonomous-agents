@@ -8,7 +8,7 @@ import type { Call, ToolSpec } from './providers.js';
 // call goes back through the runner (tiers, limits, output counting).
 // Minimal MCP over HTTP: JSON-RPC posts answered with JSON.
 
-type Bridge = { tools: ToolSpec[]; call: (c: Call) => Promise<{ content: string; error: boolean }> };
+export type Bridge = { tools: ToolSpec[]; call: (c: Call) => Promise<{ content: string; error: boolean }> };
 const bridges = new Map<string, Bridge>();
 
 const PORT = Number(process.env.PORT ?? 5175);
@@ -37,45 +37,47 @@ export async function handleMcp(req: IncomingMessage, res: ServerResponse, path:
   }
   let raw = '';
   for await (const chunk of req) raw += chunk;
-  let msg: { id?: number | string; method?: string; params?: Record<string, unknown> };
+  let msg: Rpc;
   try {
     msg = JSON.parse(raw);
   } catch {
     res.writeHead(400).end();
     return true;
   }
+  const out = await rpc(bridge, msg);
   // Notifications get no answer.
-  if (msg.id === undefined) {
-    res.writeHead(202).end();
-    return true;
-  }
-  const reply = (result: unknown) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result }));
-  const error = (code: number, message: string) =>
-    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code, message } }));
+  if (!out) res.writeHead(202).end();
+  else res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out));
+  return true;
+}
 
+export type Rpc = { id?: number | string; method?: string; params?: Record<string, unknown> };
+
+// One JSON-RPC message to a bridge, and its answer (null for a notification).
+// Also how a teammate's AI assistant reaches it from another computer, through
+// the app (POST /api/agency-mcp/rpc, agency-mcp.ts).
+export async function rpc(bridge: Bridge, msg: Rpc): Promise<object | null> {
+  if (msg.id === undefined) return null;
+  const reply = (result: unknown) => ({ jsonrpc: '2.0', id: msg.id, result });
+  const error = (code: number, message: string) => ({ jsonrpc: '2.0', id: msg.id, error: { code, message } });
   switch (msg.method) {
     case 'initialize':
-      reply({
+      return reply({
         protocolVersion: (msg.params?.protocolVersion as string) ?? '2025-06-18',
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'agency', version: '1.0.0' },
       });
-      return true;
     case 'ping':
-      reply({});
-      return true;
+      return reply({});
     case 'tools/list':
-      reply({ tools: bridge.tools.map(t => ({ name: t.name, description: t.description, inputSchema: t.schema })) });
-      return true;
+      return reply({ tools: bridge.tools.map(t => ({ name: t.name, description: t.description, inputSchema: t.schema })) });
     case 'tools/call': {
       const name = String(msg.params?.name ?? '');
       const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;
       const out = await bridge.call({ id: `mcp_${Date.now().toString(36)}${(seq++).toString(36)}`, name, args });
-      reply({ content: [{ type: 'text', text: out.content }], isError: out.error });
-      return true;
+      return reply({ content: [{ type: 'text', text: out.content }], isError: out.error });
     }
     default:
-      error(-32601, `Unknown method ${msg.method}`);
-      return true;
+      return error(-32601, `Unknown method ${msg.method}`);
   }
 }

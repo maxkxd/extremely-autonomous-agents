@@ -135,10 +135,10 @@ export const cursorLink = (url: string) =>
 
 // Connects the agency to the person's AI assistant: opens the install for it.
 // Returns what was opened, so the app can say what to do if nothing appears.
-export async function connectAssistant(app: Assistant): Promise<{ opened: string; assistant: string }> {
+// url: another address than the agency's own (a teammate's, remote-mcp.ts); the caller checks it.
+export async function connectAssistant(app: Assistant, url = mcpUrlFor()): Promise<{ opened: string; assistant: string }> {
   const which = ASSISTANTS[app];
   if (!which) throw new Error('That AI assistant isn’t one the app can connect.');
-  const url = mcpUrlFor();
   if (app === 'cursor') {
     const link = cursorLink(url);
     openWithSystem(link);

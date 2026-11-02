@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Globe, Plus } from 'lucide-react';
 import { SpinButton } from './ModelConnectors';
 import { SkelRows } from './Skeleton';
-import { isAdmin } from './account';
+import { connectAssistantTo, currentOrg, isAdmin, remoteAssistantUrl } from './account';
 import { ACCOUNT } from './data';
 import { AI_IDES, IdeLogo, type IdeId } from './Requests';
 import {
@@ -494,18 +494,25 @@ function CodePlugins() {
 
 // Your AI assistant (runner/assistant.ts): the whole agency in the AI app you
 // use, in one click - Claude Desktop installs an extension, Cursor its MCP link.
-// The address is on the computer the agency runs on, so it works there (while
-// the app is open); a teammate on another computer can't use it yet.
+// The address is on the computer the agency runs on; a teammate on another
+// computer gets one on their own, which this app carries to the host while it's
+// open (account.ts, runner/remote-mcp.ts). Either way it looks the same here.
 function AgencyMcp() {
-  const [mcp, setMcp] = useState<{ url: string; here: boolean } | null>(null);
+  const [mcp, setMcp] = useState<{ url: string; here: boolean; remote?: boolean } | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  useEffect(() => void getAgencyMcp().then(setMcp, () => {}), []);
+  useEffect(() => {
+    const org = currentOrg();
+    void getAgencyMcp().then(
+      m => (m.here || !org ? setMcp(m) : remoteAssistantUrl(org.id).then(r => setMcp({ url: r.url, here: true, remote: true }))),
+      () => {},
+    );
+  }, []);
   if (!mcp) return null;
   const connect = async (app: IdeId) => {
     setSaid(null);
     try {
-      const r = await connectAssistant(app);
+      const r = mcp.remote ? await connectAssistantTo(app, mcp.url) : await connectAssistant(app);
       setSaid(
         app === 'claude-desktop'
           ? `${r.assistant} is asking to install "Extremely Autonomous Agents" - click Install. Nothing came up? Open Claude Desktop (update it if it's old), then try again.`

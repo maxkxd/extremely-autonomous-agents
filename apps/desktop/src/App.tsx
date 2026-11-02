@@ -14,7 +14,7 @@ import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
 import { NEW_SESSION, agentStatuses, getAgency, getIntegrations, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
-import { currentOrg, isAdmin, offline, onOffline, scoped, signOut, state } from './account';
+import { carryAssistantMessages, currentOrg, isAdmin, offline, onOffline, scoped, signOut, state } from './account';
 import { SignIn, type SignInAsk } from './SignIn';
 import { Elsewhere } from './Elsewhere';
 import { Onboarding, onboarded } from './Onboarding';
@@ -102,6 +102,8 @@ const useOfflineSince = () => useSyncExternalStore(onOffline, () => offline.sinc
 
 function Agency() {
   const offlineSince = useOfflineSince();
+  // Your AI assistant's messages for an organization hosted elsewhere, carried while the app is open.
+  useEffect(() => carryAssistantMessages(), []);
   const [view, setView] = useState<View>('dashboard');
   const [range, setRange] = useState<TimeRange>('week');
   // The built-in agents' cards, hidden on the Dashboard only (off by default; remembered here).

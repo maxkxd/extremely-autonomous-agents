@@ -20,6 +20,8 @@ import { setups } from './setup.js';
 import { postToRequest, waitingOn } from './engineer.js';
 import { sendToIde, type Ide } from './ide.js';
 import { connectAssistant, type Assistant } from './assistant.js';
+import { answerRemoteMcp, isRemoteMcpUrl, remoteMcpUrl, takeRemoteMcp } from './remote-mcp.js';
+import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals } from './approvals.js';
 import { openProfileForSignIn, profileStatus } from './browser.js';
@@ -28,7 +30,7 @@ import { APOCALYPTIC_GAP_MS, LEVELS, STEADY } from './ferocity.js';
 import { BUILT_IN_IDS, HELPER_IDS } from './helpers.js';
 import { spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
-import { mcpUrlFor } from './agency-mcp.js';
+import { mcpUrlFor, rpcAs } from './agency-mcp.js';
 import { eventOverview } from './events.js';
 import { hooksBase, setTunnel, tunnelState } from './hooks.js';
 import { resume as resumeJobs } from '../jobs.js';
@@ -411,9 +413,33 @@ export const runnerRoutes: Record<string, Route> = {
   'GET /api/settings/agency-mcp': async () => ({ url: mcpUrlFor(), here: !!currentActor().here }),
   // Your AI assistant (assistant.ts): opens its one-click install for the agency.
   'POST /api/settings/assistant/connect': async (_req, _q, body) => {
-    const { app } = await body<{ app: Assistant }>();
+    // url: a teammate's address for an organization hosted elsewhere (remote-mcp.ts), on their own computer.
+    const { app, url } = await body<{ app: Assistant; url?: string }>();
     if (!currentActor().here) throw new AccessError(403, "Your AI assistant connects on the computer the organization runs on, so it only works there.");
-    return connectAssistant(app);
+    if (url && !isRemoteMcpUrl(url)) throw new AccessError(403, 'That address isn’t one of this app’s.');
+    return connectAssistant(app, url);
+  },
+  // The organization's host: one MCP message from a teammate's AI assistant on another computer, as them.
+  'POST /api/agency-mcp/rpc': async (_req, _q, body) => {
+    const { msg } = await body<{ msg: Rpc }>();
+    return (await rpcAs(currentActor(), msg)) ?? {};
+  },
+  // A teammate's own computer (remote-mcp.ts): their AI assistant's address for an organization
+  // hosted elsewhere, and the messages their app carries there and back.
+  'POST /api/assistant/remote': async (_req, _q, body) => {
+    if (currentActor().via !== 'local') throw new AccessError(403, 'Only from this computer.');
+    const { orgId } = await body<{ orgId: string }>();
+    return { url: remoteMcpUrl(String(orgId)) };
+  },
+  'GET /api/assistant/pending': async (_req, q) => {
+    if (currentActor().via !== 'local') throw new AccessError(403, 'Only from this computer.');
+    return { calls: await takeRemoteMcp(Math.max(0, Math.min(30_000, Number(q.get('wait')) || 0))) };
+  },
+  'POST /api/assistant/answer': async (_req, _q, body) => {
+    if (currentActor().via !== 'local') throw new AccessError(403, 'Only from this computer.');
+    const { id, reply, error } = await body<{ id: number; reply?: object | null; error?: string }>();
+    answerRemoteMcp(Number(id), reply ?? null, error);
+    return { ok: true };
   },
   'POST /api/settings/agency-mcp': async () => ({ url: mcpUrlFor(currentActor(), true) }),
   // Who the host is (until orgs exist, whoever runs the app): agents made from the IDE are theirs.

@@ -33,7 +33,7 @@ import { giveEvents, giveTools } from './engineer.js';
 import { checkEvent } from './events.js';
 import { hooksBase } from './hooks.js';
 import { LEVELS } from './ferocity.js';
-import { openBridge } from './mcp.js';
+import { openBridge, rpc, type Rpc } from './mcp.js';
 import { selfMember, SELF_HOSTED } from '../selfhost.js';
 import { accessConfig, asActor, currentActor, localActor, personFor, requireMakerOrAdmin, type Actor, type Role } from '../access.js';
 import { registeredToolIds } from './tools.js';
@@ -519,6 +519,11 @@ const ADMIN_TOOLS = new Set([
   'discard_integration',
 ]);
 const toolsFor = (role: Role) => TOOLS.filter(t => role !== 'member' || !ADMIN_TOOLS.has(t.name)).map(t => ({ name: t.name, description: t.description, schema: t.schema }));
+
+// One MCP message from a teammate's AI assistant on another computer, as them
+// (POST /api/agency-mcp/rpc: through their app and the relay, with their org
+// token, like the app's own requests). Their tools are what their role allows.
+export const rpcAs = (actor: Actor, msg: Rpc) => rpc({ tools: toolsFor(actor.role), call: c => runAs(actor, c) }, msg);
 
 async function runAs(actor: Actor, c: { name: string; args?: Record<string, unknown> }) {
   const tool = TOOLS.find(t => t.name === c.name);

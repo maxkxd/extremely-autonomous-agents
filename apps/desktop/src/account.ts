@@ -640,3 +640,56 @@ export async function deleteOrganisation(orgId: string) {
   }
   await refreshMe();
 }
+
+// --- Your AI assistant, for an organization hosted elsewhere (runner/remote-mcp.ts) ---
+//
+// Claude Desktop or Cursor talks to an address on your own agency here; its
+// messages wait there until this app carries them to the organization's host -
+// the relay, end to end encrypted, with your org token, like everything else the
+// app sends - and brings the answers back. So it works while the app is open.
+
+// Your address for an organization (the same one each time).
+export const remoteAssistantUrl = (orgId: string) => local<{ url: string }>('/api/assistant/remote', { orgId });
+// Connecting your AI assistant to that address: on your own agency, this computer.
+export const connectAssistantTo = (app: string, url: string) => local<{ opened: string; assistant: string }>('/api/settings/assistant/connect', { app, url });
+
+// To any organization you're in, not just the one open (the AI assistant can be on any).
+async function fetchInOrg(org: OrgView, path: string, init: { method?: string; headers?: Record<string, string>; body?: string }) {
+  if (reachedHere(org)) {
+    const auth: Record<string, string> = org.role === 'owner' ? {} : { authorization: `Bearer ${org.self ? await selfToken(org) : await orgToken(org.id)}` };
+    return fetch(`/hosted${path}`, { ...init, headers: { ...init.headers, ...auth } });
+  }
+  return remote(org, path, init);
+}
+
+type Carried = { id: number; orgId: string; msg: unknown };
+async function carry(c: Carried) {
+  const org = teamOrgs().find(o => o.id === c.orgId);
+  try {
+    if (!org) throw new Error("You're not in that organization any more.");
+    const res = await fetchInOrg(org, '/api/agency-mcp/rpc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ msg: c.msg }) });
+    const reply = await res.json().catch(() => ({ error: `${org.name}'s host didn't answer.` }));
+    if (!res.ok) throw new Error(reply.error ?? `${org.name}'s host didn't answer.`);
+    await local('/api/assistant/answer', { id: c.id, reply });
+  } catch (e) {
+    const why = e instanceof HostOffline ? `${org?.name ?? 'The organization'}'s host is offline, so your AI assistant can't reach it right now.` : (e as Error).message;
+    await local('/api/assistant/answer', { id: c.id, error: why }).catch(() => {});
+  }
+}
+
+// Started once, when you're in an organization hosted on another computer.
+let carrying = false;
+export function carryAssistantMessages() {
+  if (carrying || !state.me || !teamOrgs().some(o => !reachedHere(o))) return;
+  carrying = true;
+  void (async () => {
+    for (;;) {
+      try {
+        const { calls } = await local<{ calls: Carried[] }>('/api/assistant/pending?wait=25000');
+        for (const c of calls) void carry(c);
+      } catch {
+        await new Promise(r => setTimeout(r, 5000)); // its own agency restarting: try again shortly
+      }
+    }
+  })();
+}
