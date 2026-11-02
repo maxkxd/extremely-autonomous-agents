@@ -13,10 +13,11 @@ import { checkSelfToken, SELF_HOSTED } from './selfhost.js';
 // can trust its own). Requests from this computer itself, without one, are the
 // host's owner: it's their machine. Anything else is turned away.
 //
-// What each role may do, decided 2026-10-30:
-//   member - see everything; build agents; message, run, stop, start and delete
-//            any agent; connect integrations (but not run commands on the host);
-//            approvals and requests for agents they made;
+// What each role may do, decided 2026-10-30 (control narrowed 2026-11-02):
+//   member - see every agent; build agents; control only the ones they made
+//            (run now, standby, stop, resume, ferocity, model, delete, their DMs);
+//            message the Agency Engineer; connect integrations (but not run
+//            commands on the host); approvals and requests for agents they made;
 //   admin  - everything, including AI model connections, the agency's state,
 //            spend caps, the org profile, and what acts on the host's computer;
 //   owner  - the same as admin; it's also the machine's own person.

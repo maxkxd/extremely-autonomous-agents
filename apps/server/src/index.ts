@@ -32,7 +32,8 @@ import { forwardToHosted, HOSTED_ORG, HOSTED_PORT, hostingStatus, keepHostSecret
 import { getSetting, setSetting } from './runner/db.js';
 import { scrub } from './secrets.js';
 import { aiDisconnected } from './runner/helpers.js';
-import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, personFor, recordAction, requireAdmin, setAccessConfig } from './access.js';
+import { pickDefaults } from './runner/defaults.js';
+import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, personFor, recordAction, requireAdmin, requireMakerOrAdmin, setAccessConfig } from './access.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
 const PORT = Number(process.env.PORT ?? 5175);
@@ -367,11 +368,14 @@ const routes: Record<string, Route> = {
     const missing = builds.map((b, index) => ({ b, index })).filter(x => !here.has(x.b.name));
     if (!missing.length) throw new BuilderError('Every agent in this pack is already added.');
     const taken = [...takenIds];
+    // Shown with the models they'd really get, as adding them sets (agents.ts):
+    // the connected ones - the preview said "No model" with Claude connected.
+    const available = await conn.availableModels();
     return {
       agents: missing.map(({ b, index }) => {
-        const a = forApp(b, taken);
+        const a = forApp(b, taken, undefined, available);
         taken.push(a.agent.id);
-        return { ...a, setup: { packId, index, member: b.name } };
+        return { ...a, files: { ...a.files, models: pickDefaults(available, 'strong', a.files.models) }, setup: { packId, index, member: b.name } };
       }),
     };
   },
@@ -397,6 +401,7 @@ const routes: Record<string, Route> = {
   'POST /api/agents/models': async req => {
     const { id, choices } = await body<{ id: string; choices: unknown }>(req);
     if (!/^[a-z0-9-]+$/.test(id ?? '')) throw new ConnectError('Unknown agent.');
+    await requireMakerOrAdmin(id, null, currentActor(), 'change its model');
     return { choices: await setChoices(id, choices) };
   },
 
@@ -411,6 +416,7 @@ const routes: Record<string, Route> = {
   },
   'POST /api/agents/delete': async req => {
     const { id } = await body<{ id: string }>(req);
+    if (typeof id === 'string' && /^[a-z0-9-]+$/.test(id)) await requireMakerOrAdmin(id, null, currentActor(), 'delete it');
     await deleteAgent(id).catch(e => {
       throw new ConnectError((e as Error).message);
     });

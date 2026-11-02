@@ -306,8 +306,8 @@ const sendEmail: CodeTool = {
   },
 };
 
-// To the signed-in account itself (digests, reports, reminders): it can't
-// reach anyone else, so it needn't wait for a person.
+// To the agent's owner - the person it belongs to (digests, reports, reminders):
+// it can't reach anyone else, so it needn't wait for a person.
 const sendToMe: CodeTool = {
   id: 'gmail.send_to_me',
   tier: 'T1',

@@ -18,7 +18,8 @@ import {
 } from './access.js';
 import { remove, save, type AgentFiles } from './files.js';
 import { FLEET_ENGINEER } from './runner/agent.js';
-import { all, resetDbForTests, run as exec } from './runner/db.js';
+import { all, one, resetDbForTests, run as exec } from './runner/db.js';
+import { looksLikeCommand, runnerRoutes } from './runner/api.js';
 
 // The host's side of org access tokens: a key of our own stands in for the
 // backend's, signing exactly what it signs (apps/backend/src/tokens.ts).
@@ -193,6 +194,48 @@ test("approvals and requests: the agent's maker, or an admin", async () => {
   } finally {
     await remove(files.id);
   }
+});
+
+test("members control only the agents they made; anyone may write to the Agency Engineer", async () => {
+  const files: AgentFiles = { id: 'zz-access-own', name: 'Parts Pull List', department: 'ops', charter: '', tools: '', kpi: '', models: [] };
+  await save(files, { name: files.name, department: 'ops', output: [], status: 'ready', owner: 'Ben', ownerId: 'user_ben' });
+  const call = (who: Actor, route: string, b: Record<string, unknown>) => asActor(who, () => runnerRoutes[route]({} as never, new URLSearchParams(), async <T>() => b as T));
+  const why = (p: Promise<unknown>) => p.then(() => 'ok', e => (e as Error).message);
+  const dan: Actor = { ...member, id: 'user_dan', name: 'Dan' };
+  try {
+    // Dan sees it but can't run, stop, retune or message Ben's agent.
+    assert.equal(await why(call(dan, 'POST /api/runner/run-now', { id: files.id })), 'Only the person who made Parts Pull List, or an admin, can run it.');
+    assert.equal(await why(call(dan, 'POST /api/runner/agent', { id: files.id, state: 'stopped' })), 'Only the person who made Parts Pull List, or an admin, can stop it.');
+    assert.equal(await why(call(dan, 'POST /api/runner/agent', { id: files.id, ferocity: 3 })), 'Only the person who made Parts Pull List, or an admin, can change its ferocity.');
+    assert.equal(await why(call(dan, 'POST /api/dm', { id: files.id, text: 'hi' })), 'Only the person who made Parts Pull List, or an admin, can message it.');
+    // The Agency Engineer is everyone's to write to, and each message says who wrote it.
+    assert.equal(await why(call(dan, 'POST /api/dm', { id: FLEET_ENGINEER, text: 'Can you add Square?' })), 'ok');
+    const dms = (await asActor(dan, () => runnerRoutes['GET /api/dm']({} as never, new URLSearchParams({ id: FLEET_ENGINEER }), async <T>() => ({}) as T))) as { by?: string; byId?: string }[];
+    assert.deepEqual([dms.at(-1)?.by, dms.at(-1)?.byId], ['Dan', 'user_dan']);
+    // Ben controls his own; stopped, a message to it is refused rather than left unanswered.
+    assert.equal(await why(call(member, 'POST /api/runner/agent', { id: files.id, state: 'stopped' })), 'ok');
+    assert.equal(await why(call(member, 'POST /api/dm', { id: files.id, text: 'hi' })), 'Parts Pull List is stopped - resume it to get a reply.');
+    assert.equal(await why(call(admin, 'POST /api/runner/agent', { id: files.id, state: 'active' })), 'ok');
+    // A spend limit: a dollar amount above 0, to the cent, up to a million - or empty.
+    for (const bad of [-5, 'abc-5', '12345678901234567890', 12345678901234567890, '1.005', 0])
+      assert.match(await why(call(admin, 'POST /api/runner/agent', { id: files.id, spendCapUsd: bad })), /^A monthly limit is a dollar amount above 0/, String(bad));
+    assert.equal(await why(call(admin, 'POST /api/runner/agent', { id: files.id, spendCapUsd: '12.50' })), 'ok');
+    assert.equal(one<{ spend_cap_usd: number }>('SELECT spend_cap_usd FROM agent_state WHERE agent_id = ?', files.id)?.spend_cap_usd, 12.5);
+    assert.equal(await why(call(admin, 'POST /api/runner/agent', { id: files.id, spendCapUsd: '' })), 'ok');
+    assert.equal(one<{ spend_cap_usd: number | null }>('SELECT spend_cap_usd FROM agent_state WHERE agent_id = ?', files.id)?.spend_cap_usd, null);
+    assert.match(await why(call(admin, 'POST /api/usage', { orgCapUsd: '-5' })), /^A monthly limit/);
+    assert.equal(await why(call(member, 'POST /api/runner/agent', { id: files.id, spendCapUsd: 10 })), 'A spend limit needs an admin.');
+  } finally {
+    await remove(files.id);
+  }
+});
+
+test('a server to add is a web address or a command, not just words', async () => {
+  const add = (url: string) => asActor(local, () => runnerRoutes['POST /api/integrations/add']({} as never, new URLSearchParams(), async <T>() => ({ url }) as T)).then(() => 'ok', e => (e as Error).message);
+  assert.match(await add('not a url at all just words'), /^That isn't a web address or a command\./);
+  assert.equal(await add('mcp.example.com/sse'), "That isn't a web address or a command. A web address starts with https://.");
+  assert.ok(looksLikeCommand(['npx', '-y', '@scope/server']) && looksLikeCommand(['uvx', 'mcp-server-git']) && looksLikeCommand(['C:/tools/server.exe']) && looksLikeCommand(['./server.py']));
+  assert.ok(!looksLikeCommand(['not', 'a', 'url']));
 });
 
 test('a route runs as whoever asked, and the body never says otherwise', async () => {

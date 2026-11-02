@@ -26,7 +26,7 @@ import { reviewPlugin } from '../integrations/review.js';
 import { allChoices, setChoices } from '../models/choice.js';
 import { availableModels } from '../models/connections.js';
 import type { Tier } from '../catalog.js';
-import { loadAgent } from './agent.js';
+import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { answerRequest } from './api.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { giveEvents, giveTools } from './engineer.js';
@@ -189,6 +189,7 @@ const TOOLS: Tool[] = [
     run: async a => {
       const { agentId, meta } = await agentOrThrow(a.agent_id);
       if (meta.builtIn) throw new Error(`${meta.name} is built in: its files are rewritten every time the app starts.`);
+      await requireMakerOrAdmin(agentId, null, currentActor(), 'change its files');
       const file = String(a.file) as keyof typeof FILES;
       if (!(file in FILES)) throw new Error('file is CHARTER.md, TOOLS.yaml or KPI.yaml.');
       const content = String(a.content ?? '');
@@ -225,6 +226,7 @@ const TOOLS: Tool[] = [
     ),
     run: async a => {
       const { agentId, meta } = await agentOrThrow(a.agent_id);
+      await requireMakerOrAdmin(agentId, null, currentActor(), 'change its model');
       const avail = await availableModels();
       const wanted = (a.models as { connection: string; model: string }[]) ?? [];
       const bad = wanted.filter(m => !avail.some(x => x.connection === m.connection && x.models.includes(m.model)));
@@ -240,6 +242,7 @@ const TOOLS: Tool[] = [
     run: async a => {
       const { agentId, meta } = await agentOrThrow(a.agent_id);
       if (meta.builtIn) throw new Error(`${meta.name} is built in: it has no ferocity or state of its own.`);
+      await requireMakerOrAdmin(agentId, null, currentActor(), 'change it');
       stateOf(agentId);
       const now = Date.now();
       if (a.ferocity !== undefined) {
@@ -334,6 +337,7 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
     schema: obj({ agent_id: str('The agent id') }, ['agent_id']),
     run: async a => {
       const { agentId, meta } = await agentOrThrow(a.agent_id);
+      await requireMakerOrAdmin(agentId, null, currentActor(), 'delete it');
       await deleteAgent(agentId);
       return `${meta.name} deleted.`;
     },
@@ -347,12 +351,14 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
       const text = String(a.message ?? '').trim();
       if (text) {
         if (meta.service) throw new Error(`${meta.name} only records what it decides; it takes no messages.`);
-        await requireMakerOrAdmin(agentId, null, currentActor(), 'message it');
-        exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", agentId, JSON.stringify({ kind: 'you', text }), Date.now());
+        if (agentId !== FLEET_ENGINEER) await requireMakerOrAdmin(agentId, null, currentActor(), 'message it');
+        const by = currentActor();
+        exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", agentId, JSON.stringify({ kind: 'you', text, by: by.name, byId: by.id }), Date.now());
         book(agentId, 'your message', text);
         return `Sent to ${meta.name}; its answer goes in its DM channel in the app (read_agent shows its last runs).`;
       }
       if (meta.service) throw new Error(`${meta.name} runs only when the agency calls it.`);
+      await requireMakerOrAdmin(agentId, null, currentActor(), 'run it');
       book(agentId, 'run now', null);
       return `${meta.name} starts as soon as it can.`;
     },
