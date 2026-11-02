@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { FEROCITY, type Agent } from '../data';
 import { renderApproval } from '../approvalTools';
-import { AI_IDES, IdeLogo } from '../Requests';
+import { AI_IDES, IdeLogo, yourIde } from '../Requests';
 import { RunPostView, type StampedEntry } from '../AgentDM';
 import type { RunPost as RunPostType } from '../dms';
 import { AgentCard as RealAgentCard, Donut as RealDonut } from '../Dashboard';
@@ -108,7 +108,7 @@ const OUTREACH: Agent = {
   id: 'help-outreach',
   name: 'Outreach',
   department: 'sales',
-  owner: 'Max',
+  owner: 'Jordan', // not 'Max': beside the agent's name it read like the Effort level
   output: [
     { label: 'LinkedIn DMs sent', value: 184 },
     { label: 'Cold emails sent', value: 126 },
@@ -458,15 +458,16 @@ const SAMPLE_REQUEST = {
   detail:
     "I'm finding people through LinkedIn's public search, which caps at about 30 useful profiles a day. With a Sales Navigator seat I could filter by role, company size and region and reach far more of the right people. Read-only search is enough.",
   plan:
-    "I can build a read-only Sales Navigator search tool for Outreach. Here's what I need from you:\n1. Buy a Sales Navigator seat (Core is enough).\n2. In Sales Navigator, go to Settings > Integrations and create an API key.\n3. Reply here when that's done. I'll build the tool, and you'll paste the key into Settings > Connections (not here).",
+    "I can build a read-only Sales Navigator search tool for Outreach. Here's what I need from you:\n1. Buy a Sales Navigator seat (Core is enough).\n2. In Sales Navigator, go to Settings > Integrations and create an API key.\n3. Reply here when that's done. I'll build the tool, and you'll paste the key into Settings > Connectors (not here).",
 };
 
 function RequestActions({ numbered = false }: { numbered?: boolean }) {
   return (
     <div className={`request-actions${numbered ? ' hd-numbered' : ''}`}>
       <button className="rq-btn ide" disabled>
-        <IdeLogo logo={AI_IDES.cursor.logo} />
-        Send to your IDE
+        {/* As the real button reads, with your AI IDE (Settings > Account). */}
+        <IdeLogo logo={AI_IDES[yourIde()].logo} />
+        Send to {AI_IDES[yourIde()].name}
       </button>
       <div className="request-own">
         <button className="rq-btn diy">
@@ -554,7 +555,7 @@ function RequestAnswer() {
           <span>Work with the agent to fulfill the request.</span>
         </li>
         <li>
-          <b>Send to your IDE</b>
+          <b>Send to {AI_IDES[yourIde()].name}</b>
           <span>Opens your AI IDE on the request, with the agency's tools.</span>
         </li>
         <li>
@@ -617,10 +618,10 @@ function Talk() {
     <div className="hd-dm-real" {...{ inert: '' }}>
       <div className="dm-log">
         <div className="dm-post">
-          <div className="dm-avatar you">M</div>
+          <div className="dm-avatar you">J</div>
           <div className="dm-post-main">
             <div className="dm-post-head">
-              <span className="dm-author">Max</span>
+              <span className="dm-author">Jordan</span>
               <span className="dm-time">10:02 AM</span>
             </div>
             <p className="dm-text">Can you put Kestrel Logistics first this week?</p>

@@ -26,6 +26,7 @@ import {
   type WaitingInvite,
   leaveOrganisation,
   members as listMembers,
+  myName,
   ownOrg,
   previewInvite,
   removeMember,
@@ -481,7 +482,8 @@ function AccountSection() {
                 title={photo ? 'Change photo' : 'Upload a photo'}
                 aria-label={photo ? 'Change photo' : 'Upload a photo'}
               >
-                {photo ? <img src={photo} alt="" /> : (p.full_name || p.name).charAt(0)}
+                {/* The name the sidebar shows, so the two initials agree. */}
+                {photo ? <img src={photo} alt="" /> : myName().charAt(0)}
               </button>
               {photo && (
                 <button className="slink" onClick={removePhoto}>
@@ -504,7 +506,8 @@ function AccountSection() {
             <Row label="Display name" sub={state.me ? 'Your agents and your organisations see this.' : 'Your agents see this.'}>
               <SavedInput
                 value={state.me?.user.name || p.full_name || p.call_me || ''}
-                placeholder={p.name}
+                // Not the last person's name: signed out it showed "Jo Nguyen" as if filled in.
+                placeholder="Your name"
                 onSave={full_name => {
                   update({ full_name, call_me: '' });
                   setMyName(full_name).catch(e => setError((e as Error).message));
@@ -540,11 +543,14 @@ function AccountSection() {
         </Row>
       </div>
 
-      <div className="sgroup sgroup-delete">
-        <button className="sbtn danger" disabled title="Comes with sign-in">
-          Delete account
-        </button>
-      </div>
+      {/* Signed out there's no account to delete. */}
+      {state.me && (
+        <div className="sgroup sgroup-delete">
+          <button className="sbtn danger" disabled title="Comes with sign-in">
+            Delete account
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -612,8 +618,6 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  if (org) return <OrganizationProfile name={org.name} />;
-
   // Made, hosted on this computer, and opened.
   const start = async () => {
     if (!name.trim()) return;
@@ -628,10 +632,13 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
     }
   };
   const mine = ownOrg();
-  const others = teamOrgs().filter(o => o !== mine);
-  return (
+  // In one already, the rest is below its profile: "New organization" from the
+  // sidebar opened only the current one's page, with no way to create or join.
+  const here = org ? teamOrgs().find(o => o.name === org.name)?.id : undefined;
+  const others = teamOrgs().filter(o => o !== mine && o.id !== here);
+  const directory = (
     <section className="ssection">
-      <h2>Organization</h2>
+      <h2>{org ? 'Your organizations' : 'Organization'}</h2>
       {state.me && <InvitesForMe />}
       {!state.me ? (
         <div className="sorg-row">
@@ -641,14 +648,16 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
           </button>
         </div>
       ) : mine ? (
-        <div className="sorg-row">
-          <span>
-            You host <strong>{mine.name}</strong>
-          </span>
-          <button className="sbtn" onClick={() => switchAgency(mine.id)}>
-            Open
-          </button>
-        </div>
+        mine.id !== here && (
+          <div className="sorg-row">
+            <span>
+              You host <strong>{mine.name}</strong>
+            </span>
+            <button className="sbtn" onClick={() => switchAgency(mine.id)}>
+              Open
+            </button>
+          </div>
+        )
       ) : step ? (
         <p className="snotes-empty">{step}...</p>
       ) : (
@@ -675,6 +684,13 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
         <SelfHosted />
       </Advanced>
     </section>
+  );
+  if (!org) return directory;
+  return (
+    <>
+      <OrganizationProfile name={org.name} />
+      {directory}
+    </>
   );
 }
 
@@ -981,7 +997,18 @@ function OrgPeople() {
                 <li key={i.code}>
                   {org.self && <code className="scode">{i.code}</code>}
                   <span className="muted">{i.email ?? 'Anyone with the code'}</span>
-                  <button className="sicon" aria-label="Revoke" onClick={() => act(() => revokeInvite(i.code))}>
+                  <button
+                    className="sicon"
+                    aria-label="Revoke"
+                    title="Revoke this invite"
+                    onClick={() =>
+                      act(async () => {
+                        await revokeInvite(i.code);
+                        // Its "send them this link" note goes too: the link no longer works.
+                        if (made?.code === i.code) setMade(null);
+                      })
+                    }
+                  >
                     <X size={14} />
                   </button>
                 </li>
@@ -1086,7 +1113,8 @@ function OrganizationProfile({ name }: { name: string }) {
   };
   const loaded = !!p;
   // Members read it; the owner and admins change it (access.ts on the host).
-  const readOnly = ACCOUNT.role === 'member';
+  // (ACCOUNT.role wasn't set for a member, so the fields were left editable.)
+  const readOnly = !isAdmin();
   useEffect(() => {
     if (loaded && !readOnly) relink();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1113,7 +1141,7 @@ function OrganizationProfile({ name }: { name: string }) {
             </Field>
           </div>
           <Field label="Voice">
-            <input value={p.voice} onChange={e => rec.edit({ voice: e.target.value })} />
+            <textarea rows={2} value={p.voice} onChange={e => rec.edit({ voice: e.target.value })} />
           </Field>
           <div className="sfield">
             <span className="sfield-label">Key people</span>
@@ -1164,11 +1192,16 @@ function UsageSection() {
   useEffect(() => {
     getUsage().then(setUsage, () => {});
   }, []);
-  const rows = (usage?.agents ?? []).map(a => ({ a, spend: a.monthUsd })).sort((x, y) => y.spend - x.spend || y.a.monthRuns - x.a.monthRuns);
+  // Most first: by spend to the cent, then by runs (a fraction of a cent put 1 run above 7).
+  const cents = (n: number) => Math.round(n * 100);
+  const rows = (usage?.agents ?? []).map(a => ({ a, spend: a.monthUsd })).sort((x, y) => cents(y.spend) - cents(x.spend) || y.a.monthRuns - x.a.monthRuns);
   const total = rows.reduce((s, r) => s + r.spend, 0);
   const runs = rows.reduce((s, r) => s + r.a.monthRuns, 0);
   const unknown = rows.reduce((s, r) => s + r.a.monthUnknownRuns, 0);
-  const top = Math.max(...rows.map(r => r.spend), 0.01);
+  // Bars by spend; when it's all a cent or less (AI plans don't cost per run), by runs -
+  // a fraction of a cent drew the only bar while 7 runs drew none.
+  const bySpend = rows.some(r => r.spend >= 0.01);
+  const barOf = (spend: number, runs: number) => (bySpend ? spend / Math.max(...rows.map(r => r.spend)) : runs / Math.max(...rows.map(r => r.a.monthRuns), 1));
   return (
     <section className="ssection">
       <h2>Usage</h2>
@@ -1196,7 +1229,11 @@ function UsageSection() {
           <span className="stile-value">{usage ? rows.length : <Skel w={24} h={24} />}</span>
         </div>
       </div>
+      {/* All on AI plans: nothing is charged per run, which "$0.00 over 18 runs" didn't say. */}
+      {usage && runs > 0 && total < 0.01 && <p className="slead">Runs on an AI plan aren't charged per run, so they show as $0.00.</p>}
       <h3>By agent</h3>
+      {/* Above the list, as on Connectors (it was below ten rows of locked boxes). */}
+      {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change the monthly limits.</p>}
       {/* Each one's monthly spending limit sits beside its cost this month
           (docs/runner.md, "Money and limits"): reached, pay-per-use models pause
           until next month; plans and local models carry on. Blank: no limit. */}
@@ -1228,7 +1265,9 @@ function UsageSection() {
           </li>
         )}
         {rows.map(({ a, spend }) => {
-          const Icon = DEPARTMENT_ICON[a.department as keyof typeof DEPARTMENT_ICON] ?? DEPARTMENT_ICON.agency;
+          // The icon it has everywhere else (the Agency Engineer showed "<>" here, a hammer in the sidebar).
+          const dept = AGENTS.find(x => x.id === a.id)?.department ?? a.department;
+          const Icon = DEPARTMENT_ICON[dept as keyof typeof DEPARTMENT_ICON] ?? DEPARTMENT_ICON.agency;
           return (
             <li key={a.id} title={`${a.name}: ${money(spend)} over ${a.monthRuns} runs this month${a.monthUnknownRuns ? ` (${a.monthUnknownRuns} at an unknown price)` : ''}`}>
               <span className="susage-name">
@@ -1236,7 +1275,7 @@ function UsageSection() {
                 {a.name}
               </span>
               <span className="susage-bar">
-                <span style={{ width: `${(spend / top) * 100}%` }} />
+                <span style={{ width: `${barOf(spend, a.monthRuns) * 100}%` }} />
               </span>
               <span className="susage-runs">{a.monthRuns.toLocaleString()} run{a.monthRuns === 1 ? '' : 's'}</span>
               <span className="susage-spend">
@@ -1248,39 +1287,50 @@ function UsageSection() {
           );
         })}
       </ul>
-      {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change the monthly limits.</p>}
     </section>
   );
 }
 
-// A limit typed in: dollars, or blank for none.
-const parseCap = (v: string) => {
+// A limit typed in: dollars, or blank for none. Anything else isn't a limit
+// ("-5" used to clear it silently, "abc" was taken as none, 20 digits came back rounded).
+const MAX_CAP = 1_000_000;
+const capProblem = (v: string) => {
+  if (v.trim() === '') return null;
   const n = Number(v.replace(/[$,\s]/g, ''));
-  return v.trim() === '' || !Number.isFinite(n) || n < 0 ? null : n;
+  if (!Number.isFinite(n) || n <= 0) return 'A limit is an amount in dollars, like 50 - or leave it blank for none.';
+  if (n > MAX_CAP) return `A limit can be up to $${MAX_CAP.toLocaleString()} a month.`;
+  return null;
 };
+const parseCap = (v: string) => (v.trim() === '' ? null : Math.round(Number(v.replace(/[$,\s]/g, '')) * 100) / 100);
 
 // A monthly dollar limit that saves when you leave it (or press Enter).
 function CapInput({ value, onSave, label, disabled }: { value: number | null; onSave: (v: string) => void; label: string; disabled?: boolean }) {
   const [text, setText] = useState(value == null ? '' : String(value));
+  const [problem, setProblem] = useState<string | null>(null);
   const saved = useRef(text);
   const save = () => {
-    if (text === saved.current) return;
+    if (text === saved.current) return setProblem(null);
+    const bad = capProblem(text);
+    setProblem(bad);
+    if (bad) return;
     saved.current = text;
     onSave(text);
   };
   return (
-    <label className="slimit-input">
+    <label className={`slimit-input${problem ? ' bad' : ''}`} title={problem ?? undefined}>
       <span>$</span>
       <input
         inputMode="decimal"
         placeholder="No limit"
         aria-label={label}
+        aria-invalid={!!problem}
         value={text}
         onChange={e => setText(e.target.value)}
         onBlur={save}
         onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         disabled={disabled}
       />
+      {problem && <span className="slimit-problem">{problem}</span>}
     </label>
   );
 }

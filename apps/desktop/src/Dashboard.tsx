@@ -8,8 +8,9 @@ import { useDismiss } from './useDismiss';
 import { FlashCount } from './FlashCount';
 import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
-import { scoped } from './account';
+import { currentOrg, isAdmin, myAccountId, scoped } from './account';
 import { Skel } from './Skeleton';
+import { ConnectModel } from './NoModels';
 
 // Slice colours come from --slice-0..4 on the card (styles.css): blue-to-gray
 // normally, red at Apocalyptic, grays when the agent is stopped.
@@ -192,11 +193,15 @@ function Tuning({
   range,
   level,
   setLevel,
+  disabled = false,
+  stopped = false,
 }: {
   agent: Agent;
   range: TimeRange;
   level: number;
   setLevel: (l: number) => void;
+  disabled?: boolean; // someone else's agent: shown, not changed
+  stopped?: boolean; // it, or the whole agency, is stopped: no runs coming
 }) {
   // A real agent: its recent output per run times the runs its own plan gives
   // this level. Placeholder agents use the placeholder schedules.
@@ -219,6 +224,7 @@ function Tuning({
           max={FEROCITY.length - 1}
           step={1}
           value={level}
+          disabled={disabled}
           onChange={e => setLevel(Number(e.target.value))}
           aria-label="Ferocity"
           aria-valuetext={FEROCITY[level].name}
@@ -226,8 +232,10 @@ function Tuning({
         />
         <div className="ferocity-est" title={cadence}>
           <span className="stat-label">Est. Output:</span>
-          {/* Before its first run there's no output to go by: how often it will run, then. */}
-          <span className="est-value">{estimate == null ? cadence : count(estimate)}</span>
+          {/* Before it's produced anything there's no output to go by: how often it will run, then.
+              (After runs with nothing to show yet it read "0", as if it would never do anything.)
+              Stopped, it isn't going to run at all. */}
+          <span className="est-value">{stopped ? 'None while stopped' : estimate == null || estimate === 0 ? cadence : count(estimate)}</span>
         </div>
       </div>
     </div>
@@ -288,7 +296,12 @@ export function AgentCard({
   modelsLoading = false,
   setup,
   onOpenRequest,
+  viewOnly = false,
+  noAi = false,
 }: {
+  // An organisation's member looking at someone else's agent: they see it, only its owner or an admin changes it.
+  viewOnly?: boolean;
+  noAi?: boolean; // no AI model is connected: nothing can run
   setup?: AgentSetup; // a new agent still in setup: its connectors (AgentSetup.tsx)
   onOpenRequest?: (id: number) => void;
   agent: Agent;
@@ -390,7 +403,7 @@ export function AgentCard({
         <GripVertical size={16} />
       </button>
       )}
-      {onDelete && !preview && <CardMenu onDelete={onDelete} />}
+      {onDelete && !preview && !viewOnly && <CardMenu onDelete={onDelete} />}
       <div className="card-main">
         <header className="card-head">
           <div className="card-name">
@@ -475,7 +488,11 @@ export function AgentCard({
                 why={
                   agent.service
                     ? 'It works only when an agent needs it - it has no runs of its own'
-                    : agencyStopped
+                    : viewOnly
+                      ? `Only ${(agent.builtIn ? 'the owner' : agent.owner || 'its owner')} or an admin can run it`
+                      : noAi
+                        ? 'No AI model is connected - connect one in Settings > Connectors'
+                        : agencyStopped
                       ? 'The agency is stopped'
                       : state === 'stopped'
                         ? "It's stopped"
@@ -517,11 +534,11 @@ export function AgentCard({
             <span className="skel skel-btn" />
           </div>
         )}
-        {!agent.builtIn && !loading && <div className="controls">
+        {!agent.builtIn && !loading && <div className="controls" title={viewOnly ? `Only ${(agent.builtIn ? 'the owner' : agent.owner || 'its owner')} or an admin can change this agent` : undefined}>
           <button
             key={state === 'draining' ? 'drain-resume' : 'drain'}
             className={`ctl-btn${state === 'draining' ? ' resume' : ''}`}
-            disabled={state === 'stopped' || agencyHeld}
+            disabled={state === 'stopped' || agencyHeld || viewOnly}
             onClick={() => turn(state === 'draining' ? 'active' : 'draining')}
           >
             {state === 'draining' ? <Play size={15} /> : <Pause size={15} />}
@@ -530,7 +547,7 @@ export function AgentCard({
           <button
             key={state === 'stopped' ? 'stop-resume' : 'stop'}
             className={`ctl-btn ${state === 'stopped' ? 'resume' : 'stop'}`}
-            disabled={agencyHeld}
+            disabled={agencyHeld || viewOnly}
             onClick={() => turn(state === 'stopped' ? 'active' : 'stopped')}
           >
             {state === 'stopped' ? <Play size={15} /> : <Square size={13} fill="currentColor" />}
@@ -539,10 +556,10 @@ export function AgentCard({
         </div>}
 
         {/* Built-ins work when there's work: no schedule to set. */}
-        {!agent.builtIn && (loading ? <TuningSkeleton /> : <Tuning agent={agent} range={range} level={level} setLevel={setLevel} />)}
+        {!agent.builtIn && (loading ? <TuningSkeleton /> : <Tuning agent={agent} range={range} level={level} setLevel={setLevel} disabled={viewOnly} stopped={!preview && (state === 'stopped' || agencyStopped)} />)}
         {models && modelsLoading && <span className="skel skel-model" />}
         {models && !modelsLoading && (
-          <ModelRow choices={models} available={available} checks={checks} open={modelsOpen} readOnly={preview} onOpen={() => setModelsOpen(o => !o)} />
+          <ModelRow choices={models} available={available} checks={checks} open={modelsOpen} readOnly={preview || viewOnly} onOpen={() => setModelsOpen(o => !o)} />
         )}
       </aside>
       {modelsOpen && models && onModels && <ModelPanel choices={models} available={available} onChange={onModels} checks={checks} onCheck={onCheck} />}
@@ -930,6 +947,12 @@ export function Dashboard({
 
   return (
     <div className="dashboard">
+      {/* No AI connected: nothing can run, which the cards alone only hinted at ("No model"). */}
+      {modelsReady && !available.some(c => c.models.length > 0) && (
+        <div className="dash-no-ai">
+          <ConnectModel title="No AI model is connected, so no agent can run." />
+        </div>
+      )}
       {order.map(id => {
         // Gone from AGENTS already: its slot just plays its exit.
         const found = AGENTS.find(x => x.id === id) ?? (removing === id ? deletedCard.current : undefined);
@@ -980,6 +1003,8 @@ export function Dashboard({
               onRunNow={l ? () => runNow(a.id).catch(() => {}) : undefined}
               setup={setups[a.id]}
               onOpenRequest={onOpenRequest}
+              viewOnly={!!currentOrg() && !isAdmin() && (a.builtIn || a.ownerId !== myAccountId())}
+              noAi={modelsReady && !available.some(c => c.models.length > 0)}
             />
           </div>
         );

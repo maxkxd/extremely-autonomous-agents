@@ -10,7 +10,8 @@ type Ref = { onRequest?: (id: number) => void; canOpen?: (id: number) => boolean
 // "Settings -> Connectors -> Integrations -> Sentry Errors": where to connect
 // something. A link to it in Settings (the integration glowing), when the app
 // can open Settings from here.
-const SETTINGS_RE = /Settings\s*(?:->|→)\s*Connectors(?:\s*(?:->|→)\s*Integrations)?(?:\s*(?:->|→)\s*([^.,;:\n]+))?/g;
+// (The name stops at a bracket: "Gmail (never into the chat)" linked the aside too.)
+const SETTINGS_RE = /Settings\s*(?:->|→)\s*Connectors(?:\s*(?:->|→)\s*Integrations)?(?:\s*(?:->|→)\s*([^.,;:(\n]+))?/g;
 const SETTINGS_LINE = /^\s*(?:Where:\s*)?Settings\s*(?:->|→)\s*Connectors(?:\s*(?:->|→)\s*Integrations)?\s*(?:->|→)\s*([^.,;:\n]+?)\.?(?:\s*Keys go there, never in this chat\.)?\s*$/;
 
 function Inline({ text, refs }: { text: string; refs: Ref }) {
@@ -79,7 +80,7 @@ function InlineCore({ text, refs }: { text: string; refs: Ref }) {
             {m[0]}
           </a>
         ) : refs.onRequest && named ? (
-          <span key={at} className="rt-ref" title="That request isn't on the Requests page: it's closed, or the Agency Engineer is still working on it">
+          <span key={at} className="rt-ref" title="That request isn't on your Requests page: it's closed, someone else's, or the Agency Engineer is still working on it">
             {m[0]}
           </span>
         ) : (

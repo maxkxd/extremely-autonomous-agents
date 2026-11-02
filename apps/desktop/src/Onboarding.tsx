@@ -124,9 +124,12 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             {failed.map(f => `${f.name} didn't work: ${f.reason}`).join(' ')}
           </p>
         )}
-        <button className="sbtn onboarding-skip" onClick={() => (ok ? done() : setSkipping(true))}>
-          Skip
-        </button>
+        {/* With one working there's nothing to skip: Skip and Next did the same thing. */}
+        {!ok && (
+          <button className="sbtn onboarding-skip" onClick={() => setSkipping(true)}>
+            Skip
+          </button>
+        )}
         <button className="sbtn primary" disabled={!ok} onClick={done}>
           {!ok && testing ? 'Testing…' : 'Next'}
         </button>

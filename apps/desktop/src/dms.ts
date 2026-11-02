@@ -19,6 +19,7 @@ export type RunPost = {
   tools: ToolLine[];
 };
 
-export type YourMessage = { kind: 'you'; minutesAgo: number; text: string };
+// from: who wrote it, when the server says (in an organisation, maybe not you).
+export type YourMessage = { kind: 'you'; minutesAgo: number; text: string; from?: string };
 
 export type DmEntry = RunPost | YourMessage;

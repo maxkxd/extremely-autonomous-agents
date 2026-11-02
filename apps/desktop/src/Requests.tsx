@@ -297,7 +297,7 @@ function RequestRow({
                     className={`rq-btn diy${drawer === 'diy' ? ' on' : ''}`}
                     onClick={e => openDrawer('diy', e)}
                     disabled={!!leaving}
-                    title="Shift-click to mark done without a note"
+                    title="Did it yourself? Say what you did, and it's marked done (shift-click: no note)"
                   >
                     <Hand size={14} strokeWidth={1.9} />
                     DIY

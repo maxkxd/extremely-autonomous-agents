@@ -104,6 +104,8 @@ export function AgentReveal({
         </div>
         <button
           className={`reveal-accept${holding ? ' holding' : ''}`}
+          // A plain click does nothing, and nothing said so.
+          title="Press and hold"
           style={{ '--hold': `${HOLD_MS}ms` } as React.CSSProperties}
           onPointerDown={press}
           onPointerUp={release}

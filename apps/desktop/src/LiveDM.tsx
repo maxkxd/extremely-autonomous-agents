@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AgentDM, type StampedEntry } from './AgentDM';
-import { getDm, sendDm } from './builder';
+import { getAgency, getDm, getLiveAgents, sendDm } from './builder';
 import type { Resolution } from './Approvals';
 
 // A real agent's DM channel (docs/agent-dms.md): its run posts and your
@@ -10,6 +10,9 @@ export function LiveDM({ agentId, approvalOutcomes }: { agentId: string; approva
   const [entries, setEntries] = useState<StampedEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [waitingSince, setWaitingSince] = useState<number | null>(null);
+  // Stopped (it, or the whole agency): a message waits, so the channel says so
+  // instead of showing it running (it showed "running…" for ten minutes).
+  const [stopped, setStopped] = useState(false);
   const waiting = useRef<number | null>(null);
   waiting.current = waitingSince;
 
@@ -21,6 +24,10 @@ export function LiveDM({ agentId, approvalOutcomes }: { agentId: string; approva
         if (stop) return;
         setEntries(list);
         setLoaded(true);
+        Promise.all([getLiveAgents(1), getAgency()]).then(
+          ([agents, agency]) => !stop && setStopped(agency.state === 'stopped' || agents[agentId]?.state === 'stopped'),
+          () => {},
+        );
         // The answer to your message has landed.
         const since = waiting.current;
         if (since && list.some(e => e.kind === 'run' && e.at >= since)) setWaitingSince(null);
@@ -44,5 +51,5 @@ export function LiveDM({ agentId, approvalOutcomes }: { agentId: string; approva
     sendDm(agentId, text).catch(() => setWaitingSince(null));
   };
 
-  return <AgentDM agentId={agentId} entries={entries} loading={!loaded} thinking={waitingSince != null} onSend={send} approvalOutcomes={approvalOutcomes} />;
+  return <AgentDM agentId={agentId} entries={entries} loading={!loaded} thinking={waitingSince != null && !stopped} stopped={stopped} onSend={send} approvalOutcomes={approvalOutcomes} />;
 }

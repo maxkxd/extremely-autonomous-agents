@@ -612,6 +612,13 @@ function WebhookTunnel({ tunnel, onChange }: { tunnel: TunnelState; onChange: (t
 }
 
 // A command, or an address on this computer or its network.
+// A command that starts a server: a known launcher, or a program by its path
+// ("not a url at all just words" was taken for one).
+const looksLikeCommand = (s: string) => {
+  const first = s.trim().split(/\s+/)[0] ?? '';
+  return /^(npx|node|uvx|uv|python3?|pipx|docker|deno|bun|bunx|pnpm|yarn|npm|java|go|cargo|dotnet)$/i.test(first) || /[\\/]|\.(exe|cmd|bat|sh|js|mjs|py)$/i.test(first);
+};
+
 const onThisComputer = (s: string) => {
   const v = s.trim();
   if (!v) return false;
@@ -681,7 +688,9 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
         />
         {onThisComputer(url) && (
           <p className="sint-help sint-bad">
-            {isAdmin()
+            {!/^https?:\/\//i.test(url.trim()) && !looksLikeCommand(url)
+              ? "That isn't a web address (https://...) or a command that starts a server (npx -y ...)."
+              : isAdmin()
               ? 'This one runs on this computer, with your permissions - agents using it can do what it can. Only add servers you trust.'
               : 'This one would run on the host’s computer. Only the owner or an admin can add those.'}
           </p>
@@ -705,7 +714,7 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
           <button className="sbtn" onClick={() => setOpen(false)} disabled={busy}>
             Cancel
           </button>
-          <SpinButton className="sbtn primary" spinning={busy} onClick={add} disabled={!url.trim() || (auth === 'bearer' && !key.trim()) || (!isAdmin() && onThisComputer(url))}>
+          <SpinButton className="sbtn primary" spinning={busy} onClick={add} disabled={!url.trim() || (auth === 'bearer' && !key.trim()) || (!isAdmin() && onThisComputer(url)) || (!/^https?:\/\//i.test(url.trim()) && !looksLikeCommand(url))}>
             Add
           </SpinButton>
         </div>

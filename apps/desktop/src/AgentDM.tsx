@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CircleAlert, CircleCheck, CircleStop, Loader2, SendHorizontal } from 'lucide-react';
 import { Linkify } from './Linkify';
 import { RichText } from './RichText';
@@ -7,6 +7,7 @@ import { DEPARTMENT_ICON } from './Sidebar';
 import type { DmEntry, RunPost, ToolLine } from './dms';
 import type { Resolution } from './Approvals';
 import { Loading, Skel, SkelLines } from './Skeleton';
+import { getTools } from './builder';
 
 // Placeholder history is "minutes ago"; pin it to the page's load time.
 const loadedAt = Date.now();
@@ -39,12 +40,15 @@ export function RunPostView({
   agentName,
   Icon,
   outcomes,
+  silent,
 }: {
   post: StampedEntry & RunPost;
   agentName: string;
   Icon: typeof CircleCheck;
   outcomes: Record<string, Resolution>;
+  silent?: Set<string>; // its Silent tools (Settings > Tools): done without a word, so not listed here
 }) {
+  const shown = post.tools.filter(t => !silent?.has(`${t.server}.${t.tool}`));
   const ok = post.outcome === 'succeeded';
   const stopped = post.outcome === 'stopped'; // a person stopped it: not a failure
   return (
@@ -72,9 +76,9 @@ export function RunPostView({
         <div className="dm-text">
           <RichText text={post.text} />
         </div>
-        {post.tools.length > 0 && (
+        {shown.length > 0 && (
           <ul className="dm-tools">
-            {post.tools.map((t, i) => (
+            {shown.map((t, i) => (
               <li key={i}>
                 <span className={`dm-tool-dot ${toolState(t, outcomes)}`} title={TOOL_TITLE[toolState(t, outcomes)]} />
                 {t.server} · {t.tool} · <span className="dm-tool-fields">{t.fields.join(', ')}</span>
@@ -94,8 +98,10 @@ export function AgentDM({
   onSend,
   approvalOutcomes,
   loading = false,
+  stopped = false,
 }: {
   agentId: string;
+  stopped?: boolean; // it or the agency is stopped: a message waits until it's resumed
   loading?: boolean; // its history isn't in yet: placeholders, not "No agent activity yet"
   entries: StampedEntry[];
   thinking: boolean;
@@ -106,6 +112,18 @@ export function AgentDM({
   const Icon = DEPARTMENT_ICON[agent.department];
   const [draft, setDraft] = useState('');
   const end = useRef<HTMLDivElement>(null);
+  // Its Silent tools, which its posts leave out.
+  const [silent, setSilent] = useState<Set<string>>();
+  useEffect(() => {
+    let live = true;
+    getTools().then(
+      tools => live && setSilent(new Set(tools.filter(t => t.agents.find(a => a.id === agentId)?.tier === 'T0').map(t => t.id))),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [agentId]);
 
   // Newest at the bottom, like any chat: open at (and follow) the latest post.
   useLayoutEffect(() => {
@@ -151,13 +169,14 @@ export function AgentDM({
             <div key={i}>
               {divider}
               {e.kind === 'run' ? (
-                <RunPostView post={e as StampedEntry & RunPost} agentName={agent.name} Icon={Icon} outcomes={approvalOutcomes} />
+                <RunPostView post={e as StampedEntry & RunPost} agentName={agent.name} Icon={Icon} outcomes={approvalOutcomes} silent={silent} />
               ) : (
                 <div className="dm-post">
-                  <div className="dm-avatar you">{ACCOUNT.name.charAt(0)}</div>
+                  {/* Who wrote it (a teammate's message showed under the viewer's name). */}
+                  <div className="dm-avatar you">{(e.from || ACCOUNT.name).charAt(0)}</div>
                   <div className="dm-post-main">
                     <div className="dm-post-head">
-                      <span className="dm-author">{ACCOUNT.name}</span>
+                      <span className="dm-author">{e.from || ACCOUNT.name}</span>
                       <span className="dm-time">{clock(e.at)}</span>
                     </div>
                     <p className="dm-text">
@@ -181,6 +200,9 @@ export function AgentDM({
               </div>
             </div>
           </div>
+        )}
+        {stopped && (
+          <div className="dm-stopped">{agent.name} is stopped, so it won't answer until it's resumed.</div>
         )}
         <div ref={end} />
       </div>
