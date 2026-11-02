@@ -156,17 +156,21 @@ const PREFIXES: [string, string][] = [
   ['AQ.', 'Google Gemini'],
   ['xai-', 'xAI'],
   ['gsk_', 'Groq'],
+  // OpenAI's project and service keys; older ones are plain sk-, so never "OpenAI keys start with".
+  ['sk-proj-', 'OpenAI'],
+  ['sk-svcacct-', 'OpenAI'],
 ];
 function wrongProvider(id: string, key: string): string | null {
   const hit = PREFIXES.find(([prefix]) => key.startsWith(prefix));
   if (!hit || hit[1] === provider(id)?.name) return null;
   const name = provider(id)?.name ?? '';
-  return `This looks like a${/^[AEIOU]/.test(hit[1]) ? 'n' : ''} ${hit[1]} key, not a${/^[AEIOU]/.test(name) ? 'n' : ''} ${name} one.`;
+  return `This looks like a${/^[AEIOU]/.test(hit[1]) ? 'n' : ''} ${hit[1]} key, not a${/^[AEIOU]/.test(name) ? 'n' : ''} ${name} one - add it under ${hit[1]} instead.`;
 }
 // A key that failed and doesn't start the way this provider's do: probably another's.
 function ownPrefixMissing(id: string, key: string): string | null {
-  const own = PREFIXES.find(([, name]) => name === provider(id)?.name)?.[0];
-  return own && !key.startsWith(own) ? `${provider(id)?.name} keys start with ${own}, and this one doesn't - is it a key for another provider?` : null;
+  const name = provider(id)?.name;
+  const own = name === 'OpenAI' ? [] : PREFIXES.filter(([, n]) => n === name).map(([p]) => p);
+  return own.length && !own.some(p => key.startsWith(p)) ? `${name} keys start with ${own.join(' or ')}, and this one doesn't - is it a key for another provider?` : null;
 }
 
 // Checks a key with the provider, then saves it. One that doesn't check out:
@@ -182,7 +186,8 @@ export async function connectKey(id: string, key: string, baseUrl?: string) {
   const k = p.kind === 'key' ? cleanKey(key) : '';
   if (p.kind === 'key' && !k) throw new ConnectError('Paste the key first.');
   if (p.kind === 'key' && k.length > 400) throw new ConnectError("That's much longer than a key - copy just the key itself.");
-  const wrong = p.kind === 'key' ? wrongProvider(id, k) : null;
+  // Any OpenAI-compatible endpoint may take any of these (a gateway in front of OpenAI or OpenRouter).
+  const wrong = p.kind === 'key' && !p.editableBaseUrl ? wrongProvider(id, k) : null;
   if (wrong) throw new ConnectError(wrong);
   const url = p.editableBaseUrl ? baseUrl?.trim() || p.baseUrl : undefined;
   try {

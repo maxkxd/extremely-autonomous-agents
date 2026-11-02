@@ -419,7 +419,8 @@ function KeyRow({
                 Connect
               </SpinButton>
             </div>
-            {shownError && <span className="custom-error">{shownError}</span>}
+            {/* Already said in the row's line above when it's the saved key's reason. */}
+            {shownError && shownError !== c.broken && <span className="custom-error">{shownError}</span>}
           </div>
         ) : (
           shownError &&
