@@ -29,7 +29,7 @@ import { listTools, setToolTier } from './toolSettings.js';
 import { SELF_HOSTED } from './selfhost.js';
 import { randomUUID } from 'node:crypto';
 import { forwardToHosted, HOSTED_ORG, HOSTED_PORT, hostingStatus, keepHostSecret, resumeHosting, startHosting, deleteHosting, stopHosting } from './hosting.js';
-import { setSetting } from './runner/db.js';
+import { getSetting, setSetting } from './runner/db.js';
 import { scrub } from './secrets.js';
 import { aiDisconnected } from './runner/helpers.js';
 import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, personFor, recordAction, requireAdmin, setAccessConfig } from './access.js';
@@ -85,7 +85,11 @@ async function callback(finish: () => Promise<void>) {
 // (a no-op once everyone's been checked), so the next turn has them.
 const context = async (person: string, org: string | null, members: string[] = []): Promise<Context> => {
   if (org) linkPeople(org, members).catch(e => console.error('Linking key people failed:', e));
+  // A teammate signed in from their own computer: "this computer" is the host's.
+  const actor = currentActor();
+  const elsewhere = actor.via === 'token' && !actor.here ? (getSetting<string | null>('host_person', null) ?? 'the host') : null;
   return {
+    elsewhere,
     person: await loadPerson(person),
     profile: org ? await loadProfile(org) : null,
     fleet: await scanFleet(),

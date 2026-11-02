@@ -27,7 +27,8 @@ export type Pack = { id: string; name: string; tagline: string; agents: { name: 
 export type Turn = { role: 'person' | 'builder'; text: string };
 // Who you're talking to, the organisation (if they have one), and what the
 // fleet already has.
-export type Context = { person: PersonProfile; profile: Profile | null; fleet: Fleet; models: Available[] };
+// elsewhere: the person is a teammate on their own computer - the agency runs on this one (its host's name).
+export type Context = { person: PersonProfile; profile: Profile | null; fleet: Fleet; models: Available[]; elsewhere?: string | null };
 
 export class BuilderError extends Error {}
 
@@ -76,7 +77,7 @@ When nothing does a job, you define a new tool yourself and it gets built; the p
 Events: an agent runs on its schedule, and can also be woken by events - something happening at a service it watches (a new error report, a support ticket, an alarm). When the job is reacting to something ("triage each new bug", "answer tickets as they come in", "act when an alarm fires"), give it the event: an existing one by id, or a new event you define, which gets set up like a new tool. The schedule stays as a slow sweep for anything missed.`;
 
 function contextBlock(ctx: Context): string {
-  const me = `You are talking to the person who owns these agents. What you know about them:\n${personForPrompt(ctx.person)}\nTheir time zone is ${hostZone()}: schedules and "a day" run on it, so never ask for it.\n${reportDefaultForPrompt(ctx.person.name)}`;
+  const me = `You are talking to the person who owns these agents. What you know about them:\n${personForPrompt(ctx.person)}\nTheir time zone is ${hostZone()}: schedules and "a day" run on it, so never ask for it.\n${reportDefaultForPrompt(ctx.person.name)}${ctx.elsewhere ? `\nThey use this agency from their own computer; it runs on ${ctx.elsewhere}'s. So "this computer" - a folder, their Desktop or Documents (computer_files) - is ${ctx.elsewhere}'s computer, which they can't open: when they ask for a folder on their computer, say so and offer a place they can reach (emailed to them, Google Drive, Notion), or a folder on ${ctx.elsewhere}'s computer if they still want it there.` : ''}`;
   const org = ctx.profile
     ? `The organisation these agents work for:\n${profileForPrompt(ctx.profile, ctx.person.name)}`
     : "They aren't set up as an organisation: the agents work for them personally. Keep organisation-specific details general rather than inventing them - they get filled in over time.";
