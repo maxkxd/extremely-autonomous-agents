@@ -428,9 +428,10 @@ const routes: Record<string, Route> = {
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   // A run's tools, for Claude Code (runner/mcp.ts).
-  if (url.pathname.startsWith('/mcp/') && (await handleMcp(req, res, url.pathname))) return;
-  // A teammate's AI assistant, for an organization hosted elsewhere (runner/remote-mcp.ts).
+  // A teammate's AI assistant, for an organization hosted elsewhere (runner/remote-mcp.ts):
+  // first, since handleMcp answers any unknown /mcp/ address with a 404.
   if (url.pathname.startsWith('/mcp/') && (await handleRemoteMcp(req, res, url.pathname))) return;
+  if (url.pathname.startsWith('/mcp/') && (await handleMcp(req, res, url.pathname))) return;
   // The organization's agency this computer hosts: passed on, and it checks who's
   // asking. Only from here, or with a token: without one it would take them for
   // this computer's own person.
