@@ -134,7 +134,7 @@ export async function fillBuiltInModels() {
       null,
       {
         what: `${nameOf(connection)} ${LOST}`,
-        why: `${nameOf(connection)} isn't connected any more, so the agents that ran on it moved to ${[...to].join(' and ')} to keep working. To move them back, reconnect it in Settings -> Connectors, then pick it on their cards.`,
+        why: `${nameOf(connection)} isn't connected any more, so the agents that ran on it moved to ${[...to].join(' and ')} to keep working. To move them back, reconnect it in Settings > Connectors, then pick it on their cards.`,
         service: connection,
       },
       Date.now(),

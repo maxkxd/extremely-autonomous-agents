@@ -54,7 +54,7 @@ You have the whole agency through its MCP server ("agency", already set up for t
 - Integrations: \`list_integrations\`, \`read_integration\` (\`brave-search\`, \`github\`, \`gmail\` show the format), \`write_integration\` and \`write_plugin\` (drafts), \`test_integration\`, \`publish_integration\`, \`discard_integration\`.
 - \`list_approvals\`: what's waiting on ${owner} in the app.
 
-Keys and sign-ins go in the app's Settings -> Connectors, never in a file or chat: ask ${owner} to add one there. If the work is something else (code in a repository, a setting on this computer), do it here as you normally would, then close the request with \`answer_request\`.
+Keys and sign-ins go in the app's Settings > Connectors, never in a file or chat: ask ${owner} to add one there. If the work is something else (code in a repository, a setting on this computer), do it here as you normally would, then close the request with \`answer_request\`.
 
 Agency MCP server: ${mcpUrl} (on this computer only; while the app is running).
 `;

@@ -38,7 +38,7 @@ import { AccessError, currentActor, requireAdmin, requireMakerOrAdmin } from '..
 import { scrub } from '../secrets.js';
 
 // The runner's routes for the app: each agent's card (ferocity, Drain/Stop,
-// real stats), its DM channel, requests, and spend caps (Settings -> Usage).
+// real stats), its DM channel, requests, and spend caps (Settings > Usage).
 
 type Route = (req: IncomingMessage, q: URLSearchParams, body: <T>() => Promise<T>) => Promise<unknown>;
 
@@ -259,7 +259,7 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/runner/agent': async (_req, _q, body) => {
     const b = await body<{ id: string; ferocity?: number; state?: 'active' | 'draining' | 'stopped'; spendCapUsd?: number | null }>();
     if (!isId(b.id)) throw new Error('Unknown agent.');
-    // In an organisation, only the agent's maker or an admin controls it (access.ts).
+    // In an organization, only the agent's maker or an admin controls it (access.ts).
     if (b.ferocity !== undefined || b.state !== undefined)
       await requireMakerOrAdmin(b.id, null, currentActor(), b.state === 'stopped' ? 'stop it' : b.state === 'draining' ? 'put it on standby' : b.state === 'active' ? 'resume it' : 'change its ferocity');
     if (b.spendCapUsd !== undefined) requireAdmin(currentActor(), 'A spend limit');
@@ -300,7 +300,7 @@ export const runnerRoutes: Record<string, Route> = {
   'GET /api/dm': async (_req, q) => {
     const id = q.get('id');
     if (!isId(id)) return [];
-    // In an organisation, an agent's DMs are its maker's and the admins' (access.ts);
+    // In an organization, an agent's DMs are its maker's and the admins' (access.ts);
     // the Agency Engineer's are everyone's, as anyone may write to it.
     if (id !== FLEET_ENGINEER) await requireMakerOrAdmin(id, null, currentActor(), 'see its DMs');
     return all<{ kind: string; body: string; at: number }>('SELECT kind, body, at FROM dm WHERE agent_id = ? ORDER BY at, id', id).map(r => ({
@@ -313,7 +313,7 @@ export const runnerRoutes: Record<string, Route> = {
     const { id, text: typed } = await body<{ id: string; text: string }>();
     const text = typed && scrub(typed);
     if (!isId(id) || !text?.trim()) throw new Error('Nothing to send.');
-    // Anyone in the organisation may write to the Agency Engineer; other agents are their maker's and the admins'.
+    // Anyone in the organization may write to the Agency Engineer; other agents are their maker's and the admins'.
     if (id !== FLEET_ENGINEER) await requireMakerOrAdmin(id, null, currentActor(), 'message it');
     const meta = await readMeta(id);
     if (meta?.service) throw new Error('This helper only records what it decides; it takes no messages.');
@@ -412,7 +412,7 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/settings/host-person': async (_req, _q, body) => {
     const { name, org } = await body<{ name: string; org?: string | null }>();
     if (typeof name === 'string' && realName(name)) setSetting('host_person', name.trim().slice(0, 100));
-    // Their organisation, if they have one: agents made from the IDE work for it.
+    // Their organization, if they have one: agents made from the IDE work for it.
     if (org !== undefined) setSetting('host_org', typeof org === 'string' && org.trim() ? org.trim().slice(0, 200) : null);
     return { ok: true };
   },
@@ -550,7 +550,7 @@ export const runnerRoutes: Record<string, Route> = {
   // Opens the agents' signed-in browser profile so the person can sign in.
   'POST /api/browser/sign-in': async () => openProfileForSignIn(),
 
-  // --- Spend caps (Settings -> Usage) ---
+  // --- Spend caps (Settings > Usage) ---
   // Spend and runs: today (for the caps) and this calendar month, per agent.
   // A run on a plan is priced as the same model on an API; Ollama costs $0; one
   // whose model has no known price is counted, and its cost reported as unknown.

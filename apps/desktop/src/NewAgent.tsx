@@ -205,7 +205,7 @@ export function NewAgent({
   const withProfile = async (from: HTMLElement | null | undefined, action: () => void) => {
     const org = ACCOUNT.org?.name;
     if (!org) return action();
-    // Once per organisation: not yet done, it runs - from whatever's already written.
+    // Once per organization: not yet done, it runs - from whatever's already written.
     const p = await getProfile(org).catch(() => null);
     if (interviewDone(p)) return action();
     profileChat.start(org, from, action, p);

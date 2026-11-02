@@ -14,7 +14,7 @@ import { personForPrompt, profileForPrompt, type PersonProfile, type Profile } f
 
 // The agent builder (docs/agent-creation.md): one conversation that turns a
 // person's description into a Charter, TOOLS.yaml and KPI.yaml - written for
-// their organisation, and reusing the tools their fleet already has.
+// their organization, and reusing the tools their fleet already has.
 
 // The Anthropic key: from Settings > Connectors if there is one, else the server's own.
 const clientFor = (apiKey: string) => new Anthropic({ apiKey });
@@ -25,21 +25,21 @@ const FALLBACK = { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'defau
 
 export type Pack = { id: string; name: string; tagline: string; agents: { name: string; does: string }[] };
 export type Turn = { role: 'person' | 'builder'; text: string };
-// Who you're talking to, the organisation (if they have one), and what the
+// Who you're talking to, the organization (if they have one), and what the
 // fleet already has.
 // elsewhere: the person is a teammate on their own computer - the agency runs on this one (its host's name).
 export type Context = { person: PersonProfile; profile: Profile | null; fleet: Fleet; models: Available[]; elsewhere?: string | null };
 
 export class BuilderError extends Error {}
 
-const ABOUT = `You are the agent builder in Extremely Autonomous Agents, an app where a person runs a fleet of autonomous AI agents for their organisation. Each agent runs on its own schedule, uses tools, and asks a person only when it must.
+const ABOUT = `You are the agent builder in Extremely Autonomous Agents, an app where a person runs a fleet of autonomous AI agents for their organization. Each agent runs on its own schedule, uses tools, and asks a person only when it must.
 
 Every agent is defined by three files the person never sees:
 - CHARTER.md: its mission, what it does and doesn't do, its guardrails, when it asks a person, and what a good run looks like.
 - TOOLS.yaml: the tools it may call, each with a tier:
   T0 - just runs (reads, research, its own scratch documents).
   T1 - runs, and posts a notice to the agent's own channel (reversible internal writes: records, drafts, labels, notes).
-  T2 - waits for a person's approval and expires if nobody decides (anything visible outside the organisation or hard to undo: sending, posting, publishing, paying, deleting, inviting).
+  T2 - waits for a person's approval and expires if nobody decides (anything visible outside the organization or hard to undo: sending, posting, publishing, paying, deleting, inviting).
   A tool that isn't listed can't be called, so there is no "never" tier.
 - KPI.yaml: which successful actions count as its output.
 
@@ -58,9 +58,9 @@ Ferocity, which you set for each job (the person picks the level on the agent's 
 - Apocalyptic, "the paperclip maximizer": runs back to back.
 max_runs_per_day sits above the Relentless pace (a 10-minute pace is 144 a day).
 
-Writing for the organisation: a Charter is written for one specific organisation, the way a real employee's brief would be. Name the organisation, what it sells and to whom, the voice it speaks in, and the actual people the agent reports to, asks, or writes as (by name and role, from the profile). Refer to the fleet's other agents by name when it hands work to them. Never invent facts about the organisation: where the profile doesn't say, keep that part general.
+Writing for the organization: a Charter is written for one specific organization, the way a real employee's brief would be. Name the organization, what it sells and to whom, the voice it speaks in, and the actual people the agent reports to, asks, or writes as (by name and role, from the profile). Refer to the fleet's other agents by name when it hands work to them. Never invent facts about the organization: where the profile doesn't say, keep that part general.
 
-Tools: prefer what exists. First the tools this fleet already uses (listed with the organisation below), then the catalogue. Reuse their exact ids. Never define a near-duplicate of a tool that already does the job under another name (no email_marketing.send when gmail.send_email exists). Only define a new tool when nothing existing does the job, or when a narrower version is needed so some uses can skip approval - and then say why in its "why".
+Tools: prefer what exists. First the tools this fleet already uses (listed with the organization below), then the catalogue. Reuse their exact ids. Never define a near-duplicate of a tool that already does the job under another name (no email_marketing.send when gmail.send_email exists). Only define a new tool when nothing existing does the job, or when a narrower version is needed so some uses can skip approval - and then say why in its "why".
 
 The tool catalogue (server.tool [default tier] what it does):
 
@@ -79,8 +79,8 @@ Events: an agent runs on its schedule, and can also be woken by events - somethi
 function contextBlock(ctx: Context): string {
   const me = `You are talking to the person who owns these agents. What you know about them:\n${personForPrompt(ctx.person)}\nTheir time zone is ${hostZone()}: schedules and "a day" run on it, so never ask for it.\n${reportDefaultForPrompt(ctx.person.name)}${ctx.elsewhere ? `\nThey use this agency from their own computer; it runs on ${ctx.elsewhere}'s. So "this computer" - a folder, their Desktop or Documents (computer_files) - is ${ctx.elsewhere}'s computer, which they can't open: when they ask for a folder on their computer, say so and offer a place they can reach (emailed to them, Google Drive, Notion), or a folder on ${ctx.elsewhere}'s computer if they still want it there.` : ''}`;
   const org = ctx.profile
-    ? `The organisation these agents work for:\n${profileForPrompt(ctx.profile, ctx.person.name)}`
-    : "They aren't set up as an organisation: the agents work for them personally. Keep organisation-specific details general rather than inventing them - they get filled in over time.";
+    ? `The organization these agents work for:\n${profileForPrompt(ctx.profile, ctx.person.name)}`
+    : "They aren't set up as an organization: the agents work for them personally. Keep organization-specific details general rather than inventing them - they get filled in over time.";
   return `${me}\n\n${org}\n\n${fleetForPrompt(ctx.fleet, new Set([...registeredToolIds(), ...CATALOG_INDEX.keys()]))}\n\n${integrationsForPrompt()}\n\n${eventsForPrompt()}\n\n${modelsForPrompt(ctx.models)}`;
 }
 
@@ -115,7 +115,7 @@ function modelsForPrompt(available: Available[]): string {
     .join('\n')}`;
 }
 
-// The general rules, then this organisation and fleet (both change rarely, so
+// The general rules, then this organization and fleet (both change rarely, so
 // both are cached), then the task at hand.
 const system = (ctx: Context | null, task: string): Anthropic.Beta.BetaTextBlockParam[] => [
   { type: 'text', text: ABOUT, cache_control: { type: 'ephemeral' } },
@@ -212,7 +212,7 @@ async function viaAnyModel<T extends z.ZodType>(
 // mattering.
 const DURABLE = `Only what will still be true and useful to an agent months from now: lasting roles, responsibilities, preferences, standards and how they like to work. Never plans, intentions, one-off tasks, current projects, setup steps, or anything that stops being true once it's done (not "plans to set up X", "is moving to Y next month", "is working on Z"). Leave out anything trivial or that no agent would act on. When in doubt, leave it out. One short sentence each; usually empty.`;
 
-// --- 0. The organisation profile (once, before the first agent) ---
+// --- 0. The organization profile (once, before the first agent) ---
 
 const ProfileSchema = z.object({
   name: z.string(),
@@ -240,20 +240,20 @@ export async function profileInterview(orgName: string, person: PersonProfile, t
   return parse(
     ProfileTurnSchema,
     null,
-    `Before any agent is built, you are setting up the organisation profile that every agent's Charter will be written from. ${orgName ? `The organisation is called "${orgName}" in the app.` : "You don't know its name yet: get it first, and put it in the profile's name."}
+    `Before any agent is built, you are setting up the organization profile that every agent's Charter will be written from. ${orgName ? `The organization is called "${orgName}" in the app.` : "You don't know its name yet: get it first, and put it in the profile's name."}
 
 You are talking to the person setting it up. What you already know about them - don't ask for it again, and include them in the profile's people:
 ${personForPrompt(person)}
-${written ? `\nAlready written for this organisation - start from it: keep it in the profile word for word unless the person changes it, and don't ask for it again. Ask only about what's missing or empty:\n${profileForPrompt(written)}\n` : ''}
+${written ? `\nAlready written for this organization - start from it: keep it in the profile word for word unless the person changes it, and don't ask for it again. Ask only about what's missing or empty:\n${profileForPrompt(written)}\n` : ''}
  Find out, in plain words: what it does, who its customers are, what it sells, how it sounds when it writes, and the key people agents should report to or write as (names and roles). If you don't know the person's own role in it, ask that alongside the people question. Two to four short rounds at most - one or two questions at a time, and fill in what you can infer. More than one question: a numbered list, each on its own line ("1. ...", "2. ..."), after a short sentence. When you have enough, set ready to true and say in a sentence that you'll write every agent for them from now on.`,
     // The chat opens with a canned question from the builder; the API needs a
     // person's turn first.
-    [{ role: 'user', content: 'Set up our organisation profile.' }, ...transcript(turns)],
+    [{ role: 'user', content: 'Set up our organization profile.' }, ...transcript(turns)],
     'low',
   );
 }
 
-// --- 0b. Which key people are members of the organisation in the app ---
+// --- 0b. Which key people are members of the organization in the app ---
 
 const MemberMatchSchema = z.object({
   links: z
@@ -277,7 +277,7 @@ export async function matchMembers(people: KeyPerson[], decide: number[], member
   return parse(
     MemberMatchSchema,
     null,
-    `Your only job: say which of an organisation's key people (named in its profile) are the same human as one of its members (accounts in the app). A link means agents will treat that account as that person - asking them for approvals, writing as them - so a wrong link is much worse than a missing one.
+    `Your only job: say which of an organization's key people (named in its profile) are the same human as one of its members (accounts in the app). A link means agents will treat that account as that person - asking them for approvals, writing as them - so a wrong link is much worse than a missing one.
 
 Link a key person to a member only when you're confident they are the same person: the names refer to the same human (a username or first name can stand for a full name) and nothing in the member's own profile contradicts the key person's role. Return null when unsure, including when:
 - more than one member could be them, or another key person could equally be that member (two people called Adrian - an owner and a salesperson - and one member Adrian whose profile doesn't say which: link neither);
@@ -326,7 +326,7 @@ const TurnSchema = z.object({
   ready: z.boolean().describe('True when you have what you need and are not asking anything in this reply'),
 });
 
-const INTERVIEW = `- Ask only what you genuinely can't work out or sensibly default yourself: which systems it works in (when it matters which, and the fleet doesn't already tell you), where its work goes, what it must never do, what needs their OK before it happens, what "done well" looks like. Use what you know about the organisation and fleet instead of asking. Make sensible assumptions about the rest and say what you assumed in a few words.
+const INTERVIEW = `- Ask only what you genuinely can't work out or sensibly default yourself: which systems it works in (when it matters which, and the fleet doesn't already tell you), where its work goes, what it must never do, what needs their OK before it happens, what "done well" looks like. Use what you know about the organization and fleet instead of asking. Make sensible assumptions about the rest and say what you assumed in a few words.
 - One or two short questions at a time, in plain words, no jargon (never say T0/T1/T2, Charter or YAML).
 - Keep it short: a sentence or two plus the question.
 - More than one question: a numbered list, each on its own line ("1. ...", "2. ..."), after your sentence. Bullet points ("- ...") for anything else that's a list.`;
@@ -349,7 +349,7 @@ Confidence: start low on a vague description, and rise as the unknowns close. Ne
 
 // The builder's whole brief as text, for an AI IDE building an agent through the
 // agency's MCP server (runner/agency-mcp.ts): the same instructions, catalogue,
-// organisation, fleet, connected services, events and models the builder sees,
+// organization, fleet, connected services, events and models the builder sees,
 // how it interviews, and how it tiers. The build itself is create_agent's input,
 // whose fields carry the rest of the builder's guidance.
 export function builderGuide(ctx: Context): string {
@@ -357,7 +357,7 @@ export function builderGuide(ctx: Context): string {
     ABOUT,
     contextBlock(ctx),
     `Before you build, talk to the person (in your own chat with them) the way the builder interviews:\n${INTERVIEW}\n- Ask as many rounds as you need; when you have enough, say in a sentence what you'll build.`,
-    `Building it (create_agent): write every field for this organisation. ${TIERING}\n\nIds must exist: tools from the fleet, the catalogue above, connected services, or your own new_tools (server.tool); events from those listed above, or your own new_events; models from the connected ones above. A KPI and a ferocity count must name one of the agent's tools.`,
+    `Building it (create_agent): write every field for this organization. ${TIERING}\n\nIds must exist: tools from the fleet, the catalogue above, connected services, or your own new_tools (server.tool); events from those listed above, or your own new_events; models from the connected ones above. A KPI and a ferocity count must name one of the agent's tools.`,
   ].join('\n\n---\n\n');
 }
 
@@ -371,7 +371,7 @@ export const BuildSchema = z.object({
   charter: z
     .string()
     .describe(
-      'The full CHARTER.md in Markdown, written for this organisation: # CHARTER - <name>, then ## Mission, ## What this agent does, ## What this agent does not do, ## Autonomy tier (which actions are T0, T1, T2 and why), ## Guardrails, ## When to ask a person (Requests for things only a person can give; Approvals for T2 actions; never rely on anyone reading its channel), ## Standard run (start from its task list), ## Definition of a good run. Specific to this agent, no filler.',
+      'The full CHARTER.md in Markdown, written for this organization: # CHARTER - <name>, then ## Mission, ## What this agent does, ## What this agent does not do, ## Autonomy tier (which actions are T0, T1, T2 and why), ## Guardrails, ## When to ask a person (Requests for things only a person can give; Approvals for T2 actions; never rely on anyone reading its channel), ## Standard run (start from its task list), ## Definition of a good run. Specific to this agent, no filler.',
     ),
   models: z
     .array(
@@ -461,7 +461,7 @@ export const BuildSchema = z.object({
     .describe('Actions the job itself caps at every ferocity, e.g. changing the desktop wallpaper at most 1 per 24 hours. Empty when the job has no natural limit.'),
   profile_notes: z
     .array(z.string())
-    .describe(`New facts about the organisation that every agent should know. ${DURABLE}`),
+    .describe(`New facts about the organization that every agent should know. ${DURABLE}`),
   person_notes: z
     .array(z.string())
     .describe(`New facts about the person you're talking to. ${DURABLE}`),
@@ -475,7 +475,7 @@ export const BuildSchema = z.object({
 
 export type Build = z.infer<typeof BuildSchema>;
 
-const TIERING = `Tier every tool deliberately: start from its default; anything visible outside the organisation or hard to undo is T2; when the person said something needs their OK, make it T2.
+const TIERING = `Tier every tool deliberately: start from its default; anything visible outside the organization or hard to undo is T2; when the person said something needs their OK, make it T2.
 
 A tier belongs to a whole tool, not to a situation. So when SOME uses of a tool may go ahead without asking and others must wait (e.g. "the first reminder can just go, the rest need my OK"), split it: define a narrower new tool that can only do the unasked part, with the limits built into the tool itself (a fixed recipient, a fixed template, once per thing, a cap), tier that one lower, and keep the general tool at its stricter tier for everything else. Honour what the person said rather than overriding it; only refuse to lower a tier when no narrow tool could make it safe, and say why in the Charter.`;
 
@@ -561,7 +561,7 @@ export function firstReportPlace(b: Pick<Build, 'report_place'> & Partial<Pick<B
 }
 
 export async function build(ctx: Context, turns: Turn[]): Promise<Build> {
-  const task = `The interview is over. Write this agent's files from the conversation, for this organisation. ${TIERING}`;
+  const task = `The interview is over. Write this agent's files from the conversation, for this organization. ${TIERING}`;
   const once = async (ask: string) => fromOutput(await parse(BuildOutputSchema, ctx, task, [...transcript(turns), { role: 'user', content: ask }], 'high'));
   const b = await once('Build it.');
   firstReportPlace(b, ctx.person.name);
@@ -574,7 +574,7 @@ export async function build(ctx: Context, turns: Turn[]): Promise<Build> {
   );
 }
 
-// --- 4. Customize a pack agent for this organisation ---
+// --- 4. Customize a pack agent for this organization ---
 
 export async function customize(ctx: Context, template: Build, packName: string): Promise<Build> {
   const { profile_notes: _p, person_notes: _n, ...files } = template;
@@ -582,8 +582,8 @@ export async function customize(ctx: Context, template: Build, packName: string)
     await parse(
     BuildOutputSchema,
     ctx,
-    `This agent was just added from the ready-made "${packName}" pack. Its files below were written for a generic small business. Rewrite them for this organisation and this fleet:
-- Charter: keep its structure, rigour and safety rules, but make it theirs: the organisation's name, what it sells and to whom, its voice, the real people it reports to or writes as (starting with the person you know), and its teammates in the fleet by name. Drop generic placeholders. Don't invent facts the profiles don't give - leave those parts general.
+    `This agent was just added from the ready-made "${packName}" pack. Its files below were written for a generic small business. Rewrite them for this organization and this fleet:
+- Charter: keep its structure, rigour and safety rules, but make it theirs: the organization's name, what it sells and to whom, its voice, the real people it reports to or writes as (starting with the person you know), and its teammates in the fleet by name. Drop generic placeholders. Don't invent facts the profiles don't give - leave those parts general.
 - Tools: wherever a fleet tool does the same job, use the fleet tool's exact id instead (and drop the template's duplicate new tool). Keep the template's narrow, limited tools only when nothing in the fleet already does that. Keep tiers at least as strict as the template unless a narrow tool makes a case safe.
 - Keep its name and department. ${TIERING}
 

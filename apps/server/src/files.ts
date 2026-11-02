@@ -30,7 +30,7 @@ export type Meta = {
   ownerId?: string; // their account, when they made it from their own app (access.ts); none: the host's own person
   builtIn?: boolean; // part of the agency itself (the Agency Engineer), owned by no one
   service?: boolean; // a built-in helper (Agency Conductor, Agency Reviewer): runs only when called, never scheduled
-  org?: string | null; // their organisation, if any
+  org?: string | null; // their organization, if any
   setup?: { packId: string; index: number; member?: string; person: string; org: string | null; attempts: number };
   // The pack it was added from, and which of its agents (the pack's own name for
   // it, not the agent's, which can change): kept for good, so the New agent page

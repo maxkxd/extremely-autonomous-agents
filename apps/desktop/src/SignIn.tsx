@@ -46,7 +46,7 @@ function grow(box: HTMLElement, from: DOMRect, back = false) {
   return a.finished;
 }
 
-// Signing in, for organisations (account.ts): Google, GitHub, or a code by
+// Signing in, for organizations (account.ts): Google, GitHub, or a code by
 // email - the same code makes an account the first time. Development without
 // Clerk: an email and a name, no code.
 export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { onDone: () => void; onCancel: () => void; mode?: 'in' | 'up'; from?: DOMRect | null }) {

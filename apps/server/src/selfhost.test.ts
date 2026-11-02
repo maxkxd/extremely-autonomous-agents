@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 
-// A self-hosted organisation: its own accounts, invites, sessions and tokens,
+// A self-hosted organization: its own accounts, invites, sessions and tokens,
 // trusted by nothing but itself. (The mode is read once, so it's set first.)
 process.env.EAA_SELF_HOSTED = '1';
 process.env.EAA_HOSTED_ORG = 'self-test-org';

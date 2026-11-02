@@ -26,7 +26,7 @@ Look for:
 Answer with JSON only, no prose around it:
 {"verdict":"approve"|"fix","can_do":["..."],"warn":"","concerns":[{"severity":"high"|"medium"|"low","what":"..."}],"fix":"..."}
 - can_do: 2-4 short plain-English lines for someone who can't read code, saying concretely what this can do on their computer (e.g. "Changes your desktop wallpaper", "Saves images in Pictures\\Morning Wallpaper", "Downloads images from public websites"). Include the scary parts plainly.
-- warn: usually "". One short plain sentence only when there's something obvious and significant a non-technical person would clearly want to know before approving and that can_do doesn't already say - it can spend money, email people outside the organisation, delete or overwrite their files, post publicly in their name. Never technical or hypothetical risks (networks, hosting, edge cases, what wasn't tested): those go in concerns, which the person doesn't see.
+- warn: usually "". One short plain sentence only when there's something obvious and significant a non-technical person would clearly want to know before approving and that can_do doesn't already say - it can spend money, email people outside the organization, delete or overwrite their files, post publicly in their name. Never technical or hypothetical risks (networks, hosting, edge cases, what wasn't tested): those go in concerns, which the person doesn't see.
 - verdict "fix" if any concern is high; "fix" names what to change. Otherwise "approve" and fix "".`;
 
 export function parseReview(text: string): Review {

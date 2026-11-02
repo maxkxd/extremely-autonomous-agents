@@ -299,7 +299,7 @@ export function AgentCard({
   viewOnly = false,
   noAi = false,
 }: {
-  // An organisation's member looking at someone else's agent: they see it, only its owner or an admin changes it.
+  // An organization's member looking at someone else's agent: they see it, only its owner or an admin changes it.
   viewOnly?: boolean;
   noAi?: boolean; // no AI model is connected: nothing can run
   setup?: AgentSetup; // a new agent still in setup: its connectors (AgentSetup.tsx)
@@ -419,7 +419,7 @@ export function AgentCard({
               <span className="state-pill stopped">Stopped</span>
             ) : (
               agent.settingUp && (
-                <span className="state-pill setting-up" title="Being tailored to your organisation. It won't run until it's done.">
+                <span className="state-pill setting-up" title="Being tailored to your organization. It won't run until it's done.">
                   Setting up
                 </span>
               )

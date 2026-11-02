@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../paths.js';
 
-// The runner's store (docs/runner.md): one SQLite file on the organisation's
+// The runner's store (docs/runner.md): one SQLite file on the organization's
 // host. Everything about running agents lives here - their card state, runs,
 // the actions they took, memory, DM posts, requests, tasks, approvals,
 // bookings and spend. Agent definitions stay as files (files.ts).
@@ -199,7 +199,7 @@ CREATE TABLE IF NOT EXISTS bookings (
 );
 CREATE INDEX IF NOT EXISTS bookings_due ON bookings(agent_id, due_at);
 
--- Each person's own agency MCP address in an organisation (agency-mcp.ts):
+-- Each person's own agency MCP address in an organization (agency-mcp.ts):
 -- it acts as them. role: as last checked, for the tools it lists.
 CREATE TABLE IF NOT EXISTS mcp_people (
   token TEXT PRIMARY KEY,
@@ -209,7 +209,7 @@ CREATE TABLE IF NOT EXISTS mcp_people (
   created_at INTEGER NOT NULL
 );
 
--- A self-hosted organisation's own directory (selfhost.ts): its accounts,
+-- A self-hosted organization's own directory (selfhost.ts): its accounts,
 -- sign-in sessions (hashed) and invites. Empty everywhere else.
 CREATE TABLE IF NOT EXISTS self_accounts (
   id TEXT PRIMARY KEY,

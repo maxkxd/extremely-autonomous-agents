@@ -59,7 +59,7 @@ const json = (v: unknown) => JSON.stringify(v, null, 2);
 const hostPerson = () => getSetting<string | null>('host_person', null);
 const hostOrg = () => getSetting<string | null>('host_org', null);
 
-// What the builder knows when it builds: the person, the organisation, the fleet, the models.
+// What the builder knows when it builds: the person, the organization, the fleet, the models.
 async function hostContext() {
   const person = hostPerson() ?? 'The host';
   const org = hostOrg();
@@ -264,7 +264,7 @@ const TOOLS: Tool[] = [
   {
     name: 'builder_guide',
     description:
-      "Read this first when making an agent: the agent builder's whole brief - how agents work here, the tool catalogue and default tiers, the tools every agent gets, this organisation and the person, the fleet, connected services and their tools and events, the connected models, how to interview the person, and how to tier. create_agent's fields carry the rest.",
+      "Read this first when making an agent: the agent builder's whole brief - how agents work here, the tool catalogue and default tiers, the tools every agent gets, this organization and the person, the fleet, connected services and their tools and events, the connected models, how to interview the person, and how to tier. create_agent's fields carry the rest.",
     schema: obj({}),
     run: async () => builderGuide(await hostContext()),
   },
@@ -393,11 +393,11 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
   {
     name: 'write_integration',
     description:
-      'Save an integration definition (YAML, kind http | mcp | code) as a draft: it shows in the app\'s Settings -> Connectors to be connected, and no agent can call it until publish_integration. Redrafting a live one keeps the live one working meanwhile. Keys and sign-ins are added by the person in Settings, never here.',
+      'Save an integration definition (YAML, kind http | mcp | code) as a draft: it shows in the app\'s Settings > Connectors to be connected, and no agent can call it until publish_integration. Redrafting a live one keeps the live one working meanwhile. Keys and sign-ins are added by the person in Settings, never here.',
     schema: obj({ yaml: str('The whole definition') }, ['yaml']),
     run: async a => {
       const { integration } = await writeDraftIntegration(String(a.yaml ?? ''), 'fleet', undefined, true);
-      return `Saved "${integration.name}" (${integration.id}) as a draft. ${integration.auth.type === 'none' ? 'It needs no key: test it now.' : 'The person connects it in Settings -> Connectors; then test it.'}`;
+      return `Saved "${integration.name}" (${integration.id}) as a draft. ${integration.auth.type === 'none' ? 'It needs no key: test it now.' : 'The person connects it in Settings > Connectors; then test it.'}`;
     },
   },
   {
@@ -406,7 +406,7 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
       "Save a code plugin's TypeScript (only if code plugins are allowed in Settings): export default { tools: [{ id, tier, description, input, run: async (args, token, kit) => string }] }. Network only through kit.fetch; it runs sandboxed with the permissions its kind: code definition declares. It runs only once published.",
     schema: obj({ module: str('The module name its definition names'), code: str('The whole TypeScript file') }, ['module', 'code']),
     run: async a => {
-      if (!pluginsAllowed()) throw new Error('Code plugins are off in Settings -> Connectors.');
+      if (!pluginsAllowed()) throw new Error('Code plugins are off in Settings > Connectors.');
       const module = String(a.module ?? '');
       if (!/^[a-z0-9][a-z0-9-]*$/.test(module)) throw new Error('module: lowercase letters, digits and dashes.');
       await writePlugin(module, String(a.code ?? ''));
@@ -501,7 +501,7 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
 // --- Who it acts as ---
 //
 // The host computer's own person has the standing address (Settings > Connectors,
-// kept across restarts). Everyone else in an organisation gets an address of their
+// kept across restarts). Everyone else in an organization gets an address of their
 // own, which acts as them: the same permissions as in the app (access.ts) - the
 // integration-building tools are the owner's and admins', a request is answered by
 // its agent's maker or an admin. Whether they're still in it, and as what, is
@@ -553,7 +553,7 @@ async function memberNow(userId: string) {
     return member;
   } catch (e) {
     if (had && Date.now() - had.at < TRUST_LAST) return had.member;
-    throw new Error(`Can't check you're still in the organisation right now (${(e as Error).message}). Try again shortly.`);
+    throw new Error(`Can't check you're still in the organization right now (${(e as Error).message}). Try again shortly.`);
   }
 }
 
@@ -572,7 +572,7 @@ function openPerson(row: PersonRow) {
         } catch (e) {
           return { content: (e as Error).message, error: true };
         }
-        if (!m) return { content: "You're no longer in this organisation, so this address doesn't work any more.", error: true };
+        if (!m) return { content: "You're no longer in this organization, so this address doesn't work any more.", error: true };
         // A new role: the tools it lists follow from the next time it's asked.
         if (m.role !== row.role) {
           exec('UPDATE mcp_people SET role = ? WHERE token = ?', m.role, row.token);

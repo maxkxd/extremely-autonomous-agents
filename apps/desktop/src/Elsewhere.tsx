@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { hostHere, state, switchAgency, teamOrgs, type OrgView } from './account';
 
-// An organisation that can't be reached right now: its host is offline, or
+// An organization that can't be reached right now: its host is offline, or
 // nothing hosts it yet (creating it stopped part-way: its owner can host it here).
 export function Elsewhere({ org }: { org: OrgView }) {
   const [busy, setBusy] = useState(false);

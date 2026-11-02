@@ -78,7 +78,7 @@ export async function costOf(connection: string, model: string, input: number, o
   return null;
 }
 
-// --- Spend caps (Settings -> Usage) ------------------------------------------
+// --- Spend caps (Settings > Usage) ------------------------------------------
 
 // Days and months start at the host's midnight (clock.ts).
 export { startOfDay };

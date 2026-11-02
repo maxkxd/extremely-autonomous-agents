@@ -13,7 +13,7 @@ export type Agent = {
   name: string;
   department: Department;
   owner: string; // member name; only shown when the user is in an organization
-  ownerId?: string | null; // their account, in an organisation (who sees its DMs)
+  ownerId?: string | null; // their account, in an organization (who sees its DMs)
   builtIn?: boolean; // part of the agency itself, owned by no one
   service?: boolean; // a built-in helper (Agency Conductor, Agency Reviewer): runs only when called, so no schedule
   // Per month (30 days); other time ranges are scaled from this for the placeholder UI.
@@ -32,7 +32,7 @@ export type Agent = {
   queued?: boolean; // Run now pressed, waiting for a free slot
   waitingOnTools?: boolean; // runs no faster than Steady until its tools are connected
   perRun?: number | null; // output actions per run, recently
-  // A pack agent still being customized for the organisation: it isn't run,
+  // A pack agent still being customized for the organization: it isn't run,
   // and DMs to it wait, until this clears.
   settingUp?: boolean;
   // The pack it was added from, and which of its agents (the pack's name for it,
@@ -48,7 +48,7 @@ export type Organization = { name: string; members: string[] };
 export type Account = { name: string; role: 'admin' | 'member'; org: Organization | null };
 
 // Who you are in the agency the app is in (account.ts, read before this loads).
-// Your own agency: this computer's person. An organisation: you as its members
+// Your own agency: this computer's person. An organization: you as its members
 // know you, and its members.
 const ORG = currentOrg();
 const myName = ORG && ORG.role !== 'owner' ? (state.me?.user.name ?? 'You') : (state.localName ?? state.me?.user.name ?? 'You');

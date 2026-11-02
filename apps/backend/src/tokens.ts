@@ -5,7 +5,7 @@ import type { Profile, Role } from './directory.js';
 // Who's calling, and the token a host trusts (docs/architecture.md):
 //   - a sign-in: the session token from Clerk, checked against Clerk's keys;
 //   - an org access token: what this backend hands a member for one of their
-//     organisations - this person, this organisation, this role - short-lived
+//     organizations - this person, this organization, this role - short-lived
 //     and signed with our key. A host checks it against our published keys
 //     (/.well-known/jwks.json) and never needs to know about Clerk. A
 //     self-hosted host issues the same token itself.

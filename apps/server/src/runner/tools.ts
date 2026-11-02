@@ -94,10 +94,10 @@ export function fileRequest(
 // One request per connection (decided 2026-11-02). Two agents needing the same
 // service (both need Square, both need Gmail) filed one "Connect Square" each, and
 // the Agency Engineer wrote "same as request #6" on the second - a request its
-// person, in an organisation, may not even be able to see. Now the second joins the
+// person, in an organization, may not even be able to see. Now the second joins the
 // first: one card, listing every agent waiting on it (api.ts), and connecting it
 // once settles it for all (settleJoined, below). Each keeps its own row with
-// its own reason. Within one agency, which is one organisation's.
+// its own reason. Within one agency, which is one organization's.
 const CONNECTION_ASK = /^(Connect|Set up) (?!.* events$)/;
 export function sharedConnectionRequest(agentId: string, service: string): number | null {
   return (
@@ -141,7 +141,7 @@ export function settleJoined(wake: Wake, now = Date.now()): number[] {
 // What a person calls a tool's service: "a CRM (HubSpot, Zoho, Salesforce)", "Ads".
 // For an agent whose instructions name exactly one of the examples, that one -
 // "Xero", not "accounting (Xero, QuickBooks)" - so the Agency Engineer builds the
-// service the organisation uses, not every example.
+// service the organization uses, not every example.
 export const ACRONYMS = new Set(['seo', 'crm', 'api', 'aws', 'gcp', 'sql', 'sms', 'cdn', 'dns', 'erp', 'kpi', 'mcp', 'cms', 'ssl', 'tls', 'url', 'pdf', 'csv', 'llm']);
 export function serviceLabel(server: string, agentId?: string) {
   // A server the builder made up ("search_console") reads as words, not an id -

@@ -19,7 +19,7 @@ export type RunPost = {
   tools: ToolLine[];
 };
 
-// by: who wrote it, from the server (in an organisation, maybe not you); older messages have none.
+// by: who wrote it, from the server (in an organization, maybe not you); older messages have none.
 export type YourMessage = { kind: 'you'; minutesAgo: number; text: string; by?: string };
 
 export type DmEntry = RunPost | YourMessage;

@@ -5,10 +5,10 @@ import type { Db } from './db.js';
 import { hostBySecret, roleIn } from './directory.js';
 import type { Auth } from './tokens.js';
 
-// The relay (docs/architecture.md, "Accounts and organisations"): how members'
-// apps reach an organisation's host, which has no public address. The host keeps
+// The relay (docs/architecture.md, "Accounts and organizations"): how members'
+// apps reach an organization's host, which has no public address. The host keeps
 // one connection here (/relay/host, signed in with its host secret); a member's
-// app opens one (/relay/app, signed in as them, for an organisation they're in)
+// app opens one (/relay/app, signed in as them, for an organization they're in)
 // and gets a channel to that host. The app and the host then set up an
 // end-to-end encrypted session over it, with the host's published key: what
 // passes through here is ciphertext, and it's only ever passed on.
@@ -67,7 +67,7 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
     const hello = await firstFrame(ws).catch(() => null);
     const orgId = typeof hello?.secret === 'string' ? await hostBySecret(db, hello.secret) : null;
     if (!orgId) return ws.close(4001, 'Not a registered host.');
-    // One host per organisation: a newer connection (it restarted) takes over.
+    // One host per organization: a newer connection (it restarted) takes over.
     const was = hosts.get(orgId);
     if (was) was.ws.close(4000, 'Replaced by a newer connection.');
     const host: Host = { ws, orgId, channels: new Map() };

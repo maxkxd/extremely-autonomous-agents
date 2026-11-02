@@ -112,7 +112,7 @@ export async function oauthAccessToken(id: string, auth: OAuthDef): Promise<stri
   const s = await oauthSecret(id);
   if (!s?.accessToken) return undefined;
   if (s.expiresAt && s.expiresAt - Date.now() > 60_000) return s.accessToken;
-  if (!s.refreshToken) throw new Error('The sign-in has run out and has no way to renew itself. Sign in again in Settings -> Connectors.');
+  if (!s.refreshToken) throw new Error('The sign-in has run out and has no way to renew itself. Sign in again in Settings > Connectors.');
   const t = await tokenRequest(auth, {
     grant_type: 'refresh_token',
     refresh_token: s.refreshToken,

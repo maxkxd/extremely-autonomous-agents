@@ -85,7 +85,7 @@ test('a host signs in with its secret, and nothing else', async () => {
   await host.until(() => !!host.closed());
 });
 
-test("members only, and only while their organisation's host is there", async () => {
+test("members only, and only while their organization's host is there", async () => {
   const stranger = open('/relay/app', { t: 'auth', token: await session('cat'), org: orgId });
   await stranger.until(() => !!stranger.closed());
   assert.equal(stranger.closed()!.code, 4003);

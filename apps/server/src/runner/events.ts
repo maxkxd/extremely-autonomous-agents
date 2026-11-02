@@ -199,7 +199,7 @@ export async function checkEvent(integrationId: string, eventId: string, hooksBa
   }
   if (src.event.webhook)
     out.push(
-      `Webhook address: ${hooksBase}/hooks/${hookToken(eventId)}${src.event.webhook.signature ? ` (posts are checked against the signing secret ${src.integration.name} gives, saved in Settings -> Connectors)` : ''}. The person pastes it into ${src.integration.name}${src.event.setup_help ? `: ${src.event.setup_help}` : ''}.`,
+      `Webhook address: ${hooksBase}/hooks/${hookToken(eventId)}${src.event.webhook.signature ? ` (posts are checked against the signing secret ${src.integration.name} gives, saved in Settings > Connectors)` : ''}. The person pastes it into ${src.integration.name}${src.event.setup_help ? `: ${src.event.setup_help}` : ''}.`,
     );
   return out.join('\n');
 }

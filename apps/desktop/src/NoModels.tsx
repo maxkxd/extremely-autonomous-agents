@@ -25,7 +25,7 @@ export function useHasModels() {
 }
 
 // What to do about having none: connect one (Settings > Connectors), or, for an
-// organisation's member, ask whoever can.
+// organization's member, ask whoever can.
 export function ConnectModel({ title, onGo }: { title: string; onGo?: () => void }) {
   return (
     <div className="no-models">

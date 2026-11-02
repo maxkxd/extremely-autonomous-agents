@@ -19,7 +19,7 @@ const MAX_TEXT = 40_000;
 type Init = { method?: string; body?: unknown; accept?: string };
 
 async function call(token: string | undefined, path: string, init: Init = {}): Promise<{ status: number; text: string }> {
-  if (!token) throw new Error('GitHub is not connected. Add a token under Settings -> Connectors.');
+  if (!token) throw new Error('GitHub is not connected. Add a token under Settings > Connectors.');
   const { res } = await safeFetch(`${API}${path}`, {
     method: init.method ?? 'GET',
     headers: {
@@ -37,11 +37,11 @@ async function call(token: string | undefined, path: string, init: Init = {}): P
 async function api<T>(token: string | undefined, path: string, init: Init = {}): Promise<T> {
   const { status, text } = await call(token, path, init);
   if (status >= 400) {
-    if (status === 401) throw new Error('GitHub refused the token (expired or revoked). Replace it under Settings -> Connectors.');
+    if (status === 401) throw new Error('GitHub refused the token (expired or revoked). Replace it under Settings > Connectors.');
     if (status === 404) throw new Error(`Not found on GitHub (${path.split('?')[0]}) - it doesn't exist, or the token isn't allowed to see it.`);
     if (status === 403 && /rate limit/i.test(text)) throw new Error('GitHub rate limit reached. Try again later.');
     if (status === 403 && /not accessible by (personal access|integration)/i.test(text))
-      throw new Error("The GitHub token isn't allowed to do this. Its owner can give it Contents, Issues and Pull requests: Read and write (github.com -> Settings -> Developer settings -> Fine-grained tokens).");
+      throw new Error("The GitHub token isn't allowed to do this. Its owner can give it Contents, Issues and Pull requests: Read and write (github.com -> Settings > Developer settings > Fine-grained tokens).");
     throw new Error(`GitHub answered ${status}: ${errorText(text)}`);
   }
   if (init.accept && !init.accept.includes('json')) return text as T;

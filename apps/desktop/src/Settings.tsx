@@ -392,7 +392,7 @@ function SavedInput({ value, placeholder, onSave }: { value: string; placeholder
 }
 
 // How you're signed in (account.ts): with us (Clerk: an email code, Google or
-// GitHub - no password), and in any self-hosted organisations you've joined
+// GitHub - no password), and in any self-hosted organizations you've joined
 // (their own accounts). Your own agency needs neither.
 function AccountSignIn() {
   const [, redraw] = useState(0);
@@ -404,7 +404,7 @@ function AccountSignIn() {
         // Log out is at the foot of Settings.
         <Row label={state.me.user.email}>{null}</Row>
       ) : (
-        <Row label="Not signed in" sub="Your own agency needs no account. One is for organisations.">
+        <Row label="Not signed in" sub="Your own agency needs no account. One is for organizations.">
           <button className="sbtn signup-btn" onClick={e => openSignIn('up', e.currentTarget)}>
             SIGN UP
           </button>
@@ -502,8 +502,8 @@ function AccountSection() {
               />
             </Row>
             {/* The name you go by everywhere: your agents (your profile here), the
-                sidebar, and, signed in, your organisations (account.ts). */}
-            <Row label="Display name" sub={state.me ? 'Your agents and your organisations see this.' : 'Your agents see this.'}>
+                sidebar, and, signed in, your organizations (account.ts). */}
+            <Row label="Display name" sub={state.me ? 'Your agents and your organizations see this.' : 'Your agents see this.'}>
               <SavedInput
                 value={state.me?.user.name || p.full_name || p.call_me || ''}
                 // Not the last person's name: signed out it showed "Jo Nguyen" as if filled in.
@@ -611,7 +611,7 @@ function Memories({ notes, onChange }: { notes: string[]; onChange: (n: string[]
 
 function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => void; chatOpen: React.MutableRefObject<boolean> }) {
   const org = ACCOUNT.org;
-  // No chat here: an organisation is just a name. Its profile is filled in the
+  // No chat here: an organization is just a name. Its profile is filled in the
   // first time someone builds an agent in it (NewAgent.tsx).
   chatOpen.current = false;
   const [name, setName] = useState('');
@@ -694,7 +694,7 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
   );
 }
 
-// Self-hosted organisations (selfhost.ts on their host): their own accounts, no
+// Self-hosted organizations (selfhost.ts on their host): their own accounts, no
 // account with us. Self-host one on this computer, or join one at its address.
 function SelfHosted() {
   const [open, setOpen] = useState<'host' | 'join' | null>(null);
@@ -784,7 +784,7 @@ function SelfHosted() {
   );
 }
 
-// A self-hosted organisation: the address its members reach it at (its owner's tunnel or proxy).
+// A self-hosted organization: the address its members reach it at (its owner's tunnel or proxy).
 function SelfAddress({ manage }: { manage: boolean }) {
   const [address, setAddress] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -914,7 +914,7 @@ function OrgPeople() {
       setError((e as Error).message);
     }
   };
-  // You, in this organisation's list: your account with us, or with its host when self-hosted.
+  // You, in this organization's list: your account with us, or with its host when self-hosted.
   const me = org.self ? selfMe(org) : state.me?.user.id;
   const label = (r: string) => (r === 'owner' ? 'Owner' : r === 'admin' ? 'Admin' : 'Member');
   return (
@@ -1126,7 +1126,7 @@ function OrganizationProfile({ name }: { name: string }) {
     <section className="ssection">
       <h2>{name}</h2>
       {!p ? (
-        rec.error ? <p className="custom-error">{rec.error}</p> : <SkelFields n={5} what="the organisation" />
+        rec.error ? <p className="custom-error">{rec.error}</p> : <SkelFields n={5} what="the organization" />
       ) : (
         <fieldset className="sreadonly" disabled={readOnly}>
           <Field label="What it does">
@@ -1248,10 +1248,10 @@ function UsageSection() {
             </li>
           ))}
         {usage && (
-          <li className="susage-org" title={`${ACCOUNT.org ? 'The whole organisation' : 'All agents'}: ${money(total)} over ${runs} runs this month`}>
+          <li className="susage-org" title={`${ACCOUNT.org ? 'The whole organization' : 'All agents'}: ${money(total)} over ${runs} runs this month`}>
             <span className="susage-name">
               <Building2 size={14} strokeWidth={1.75} />
-              {ACCOUNT.org ? 'Whole organisation' : 'All agents'}
+              {ACCOUNT.org ? 'Whole organization' : 'All agents'}
             </span>
             <span className="susage-bar">
               <span style={{ width: total > 0 ? '100%' : '0%' }} />
@@ -1261,7 +1261,7 @@ function UsageSection() {
               {money(total)}
               {unknown > 0 && '*'}
             </span>
-            <CapInput value={usage.orgCapUsd} disabled={!isAdmin()} onSave={v => setOrgCap(parseCap(v)).catch(() => {})} label="Monthly limit for the whole organisation" />
+            <CapInput value={usage.orgCapUsd} disabled={!isAdmin()} onSave={v => setOrgCap(parseCap(v)).catch(() => {})} label="Monthly limit for the whole organization" />
           </li>
         )}
         {rows.map(({ a, spend }) => {

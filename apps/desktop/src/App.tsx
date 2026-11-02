@@ -78,7 +78,7 @@ const onNarrowChange = (cb: () => void) => {
   return () => mq.removeEventListener('change', cb);
 };
 
-// An organisation that can't be reached right now (its host offline, or not
+// An organization that can't be reached right now (its host offline, or not
 // hosted anywhere yet) gets a page saying so instead of the agency.
 // A new install opens on the first-run screen (connect an AI model) in your own agency.
 // What a person reads of a request's evidence: not the tools' input schemas
@@ -431,7 +431,7 @@ function Agency() {
     setFocusRequest(live);
     setView('requests');
   };
-  // Signing in (for organisations) from anywhere: Settings, the account menu.
+  // Signing in (for organizations) from anywhere: Settings, the account menu.
   const [signingIn, setSigningIn] = useState<SignInAsk | null>(null);
   useEffect(() => {
     const open = (e: Event) => setSigningIn((e as CustomEvent<SignInAsk>).detail ?? { mode: 'in', from: null });
@@ -765,7 +765,7 @@ function Agency() {
           onLogOut={logInOut}
         />
       )}
-      {/* Signed in: the app starts again, with your organisations. */}
+      {/* Signed in: the app starts again, with your organizations. */}
       {signingIn && <SignIn mode={signingIn.mode} from={signingIn.from} onCancel={() => setSigningIn(null)} onDone={() => location.reload()} />}
       {reveal && (
         <AgentReveal

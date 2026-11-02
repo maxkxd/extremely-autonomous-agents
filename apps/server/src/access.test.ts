@@ -57,7 +57,7 @@ const token = (o: { sub?: string; org?: string; role?: string; name?: string; au
 const req = (address: string, authorization?: string) => ({ headers: authorization ? { authorization } : {}, socket: { remoteAddress: address } }) as never;
 const status = async (p: Promise<unknown>) => p.then(() => 200, e => (e instanceof AccessError ? e.status : 500));
 
-test('a token from the issuer, for this organisation, is that person in that role', async () => {
+test('a token from the issuer, for this organization, is that person in that role', async () => {
   assert.deepEqual(await checkToken(await token({ role: 'admin', name: 'Ben' })), { id: 'user_ben', name: 'Ben', role: 'admin', via: 'token' });
   // Over the network or not, a token is checked the same way.
   assert.equal((await actorFor(req('203.0.113.9', `Bearer ${await token()}`))).id, 'user_ben');
@@ -71,7 +71,7 @@ test('anything else is turned away', async () => {
   assert.equal(await status(checkToken(await token({ signer: otherKey }))), 401);
   assert.equal(await status(checkToken(await token({ role: 'superuser' }))), 401);
   assert.equal(await status(checkToken('not.a.token')), 401);
-  // Not hosting an organisation yet: no token at all.
+  // Not hosting an organization yet: no token at all.
   setAccessConfig({ orgId: null });
   assert.equal(await status(checkToken(await token())), 401);
 });
@@ -104,10 +104,10 @@ test('this computer itself is its owner; elsewhere needs a token', async () => {
   assert.equal(await status(actorFor(req('127.0.0.1', 'Bearer nope'))), 401);
 });
 
-test("'at the host computer' only when the person's own agency says so, in an organisation's agency", async () => {
+test("'at the host computer' only when the person's own agency says so, in an organization's agency", async () => {
   const t = `Bearer ${await token()}`;
   const with_ = (address: string, here?: string) => ({ headers: { authorization: t, ...(here ? { 'x-eaa-here': here } : {}) }, socket: { remoteAddress: address } }) as never;
-  assert.equal((await actorFor(with_('127.0.0.1', '1'))).here, false, 'not an organisation’s agency');
+  assert.equal((await actorFor(with_('127.0.0.1', '1'))).here, false, 'not an organization’s agency');
   process.env.EAA_HOSTED_ORG = ORG;
   try {
     assert.equal((await actorFor(with_('127.0.0.1', '1'))).here, true);

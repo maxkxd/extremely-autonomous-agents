@@ -12,7 +12,7 @@ export type Turn = { role: 'person' | 'builder'; text: string };
 
 // Hidden files, as the server composed them.
 export type AgentFiles = { id: string; name: string; department: Department; charter: string; tools: string; kpi: string; models?: ModelChoice[] };
-// setup: a pack agent, customized for the organisation in the background once added.
+// setup: a pack agent, customized for the organization in the background once added.
 export type Built = { agent: Agent; files: AgentFiles; setup?: { packId: string; index: number; member?: string } };
 
 // One creation, from the first words typed into the custom card to the build.
@@ -41,7 +41,7 @@ export const NEW_SESSION: BuilderSession = {
   error: null,
 };
 
-// Who's asking, the organisation they belong to (null for a personal account)
+// Who's asking, the organization they belong to (null for a personal account)
 // and its members (just them while it's being created). Read on every request:
 // an account can become an organization.
 const who = () => ({ person: ACCOUNT.name, org: ACCOUNT.org?.name ?? null, members: ACCOUNT.org?.members ?? [ACCOUNT.name] });
@@ -65,7 +65,7 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
 }
 const post = <T>(path: string, body: object) => request<T>(path, body);
 
-// --- The organisation profile ---
+// --- The organization profile ---
 
 export type Profile = {
   name: string;
@@ -141,7 +141,7 @@ export async function buildAgent(turns: Turn[]): Promise<Built> {
 }
 
 // A pack's agents come pre-built (apps/server/packs), so this is instant. They
-// are customized for the organisation in the background once added.
+// are customized for the organization in the background once added.
 export async function addPack(packId: string): Promise<Built[]> {
   const out = await post<{ agents: ServerAgent[] }>('/api/packs/add', { packId, takenIds: AGENTS.map(a => a.id) });
   return out.agents.map(toBuilt);
@@ -300,7 +300,7 @@ export const sendToIde = (id: number, ide: string) =>
   post<{ opened: boolean; folder: string; prompt: string; ide: string }>('/api/runner/requests/ide', { id, ide });
 export const sendRequestMessage = (id: number, text: string) => post<{ ok: boolean }>('/api/runner/requests/message', { id, text });
 
-// Whether the Agency Engineer may write code plugins (Settings -> Connectors).
+// Whether the Agency Engineer may write code plugins (Settings > Connectors).
 // The agency's own MCP server, for the person's AI IDE; and who the host is.
 export const getAgencyMcp = () => request<{ url: string }>('/api/settings/agency-mcp');
 export const setHostPerson = (name: string, org: string | null) => post<{ ok: boolean }>('/api/settings/host-person', { name, org });
@@ -357,7 +357,7 @@ export const decideApproval = (id: string, decision: 'approved' | 'rejected', no
   post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note });
 export const openAgentBrowser = () => post<{ ok: boolean }>('/api/browser/sign-in', {});
 
-// Daily spend caps (Settings -> Usage): the organisation's, and each agent's.
+// Daily spend caps (Settings > Usage): the organization's, and each agent's.
 export type Usage = {
   orgCapUsd: number | null;
   spentTodayUsd: number;

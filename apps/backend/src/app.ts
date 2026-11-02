@@ -28,10 +28,10 @@ import {
 import { devUserId, signInTicket, type Auth } from './tokens.js';
 import { sendInvite } from './mail.js';
 
-// Our backend's API (docs/architecture.md, "Accounts and organisations").
+// Our backend's API (docs/architecture.md, "Accounts and organizations").
 // Every route but /health and the keys needs a signed-in person: their Clerk
 // session token as "Authorization: Bearer ...". It knows who's in which
-// organisation and where each host is; it never sees an agency's contents.
+// organization and where each host is; it never sees an agency's contents.
 
 type Ctx = { db: Db; auth: Auth; userId: string; params: string[]; body: Record<string, unknown>; authorization?: string };
 type Route = { method: string; path: RegExp; open?: boolean; run: (c: Ctx) => Promise<unknown> };
@@ -65,7 +65,7 @@ const ROUTES: Route[] = [
   // The keys hosts check org access tokens against.
   { method: 'GET', path: /^\/\.well-known\/jwks\.json$/, open: true, run: async c => c.auth.jwks() },
 
-  // You, your personal agency (made the first time), and every organisation you're in.
+  // You, your personal agency (made the first time), and every organization you're in.
   {
     method: 'GET',
     path: /^\/me$/,
@@ -126,7 +126,7 @@ const ROUTES: Route[] = [
   { method: 'GET', path: /^\/invites\/([\w-]+)$/, open: true, run: async c => previewInvite(c.db, c.params[0]) },
   { method: 'POST', path: /^\/invites\/([\w-]+)\/accept$/, run: async c => acceptInvite(c.db, c.params[0], await user(c)) },
 
-  // An org access token, for talking to one of your organisations' hosts.
+  // An org access token, for talking to one of your organizations' hosts.
   {
     method: 'POST',
     path: /^\/orgs\/([\w-]+)\/token$/,
@@ -137,7 +137,7 @@ const ROUTES: Route[] = [
     },
   },
 
-  // A host asking whether someone's still in its organisation, and as what: for
+  // A host asking whether someone's still in its organization, and as what: for
   // connections that act as a person without a fresh org token (their own agency
   // MCP address). Signed with the host's secret, not a person's session.
   {

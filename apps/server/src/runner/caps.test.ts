@@ -4,7 +4,7 @@ import { setHostZone } from './clock.js';
 import { resetDbForTests, run as exec, setSetting } from './db.js';
 import { overSpend } from './run.js';
 
-// Spending limits are monthly, on the host's calendar (Settings -> Usage).
+// Spending limits are monthly, on the host's calendar (Settings > Usage).
 
 const NOW = Date.UTC(2026, 9, 20, 12); // 20 October 2026, noon UTC
 const day = 86_400_000;

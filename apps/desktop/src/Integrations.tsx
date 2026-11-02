@@ -24,7 +24,7 @@ import {
   type TunnelState,
 } from './builder';
 
-// Settings -> Connectors -> Integrations (docs/integrations.md): the services
+// Settings > Connectors > Integrations (docs/integrations.md): the services
 // agents' tools run on. Web search is one service among several (agents use
 // whichever is connected); anything else is added as an MCP server by its
 // address, or later by the Agency Engineer. Keys go here, never in a chat.

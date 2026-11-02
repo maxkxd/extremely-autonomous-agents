@@ -719,7 +719,7 @@ export async function writeDraftIntegration(definition: string, by: string, requ
   }
   // Programs on this computer, or local addresses, are a person's call alone.
   if (integration.kind === 'mcp' && (integration.command || integration.local))
-    throw new Error("MCP servers on this computer (a command, or a local address) can only be added by a person, in Settings -> Connectors. Tell them which one and how, with engineer.reply_to_request.");
+    throw new Error("MCP servers on this computer (a command, or a local address) can only be added by a person, in Settings > Connectors. Tell them which one and how, with engineer.reply_to_request.");
   if (integration.kind === 'mcp' && !integration.url) throw new Error('An MCP server needs its address (url).');
   const existing = loaded.find(l => l.integration.id === integration.id);
   if (existing?.shipped) throw new Error(`"${integration.id}" is a built-in integration's id; pick another.`);

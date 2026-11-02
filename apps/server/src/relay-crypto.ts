@@ -1,4 +1,4 @@
-// The end-to-end encrypted session between a member's app and an organisation's
+// The end-to-end encrypted session between a member's app and an organization's
 // host, over our relay (docs/architecture.md). Kept identical in
 // apps/server/src/relay-crypto.ts and apps/desktop/src/relay-crypto.ts (a test
 // checks); only WebCrypto, so it runs in Node and the app alike.
@@ -87,7 +87,7 @@ export async function appHandshake(orgId: string, hostPublicKey: string) {
       } catch {
         // falls through
       }
-      if (ready !== READY) throw new Error('That isn’t this organisation’s host (its key doesn’t match).');
+      if (ready !== READY) throw new Error('That isn’t this organization’s host (its key doesn’t match).');
       return { seal: toHost.seal, open: toApp.open };
     },
   };

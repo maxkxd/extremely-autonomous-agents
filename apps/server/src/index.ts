@@ -80,7 +80,7 @@ async function callback(finish: () => Promise<void>) {
   }
 }
 
-// Who you're talking to, the organisation (null when they don't have one), and
+// Who you're talking to, the organization (null when they don't have one), and
 // what the fleet already has. The builder never waits on linking key people to
 // members: it uses the links as they stand and starts a check in the background
 // (a no-op once everyone's been checked), so the next turn has them.
@@ -126,7 +126,7 @@ const scrubbed = (turns: Turn[]) =>
     return { ...t, text: scrub(t.text) };
   });
 const routes: Record<string, Route> = {
-  // --- The organisation profile ---
+  // --- The organization profile ---
   'GET /api/org': async (_req, q) => ({ profile: await loadProfile(q.get('name') ?? '') }),
   'POST /api/org/turn': async req => {
     const { person, org, turns } = await body<{ person: string; org: string; turns: Turn[] }>(req);
@@ -142,7 +142,7 @@ const routes: Record<string, Route> = {
     // Members may do its chat (before their first agent there); changing it after needs an admin.
     const was = await loadProfile(org);
     const finishingChat = !!profile?.interviewed && !interviewDone(was);
-    if (was && !finishingChat) requireAdmin(currentActor(), 'Changing the organisation profile');
+    if (was && !finishingChat) requireAdmin(currentActor(), 'Changing the organization profile');
     await saveProfile(org, keepLinks(was, finishingChat ? overWritten(was, profile) : { ...profile, interviewed: profile.interviewed ?? was?.interviewed }));
     if (link && members) linkPeople(org, members).catch(e => console.error('Linking key people failed:', e));
     return { ok: true };
@@ -173,9 +173,9 @@ const routes: Record<string, Route> = {
     return setAccessConfig({ ...(typeof issuer === 'string' ? { issuer } : {}), ...(orgId !== undefined ? { orgId: typeof orgId === 'string' && orgId ? orgId : null } : {}) });
   },
 
-  // --- An organisation this computer hosts, run beside this agency (hosting.ts) ---
+  // --- An organization this computer hosts, run beside this agency (hosting.ts) ---
   'GET /api/hosting': async () => ({ hosting: hostingStatus() }),
-  // Self-hosting (selfhost.ts): an organisation of its own here, with its owner's
+  // Self-hosting (selfhost.ts): an organization of its own here, with its owner's
   // account, never registered with us. Made, started, and its owner set up.
   'POST /api/hosting/self': async req => {
     const { orgName, owner } = await body<{ orgName: string; owner: { email: string; name: string; password: string } }>(req);
@@ -200,7 +200,7 @@ const routes: Record<string, Route> = {
   'POST /api/hosting/start': async req => {
     const { orgId, orgName, issuer } = await body<{ orgId: string; orgName: string; issuer: string }>(req);
     if (typeof orgId !== 'string' || !/^[\w-]{1,64}$/.test(orgId) || typeof orgName !== 'string' || typeof issuer !== 'string' || !/^https?:\/\//.test(issuer))
-      throw new ConnectError('Which organisation?');
+      throw new ConnectError('Which organization?');
     // "Already hosts another" and the like are for the person, not a server error.
     return startHosting({ orgId, orgName: orgName.slice(0, 80), issuer }).catch(e => {
       throw new ConnectError((e as Error).message);
@@ -208,26 +208,26 @@ const routes: Record<string, Route> = {
   },
   'POST /api/hosting/secret': async req => {
     const { orgId, hostSecret } = await body<{ orgId: string; hostSecret: string }>(req);
-    if (hostingStatus()?.orgId !== orgId || typeof hostSecret !== 'string' || !hostSecret) throw new ConnectError('Not hosting that organisation.');
+    if (hostingStatus()?.orgId !== orgId || typeof hostSecret !== 'string' || !hostSecret) throw new ConnectError('Not hosting that organization.');
     await keepHostSecret(orgId, hostSecret);
     return { ok: true };
   },
   'POST /api/hosting/stop': async () => (await stopHosting(), { ok: true }),
-  // The organisation was deleted: nothing of it stays here.
+  // The organization was deleted: nothing of it stays here.
   'POST /api/hosting/delete': async req => {
     const { orgId } = await body<{ orgId: string }>(req);
-    if (typeof orgId !== 'string' || !/^[\w-]+$/.test(orgId)) throw new ConnectError('Which organisation?');
+    if (typeof orgId !== 'string' || !/^[\w-]+$/.test(orgId)) throw new ConnectError('Which organization?');
     await deleteHosting(orgId);
     return { ok: true };
   },
-  // In an organisation's agency: the secret it asks our backend about members with (from the person's own agency).
+  // In an organization's agency: the secret it asks our backend about members with (from the person's own agency).
   'POST /api/settings/host-secret': async req => {
     const { secret } = await body<{ secret: string }>(req);
     if (typeof secret === 'string' && secret) process.env.EAA_HOST_SECRET = secret;
     return { ok: true };
   },
 
-  // --- A self-hosted organisation's people (selfhost.ts) ---
+  // --- A self-hosted organization's people (selfhost.ts) ---
   'POST /api/self/setup': async req => selfhost.setup(await body(req)),
   'GET /api/self/members': async () => selfhost.members(),
   'POST /api/self/role': async req => {
@@ -428,11 +428,11 @@ createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   // A run's tools, for Claude Code (runner/mcp.ts).
   if (url.pathname.startsWith('/mcp/') && (await handleMcp(req, res, url.pathname))) return;
-  // The organisation's agency this computer hosts: passed on, and it checks who's
+  // The organization's agency this computer hosts: passed on, and it checks who's
   // asking. Only from here, or with a token: without one it would take them for
   // this computer's own person.
   if (url.pathname.startsWith('/hosted/')) {
-    // A self-hosted organisation's members use it from their own apps, at this
+    // A self-hosted organization's members use it from their own apps, at this
     // computer's address: a bearer token, never a cookie, so any origin may ask.
     res.setHeader('access-control-allow-origin', '*');
     res.setHeader('access-control-allow-headers', 'authorization, content-type');
@@ -444,7 +444,7 @@ createServer(async (req, res) => {
     if (!fromHere && !req.headers.authorization && !signingIn) return send(res, 401, { error: 'Sign in first.' });
     return forwardToHosted(req, res, url.pathname.slice('/hosted'.length) + url.search);
   }
-  // A self-hosted organisation's sign-in (selfhost.ts): no token yet, and never anyone's.
+  // A self-hosted organization's sign-in (selfhost.ts): no token yet, and never anyone's.
   if (SELF_HOSTED && url.pathname.startsWith('/auth/')) {
     const auth: Record<string, (b: Record<string, unknown>) => unknown> = {
       'POST /auth/sign-in': selfhost.signIn,
@@ -497,7 +497,7 @@ createServer(async (req, res) => {
       return send(res, 400, { error: e.message });
     send(res, 500, { error: 'Something went wrong on the server.' });
   }
-  // An organisation's agency is reached through the person's own (hosting.ts), so only from this computer.
+  // An organization's agency is reached through the person's own (hosting.ts), so only from this computer.
 }).listen(PORT, HOSTED_ORG ? '127.0.0.1' : undefined, () => {
   console.log(`eaa server on http://localhost:${PORT}`);
   if (HOSTED_ORG && process.env.EAA_HOST_PERSON) setSetting('host_person', process.env.EAA_HOST_PERSON);
@@ -506,6 +506,6 @@ createServer(async (req, res) => {
   void conn.recheckCapabilities();
   startScheduler();
   startAgencyMcp(); // the agency's own MCP server, for the person's AI IDE
-  openPeopleMcp(); // and everyone's own address in an organisation
+  openPeopleMcp(); // and everyone's own address in an organization
   startHooks(book); // where services post events (and the tunnel, if it's on)
 });

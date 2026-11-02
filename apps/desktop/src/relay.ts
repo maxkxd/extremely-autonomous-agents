@@ -1,12 +1,12 @@
 import { appHandshake, fromB64, toB64, type Session } from './relay-crypto';
 
-// Reaching an organisation's host on someone else's computer: through our relay
+// Reaching an organization's host on someone else's computer: through our relay
 // (the backend's /relay/app), signed in as you, then an end-to-end encrypted
 // session with the host itself (relay-crypto.ts) - the relay passes on only
 // ciphertext. Each request is sealed, sent, and answered on the same session.
 
 export class HostOffline extends Error {}
-// Whoever answered isn't the organisation's host: never just "offline".
+// Whoever answered isn't the organization's host: never just "offline".
 export class NotTheHost extends Error {}
 
 type Answer = { id: number; status: number; body: string; type: string };

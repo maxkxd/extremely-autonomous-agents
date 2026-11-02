@@ -4,9 +4,9 @@ import { exportJWK, generateKeyPair, importJWK, jwtVerify, SignJWT, type CryptoK
 import type { Actor, Role } from './access.js';
 import { all, getSetting, one, run as exec, setSetting } from './runner/db.js';
 
-// A self-hosted organisation (docs/architecture.md, "Accounts and organisations"):
+// A self-hosted organization (docs/architecture.md, "Accounts and organizations"):
 // this host is its own authority and never talks to us. It keeps the
-// organisation's accounts (email and password), invites and sign-in sessions,
+// organization's accounts (email and password), invites and sign-in sessions,
 // and signs the same org access tokens our backend would - with its own key,
 // trusted by nothing but itself. Members' apps reach it at its own address.
 //
@@ -53,7 +53,7 @@ function key() {
 }
 
 const orgId = () => process.env.EAA_HOSTED_ORG ?? '';
-const orgName = () => getSetting<string>('self_org_name', 'Organisation');
+const orgName = () => getSetting<string>('self_org_name', 'Organization');
 
 async function orgToken(a: Account) {
   const k = await key();

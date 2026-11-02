@@ -47,7 +47,7 @@ export async function ask(agentId: string, a: Ask): Promise<string> {
   const usable = cleanChoices((await allChoices())[agentId] ?? []).filter(c => connected.has(c.connection) && (isFree(c.connection) || !over));
   // Its models in order, ones cooling down after a failure last.
   const order = [...usable.filter(c => !isBenched(health, c, startedAt)), ...usable.filter(c => isBenched(health, c, startedAt))];
-  if (!order.length) throw new Error(`${name} has no model it can use. Connect one in Settings -> Connectors, or pick some on its card.`);
+  if (!order.length) throw new Error(`${name} has no model it can use. Connect one in Settings > Connectors, or pick some on its card.`);
 
   const id = newRunId();
   exec('INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at) VALUES (?, ?, ?, ?, 0, ?, ?)', id, agentId, a.trigger, a.task, 'running', startedAt);

@@ -6,9 +6,9 @@ import { FLEET_ENGINEER } from './runner/agent.js';
 import { getSetting, one, run as exec, setSetting } from './runner/db.js';
 import { checkSelfToken, SELF_HOSTED } from './selfhost.js';
 
-// Who's asking (docs/architecture.md, "Accounts and organisations"). The host is
+// Who's asking (docs/architecture.md, "Accounts and organizations"). The host is
 // the only authority over its agency, and it checks one thing: an org access
-// token - this person, this organisation, this role - short-lived and signed by
+// token - this person, this organization, this role - short-lived and signed by
 // whoever it trusts to issue them (our backend by default; a self-hosted host
 // can trust its own). Requests from this computer itself, without one, are the
 // host's owner: it's their machine. Anything else is turned away.
@@ -37,12 +37,12 @@ export class AccessError extends Error {
 
 export const ORG_TOKEN_AUDIENCE = 'eaa-host';
 
-// Who issues the tokens this host accepts, and which organisation it hosts.
-// The organisation is set when the owner registers this machine (the app,
+// Who issues the tokens this host accepts, and which organization it hosts.
+// The organization is set when the owner registers this machine (the app,
 // phase 3); until then no token is accepted, only this computer.
 type AccessConfig = { issuer: string; orgId: string | null };
 const DEFAULT_ISSUER = process.env.EAA_TOKEN_ISSUER ?? 'http://localhost:5180';
-// An organisation's agency started by hosting.ts is told both.
+// An organization's agency started by hosting.ts is told both.
 export const accessConfig = (): AccessConfig => ({ issuer: DEFAULT_ISSUER, orgId: process.env.EAA_HOSTED_ORG ?? null, ...getSetting<Partial<AccessConfig>>('access', {}) });
 export function setAccessConfig(c: Partial<AccessConfig>) {
   const next = { ...accessConfig(), ...c };
@@ -68,14 +68,14 @@ export async function checkToken(token: string): Promise<Actor> {
   // Self-hosted: only tokens this host signed, for accounts it still has.
   if (SELF_HOSTED) return (await checkSelfToken(token)) ?? fail401();
   const { issuer, orgId } = accessConfig();
-  if (!orgId) throw new AccessError(401, "This host isn't hosting an organisation yet.");
+  if (!orgId) throw new AccessError(401, "This host isn't hosting an organization yet.");
   let payload;
   try {
     ({ payload } = await jwtVerify(token, keysOf(issuer), { issuer, audience: ORG_TOKEN_AUDIENCE, algorithms: ['EdDSA'] }));
   } catch {
     throw new AccessError(401, 'Sign in again.');
   }
-  if (payload.org !== orgId) throw new AccessError(403, 'That token is for another organisation.');
+  if (payload.org !== orgId) throw new AccessError(403, 'That token is for another organization.');
   const role = payload.role as Role;
   if (typeof payload.sub !== 'string' || !ROLES.includes(role)) throw new AccessError(401, 'Sign in again.');
   return { id: payload.sub, name: typeof payload.name === 'string' && payload.name ? payload.name : 'Someone', role, via: 'token' };
@@ -91,7 +91,7 @@ const LOOPBACK = /^(127\.\d+\.\d+\.\d+|::1|::ffff:127\.\d+\.\d+\.\d+)$/;
 export const localActor = (): Actor => ({ id: 'local', name: getSetting<string | null>('host_person', null) ?? 'The host', role: 'owner', via: 'local', here: true });
 
 // Set by the person's own agency when it passes on a request from this computer
-// (index.ts); an organisation's agency listens only on this computer, so only it can.
+// (index.ts); an organization's agency listens only on this computer, so only it can.
 export const HERE_HEADER = 'x-eaa-here';
 
 export async function actorFor(req: Pick<IncomingMessage, 'headers' | 'socket'>): Promise<Actor> {
@@ -117,7 +117,7 @@ export const personFor = (claimed: string) => {
 type Level = 'member' | 'admin' | 'local';
 const isAdmin = (a: Actor) => a.role === 'owner' || a.role === 'admin';
 
-// Reads are for everyone in the organisation; writes need an admin unless they're
+// Reads are for everyone in the organization; writes need an admin unless they're
 // listed as a member's. "local": only from this computer (where it lands, or what it sets, is the machine itself).
 const NEEDS: Record<string, Level> = {
   // The agency MCP address is a key to the whole agency.
@@ -126,9 +126,9 @@ const NEEDS: Record<string, Level> = {
   'POST /api/settings/agency-mcp': 'member',
   // On the host computer, for a request on an agent they made (runner/api.ts).
   'POST /api/runner/requests/ide': 'member',
-  // The secret this organisation's agency asks our backend about members with (hosting.ts).
+  // The secret this organization's agency asks our backend about members with (hosting.ts).
   'POST /api/settings/host-secret': 'local',
-  // A self-hosted organisation's people (selfhost.ts checks who may change what).
+  // A self-hosted organization's people (selfhost.ts checks who may change what).
   'POST /api/self/setup': 'local',
   // The desktop app's browser sign-in (handoff.ts): this computer only.
   'POST /api/auth/handoff': 'local',
@@ -148,7 +148,7 @@ const NEEDS: Record<string, Level> = {
   'GET /api/oauth/chatgpt/callback': 'local',
   'POST /api/settings/host-person': 'local',
   'POST /api/settings/access': 'local',
-  // Running an organisation's agency on this computer (hosting.ts).
+  // Running an organization's agency on this computer (hosting.ts).
   'GET /api/hosting': 'local',
   'POST /api/hosting/start': 'local',
   'POST /api/hosting/secret': 'local',

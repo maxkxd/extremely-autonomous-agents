@@ -31,10 +31,10 @@ test('the app and the real host agree, and talk both ways', async () => {
 
 test("someone without the host's key can't pass for it", async () => {
   // The app expects one host; another (the relay, say) answers.
-  await assert.rejects(connect('org-1', hostKey(), hostKey().publicKey), /isn’t this organisation’s host/);
+  await assert.rejects(connect('org-1', hostKey(), hostKey().publicKey), /isn’t this organization’s host/);
 });
 
-test('a session is for one organisation', async () => {
+test('a session is for one organization', async () => {
   const key = hostKey();
   const app = await appHandshake('org-1', key.publicKey);
   const host = await hostHandshake('org-2', key.der, fromB64url(key.publicKey), app.hello);

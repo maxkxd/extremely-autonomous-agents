@@ -216,7 +216,7 @@ export function noAiRequest(connected: boolean, now: number) {
     null,
     {
       what: NO_AI_WHAT,
-      why: `No AI model is connected, so none of your agents can run, and the Agency Engineer can't set up what they're waiting on${waiting ? ` (${waiting} request${waiting === 1 ? '' : 's'})` : ''}. Connect one in Settings -> Connectors: your Claude, ChatGPT or Copilot plan, or an API key. Everything starts again by itself once one works.`,
+      why: `No AI model is connected, so none of your agents can run, and the Agency Engineer can't set up what they're waiting on${waiting ? ` (${waiting} request${waiting === 1 ? '' : 's'})` : ''}. Connect one in Settings > Connectors: your Claude, ChatGPT or Copilot plan, or an API key. Everything starts again by itself once one works.`,
     },
     now,
     () => {},
@@ -241,7 +241,7 @@ export function capRequest(connections: string[], now: number) {
     null,
     {
       what: CAP_WHAT,
-      why: `The agency's limit of $${cap!.toFixed(2)} for this month is reached, and every AI connected is pay-per-use, so no agent can run - the Agency Engineer included. Raise or remove the limit (Settings -> Usage), or connect an AI plan you already pay for (Claude, ChatGPT or Copilot), which the limit doesn't apply to. Otherwise everything starts again next month.`,
+      why: `The agency's limit of $${cap!.toFixed(2)} for this month is reached, and every AI connected is pay-per-use, so no agent can run - the Agency Engineer included. Raise or remove the limit (Settings > Usage), or connect an AI plan you already pay for (Claude, ChatGPT or Copilot), which the limit doesn't apply to. Otherwise everything starts again next month.`,
     },
     now,
     () => {},

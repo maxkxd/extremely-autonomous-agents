@@ -2,11 +2,11 @@ import type { Clerk as ClerkType } from '@clerk/clerk-js';
 import { HostOffline, RelayLink } from './relay';
 
 // Who's signed in, which agency the app is in, and where its requests go
-// (docs/architecture.md, "Accounts and organisations").
+// (docs/architecture.md, "Accounts and organizations").
 //
 // The app works with no account: your own agency is the server on this
-// computer. Signing in (our backend, through Clerk) is for organisations. An
-// organisation you own runs on this computer beside your own agency, reached
+// computer. Signing in (our backend, through Clerk) is for organizations. An
+// organization you own runs on this computer beside your own agency, reached
 // at /hosted. One hosted on someone else's computer can't be reached from here
 // until the relay exists (phase 4).
 
@@ -23,7 +23,7 @@ export type Invite = { code: string; email: string | null; role: OrgRole; expire
 export type WaitingInvite = { code: string; orgId: string; org: string; invitedBy: string; role: OrgRole; expiresAt: number };
 type Hosting = { orgId: string; orgName: string; issuer: string; running: boolean; self?: boolean };
 
-// 'personal', or an organisation's id.
+// 'personal', or an organization's id.
 const AGENCY_KEY = 'eaa.agency';
 const SESSION_KEY = 'eaa.devSession'; // the development sign-in's token
 const ME_KEY = 'eaa.me'; // the last answer from the backend, for starting without it
@@ -51,10 +51,10 @@ export const state = {
   me: null as { user: User; orgs: OrgView[] } | null,
   hosting: null as Hosting | null,
   agency: 'personal' as string,
-  members: [] as Member[], // the current organisation's
+  members: [] as Member[], // the current organization's
   localName: null as string | null, // this computer's own person, as its agency knows them
   localFullName: null as string | null, // the name they chose, when not signed in (their agency's profile of them)
-  unreachable: null as string | null, // the organisation the app is in can't be reached: why ('offline', or a message)
+  unreachable: null as string | null, // the organization the app is in can't be reached: why ('offline', or a message)
   // This page is the browser half of the desktop app's Google/GitHub sign-in:
   // what to show instead of the app (signInWith).
   handoff: null as null | 'done' | { error: string },
@@ -215,7 +215,7 @@ async function browserHandoff() {
   }
 }
 
-// Organisations' snapshots (offline copies) in this browser: one, or all.
+// Organizations' snapshots (offline copies) in this browser: one, or all.
 function forgetSnapshots(orgId?: string) {
   try {
     for (const k of Object.keys(localStorage)) if (orgId ? k === `eaa.snapshot@${orgId}` : k.startsWith('eaa.snapshot@')) localStorage.removeItem(k);
@@ -227,13 +227,13 @@ function forgetSnapshots(orgId?: string) {
 export async function signOut() {
   write(SESSION_KEY, null);
   write(ME_KEY, null);
-  // What organisations showed stays with the person, not the browser.
+  // What organizations showed stays with the person, not the browser.
   forgetSnapshots();
   if (state.signIn === 'clerk') await (await loadClerk().catch(() => null))?.signOut();
   switchAgency('personal');
 }
 
-// --- You and your organisations ---
+// --- You and your organizations ---
 
 export async function refreshMe() {
   const token = await sessionToken();
@@ -249,12 +249,12 @@ const local = async <T>(path: string, body?: unknown): Promise<T> => {
   return data as T;
 };
 
-// Every organisation you're in: ours (signed in with us), the one this computer
+// Every organization you're in: ours (signed in with us), the one this computer
 // self-hosts, and self-hosted ones you've joined elsewhere.
 // --- Your name ---
 //
 // The one you go by everywhere: signed in, the one on your account with us
-// (your organisations see it); signed out, only a name you gave yourself here -
+// (your organizations see it); signed out, only a name you gave yourself here -
 // not whoever last signed in on this computer ("Sam Rivera · Not signed in").
 const accountEmail = () => state.me?.user.email ?? null;
 export const myName = () => state.me?.user.name || state.localFullName || 'You';
@@ -269,7 +269,7 @@ export async function setMyName(name: string) {
   }
   nameListeners.forEach(l => l());
 }
-// Self-hosted organisations you've joined, and the account you have in each.
+// Self-hosted organizations you've joined, and the account you have in each.
 export const selfAccounts = () => selfOrgs().map(s => ({ id: s.id, org: s.name, email: s.you.email, address: s.address }));
 export function signOutOfSelf(orgId: string) {
   const s = selfOrgs().find(x => x.id === orgId);
@@ -290,7 +290,7 @@ export const teamOrgs = (): OrgView[] => {
   return [...(state.me?.orgs ?? []).filter(o => o.kind === 'team'), ...hostingSelf.filter(h => !joined.some(j => j.id === h.id)), ...joined];
 };
 
-// --- Self-hosted organisations you've joined (their own accounts; never us) ---
+// --- Self-hosted organizations you've joined (their own accounts; never us) ---
 
 type SelfOrg = { id: string; name: string; address: string; session: string; role: OrgRole; you: { id: string; email: string; name: string } };
 const SELF_KEY = 'eaa.selfOrgs';
@@ -331,7 +331,7 @@ async function hostAuth<T>(address: string, path: string, body?: unknown): Promi
     throw new Error("Can't reach that address.");
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { error?: string }).error ?? "That address didn't answer like an organisation's host.");
+  if (!res.ok) throw new Error((data as { error?: string }).error ?? "That address didn't answer like an organization's host.");
   return data as T;
 }
 type Joined = { session: string; org: { id: string; name: string }; you: SelfOrg['you'] & { role: OrgRole } };
@@ -339,7 +339,7 @@ const keepJoined = (address: string, r: Joined) => {
   saveSelfOrgs([...selfOrgs().filter(x => x.id !== r.org.id), { id: r.org.id, name: r.org.name, address: cleanAddress(address), session: r.session, role: r.you.role, you: r.you }]);
   return r.org;
 };
-// Your account's id in a self-hosted organisation (the owner here: its owner's).
+// Your account's id in a self-hosted organization (the owner here: its owner's).
 export const selfMe = (o: OrgView) => {
   const s = selfOrgs().find(x => x.id === o.id);
   if (s) return s.you.id;
@@ -355,12 +355,12 @@ export const signInSelf = async (address: string, email: string, password: strin
 export const selfHost = (orgName: string, owner: { email: string; name: string; password: string }) =>
   local<{ orgId: string; orgName: string }>('/api/hosting/self', { orgName, owner });
 export const currentOrg = () => teamOrgs().find(o => o.id === state.agency) ?? null;
-// The organisation runs here: this computer hosts it.
+// The organization runs here: this computer hosts it.
 export const hostedHere = (o: OrgView | null) => !!o && state.hosting?.orgId === o.id;
 // The owner or an admin, or your own agency: everything. A member: what the
 // host lets members do (apps/server/src/access.ts); the app shows them nothing else.
 export const isAdmin = () => currentOrg()?.role !== 'member';
-// Your account in the organisation the app is in (with us, or its own when self-hosted).
+// Your account in the organization the app is in (with us, or its own when self-hosted).
 export const myAccountId = () => {
   const o = currentOrg();
   return o?.self ? selfMe(o) : (state.me?.user.id ?? null);
@@ -429,12 +429,12 @@ async function orgToken(orgId: string) {
   return t.token;
 }
 
-// Testing the relay on one computer: go through it even to the organisation this
+// Testing the relay on one computer: go through it even to the organization this
 // computer hosts (localStorage eaa.viaRelay = "1").
 const viaRelay = () => read<string | null>('eaa.viaRelay', null) === '1';
 export const reachedHere = (o: OrgView | null) => hostedHere(o) && !viaRelay();
 
-// Organisations hosted elsewhere: one encrypted link each, through our relay (relay.ts).
+// Organizations hosted elsewhere: one encrypted link each, through our relay (relay.ts).
 const links = new Map<string, RelayLink>();
 const linkTo = (o: OrgView) => {
   if (!o.host.publicKey) throw new HostOffline(`${o.name} isn't hosted anywhere yet.`);
@@ -444,7 +444,7 @@ const linkTo = (o: OrgView) => {
 };
 
 // A request for "/api/..." to the agency the app is in: your own as is; the
-// organisation this computer hosts through /hosted, as its owner (this computer)
+// organization this computer hosts through /hosted, as its owner (this computer)
 // or, for anyone else signed in here, with their org access token; one hosted
 // elsewhere through the relay, with your org access token inside it.
 export async function agencyFetch(path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<Response> {
@@ -469,7 +469,7 @@ export async function agencyFetch(path: string, init: { method?: string; headers
   }
 }
 
-// An organisation hosted elsewhere: through our relay, or a self-hosted one at its own address.
+// An organization hosted elsewhere: through our relay, or a self-hosted one at its own address.
 async function remote(org: OrgView, path: string, init: { method?: string; headers?: Record<string, string>; body?: string }) {
   if (!org.self) return linkTo(org).request(path, { ...init, headers: { ...init.headers, authorization: `Bearer ${await orgToken(org.id)}` } });
   const address = selfOrgs().find(x => x.id === org.id)?.address ?? '';
@@ -483,7 +483,7 @@ async function remote(org: OrgView, path: string, init: { method?: string; heade
 
 // --- When the host is offline (docs/architecture.md) ---
 //
-// An organisation hosted elsewhere: the app keeps the last answer to each of its
+// An organization hosted elsewhere: the app keeps the last answer to each of its
 // reads, in this browser. While the host can't be reached the app shows those,
 // greyed out ("Host offline since ..."), changes are refused, and it tries the
 // host again every few seconds; when it's back, everything's live again.
@@ -523,7 +523,7 @@ function setOffline(since: number | null) {
 }
 export const onOffline = (l: () => void) => (offlineListeners.add(l), () => void offlineListeners.delete(l));
 
-// Whether the organisation the app is in can be reached now (startup): here, or
+// Whether the organization the app is in can be reached now (startup): here, or
 // its host through the relay. null: it can; otherwise why not.
 export async function reachable(): Promise<string | null> {
   const org = currentOrg();
@@ -541,7 +541,7 @@ export async function reachable(): Promise<string | null> {
   }
 }
 
-// --- Organisations ---
+// --- Organizations ---
 
 // Make one, hosted on this computer: the directory entry, the agency beside
 // yours, its key registered so members' apps can reach it.
@@ -550,14 +550,14 @@ export async function createOrganisation(name: string, onStep?: (s: string) => v
   const org = await backend<{ id: string; name: string }>('/orgs', { body: { name } });
   onStep?.('Starting its agency on this computer');
   await hostHere(org);
-  // The profile the chat just made (saved in your own agency) belongs to the organisation's.
+  // The profile the chat just made (saved in your own agency) belongs to the organization's.
   const { profile } = await local<{ profile: unknown }>(`/api/org?name=${encodeURIComponent(org.name)}`).catch(() => ({ profile: null }));
   if (profile) await local('/hosted/api/org', { org: org.name, profile }).catch(() => {});
   await refreshMe();
   return org;
 }
 
-// Your organisation's agency, started on this computer and registered as its host.
+// Your organization's agency, started on this computer and registered as its host.
 // Also for one whose creation stopped part-way.
 export async function hostHere(org: { id: string; name: string }) {
   const { publicKey } = await local<{ publicKey: string }>('/api/hosting/start', { orgId: org.id, orgName: org.name, issuer: state.issuer });
@@ -579,7 +579,7 @@ export async function joinWithCode(code: string) {
   return r;
 }
 
-// A self-hosted organisation's people are on its host (/api/self/...), through the agency the app is in.
+// A self-hosted organization's people are on its host (/api/self/...), through the agency the app is in.
 const isSelf = (orgId: string) => !!teamOrgs().find(o => o.id === orgId)?.self;
 async function viaHost<T>(path: string, body?: unknown): Promise<T> {
   const res = await agencyFetch(path, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -616,7 +616,7 @@ export async function checkWaitingInvites() {
 setInterval(() => void checkWaitingInvites(), 30_000);
 export const revokeInvite = (code: string) =>
   isSelf(state.agency) ? viaHost('/api/self/invites/revoke', { code }) : backend(`/invites/${encodeURIComponent(code)}`, { method: 'DELETE' });
-// The address a self-hosted organisation's members reach it at (its owner sets it).
+// The address a self-hosted organization's members reach it at (its owner sets it).
 export const selfAddress = () => viaHost<{ address: string | null }>('/api/self/address').then(r => r.address);
 export const setSelfAddress = (address: string) => viaHost<{ address: string | null }>('/api/self/address', { address }).then(r => r.address);
 export async function leaveOrganisation(orgId: string) {

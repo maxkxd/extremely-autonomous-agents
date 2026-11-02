@@ -6,7 +6,7 @@ import { forgetMembersForTests, mcpUrlFor } from './agency-mcp.js';
 import { resetDbForTests, run as exec } from './db.js';
 import { handleMcp } from './mcp.js';
 
-// Everyone's own agency MCP address in an organisation acts as them. A stand-in
+// Everyone's own agency MCP address in an organization acts as them. A stand-in
 // for our backend answers "is this person still a member, and as what".
 
 let backend: Server;
@@ -68,7 +68,7 @@ test("answering a request: the agent's maker or an admin, as in the app", async 
   assert.match(r.text, /Only the person who made/);
 });
 
-test('removed from the organisation: the address stops working; a new role, new tools', async () => {
+test('removed from the organization: the address stops working; a new role, new tools', async () => {
   const dan: Actor = { id: 'user_dan', name: 'Dan', role: 'member', via: 'token' };
   members.set('user_dan', { role: 'member', name: 'Dan' });
   const url = mcpUrlFor(dan);
@@ -84,7 +84,7 @@ test('removed from the organisation: the address stops working; a new role, new 
   forgetMembersForTests();
   const r = await call(url, 'list_requests');
   assert.equal(r.error, true);
-  assert.match(r.text, /no longer in this organisation/);
+  assert.match(r.text, /no longer in this organization/);
   // A new address replaces the old.
   members.set('user_dan', { role: 'member', name: 'Dan' });
   const fresh = mcpUrlFor(dan, true);

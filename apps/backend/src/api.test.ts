@@ -79,7 +79,7 @@ test('the personal agency cannot be shared, left or deleted', async () => {
   assert.equal((await call('ana', 'DELETE', `/orgs/${personal}`)).status, 400);
 });
 
-test('own one organisation, join many', async () => {
+test('own one organization, join many', async () => {
   const anaOrg = await call('ana', 'POST', '/orgs', { name: '  Ana   Co ' });
   assert.equal(anaOrg.status, 200);
   assert.equal(anaOrg.body.name, 'Ana Co');
@@ -182,7 +182,7 @@ test('hosts: the owner registers one, members see its key', async () => {
   assert.notEqual(stored.rows[0].secret_hash, reg.body.hostSecret, 'only its hash is kept');
 });
 
-test('deleting an organisation takes its members, invites and host with it', async () => {
+test('deleting an organization takes its members, invites and host with it', async () => {
   const org = (await call('ana', 'GET', '/me')).body.orgs.find((o: any) => o.kind === 'team').id;
   assert.equal((await call('cat', 'DELETE', `/orgs/${org}`)).status, 403);
   assert.equal((await call('ana', 'DELETE', `/orgs/${org}`)).status, 200);

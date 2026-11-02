@@ -1,7 +1,7 @@
 import { all, one, run } from './db.js';
 
 // An agent's own memory between runs (docs/runner.md, "Agent memory").
-// Separate from the person and organisation profiles (org.ts).
+// Separate from the person and organization profiles (org.ts).
 //   - kept as written, given newest first with each one's age
 //   - tool status never comes from memory: notes that a tool is broken are
 //     refused, because the runner's live record says whether it works

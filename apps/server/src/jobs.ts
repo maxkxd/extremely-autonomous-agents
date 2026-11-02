@@ -11,7 +11,7 @@ import { agencyStopped } from './runner/run.js';
 
 // Setting up pack agents (docs/agent-creation.md). Adding a pack saves each
 // agent's generic files at once, so it exists and is valid straight away; this
-// then rewrites them for the organisation and fleet in the background. The
+// then rewrites them for the organization and fleet in the background. The
 // server owns the work - it carries on if the app closes, and resumes after a
 // restart. An agent is not run until its set-up has finished. While the whole
 // agency is stopped, nothing new is started (one under way finishes); Resume
@@ -64,7 +64,7 @@ async function run(id: string) {
     // Deleted while it was being set up: don't bring it back.
     if (!(await readMeta(id))) return;
     await setChoices(id, pickDefaults(ctx.models, 'strong', files.models));
-    // Still theirs: the owner and organisation carry over from set-up.
+    // Still theirs: the owner and organization carry over from set-up.
     await save(files, { name: files.name, department: files.department, output: kpiLabels(files.kpi), status: 'ready', owner: meta.owner ?? person, org: meta.org ?? org });
     // What its tailoring added that nothing provides yet goes to the Agency Engineer.
     const { requestWhatsMissing } = await import('./agents.js');

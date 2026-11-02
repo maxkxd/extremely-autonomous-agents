@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { interviewDone, overWritten, type Profile } from './org.js';
 
-// The organisation profile chat: once per organisation, starting from what's written.
+// The organization profile chat: once per organization, starting from what's written.
 
 const blank = (o: Partial<Profile> = {}): Profile => ({ name: 'Acme', what_it_does: '', customers: '', offering: '', voice: '', people: [], notes: [], ...o });
 

@@ -11,18 +11,18 @@ import { HERE_HEADER } from './access.js';
 import { relayState, startRelay, stopRelay } from './relay.js';
 import { connectionBaseUrl, list as listConnections } from './models/connections.js';
 
-// Hosting an organisation (docs/architecture.md, "Accounts and organisations").
-// The person's own agency is this server. The organisation they own runs as a
+// Hosting an organization (docs/architecture.md, "Accounts and organizations").
+// The person's own agency is this server. The organization they own runs as a
 // second agency beside it: the same server in its own process, with its own
 // folder, ports and runner, listening only on this computer. The app reaches
 // it through here (/hosted/...); members elsewhere will through the relay
-// (phase 4). One organisation owned each, so at most one.
+// (phase 4). One organization owned each, so at most one.
 
-// self: a self-hosted organisation (selfhost.ts) - its own accounts and tokens, reached at its own address, never through us.
+// self: a self-hosted organization (selfhost.ts) - its own accounts and tokens, reached at its own address, never through us.
 export type Hosting = { orgId: string; orgName: string; issuer: string; self?: boolean };
 export const HOSTED_PORT = Number(process.env.EAA_HOSTED_PORT ?? 5185);
 const HOSTED_HOOKS_PORT = HOSTED_PORT + 1;
-// This process is itself an organisation's agency (started below).
+// This process is itself an organization's agency (started below).
 export const HOSTED_ORG = process.env.EAA_HOSTED_ORG ?? null;
 
 export const hosting = () => getSetting<Hosting | null>('hosting', null);
@@ -45,12 +45,12 @@ async function hostKey(orgId: string) {
   return publicKey;
 }
 
-// A new organisation starts with the AI its owner already connected here (decided
+// A new organization starts with the AI its owner already connected here (decided
 // 2026-11-02) - it used to start with none, every card saying "No model" right
 // after they'd connected their Claude plan. Once, when its agency first comes up:
 // the Claude plan (the same sign-in on this computer), keys from this vault, and
 // models on this computer. ChatGPT and Copilot sign-ins are connected there again.
-// Changed in the organisation's Connectors after that, never copied again.
+// Changed in the organization's Connectors after that, never copied again.
 async function shareAi(orgId: string) {
   const pending = `hosting:${orgId}:share_ai`; // set when it was first hosted here (startHosting)
   if (!getSetting<boolean>(pending, false)) return;
@@ -114,7 +114,7 @@ async function launch(h: Hosting) {
 }
 
 export async function startHosting(h: Hosting) {
-  if (HOSTED_ORG) throw new Error('An organisation’s agency doesn’t host another.');
+  if (HOSTED_ORG) throw new Error('An organization’s agency doesn’t host another.');
   const was = hosting();
   if (was && was.orgId !== h.orgId) throw new Error(`This computer already hosts ${was.orgName}.`);
   if (!was) setSetting(`hosting:${h.orgId}:share_ai`, true);
@@ -132,7 +132,7 @@ export async function startHosting(h: Hosting) {
 // The secret the host signs in to the relay with (phase 4), from registering it.
 export async function keepHostSecret(orgId: string, secret: string) {
   await setSecret(`hosting:${orgId}:secret`, secret);
-  // The organisation's agency asks our backend about members with it (agency MCP addresses).
+  // The organization's agency asks our backend about members with it (agency MCP addresses).
   const out = request({ host: '127.0.0.1', port: HOSTED_PORT, method: 'POST', path: '/api/settings/host-secret', headers: { 'content-type': 'application/json' } });
   out.on('error', () => {}); // not up yet: it gets it when it starts
   out.end(JSON.stringify({ secret }));
@@ -156,7 +156,7 @@ export async function stopHosting() {
   });
 }
 
-// The organisation was deleted: its agency stops, and nothing of it stays on
+// The organization was deleted: its agency stops, and nothing of it stays on
 // this computer - its folder (agents, runs, messages, memories, connections and
 // their keys) and its host keys.
 export async function deleteHosting(orgId: string) {
@@ -179,7 +179,7 @@ export function resumeHosting() {
 }
 process.on('exit', () => child?.kill());
 
-// The organisation's agency goes when the person's own does, however that ends
+// The organization's agency goes when the person's own does, however that ends
 // (a restart can skip 'exit'), so it never holds its port with nobody to reach it.
 const parent = Number(process.env.EAA_PARENT_PID);
 if (HOSTED_ORG && parent)
@@ -193,7 +193,7 @@ if (HOSTED_ORG && parent)
 
 // The desktop app's agency (apps/electron) goes when the app does, however
 // that ends - a crash would otherwise leave it holding the ports the next
-// launch needs. (An organisation's agency it hosts inherits this too.)
+// launch needs. (An organization's agency it hosts inherits this too.)
 const desktop = Number(process.env.EAA_APP_PID);
 if (desktop)
   setInterval(() => {
@@ -204,10 +204,10 @@ if (desktop)
     }
   }, 2000).unref();
 
-// The app's requests for the organisation's agency, passed on as they are. The
+// The app's requests for the organization's agency, passed on as they are. The
 // agency checks them itself: a token, or this computer.
 export function forwardToHosted(req: IncomingMessage, res: ServerResponse, path: string) {
-  if (!up) return res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The organisation’s agency is starting.' }));
+  if (!up) return res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The organization’s agency is starting.' }));
   // Whether it came from this computer: only we say so, never the request itself.
   const headers: Record<string, string | string[] | undefined> = { ...req.headers, host: `127.0.0.1:${HOSTED_PORT}` };
   delete headers[HERE_HEADER];
@@ -216,6 +216,6 @@ export function forwardToHosted(req: IncomingMessage, res: ServerResponse, path:
     res.writeHead(r.statusCode ?? 502, r.headers);
     r.pipe(res);
   });
-  out.on('error', () => res.headersSent || res.writeHead(502, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The organisation’s agency isn’t answering.' })));
+  out.on('error', () => res.headersSent || res.writeHead(502, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The organization’s agency isn’t answering.' })));
   req.pipe(out);
 }

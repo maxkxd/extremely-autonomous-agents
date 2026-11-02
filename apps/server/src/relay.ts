@@ -2,12 +2,12 @@ import { HOSTED_PORT, hosting, type Hosting } from './hosting.js';
 import { fromB64, fromB64url, hostHandshake, toB64, type Bytes, type Session } from './relay-crypto.js';
 import { getSecret } from './vault.js';
 
-// This computer as its organisation's host, to members elsewhere: one outbound
+// This computer as its organization's host, to members elsewhere: one outbound
 // connection to our relay (the backend's /relay/host), signed in with the host
 // secret. Each member's app that connects gets a channel; on it the app and this
 // host set up an end-to-end encrypted session (relay-crypto.ts) - the relay only
 // passes on ciphertext. Inside, each message is one of the app's requests,
-// passed to the organisation's agency like any other: it carries the member's
+// passed to the organization's agency like any other: it carries the member's
 // org access token, and the agency checks it. One without a token is refused
 // here, so nothing from outside is ever taken for this computer's own person.
 
@@ -90,7 +90,7 @@ export function stopRelay() {
   sock?.close();
 }
 
-// One of the app's requests, to the organisation's agency on this computer.
+// One of the app's requests, to the organization's agency on this computer.
 async function answer(r: Request): Promise<{ id: number; status: number; body: string; type: string }> {
   const fail = (status: number, error: string) => ({ id: r.id, status, body: JSON.stringify({ error }), type: 'application/json' });
   if (typeof r.path !== 'string' || !/^\/api\/[\w\-/]*(\?[^#\s]*)?$/.test(r.path)) return fail(404, 'Not found.');
@@ -106,6 +106,6 @@ async function answer(r: Request): Promise<{ id: number; status: number; body: s
     });
     return { id: r.id, status: res.status, body: (await res.text()).slice(0, MAX_BODY), type: res.headers.get('content-type') ?? 'application/json' };
   } catch {
-    return fail(503, 'The organisation’s agency is starting.');
+    return fail(503, 'The organization’s agency is starting.');
   }
 }

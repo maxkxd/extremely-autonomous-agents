@@ -521,7 +521,7 @@ function allowance(status: string, error: string | undefined, now: number, on?: 
       null,
       {
         what: `${SIGNED_OUT_WHAT} (${name})`,
-        why: `${name} isn't accepting the agency's sign-in or key any more, so agents on it can't run. Reconnect it in Settings -> Connectors (sign in again, or replace the key) - or connect another AI there: agents move to one that works on their own.`,
+        why: `${name} isn't accepting the agency's sign-in or key any more, so agents on it can't run. Reconnect it in Settings > Connectors (sign in again, or replace the key) - or connect another AI there: agents move to one that works on their own.`,
         evidence: error.replace(/\s*\(Request ID:[^)]*\)/i, '').slice(0, 500),
       },
       now,
@@ -534,7 +534,7 @@ function allowance(status: string, error: string | undefined, now: number, on?: 
     null,
     {
       what: `${ALLOWANCE_WHAT} (${name})`,
-      why: `${name} says its allowance is used up, so agents that only run on it fail until it's sorted. Agents move to another working AI meanwhile - if there's none, add one in Settings -> AI (they switch to it on their own), or raise the plan's limit with ${name}. If it's a monthly allowance, agents start again by themselves when it resets.`,
+      why: `${name} says its allowance is used up, so agents that only run on it fail until it's sorted. Agents move to another working AI meanwhile - if there's none, add one in Settings > AI (they switch to it on their own), or raise the plan's limit with ${name}. If it's a monthly allowance, agents start again by themselves when it resets.`,
       evidence: error.replace(/\s*\(Request ID:[^)]*\)/i, '').slice(0, 500),
       // Which connection: while this is open its agents run on another working AI (helpers.ts).
       service: conn,

@@ -68,7 +68,7 @@ function MyAvatar({ size }: { size: number }) {
 // The agency you're in now, by name: your own goes by your display name.
 const currentOrgName = () => teamOrgs().find(o => o.id === state.agency)?.name ?? `${myName()}'s agency`;
 
-// Your own agency and each organisation you're in; picking one starts the app
+// Your own agency and each organization you're in; picking one starts the app
 // in it. "New organization" (or joining one) opens Settings.
 function OrgPicker({ onNew }: { onNew: () => void }) {
   const [open, setOpen] = useState(false);
@@ -221,7 +221,7 @@ export function Sidebar({
 
         {dmsOpen && (
           <ul className="dm-list">
-            {/* Everyone in an organisation sees every agent (and can talk to the Agency Engineer);
+            {/* Everyone in an organization sees every agent (and can talk to the Agency Engineer);
                 only an agent's owner or an admin changes it (Dashboard). */}
             {AGENTS.map(a => {
               const v: View = `agent:${a.id}`;
@@ -332,7 +332,7 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
         </span>
         {state.me && <ChevronsUpDown size={16} className="muted" />}
       </button>
-      {/* No account needed for your own agency; one is for organisations. */}
+      {/* No account needed for your own agency; one is for organizations. */}
       {!state.me && (
         <button className="sbtn signup-btn account-signup" onClick={e => openSignIn('up', e.currentTarget)}>
           SIGN UP

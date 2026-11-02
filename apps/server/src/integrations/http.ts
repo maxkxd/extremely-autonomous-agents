@@ -120,7 +120,7 @@ export const redact = (text: string, auth: AuthDef, key: string | undefined) => 
 // Headers and query parameters that carry the key.
 export function authParts(auth: AuthDef, key: string | undefined): { headers: Record<string, string>; query: Record<string, string> } {
   if (auth.type === 'none') return { headers: {}, query: {} };
-  if (!key) throw new Error('This integration has no key saved. Connect it in Settings -> Connectors.');
+  if (!key) throw new Error('This integration has no key saved. Connect it in Settings > Connectors.');
   if (auth.type === 'fields') {
     const c = credsOf(auth, key) ?? {};
     const each = (r?: Record<string, string>) => Object.fromEntries(Object.entries(r ?? {}).map(([k, v]) => [k, putFields(v, c)]));

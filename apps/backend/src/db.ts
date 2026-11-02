@@ -1,6 +1,6 @@
-// Our backend's database (docs/architecture.md, "Accounts and organisations"):
-// the directory - who people are, their organisations, members, invites, and
-// each organisation's host. Never agents, runs, keys or anything an agent
+// Our backend's database (docs/architecture.md, "Accounts and organizations"):
+// the directory - who people are, their organizations, members, invites, and
+// each organization's host. Never agents, runs, keys or anything an agent
 // touches: those stay on the host.
 //
 // Railway's Postgres in production (DATABASE_URL); without one, PGlite - real
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;
 
 -- personal: everyone's own agency, one each, for good, never shared.
--- team: an organisation, hosted on its owner's machine.
+-- team: an organization, hosted on its owner's machine.
 CREATE TABLE IF NOT EXISTS orgs (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('personal', 'team')),
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS orgs (
   owner_id TEXT NOT NULL REFERENCES users(id),
   created_at BIGINT NOT NULL
 );
--- One personal agency per person, and one organisation owned per person.
+-- One personal agency per person, and one organization owned per person.
 CREATE UNIQUE INDEX IF NOT EXISTS orgs_one_personal ON orgs(owner_id) WHERE kind = 'personal';
 CREATE UNIQUE INDEX IF NOT EXISTS orgs_one_owned ON orgs(owner_id) WHERE kind = 'team';
 
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS invites (
   used_at BIGINT
 );
 
--- Where an organisation's agency runs: its host's public key (members' apps
+-- Where an organization's agency runs: its host's public key (members' apps
 -- set up an end-to-end encrypted session to it through our relay), and the
 -- hash of the secret the host signs in to the relay with.
 CREATE TABLE IF NOT EXISTS hosts (

@@ -1,7 +1,7 @@
 import { matchMembers } from './builder.js';
 import { loadPerson, loadProfile, saveProfile, type Person, type Profile } from './org.js';
 
-// Links between the organisation profile's key people and the organisation's
+// Links between the organization profile's key people and the organization's
 // members in the app, so a key person shows their account and agents know who
 // they can reach directly. Decided by a short AI check rather than by name, so
 // an owner and a salesperson who are both called Adrian don't get mixed up.
@@ -24,11 +24,11 @@ export function keepLinks(prev: Profile | null, next: Profile): Profile {
   };
 }
 
-// One check at a time per organisation; a second call waits for the first.
+// One check at a time per organization; a second call waits for the first.
 const chains = new Map<string, Promise<unknown>>();
 
 export function linkPeople(org: string, members: string[]): Promise<Profile | null> {
-  // An organisation always has a member; no list means the caller didn't say.
+  // An organization always has a member; no list means the caller didn't say.
   if (!members.length) return loadProfile(org);
   const next = (chains.get(org) ?? Promise.resolve()).catch(() => {}).then(() => run(org, members));
   chains.set(org, next);
@@ -41,7 +41,7 @@ async function run(org: string, members: string[]): Promise<Profile | null> {
   const seen = [...new Set(members)].sort();
   const membersChanged = !same(p.members_seen ?? [], seen);
 
-  // Someone who left the organisation is no longer anyone's account.
+  // Someone who left the organization is no longer anyone's account.
   const people: Person[] = p.people.map(x => (x.member && !seen.includes(x.member) ? { name: x.name, role: x.role } : x));
   const decide = people
     .map((x, i) => i)

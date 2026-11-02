@@ -1,10 +1,10 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Db } from './db.js';
 
-// The directory and its rules (docs/architecture.md, "Accounts and organisations"):
+// The directory and its rules (docs/architecture.md, "Accounts and organizations"):
 //   - everyone has one personal agency, for good, made when they first sign in,
 //     and never shared;
-//   - they can own (host) at most one organisation, and join any number;
+//   - they can own (host) at most one organization, and join any number;
 //   - roles: owner (one, the host), admin (runs the members), member.
 
 export class ApiError extends Error {
@@ -69,13 +69,13 @@ export async function myOrgs(db: Db, userId: string): Promise<OrgView[]> {
   return rows.rows.map(r => ({ id: r.id, kind: r.kind, name: r.name, role: r.role, ownerId: r.owner_id, host: { registered: !!r.public_key, publicKey: r.public_key } }));
 }
 
-// The role someone has in an organisation, or a 404 - an organisation you're not in doesn't exist for you.
+// The role someone has in an organization, or a 404 - an organization you're not in doesn't exist for you.
 export async function roleIn(db: Db, orgId: string, userId: string): Promise<{ role: Role; kind: 'personal' | 'team'; name: string }> {
   const r = await db.query<{ role: Role; kind: 'personal' | 'team'; name: string }>(
     'SELECT m.role, o.kind, o.name FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.org_id = $1 AND m.user_id = $2',
     [orgId, userId],
   );
-  return r.rows[0] ?? fail(404, 'No such organisation.');
+  return r.rows[0] ?? fail(404, 'No such organization.');
 }
 
 const cleanName = (name: unknown) => {
@@ -87,12 +87,12 @@ const cleanName = (name: unknown) => {
 export async function createOrg(db: Db, userId: string, name: unknown, now = Date.now()) {
   const n = cleanName(name);
   const owned = await db.query("SELECT id FROM orgs WHERE owner_id = $1 AND kind = 'team'", [userId]);
-  if (owned.rows.length) fail(409, 'You already host an organisation. You can own one, and join as many as you like.');
+  if (owned.rows.length) fail(409, 'You already host an organization. You can own one, and join as many as you like.');
   const id = randomUUID();
   try {
     await db.query("INSERT INTO orgs (id, kind, name, owner_id, created_at) VALUES ($1, 'team', $2, $3, $4)", [id, n, userId, now]);
   } catch {
-    fail(409, 'You already host an organisation.');
+    fail(409, 'You already host an organization.');
   }
   await db.query("INSERT INTO members (org_id, user_id, role, joined_at) VALUES ($1, $2, 'owner', $3)", [id, userId, now]);
   return { id, name: n };
@@ -134,7 +134,7 @@ export async function setRole(db: Db, orgId: string, userId: string, target: str
 export async function removeMember(db: Db, orgId: string, userId: string, target: string) {
   const me = await roleIn(db, orgId, userId);
   const them = await roleIn(db, orgId, target).catch(() => fail(404, 'Not a member.'));
-  if (them.role === 'owner') fail(400, 'The owner can’t be removed; they can delete the organisation.');
+  if (them.role === 'owner') fail(400, 'The owner can’t be removed; they can delete the organization.');
   if (me.role === 'member' || (me.role === 'admin' && them.role !== 'member')) fail(403, 'Only the owner, or an admin for members, can remove someone.');
   await db.query('DELETE FROM members WHERE org_id = $1 AND user_id = $2', [orgId, target]);
 }
@@ -142,7 +142,7 @@ export async function removeMember(db: Db, orgId: string, userId: string, target
 export async function leave(db: Db, orgId: string, userId: string) {
   const me = await roleIn(db, orgId, userId);
   if (me.kind === 'personal') fail(400, 'Your personal agency is yours for good.');
-  if (me.role === 'owner') fail(400, 'The owner can’t leave; they can delete the organisation.');
+  if (me.role === 'owner') fail(400, 'The owner can’t leave; they can delete the organization.');
   await db.query('DELETE FROM members WHERE org_id = $1 AND user_id = $2', [orgId, userId]);
 }
 
@@ -150,7 +150,7 @@ export async function leave(db: Db, orgId: string, userId: string) {
 
 export async function createInvite(db: Db, orgId: string, userId: string, opts: { email?: unknown; role?: unknown }, now = Date.now()) {
   const me = await roleIn(db, orgId, userId);
-  if (me.kind === 'personal') fail(400, 'A personal agency can’t be shared. Create an organisation to work with others.');
+  if (me.kind === 'personal') fail(400, 'A personal agency can’t be shared. Create an organization to work with others.');
   if (me.role === 'member') fail(403, 'Only the owner or an admin can invite people.');
   const role = opts.role === 'admin' ? 'admin' : 'member';
   if (role === 'admin' && me.role !== 'owner') fail(403, 'Only the owner can invite admins.');
@@ -263,7 +263,7 @@ export async function hostOf(db: Db, orgId: string, userId: string) {
   return h ? { publicKey: h.public_key, registeredAt: Number(h.registered_at), lastSeen: h.last_seen == null ? null : Number(h.last_seen) } : null;
 }
 
-// The host signing in (the relay, phase 4): which organisation a secret is for.
+// The host signing in (the relay, phase 4): which organization a secret is for.
 export async function hostBySecret(db: Db, secret: string) {
   const r = await db.query<{ org_id: string }>('SELECT org_id FROM hosts WHERE secret_hash = $1', [hash(secret)]);
   return r.rows[0]?.org_id ?? null;

@@ -4,7 +4,7 @@
 //   T0 - just runs (reads, research, scratch files)
 //   T1 - runs, and posts a notice to the agent's DM channel (reversible internal writes)
 //   T2 - waits in Approvals until a person decides; expires if nobody does
-//        (anything visible outside the organisation, or hard to undo)
+//        (anything visible outside the organization, or hard to undo)
 // There is no "never" tier: a tool left out of TOOLS.yaml can't be called.
 
 export type Tier = 'T0' | 'T1' | 'T2';
@@ -164,7 +164,7 @@ export const CATALOG: CatalogServer[] = [
       t('update_document', 'T0', 'Edit a doc it owns'),
       t('append_to_document', 'T0', 'Add to the end of a doc it owns'),
       t('update_sheet', 'T0', 'Write rows to a sheet it owns'),
-      t('share_document', 'T2', 'Share a doc with someone outside the organisation'),
+      t('share_document', 'T2', 'Share a doc with someone outside the organization'),
     ],
   },
   {

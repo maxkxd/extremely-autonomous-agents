@@ -2,11 +2,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DATA_DIR } from './paths.js';
 
-// The organisation profile (docs/agent-creation.md): who every agent works
+// The organization profile (docs/agent-creation.md): who every agent works
 // for. Filled in by a short builder chat the first time someone adds an agent,
-// and added to as the builder learns more. One per organisation.
+// and added to as the builder learns more. One per organization.
 
-// A key person may also be a member of the organisation in the app (links.ts).
+// A key person may also be a member of the organization in the app (links.ts).
 // The server owns both link fields: member is the account's username, or null
 // once checked and none of the members is them; matched is the name and role
 // that check was made for, so an edit gets checked again.
@@ -23,7 +23,7 @@ export type Profile = {
   interviewed?: boolean; // its profile chat has been done (before the first agent, once)
 };
 
-// Whether an organisation's profile chat is still to do: never done (anything
+// Whether an organization's profile chat is still to do: never done (anything
 // typed in Settings meanwhile is where it starts from). Profiles the chat filled
 // before this was recorded have every core field.
 export const interviewDone = (p: Profile | null) => !!p && (!!p.interviewed || [p.what_it_does, p.customers, p.offering, p.voice].every(v => v?.trim()));
@@ -61,7 +61,7 @@ export async function saveProfile(org: string, profile: Profile) {
   await writeFile(file(org), JSON.stringify(profile, null, 2) + '\n');
 }
 
-// Facts the builder learned about the organisation in a conversation.
+// Facts the builder learned about the organization in a conversation.
 export async function addNotes(org: string, notes: string[]) {
   const p = await loadProfile(org);
   if (!p || !notes.length) return;
@@ -75,7 +75,7 @@ export function profileForPrompt(p: Profile, me?: string): string {
     `- ${x.name}: ${x.role}` +
     (x.member === me && me ? ' (the person you are talking to)' : x.member ? ` (has an account in the app, so Requests and Approvals can go to them directly)` : '');
   return [
-    `Organisation: ${p.name}`,
+    `Organization: ${p.name}`,
     `What it does: ${p.what_it_does}`,
     `Customers: ${p.customers}`,
     `What it sells or offers: ${p.offering}`,
@@ -87,7 +87,7 @@ export function profileForPrompt(p: Profile, me?: string): string {
     .join('\n');
 }
 
-// --- The person: one per account, organisation or not ---
+// --- The person: one per account, organization or not ---
 
 export type PersonProfile = {
   name: string; // the account's username

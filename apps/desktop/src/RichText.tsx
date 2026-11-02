@@ -7,12 +7,13 @@ import { Fragment } from 'react';
 
 type Ref = { onRequest?: (id: number) => void; canOpen?: (id: number) => boolean; onSettings?: (integration: string | null) => void };
 
-// "Settings -> Connectors -> Integrations -> Sentry Errors": where to connect
+// "Settings > Connectors > Integrations > Sentry Errors": where to connect
 // something. A link to it in Settings (the integration glowing), when the app
 // can open Settings from here.
+// ("Settings > Connectors" is how the app writes it; "->" and "→" are older messages.)
 // (The name stops at a bracket: "Gmail (never into the chat)" linked the aside too.)
-const SETTINGS_RE = /Settings\s*(?:->|→)\s*Connectors(?:\s*(?:->|→)\s*Integrations)?(?:\s*(?:->|→)\s*([^.,;:(\n]+))?/g;
-const SETTINGS_LINE = /^\s*(?:Where:\s*)?Settings\s*(?:->|→)\s*Connectors(?:\s*(?:->|→)\s*Integrations)?\s*(?:->|→)\s*([^.,;:\n]+?)\.?(?:\s*Keys go there, never in this chat\.)?\s*$/;
+const SETTINGS_RE = /Settings\s*(?:->|→|>)\s*Connectors(?:\s*(?:->|→|>)\s*Integrations)?(?:\s*(?:->|→|>)\s*([^.,;:(\n]+))?/g;
+const SETTINGS_LINE = /^\s*(?:Where:\s*)?Settings\s*(?:->|→|>)\s*Connectors(?:\s*(?:->|→|>)\s*Integrations)?\s*(?:->|→|>)\s*([^.,;:\n]+?)\.?(?:\s*Keys go there, never in this chat\.)?\s*$/;
 
 function Inline({ text, refs }: { text: string; refs: Ref }) {
   if (!refs.onSettings) return <InlineCore text={text} refs={refs} />;
@@ -24,7 +25,8 @@ function Inline({ text, refs }: { text: string; refs: Ref }) {
     parts.push(<InlineCore key={`t${at}`} text={text.slice(last, at)} refs={refs} />);
     parts.push(
       <a key={`s${at}`} className="text-link" href="#" onClick={e => (e.preventDefault(), refs.onSettings!(name))}>
-        {m[0].trim()}
+        {/* Shown as the app writes it, whichever arrows the message used. */}
+        {m[0].trim().replace(/\s*(?:->|→|>)\s*/g, ' > ')}
       </a>,
     );
     last = at + m[0].trimEnd().length;

@@ -270,7 +270,7 @@ function RequestRow({
                       }}
                     />
                     <div className="reject-actions">
-                      <span className="drawer-hint">Don't paste API keys or passwords here - they go in Settings -&gt; Connectors.</span>
+                      <span className="drawer-hint">Don't paste API keys or passwords here - they go in Settings &gt; Connectors.</span>
                       <button className="ap-btn confirm-engineer" onClick={() => send(draft)} disabled={!draft.trim()}>
                         <SendHorizontal size={14} strokeWidth={1.9} />
                         Send
