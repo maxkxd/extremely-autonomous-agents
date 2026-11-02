@@ -516,7 +516,7 @@ function AgencyMcp() {
       const r = mcp.remote && org ? await connectAssistantTo(app, mcp.url, org.name) : await connectAssistant(app);
       setSaid(
         r.restart
-          ? `Added to ${r.assistant}. Quit it (right-click its icon by the clock > Quit) and open it again - your agency is then in its connectors.`
+          ? `Added to ${r.assistant}, which is opening - your agency is in its connectors.`
           : `${r.assistant} is asking to install the agency - click Install. Nothing came up? Open ${r.assistant}, then try again.`,
       );
     } catch (e) {

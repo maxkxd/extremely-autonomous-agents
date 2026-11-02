@@ -1,8 +1,9 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { constants } from 'node:fs';
 import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { mcpUrlFor } from './agency-mcp.js';
 import { DATA_DIR } from '../paths.js';
 
@@ -24,6 +25,7 @@ export const ASSISTANTS = {
 export type Assistant = keyof typeof ASSISTANTS;
 
 const ROOT = join(DATA_DIR, 'assistant');
+const run = promisify(execFile);
 
 // Opens a file or link with whatever the computer opens it with.
 export function openWithSystem(target: string) {
@@ -100,11 +102,31 @@ export function withAgency(text: string | null, key: string, server: ClaudeServe
   return JSON.stringify({ ...config, mcpServers: { ...servers, [key]: server } }, null, 2);
 }
 
-// Adds the agency to Claude Desktop's settings. It shows once Claude Desktop is
-// quit and opened again (it reads them when it starts).
+// Whether Claude Desktop is open (not Claude Code, also a "claude" program).
+// Open, it writes back its own copy of its settings and drops what was added.
+// Can't tell: taken as closed.
+const DESKTOP_EXE = /\\(WindowsApps\\Claude_[^\\]+\\app|AnthropicClaude\\app-[^\\]+)\\Claude\.exe$/i;
+async function claudeDesktopOpen(): Promise<boolean> {
+  try {
+    if (process.platform === 'win32') {
+      const { stdout } = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-Process claude -ErrorAction SilentlyContinue | ForEach-Object { $_.Path }'], { windowsHide: true });
+      return stdout.split(/\r?\n/).some(p => DESKTOP_EXE.test(p.trim()));
+    }
+    if (process.platform === 'darwin') return !!(await run('pgrep', ['-f', '/Claude.app/Contents/MacOS/Claude'])).stdout.trim();
+  } catch {
+    // None found (pgrep), or no way to look.
+  }
+  return false;
+}
+export const isClaudeDesktop = (path: string) => DESKTOP_EXE.test(path);
+
+// Adds the agency to Claude Desktop's settings, while it's closed (it reads them
+// when it starts, and writes its own back while it runs), then opens it.
 async function addToClaudeDesktop(url: string, key: string) {
   const files = await claudeConfigs();
   if (!files.length) throw new Error("Claude Desktop isn't installed on this computer, or hasn't been opened yet. Install it from claude.com/download, open it once, then try again.");
+  if (await claudeDesktopOpen())
+    throw new Error('Claude Desktop is open, and it would undo this. Quit it first (right-click its icon by the clock, then Quit), then click Connect Claude Desktop again.');
   await mkdir(ROOT, { recursive: true });
   const bridge = join(ROOT, 'agency-bridge.js');
   await writeFile(bridge, BRIDGE);
@@ -122,6 +144,8 @@ async function addToClaudeDesktop(url: string, key: string) {
     if (text !== null) await copyFile(file, `${file}.before-agency`, constants.COPYFILE_EXCL).catch(() => {});
     await writeFile(file, next);
   }
+  // Open again, with the agency among its connectors.
+  openWithSystem('claude://claude.ai/new');
 }
 
 // Cursor's one-click MCP install link for this address.
