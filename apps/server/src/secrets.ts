@@ -5,7 +5,7 @@
 // where they're encrypted - the note left in its place says so, and the agent
 // reading it tells the person.
 
-const NOTE = '[a key was removed - keys go in Settings > Connectors, never in a chat]';
+const NOTE = "[key taken out - it wasn't saved or sent anywhere; keys go in Settings > Connectors, never in a chat]";
 
 // Shapes no ordinary sentence has: providers' key prefixes, tokens, key files.
 const SHAPES: RegExp[] = [

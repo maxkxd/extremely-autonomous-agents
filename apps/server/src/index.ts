@@ -328,8 +328,10 @@ const routes: Record<string, Route> = {
   'POST /api/builder/turn': async req => {
     notStopped();
     const { person, org, members, turns, declinedPack } = await body<{ person: string; org: string | null; members: string[]; turns: Turn[]; declinedPack: string | null }>(req);
-    const out = await interview(await context(personFor(person), org, members), scrubbed(turns), declinedPack);
-    return { ...out, confidence: clamp(out.confidence) };
+    const clean = scrubbed(turns);
+    const out = await interview(await context(personFor(person), org, members), clean, declinedPack);
+    // The conversation as kept here, so a key pasted into it leaves the app's screen too.
+    return { ...out, confidence: clamp(out.confidence), turns: clean };
   },
   // The files stay hidden: the app gets the card's details and an opaque
   // bundle it hands back on accept.

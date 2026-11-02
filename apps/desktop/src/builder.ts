@@ -128,7 +128,7 @@ export const matchPack = (description: string) =>
   });
 
 export const nextTurn = (turns: Turn[], declinedPack: string | null) =>
-  post<{ reply: string; confidence: number; ready: boolean }>('/api/builder/turn', { turns, declinedPack });
+  post<{ reply: string; confidence: number; ready: boolean; turns?: Turn[] }>('/api/builder/turn', { turns, declinedPack });
 
 type ServerAgent = {
   agent: { id: string; name: string; department: Department; output: string[] };

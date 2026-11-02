@@ -14,7 +14,7 @@ test('a key pasted into a chat is taken out; ordinary text and ids stay', () => 
   for (const c of cases) {
     const r = scrubSecrets(c);
     assert.equal(r.removed, true, c);
-    assert.match(r.text, /a key was removed - keys go in Settings > Connectors/);
+    assert.match(r.text, /key taken out - it wasn't saved or sent anywhere; keys go in Settings > Connectors/);
   }
   for (const ok of [
     'Use the repo maxkxd/AssetRegister and request #41.',

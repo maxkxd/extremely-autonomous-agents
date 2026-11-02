@@ -229,7 +229,8 @@ export function NewAgent({
       setSession(s => ({
         ...s,
         thinking: false,
-        turns: [...s.turns, { role: 'builder', text: r.reply }],
+        // A key pasted in comes back taken out: it doesn't stay on screen or go into the build.
+        turns: [...s.turns.map((t, i) => r.turns?.[i] ?? t), { role: 'builder', text: r.reply }],
         confidence: r.confidence,
         ready: r.ready,
       }));
