@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { DEFAULT_PLAN, planFrom, realName, type AgentDef } from './agent.js';
 import { all, one, resetDbForTests, run as exec, setSetting } from './db.js';
-import { APOCALYPTIC, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './ferocity.js';
+import { APOCALYPTIC, apocalypticWait, APOCALYPTIC_GAP_MS, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './ferocity.js';
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
 import { ModelError, type Adapter, type Call } from './providers.js';
 import { runAgent, stateOf, type RunDeps } from './run.js';
@@ -394,6 +394,38 @@ test('schedule: Chill runs on its schedule; Apocalyptic straight after the last 
   assert.equal(nextRun(a, stateOf(ID), now + 30_000)?.trigger, 'apocalyptic');
 });
 
+test('schedule: an agent runs at its level before its tools are connected', () => {
+  const now = Date.now();
+  // Counted by a Gmail tool it doesn't have: it used to run as Steady until connected.
+  const a = agent({ ferocity: { ...DEFAULT_PLAN, counts: ['gmail.send_email'], floor: 10, soft_floor: 3, apocalyptic_floor: 30 } });
+  setLevel(RELENTLESS);
+  exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now - 7 * HOUR, ID); // Relentless: every 6 h
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'scheduled');
+  setLevel(APOCALYPTIC);
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'apocalyptic');
+});
+
+test('schedule: Apocalyptic waits longer after each short run, to Relentless pace after about 20', () => {
+  const now = Date.now();
+  const a = agent();
+  const relentless = a.ferocity.every_hours[RELENTLESS] * HOUR;
+  assert.equal(apocalypticWait(a, 0), APOCALYPTIC_GAP_MS);
+  assert.ok(apocalypticWait(a, 1) > APOCALYPTIC_GAP_MS && apocalypticWait(a, 10) < relentless);
+  assert.equal(Math.round(apocalypticWait(a, 20)), relentless);
+  assert.equal(apocalypticWait(a, 25), relentless);
+  setLevel(APOCALYPTIC);
+  // Six short runs in a row (5 of a 30 target), the last ending a minute ago.
+  for (let i = 0; i < 6; i++)
+    exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, ended_at, acts, floor) VALUES (?, ?, 'apocalyptic', 4, 'succeeded', ?, ?, 5, 30)", `s${i}`, ID, now - (i + 2) * 60_000, now - (i + 1) * 60_000);
+  const wait = apocalypticWait(a, 6);
+  assert.ok(wait > 60_000);
+  assert.equal(nextRun(a, stateOf(ID), now), null);
+  assert.equal(nextRun(a, stateOf(ID), now - 60_000 + wait + 1)?.trigger, 'apocalyptic');
+  // One that reaches its target: back to back again.
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, ended_at, acts, floor) VALUES ('hit', ?, 'apocalyptic', 4, 'succeeded', ?, ?, 40, 30)", ID, now - 50_000, now - 30_000);
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'apocalyptic');
+});
+
 test('schedule: stopped runs nothing at all; backoff and the backstop hold everything else', () => {
   const now = Date.now();
   const a = agent();
@@ -412,8 +444,11 @@ test('schedule: stopped runs nothing at all; backoff and the backstop hold every
 
   resetDbForTests();
   setLevel(CHILL);
-  for (let i = 0; i < 40; i++) exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES (?, ?, 'scheduled', 0, 'succeeded', ?)", `r${i}`, ID, now - i);
-  assert.equal(nextRun(a, stateOf(ID), now), null); // past the backstop for today
+  for (let i = 0; i < 1000; i++) exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES (?, ?, 'scheduled', 0, 'succeeded', ?)", `r${i}`, ID, now - i);
+  assert.equal(nextRun(a, stateOf(ID), now), null); // past the backstop for today (1,000 up to Driven)
+  setLevel(RELENTLESS);
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'scheduled'); // none at Relentless and Apocalyptic
+  setLevel(CHILL);
   // ...but a person's Run now isn't held back by either.
   exec('UPDATE agent_state SET backoff_until = ? WHERE agent_id = ?', now + 60_000, ID);
   exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'run now', NULL, ?, ?)", ID, now, now);

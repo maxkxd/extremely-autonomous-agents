@@ -188,7 +188,9 @@ const dollars = (n: number) =>
 
 // Ferocity picks a FEROCITY level (schedule + self-booking). The estimate is
 // this agent's output per run times that level's expected runs over the
-// dashboard's selected time frame, matching the rest of the card.
+// dashboard's selected time frame, matching the rest of the card - and half as
+// much again: it's meant to come out high (the server's numbers lean high too).
+const OVERESTIMATE = 1.5;
 function Tuning({
   agent,
   range,
@@ -210,8 +212,9 @@ function Tuning({
   // this level. Placeholder agents use the placeholder schedules.
   const perRun = agent.live ? agent.perRun : agent.output.reduce((n, s) => n + s.value, 0) / Math.max(agent.runs, 1);
   const perDay = agent.live && agent.runsPerDay ? agent.runsPerDay[level] : FEROCITY[level].runsPerDay;
-  const estimate = perRun == null ? null : Math.round(perRun * perDay * rangeDays(range));
-  const cadence = agent.live ? `${runsLabel(perDay)}${agent.waitingOnTools ? ' until its tools are connected' : ''}` : `${FEROCITY[level].cadence} (placeholder schedule)`;
+  const estimate = perRun == null ? null : Math.round(perRun * perDay * rangeDays(range) * OVERESTIMATE);
+  // It runs at its level whatever is connected (it used to say "... until its tools are connected").
+  const cadence = agent.live ? runsLabel(perDay) : `${FEROCITY[level].cadence} (placeholder schedule)`;
 
   return (
     <div className="tuning" title={why ?? undefined}>

@@ -123,12 +123,22 @@ export function scheduledDue(agent: AgentDef, level: number, lastScheduledAt: nu
   return lastScheduledAt == null ? now : lastScheduledAt + every;
 }
 
-// The runaway backstop: never the pace (docs/runner.md). Scaled with the
-// level so it sits well above what each level does on purpose.
-export function backstop(agent: AgentDef, level: number): number {
-  if (level === APOCALYPTIC) return 1000;
-  const scheduled = 24 / agent.ferocity.every_hours[level];
-  return Math.max(agent.maxRunsPerDay, Math.ceil(scheduled * [2, 3, 4, 8][level]) + 10);
+// The runaway backstop: never the pace (docs/runner.md). 1,000 runs a day up to
+// Driven - far above anything those levels do on purpose - and none at Relentless
+// and Apocalyptic, which are meant to go as hard as the work allows.
+export function backstop(level: number): number {
+  return level >= RELENTLESS ? Infinity : 1000;
+}
+
+// Apocalyptic after runs that fell short of its target, in a row: it waits a little
+// longer each time - 20 seconds after one, growing - until, after about 20, it's
+// at Relentless's pace. One run that reaches its target and it's back to back again.
+export const SHORT_RUNS_TO_RELENTLESS = 20;
+export function apocalypticWait(agent: AgentDef, shortInARow: number): number {
+  const relentless = agent.ferocity.every_hours[RELENTLESS] * HOUR;
+  if (shortInARow <= 0) return APOCALYPTIC_GAP_MS;
+  const grow = (relentless / APOCALYPTIC_GAP_MS) ** (1 / SHORT_RUNS_TO_RELENTLESS);
+  return Math.min(relentless, APOCALYPTIC_GAP_MS * grow ** shortInARow);
 }
 
 // Failure backoff: 1, 2, 4... minutes, an hour at most.

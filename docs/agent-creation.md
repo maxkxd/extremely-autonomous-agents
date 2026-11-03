@@ -171,8 +171,8 @@ gitignored because it's per install.
   guardrails, when to ask a person (through Requests or Approvals, never the DM
   channel), and what a good run looks like.
 - `TOOLS.yaml`: `agent_id`, `model`, `servers`, `tools_allowed`, `tool_tiers`,
-  `approval_windows`, `new_tools`, `limits.max_runs_per_day` (a runaway
-  backstop, not the cadence: cadence is ferocity).
+  `approval_windows`, `new_tools`, `limits.max_runs_per_day` (kept, but no
+  longer used: the runaway backstop is the same for every agent - docs/runner.md).
 - `KPI.yaml`: the actions that count as output. These are the slices of the
   card's Output pie.
 - `meta.json`: the card's details and set-up state (`ready`, `setting-up`,

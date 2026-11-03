@@ -26,7 +26,7 @@ import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals } from './approvals.js';
 import { openProfileForSignIn, profileStatus } from './browser.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
-import { APOCALYPTIC_GAP_MS, LEVELS, STEADY } from './ferocity.js';
+import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { BUILT_IN_IDS, HELPER_IDS } from './helpers.js';
 import { spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
@@ -170,38 +170,26 @@ export const runnerRoutes: Record<string, Route> = {
       const agent = await loadAgent(id);
       // KPI labels ("ideas written") for each output action.
       const labels = new Map(agent?.output.map(o => [o.action, o.label] as const) ?? []);
-      // Expected runs a day at each level, for the card's estimate: its plan's
-      // schedules, and at Apocalyptic back-to-back runs of its usual length.
+      // Expected runs a day at each level, for the card's estimate - on the high side
+      // on purpose: its plan's schedules, and at Apocalyptic back-to-back runs of its
+      // usual length, as if every run reached its target.
       const avg = one<{ ms: number | null }>(
         "SELECT AVG(ended_at - started_at) AS ms FROM (SELECT ended_at, started_at FROM runs WHERE agent_id = ? AND status = 'succeeded' AND ended_at IS NOT NULL ORDER BY started_at DESC LIMIT 20)",
         id,
       )?.ms;
-      // Back to back only while its runs reach their target: one that falls short
-      // waits for Relentless's schedule (scheduler.ts), so the share of recent
-      // Apocalyptic runs that reached it says how often (half, with none yet). An
-      // SRE agent's runs fell short and its card still said 3,491 a week.
-      const apoc = all<{ met: number }>(
-        "SELECT (acts >= floor) AS met FROM runs WHERE agent_id = ? AND trigger = 'apocalyptic' AND status = 'succeeded' AND floor IS NOT NULL ORDER BY started_at DESC LIMIT 10",
-        id,
-      );
-      const reached = apoc.length ? apoc.filter(r => r.met).length / apoc.length : 0.5;
-      const relentless = agent ? 24 / agent.ferocity.every_hours[3] : 4;
       const backToBack = Math.min(1000, 86_400_000 / ((avg ?? 120_000) + APOCALYPTIC_GAP_MS));
-      const levels = agent
-        ? [...agent.ferocity.every_hours.map(h => 24 / h), relentless + reached * Math.max(0, backToBack - relentless)]
-        : [1, 1.5, 2, 4, 100];
-      // Nothing it's counted by is connected yet: it runs as Steady until it is (scheduler.ts),
-      // so Apocalyptic's card said 312 a day while it ran every few hours.
+      const runsPerDay = agent ? [...agent.ferocity.every_hours.map(h => 24 / h), backToBack] : [1, 1.5, 2, 4, 100];
+      // Nothing it's counted by is connected yet (the card says so); it runs at its level all the same.
       const waitingOnTools = !!agent && !BUILT_IN_IDS.includes(id) && blockedOnConnections(agent);
-      const runsPerDay = waitingOnTools ? levels.map((n, i) => (i > STEADY ? levels[STEADY] : n)) : levels;
-      // Nothing counted in any recent run (a first run with nothing new to report, or
-      // its counted tools not connected yet) says nothing about its rate: null, so the
-      // card shows how often it runs - not "Est. Output: 0" after one quiet run.
-      const recent = one<{ acts: number | null; total: number | null }>(
-        "SELECT AVG(acts) AS acts, SUM(acts) AS total FROM (SELECT acts FROM runs WHERE agent_id = ? AND status = 'succeeded' ORDER BY started_at DESC LIMIT 20)",
-        id,
-      );
-      const perRun = recent?.total ? recent.acts : null;
+      // Output per run from its busier runs - the busiest half of its last 20 - so quiet
+      // runs don't drag the estimate down (it's meant to come out high). Nothing counted
+      // in any of them says nothing about its rate: null, so the card shows how often it
+      // runs - not "Est. Output: 0" after one quiet run.
+      const acts = all<{ acts: number | null }>("SELECT acts FROM runs WHERE agent_id = ? AND status = 'succeeded' ORDER BY started_at DESC LIMIT 20", id)
+        .map(r => r.acts ?? 0)
+        .sort((x, y) => y - x);
+      const busiest = acts.slice(0, Math.ceil(acts.length / 2));
+      const perRun = acts.some(n => n > 0) ? busiest.reduce((s, n) => s + n, 0) / busiest.length : null;
       const last = one<{ started_at: number; ended_at: number | null; status: string }>(
         'SELECT started_at, ended_at, status FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1',
         id,

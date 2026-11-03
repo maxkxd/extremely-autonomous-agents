@@ -16,7 +16,12 @@ the guide the builder works from, not fixed formulas.
 | **Steady** | Somewhat more often than Chill, where more runs find more work | Encouraged when there's work left | None | - |
 | **Driven** | As often as there's usually new work to find | Encouraged | Soft floor: **one** gentle nudge if a run ends with very little output | Looks for better ways to do its job, new tools and wider scope, and files requests for them. A run that doesn't is doing it wrong |
 | **Relentless** | Set by the job, not by Chill: a stream of fresh work (lead research) every 10-30 min; event-driven work (bug triage on a Sentry alert) an idle sweep every 6-8 h, woken by its events. Very high effort, not constant runs | Strongly encouraged; woken by an event, it follows it to the bottom and books follow-ups | High floor (builder sets), up to 4 nudges | Same as Driven |
-| **Apocalyptic** | None: the next run starts as soon as one ends | Always (the runner books it) | Deliberately out of reach (builder sets); 4 nudges, then the run ends with whatever it made, and the next run starts | Same as Driven |
+| **Apocalyptic** | None: the next run starts as soon as one ends (a 20-second breath). Each run in a row that falls short of its target makes the next wait a little longer, growing until about 20 short runs have it at Relentless's pace; one run that reaches its target and it's back to back again | Always (the runner books it) | Deliberately out of reach (builder sets); 4 nudges, then the run ends with whatever it made, and the next run starts | Same as Driven |
+
+An agent runs at its level whether or not the tools its output is counted by are
+connected yet: a new agent waits for its setup stopped, so one running without
+them was resumed on purpose. At most 32 agents run at once (the Agency Engineer's
+extra runs on different requests don't count).
 
 How much each level **asks for** (resource requests) is in
 [requests.md](requests.md), "Ferocity and requests".
@@ -158,9 +163,11 @@ opening says what it already did, so nothing is done twice.
   its own model, so its runs are unknown; local models are free.
 - **Failure backoff**: an agent whose runs keep failing within seconds (broken
   model, broken tool) backs off instead of spinning, at every level.
-- `max_runs_per_day` is only a runaway backstop, never the pace. Built-ins
-  have none: their work comes from requests, and failure backoff still
-  stops one that keeps failing.
+- **Runaway backstop**: at most 1,000 runs a day for an agent at Chill, Steady
+  or Driven, none at Relentless and Apocalyptic - never the pace. A person's
+  message and Run now aren't held by it. Built-ins have none: their work comes
+  from requests, and failure backoff still stops one that keeps failing.
+  (TOOLS.yaml's `limits.max_runs_per_day` is kept but no longer used.)
 - **Days are the host's** (`runner/clock.ts`): "today" for spend caps and run
   limits, the month in Usage, and the date agents are told start at the
   host's midnight, not the server's. The host's app sends its time zone the
