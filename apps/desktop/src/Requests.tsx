@@ -13,6 +13,10 @@ import { isAdmin } from './account';
 // A request waiting for a sign-in the whole organization shares (Gmail, Square...)
 // is everyone's to see, not just its agent's owner's: a teammate's request can
 // point at it ("the same connection as request #4"). Acting on it stays theirs.
+// A teammate's shared sign-in request a member sees but can't answer (visibleRequests).
+const theirsOf = (r: ResourceRequest) => !!ACCOUNT.org && !isAdmin() && !visibleApprovals([r], 'mine').length;
+const ownerOf = (r: ResourceRequest) => agentOf(r).owner || 'its owner';
+
 export function visibleRequests(list: ResourceRequest[], scope: ApprovalScope): ResourceRequest[] {
   if (!ACCOUNT.org || scope === 'all') return list;
   const mine = new Set(visibleApprovals(list, scope));
@@ -108,7 +112,9 @@ function RequestRow({
   const agent = agentOf(request);
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   // Closed unless it's waiting on you.
-  const [open, setOpen] = useState(request.stage === 'waiting_you' || request.stage === 'person');
+  // A teammate's shared one (theirs) is answered by them: shown closed, after your own.
+  const theirs = theirsOf(request);
+  const [open, setOpen] = useState(!theirs && (request.stage === 'waiting_you' || request.stage === 'person'));
   // Arriving for this one (a link from another request): open, centred, a blue glow.
   const wrapRef = useRef<HTMLDivElement>(null);
   const [spotlit, setSpotlit] = useState(false);
@@ -133,8 +139,7 @@ function RequestRow({
   const [draft, setDraft] = useState('');
   // Nothing here can be sent or decided while the host is offline, nor on a teammate's
   // shared sign-in request (shown to everyone, theirs or an admin's to answer).
-  const theirs = !!ACCOUNT.org && !isAdmin() && !visibleApprovals([request], 'mine').length;
-  const off = useOffline() ?? (theirs ? `Only ${agent.owner || 'its owner'} or an admin can answer this request` : null);
+  const off = useOffline() ?? (theirs ? `Only ${ownerOf(request)} or an admin can answer this request` : null);
   const [leaving, setLeaving] = useState<RequestResolution | 'done' | null>(null);
   const [collapsing, setCollapsing] = useState(false);
   const timers = useRef<number[]>([]);
@@ -216,9 +221,11 @@ function RequestRow({
               Agency Engineer
             </span>
           )}
-          {waitingOnYou && <span className="request-status waiting">{request.stage === 'person' ? 'Needs you' : 'Waiting on you'}</span>}
+          {waitingOnYou && theirs && <span className="request-status">Waiting on {ownerOf(request)}</span>}
+          {waitingOnYou && !theirs && <span className="request-status waiting">{request.stage === 'person' ? 'Needs you' : 'Waiting on you'}</span>}
           {waitingOnApproval && <span className="request-status approval">Waiting on approval</span>}
-          {(showOwner || theirs) && (
+          {/* A teammate's shared one already names them ("Waiting on Sam Rivera"). */}
+          {(showOwner || (theirs && !waitingOnYou)) && (
             <span className="request-owner" title="Owner">
               <User size={12} strokeWidth={1.75} />
               {agent.owner}
@@ -401,7 +408,9 @@ export function requestItems<T extends Pick<ResourceRequest, 'stage' | 'waitingO
 }
 
 function ConnectGroup({ name, members, row, refs, focus }: { name: string; members: ResourceRequest[]; row: (r: ResourceRequest) => React.ReactNode; refs: RequestRefs; focus: number | null }) {
-  const [open, setOpen] = useState(true);
+  // Every one of them a teammate's (shared, not yours to answer): closed, saying whose.
+  const owners = members.every(theirsOf) ? [...new Set(members.map(ownerOf))].join(', ') : null;
+  const [open, setOpen] = useState(!owners);
   const [list, setList] = useState(false);
   // Sent here for one of its requests: show it, so that row can glow.
   const holds = members.some(m => m.live === focus);
@@ -420,7 +429,7 @@ function ConnectGroup({ name, members, row, refs, focus }: { name: string; membe
           <ChevronRight size={15} className="request-chevron" />
           <Plug size={15} strokeWidth={1.75} className="request-dept" />
           <span className="request-summary">Connect {name}</span>
-          <span className="request-status waiting">Waiting on you</span>
+          {owners ? <span className="request-status">Waiting on {owners}</span> : <span className="request-status waiting">Waiting on you</span>}
         </button>
         <div className="request-expand">
           <div className="request-clip">
@@ -477,7 +486,9 @@ export function Requests({
     // Filed in the same minute (a pack's setup files a dozen at once): by number.
     .sort((a, b) => b.minutesAgo - a.minutesAgo || (a.live ?? 0) - (b.live ?? 0));
   for (const r of oldestFirst) if (!seen.current.has(r.id)) seen.current.set(r.id, seen.current.size);
-  const shown = oldestFirst.sort((a, b) => seen.current.get(a.id)! - seen.current.get(b.id)!);
+  const arrived = oldestFirst.sort((a, b) => seen.current.get(a.id)! - seen.current.get(b.id)!);
+  // Yours first; a teammate's shared ones after (they're theirs to answer).
+  const shown = [...arrived.filter(r => !theirsOf(r)), ...arrived.filter(theirsOf)];
 
   if (loading && shown.length === 0)
     return (

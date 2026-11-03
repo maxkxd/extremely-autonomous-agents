@@ -1431,7 +1431,8 @@ ul { list-style: none; margin: 0; padding: 0; }
   background: rgba(0, 0, 0, 0.6); animation: fade-in 0.15s ease;
 }
 .settings {
-  display: flex; width: min(960px, 100vw - 48px); height: min(680px, 100vh - 48px); overflow: hidden;
+  /* Grows with a tall window (a long Usage list scrolled inside 680px of a 1600px window), to 900px. */
+  display: flex; width: min(960px, 100vw - 48px); height: clamp(min(680px, 100vh - 48px), 100vh - 160px, 900px); overflow: hidden;
   border-radius: 14px; background: var(--bg); border: 1px solid var(--border-strong);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6); animation: confirm-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -1820,6 +1821,7 @@ a.sbtn { text-decoration: none; color: inherit; }
 .sint-kind.draft { color: var(--attention); border-color: var(--attention); }
 .text-link { color: #7aa3e4; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
 .text-link:hover { color: #a9c3ee; }
+.text-link.nowrap { white-space: nowrap; } /* a name that shouldn't break: "Serper (Google)" */
 /* Arriving for one approval (Open Approvals, a draft's Approve): a blue glow, in place. */
 /* Strong for a moment, then one smooth fade (a single eased stretch, so it never stalls part-way). */
 .approval.spotlit, .request.spotlit { animation: approval-spotlight 2.6s ease-out; }

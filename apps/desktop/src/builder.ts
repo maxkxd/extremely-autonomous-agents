@@ -266,7 +266,7 @@ export const getDm = (id: string) =>
   request<(StampedEntry & { at: number })[]>(`/api/dm?id=${encodeURIComponent(id)}`).then(list =>
     list.map(e => ({ ...e, minutesAgo: 0 }) as StampedEntry),
   );
-export const sendDm = (id: string, text: string) => post<{ ok: boolean }>('/api/dm', { id, text });
+export const sendDm = (id: string, text: string) => post<{ ok: boolean; stopped?: boolean }>('/api/dm', { id, text });
 // Requests real agents filed (docs/requests.md), and your answer to one.
 export type LiveRequest = {
   id: number;

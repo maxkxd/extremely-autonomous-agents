@@ -320,14 +320,16 @@ export const runnerRoutes: Record<string, Route> = {
     if (id !== FLEET_ENGINEER) await requireMakerOrAdmin(id, null, currentActor(), 'message it');
     const meta = await readMeta(id);
     if (meta?.service) throw new Error('This helper only records what it decides; it takes no messages.');
-    // A stopped agent runs nothing, so a message would wait unanswered: refused, saying how to get a reply.
-    if (agencyState() === 'stopped') throw new Error('The agency is stopped - resume it to get a reply.');
-    if (stateOf(id).state === 'stopped') throw new Error(`${meta?.name ?? 'This agent'} is stopped - resume it to get a reply.`);
     // Who wrote it (by, byId), so everyone sees the right name on it - not whoever's looking.
     const by = currentActor();
-    exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", id, JSON.stringify({ kind: 'you', text: text.trim(), by: by.name, byId: by.id }), Date.now());
+    const now = Date.now();
+    exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", id, JSON.stringify({ kind: 'you', text: text.trim(), by: by.name, byId: by.id }), now);
+    // Stopped (it, or the whole agency): kept, with the app's reply that it's stopped and
+    // where to resume it (AgentDM.tsx). The booking waits, so it answers once resumed.
+    const stopped = agencyState() === 'stopped' || stateOf(id).state === 'stopped';
+    if (stopped) exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'stopped', ?, ?)", id, JSON.stringify({ kind: 'stopped' }), now + 1);
     book(id, 'your message', text.trim());
-    return { ok: true };
+    return { ok: true, stopped };
   },
 
   // --- Requests (docs/requests.md) ---

@@ -22,8 +22,8 @@ export type RunPost = {
 // by: who wrote it, from the server (in an organization, maybe not you); older messages have none.
 export type YourMessage = { kind: 'you'; minutesAgo: number; text: string; by?: string };
 
-// A message sent while the agent is stopped: kept, and answered here in the app
-// (never by a run) with where to resume it. Not stored on the server.
+// After a message sent while the agent is stopped: the app's reply that it's
+// stopped and where to resume it (kept on the host; the agent answers once resumed).
 export type StoppedReply = { kind: 'stopped'; minutesAgo: number };
 
 export type DmEntry = RunPost | YourMessage | StoppedReply;

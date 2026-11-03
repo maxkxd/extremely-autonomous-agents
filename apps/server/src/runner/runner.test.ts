@@ -883,9 +883,12 @@ test("with no AI connected, the person is told nothing can run - once, and it cl
   const { noAiRequest } = await import('./scheduler.js');
   const open = () => all<{ id: number }>("SELECT id FROM requests WHERE what LIKE 'Connect an AI model%' AND status = 'open'");
   exec("INSERT INTO agent_state (agent_id, state, updated_at) VALUES ('zz-noai', 'stopped', 0) ON CONFLICT(agent_id) DO NOTHING");
+  exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES ('zz-noai', 'run now', NULL, 0, 0)");
   noAiRequest(false, Date.now());
   noAiRequest(false, Date.now());
   assert.equal(open().length, 1);
+  // A Run now that can't start isn't left "Queued".
+  assert.equal(all("SELECT id FROM bookings WHERE agent_id = 'zz-noai' AND trigger = 'run now'").length, 0);
   noAiRequest(true, Date.now());
   assert.equal(open().length, 0);
 });

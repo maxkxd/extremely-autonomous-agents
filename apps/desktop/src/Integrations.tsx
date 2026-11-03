@@ -67,9 +67,9 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
           ))}
         </ul>
       </div>
-      {/* Its own group: it's how you reach the agency, not a service agents use. */}
+      {/* Its own group: it's how you reach the agency, not a service agents use. No heading:
+          its row already says "Your AI assistant". */}
       <div className="sgroup">
-        <h3>Your AI assistant</h3>
         <ul className="sconnectors">
           {/* Everyone's own: it acts as them (agency-mcp.ts on the host). */}
           <AgencyMcp />
@@ -159,7 +159,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
       : (
         <>
           Uses your {ext.name} connection - connect{' '}
-          <a className="text-link" href="#" onClick={e => (e.preventDefault(), spotlight(ext.id))}>
+          <a className="text-link nowrap" href="#" onClick={e => (e.preventDefault(), spotlight(ext.id))}>
             {ext.name}
           </a>{' '}
           to use it

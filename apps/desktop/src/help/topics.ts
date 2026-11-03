@@ -207,5 +207,7 @@ export const HELP_TOPIC_IDS = Object.keys(HELP_TOPICS) as HelpTopicId[];
 // Which topic a page shows, or null for a page without help.
 export function helpTopicFor(view: View): HelpTopicId | null {
   if (view.startsWith('agent:')) return 'dm';
+  // Building an agent: Getting started is about exactly that (it had no help at all).
+  if (view === 'new-agent') return 'start';
   return view in HELP_TOPICS ? (view as HelpTopicId) : null;
 }

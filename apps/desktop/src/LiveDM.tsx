@@ -18,8 +18,8 @@ export function LiveDM({
   onStopped: (stopped: boolean) => void; // for the page header's Stopped pill
 }) {
   const [entries, setEntries] = useState<StampedEntry[]>([]);
-  // Messages the server didn't take (it's stopped), with its reply: kept on screen,
-  // where they used to vanish at the next refresh.
+  // Messages the server didn't take (not yours to message...): kept on screen, where
+  // they used to vanish at the next refresh.
   const [held, setHeld] = useState<StampedEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [waitingSince, setWaitingSince] = useState<number | null>(null);
@@ -69,22 +69,22 @@ export function LiveDM({
   const send = (text: string) => {
     const at = Date.now();
     const mine: StampedEntry = { kind: 'you', minutesAgo: 0, text, at };
-    const reply: StampedEntry = { kind: 'stopped', minutesAgo: 0, at: at + 1 };
     setSendError(null);
-    // Stopped: it "sends", and the agent says it's stopped and where to resume it.
-    if (stopped) return setHeld(h => [...h, mine, reply]);
     setEntries(prev => [...prev, mine]);
-    setWaitingSince(at);
-    sendDm(agentId, text).catch(e => {
-      setWaitingSince(null);
-      setEntries(prev => prev.filter(x => x !== mine)); // held instead, below
-      const why = (e as Error).message;
-      // Refused because it's stopped (it was stopped a moment ago): the same reply.
-      if (/stopped/i.test(why)) return setHeld(h => [...h, mine, reply]);
-      // Anything else (not yours to message...): kept, and why.
-      setHeld(h => [...h, mine]);
-      setSendError(why);
-    });
+    // Stopped, it's still kept (on the host), with the reply that it's stopped and where
+    // to resume it; it answers once resumed (api.ts).
+    if (stopped) setEntries(prev => [...prev, { kind: 'stopped', minutesAgo: 0, at: at + 1 }]);
+    else setWaitingSince(at);
+    sendDm(agentId, text).then(
+      r => r.stopped && setWaitingSince(null),
+      e => {
+        setWaitingSince(null);
+        setEntries(prev => prev.filter(x => x !== mine)); // held instead, below
+        // Not taken (not yours to message...): kept on screen, and why.
+        setHeld(h => [...h, mine]);
+        setSendError((e as Error).message);
+      },
+    );
   };
   const shown = held.length ? [...entries, ...held].sort((a, b) => a.at - b.at) : entries;
 

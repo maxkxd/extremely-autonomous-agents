@@ -207,6 +207,8 @@ export function noAiRequest(connected: boolean, now: number) {
     if (open) exec("UPDATE requests SET status = 'done', answer = 'An AI model is connected.', answered_at = ?, stage = NULL WHERE id = ?", now, open.id);
     return;
   }
+  // A Run now pressed with no model can't start: dropped, not left saying "Queued" for ever.
+  exec("DELETE FROM bookings WHERE trigger = 'run now'");
   if (open) return;
   const waiting = one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE status = 'open' AND stage = 'engineer'")?.n ?? 0;
   const agents = one<{ n: number }>(`SELECT COUNT(*) AS n FROM agent_state WHERE agent_id NOT IN (${BUILT_IN_IDS.map(() => '?').join(', ')})`, ...BUILT_IN_IDS)?.n ?? 0;

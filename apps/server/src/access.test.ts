@@ -213,9 +213,12 @@ test("members control only the agents they made; anyone may write to the Agency 
     assert.equal(await why(call(dan, 'POST /api/dm', { id: FLEET_ENGINEER, text: 'Can you add Square?' })), 'ok');
     const dms = (await asActor(dan, () => runnerRoutes['GET /api/dm']({} as never, new URLSearchParams({ id: FLEET_ENGINEER }), async <T>() => ({}) as T))) as { by?: string; byId?: string }[];
     assert.deepEqual([dms.at(-1)?.by, dms.at(-1)?.byId], ['Dan', 'user_dan']);
-    // Ben controls his own; stopped, a message to it is refused rather than left unanswered.
+    // Ben controls his own; stopped, a message to it is kept with the reply that it's stopped, to answer once resumed.
     assert.equal(await why(call(member, 'POST /api/runner/agent', { id: files.id, state: 'stopped' })), 'ok');
-    assert.equal(await why(call(member, 'POST /api/dm', { id: files.id, text: 'hi' })), 'Parts Pull List is stopped - resume it to get a reply.');
+    assert.equal(await why(call(member, 'POST /api/dm', { id: files.id, text: 'hi' })), 'ok');
+    const kept = (await asActor(member, () => runnerRoutes['GET /api/dm']({} as never, new URLSearchParams({ id: files.id }), async <T>() => ({}) as T))) as { kind: string; text?: string }[];
+    assert.deepEqual(kept.slice(-2).map(e => [e.kind, e.text]), [['you', 'hi'], ['stopped', undefined]]);
+    assert.ok(one('SELECT id FROM bookings WHERE agent_id = ? AND trigger = ?', files.id, 'your message'), 'answered once resumed');
     assert.equal(await why(call(admin, 'POST /api/runner/agent', { id: files.id, state: 'active' })), 'ok');
     // A spend limit: a dollar amount above 0, to the cent, up to a million - or empty.
     for (const bad of [-5, 'abc-5', '12345678901234567890', 12345678901234567890, '1.005', 0])
