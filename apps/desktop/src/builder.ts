@@ -250,6 +250,7 @@ export type LiveAgent = {
   runsPerDay: number[]; // expected at each ferocity level
   waitingOnTools: boolean; // none of what it's counted by is connected yet (it runs at its level all the same)
   perRun: number | null; // output actions per run, recently
+  perRunGuess: number[]; // before it has any: a starting guess at each level
 };
 export const getLiveAgents = (days: number) => request<Record<string, LiveAgent>>(`/api/runner/agents?days=${days}`);
 export const setAgentRunner = (id: string, patch: { ferocity?: number; state?: RunState; spendCapUsd?: number | null; autoModels?: boolean }) =>

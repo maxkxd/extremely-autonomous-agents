@@ -190,6 +190,11 @@ export const runnerRoutes: Record<string, Route> = {
         .sort((x, y) => y - x);
       const busiest = acts.slice(0, Math.ceil(acts.length / 2));
       const perRun = acts.some(n => n > 0) ? busiest.reduce((s, n) => s + n, 0) / busiest.length : null;
+      // Before it has any: a starting guess from each level's target (its plan's floors),
+      // so the card shows a number to aim at - replaced by its real rate once it runs.
+      const f = agent?.ferocity;
+      const soft = Math.max(1, f?.soft_floor || 3);
+      const perRunGuess = [Math.max(1, Math.round(soft / 2)), Math.max(1, Math.round(soft * 0.75)), soft, Math.max(soft, f?.floor || 10), Math.max(soft, f?.apocalyptic_floor || 30)];
       const last = one<{ started_at: number; ended_at: number | null; status: string }>(
         'SELECT started_at, ended_at, status FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1',
         id,
@@ -227,7 +232,8 @@ export const runnerRoutes: Record<string, Route> = {
         autoModels: st.auto_models !== 0,
         runsPerDay,
         waitingOnTools,
-        perRun: perRun ?? null, // output actions per run, recently (null: never run, or nothing counted yet)
+        perRun: perRun ?? null,
+        perRunGuess, // output actions per run, recently (null: never run, or nothing counted yet)
       };
     }
     return out;

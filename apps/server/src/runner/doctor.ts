@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
 import type { Tier } from '../catalog.js';
@@ -10,6 +10,7 @@ import { defaultModels } from './defaults.js';
 import { LEVELS } from './ferocity.js';
 import { remember } from './memory.js';
 import { registerTools, type ToolDef } from './tools.js';
+import { DATA_DIR } from '../paths.js';
 
 // The Agency Doctor: the fleet's own check-up. The Agency Engineer answers what
 // it's asked; nothing asks about what goes wrong across the fleet - an agent
@@ -29,6 +30,8 @@ const DOCTOR_TOOLS: Record<string, Tier> = {
   'doctor.tell_agent': 'T1',
   'doctor.close_request': 'T1',
   'doctor.propose_rule': 'T2',
+  'doctor.read_memories': 'T0',
+  'doctor.tidy_memories': 'T1',
   'requests.request_resource': 'T1',
   'memory.remember': 'T0',
 };
@@ -45,7 +48,12 @@ You keep the fleet healthy. The Agency Engineer builds and fixes what agents ask
    - A tool keeps failing the same way: if it's the connection (a required input it calls optional, a wrong address), file a request for the Agency Engineer with the error and what the definition should say - the description, the required inputs, the address. If it's how the agent calls it, doctor.tell_agent how to call it. Often it's both: do both.
    - An agent meets its target with busywork (most of its counted output is files in its own workspace, notes, or the same small update), or its real job is blocked and it's padding: doctor.propose_rule for it - a short rule, like "Workspace files don't count as outreach: when sending is blocked, say so and stop early."
    - Something stuck for hours with nobody acting: say so to whoever holds it - doctor.tell_agent, or a request.
-3. End with a short summary: what you found, what you did about each, and anything only a person can decide.
+   - An agent says the same thing differently from one run to the next (a venue, a date, a price - doctor.read_agent shows its last five runs): doctor.tell_agent which is right, if its runs or sources show it; otherwise to check before saying it again.
+3. Memories (doctor.read_memories): what agents have learned about the organization and each person, which every agent reads. Tidy them with doctor.tidy_memories:
+   - Two that say the same thing (one a longer version of the other): remove both, add one that says it once.
+   - One an agent's work has shown wrong (a website address that doesn't exist, a price or opening hours that changed - its runs or requests say so): remove it, and add the right one if it's known.
+   Never remove one just because it's old, or add anything that isn't already known.
+4. End with a short summary: what you found, what you did about each, and anything only a person can decide.
 
 ## Rules
 - You reach the Agency Engineer by filing a request (requests.request_resource): it comes to it. doctor.tell_agent and doctor.close_request are for the fleet's own agents, not the built-ins.
@@ -196,7 +204,62 @@ const ordinaryAgent = async (id: string) => {
   return meta;
 };
 
+// What agents have learned (org.ts): each organization's notes and each person's,
+// kept in their files - read and tidied here, by exact text.
+const MEMORY_DIRS = { organization: 'orgs', person: 'people' } as const;
+type MemoryKind = keyof typeof MEMORY_DIRS;
+async function memoryFiles(kind: MemoryKind) {
+  const dir = join(DATA_DIR, MEMORY_DIRS[kind]);
+  const names = (await readdir(dir).catch(() => [] as string[])).filter(f => f.endsWith('.json'));
+  const out: { file: string; name: string; notes: string[]; data: Record<string, unknown> }[] = [];
+  for (const f of names) {
+    const data = JSON.parse(await readFile(join(dir, f), 'utf8').catch(() => '{}')) as Record<string, unknown>;
+    out.push({ file: join(dir, f), name: String(data.full_name || data.name || f.replace(/\.json$/, '')), notes: Array.isArray(data.notes) ? (data.notes as string[]) : [], data });
+  }
+  return out;
+}
+
 const TOOLS: ToolDef[] = [
+  {
+    id: 'doctor.read_memories',
+    tier: 'T0',
+    description: "What agents have learned about the organization and each person - every agent reads these. Each memory is listed by its exact text.",
+    schema: obj({}),
+    impl: async () => {
+      const parts: string[] = [];
+      for (const kind of ['organization', 'person'] as const)
+        for (const m of await memoryFiles(kind)) parts.push(`${kind === 'organization' ? 'Organization' : 'Person'} "${m.name}":\n${m.notes.length ? m.notes.map(n => `- ${n}`).join('\n') : '(nothing yet)'}`);
+      return parts.join('\n\n') || 'No memories yet.';
+    },
+  },
+  {
+    id: 'doctor.tidy_memories',
+    tier: 'T1',
+    description: "Tidy what agents have learned about the organization or a person: remove memories (by their exact text, from doctor.read_memories) and add the ones that replace them - two that repeat each other become one; one shown wrong is removed or corrected.",
+    schema: obj(
+      {
+        kind: { type: 'string', enum: ['organization', 'person'], description: 'Whose memories' },
+        name: str('The organization or the person, as doctor.read_memories names them'),
+        remove: { type: 'array', items: { type: 'string' }, description: 'Memories to remove, each its exact text' },
+        add: { type: 'array', items: { type: 'string' }, description: 'Memories to add in their place (optional)' },
+        why: str('Why, in a sentence: "the same fact twice", "request #3 shows that website does not exist"'),
+      },
+      ['kind', 'name', 'remove', 'why'],
+    ),
+    impl: async a => {
+      const kind = String(a.kind) as MemoryKind;
+      if (!(kind in MEMORY_DIRS)) throw new Error('kind is organization or person.');
+      const m = (await memoryFiles(kind)).find(x => x.name.toLowerCase() === String(a.name).trim().toLowerCase());
+      if (!m) throw new Error(`No ${kind} named "${a.name}" - see doctor.read_memories.`);
+      const remove = (Array.isArray(a.remove) ? a.remove : []).map(String);
+      const missing = remove.filter(r => !m.notes.includes(r));
+      if (missing.length) throw new Error(`Not among ${m.name}'s memories, word for word: ${missing.map(x => `"${x}"`).join(', ')}.`);
+      const add = (Array.isArray(a.add) ? a.add : []).map(x => String(x).trim()).filter(Boolean);
+      const notes = [...m.notes.filter(n => !remove.includes(n)), ...add.filter(x => !m.notes.includes(x) || remove.includes(x))];
+      await writeFile(m.file, JSON.stringify({ ...m.data, notes }, null, 2) + '\n');
+      return `${m.name}: removed ${remove.length}, added ${add.length}.`;
+    },
+  },
   {
     id: 'doctor.fleet_report',
     tier: 'T0',

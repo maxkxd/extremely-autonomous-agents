@@ -210,7 +210,8 @@ function Tuning({
 }) {
   // A real agent: its recent output per run times the runs its own plan gives
   // this level. Placeholder agents use the placeholder schedules.
-  const perRun = agent.live ? agent.perRun : agent.output.reduce((n, s) => n + s.value, 0) / Math.max(agent.runs, 1);
+  // Before any output, a starting guess from the level (the server's), until real runs replace it.
+  const perRun = agent.live ? (agent.perRun ?? agent.perRunGuess?.[level] ?? null) : agent.output.reduce((n, s) => n + s.value, 0) / Math.max(agent.runs, 1);
   const perDay = agent.live && agent.runsPerDay ? agent.runsPerDay[level] : FEROCITY[level].runsPerDay;
   const estimate = perRun == null ? null : Math.round(perRun * perDay * rangeDays(range) * OVERESTIMATE);
   // It runs at its level whatever is connected (it used to say "... until its tools are connected").
@@ -822,6 +823,7 @@ export function Dashboard({
       decisions: l.decisions,
       runsPerDay: l.runsPerDay,
       perRun: l.perRun,
+      perRunGuess: l.perRunGuess,
       waitingOnTools: l.waitingOnTools,
       autoModels: l.autoModels,
       queued: l.queued,
