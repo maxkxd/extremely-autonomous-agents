@@ -14,8 +14,8 @@ auth:
   token_url: https://oauth2.googleapis.com/token
   revoke_url: https://oauth2.googleapis.com/revoke
   # drive: every file the account can open, and the Docs, Sheets and Slides APIs
-  # take it too. Registered on our Google client (docs/shared-sign-ins.md): a
-  # scope added here must be added there first.
+  # take it too. Registered on our Google client: a scope added here must be
+  # added to it, and to Google's verification, first.
   scopes: [https://www.googleapis.com/auth/drive]
   # offline + consent: Google only returns a refresh token that way.
   params: { access_type: offline, prompt: consent }

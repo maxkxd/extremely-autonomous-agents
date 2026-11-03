@@ -33,7 +33,9 @@ and keeps only the client, so signing back in is one click. Any definition
 can use it, so the Agency Engineer can add OAuth services the same way.
 A built-in with `shared: google` (Gmail, Google Drive) signs in with **our** Google client
 when the app was built with one and the person has none of their own - just
-a sign-in (`integrations/shared-clients.ts`, [shared-sign-ins.md](shared-sign-ins.md)).
+a sign-in (`integrations/shared-clients.ts`). A scope added to one of
+those definitions has to be registered on our Google client, and with
+Google's verification, first: Google refuses the sign-in otherwise.
 
 A tool either **provides a standard agency tool** - `web.web_search` - which
 several integrations can provide (agents use whichever is connected, so

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-// Signing in with our own Google client (docs/shared-sign-ins.md), against a
+// Signing in with our own Google client (shared-clients.ts), against a
 // throwaway data folder - never the real vault and its sign-ins.
 process.env.EAA_DATA_DIR = mkdtempSync(join(tmpdir(), 'eaa-shared-'));
 process.env.EAA_GOOGLE_CLIENT_ID = 'ours.apps.googleusercontent.com';

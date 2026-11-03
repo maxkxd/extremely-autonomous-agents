@@ -83,7 +83,7 @@ the draft is what makes it the update. In that environment:
   `EAA_GOOGLE_CLIENT_SECRET`
 
 `stage.cjs` writes the Google client into the server as `shared-clients.json`
-(never in git), so Gmail is just a sign-in ([shared-sign-ins.md](shared-sign-ins.md)).
+(never in git), so Gmail and Drive are just a sign-in.
 Without it, Gmail asks for the person's own Google client, as before.
 
 Without the Azure secrets the installer is built unsigned, with a warning.

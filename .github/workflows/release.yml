@@ -37,7 +37,7 @@ jobs:
         env:
           VITE_EAA_BACKEND_URL: ${{ vars.EAA_BACKEND_URL }}
           VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
-          # Our Google client (docs/shared-sign-ins.md), so Gmail is just a sign-in.
+          # Our Google client (apps/server/src/integrations/shared-clients.ts), so Gmail and Drive are just a sign-in.
           EAA_GOOGLE_CLIENT_ID: ${{ vars.EAA_GOOGLE_CLIENT_ID }}
           EAA_GOOGLE_CLIENT_SECRET: ${{ secrets.EAA_GOOGLE_CLIENT_SECRET }}
         run: node scripts/stage.cjs

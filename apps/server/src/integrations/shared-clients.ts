@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Sign-ins we registered once, for everyone (docs/shared-sign-ins.md): our own
+// Sign-ins we registered once, for everyone: our own
 // OAuth client per provider, so the person only signs in and approves. Put in at
 // build time from the release environment - shared-clients.json beside
 // package.json, written by apps/electron/scripts/stage.cjs - or, in development,
