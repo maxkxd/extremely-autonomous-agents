@@ -116,6 +116,14 @@ success, decides the tool is broken and complains again. Telling the model
    memory contradicts. Stored on the host, never a growing pile of files.
 4. **Idle runs teach nothing.** A run that found nothing to do isn't written
    down as a lesson.
+5. **A change of how it works goes into its Charter, not its memory.** A person
+   telling an agent in its chat to work differently from now on ("lead with
+   premium, never the free offer") is filed with `requests.change_my_instructions`.
+   The Agency Engineer rewrites the whole Charter so nothing in it says
+   otherwise, with the person's wish winning, and no approval is asked: they
+   asked for it. `engineer.rewrite_instructions` writes it, closes the request
+   and wakes the agent. A tool the change needs is handled as a missing tool.
+   The agent works the new way at once, without waiting for the rewrite.
 
 ## Standby and Stop (agreed 2026-10-29)
 

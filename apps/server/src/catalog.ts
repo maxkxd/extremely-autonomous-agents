@@ -216,6 +216,7 @@ export const BASELINE: { server: string; tool: CatalogTool }[] = [
   ['tasks', t('complete_task', 'T1', 'Close a task with its result')],
   ['tasks', t('delegate_task', 'T1', 'Hand work to another agent')],
   ['requests', t('request_resource', 'T1', 'Ask a person for something only a person can give (a key, an account, spend)')],
+  ['requests', t('change_my_instructions', 'T1', 'Have its instructions rewritten the way a person asked in its chat')],
   ['requests', t('list_my_requests', 'T0', 'Its open requests')],
   ['memory', t('remember', 'T0', 'Save a note to its own memory for future runs')],
   ['files', t('write_file', 'T0', 'Write a file in its own workspace (work it builds up)')],

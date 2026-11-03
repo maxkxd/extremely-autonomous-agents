@@ -1023,3 +1023,33 @@ test('a task handed over arrives whole, or is refused with why - never cut short
   const huge = await execute(ctx, { id: 'h2', name: 'tasks__delegate_task', args: { agent_id: 'zz-other', task: 'x'.repeat(40_000) } }, ids);
   assert.match(huge.content, /Too long \(40,000 characters; up to 30,000\): split the task/);
 });
+
+test("a person's change in an agent's chat goes to the Engineer, who rewrites the whole Charter and wakes the agent", async () => {
+  const { DATA } = await import('../files.js');
+  const { mkdir, readFile, writeFile } = await import('node:fs/promises');
+  const id = 'zz-outreach';
+  const dir = join(DATA, id);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'meta.json'), JSON.stringify({ name: 'Outreach' }));
+  await writeFile(join(dir, 'CHARTER.md'), '# CHARTER - Outreach\nLead every email with the free offer.\n');
+  const woken: { agent: string; trigger: string }[] = [];
+  const wake = (a: string, t: string) => void woken.push({ agent: a, trigger: t });
+  const ctx = { agent: agent({ id, name: 'Outreach' }), runId: 'r_change', level: 0, now: () => Date.now(), fleet: async () => [], wake };
+  const filed = await execute(ctx, { id: 'c1', name: 'requests__change_my_instructions', args: { change: 'Never lead with the free offer, lead with premium.' } }, new Map());
+  assert.match(filed.content, /Filed as request #\d+/);
+  const req = one<{ id: number; what: string; why: string; stage: string }>('SELECT id, what, why, stage FROM requests WHERE agent_id = ?', id)!;
+  assert.equal(req.stage, 'engineer');
+  assert.match(req.why, /lead with premium/);
+  assert.ok(woken.some(w => w.trigger === 'request'));
+
+  const engineer = { ...ctx, agent: agent({ id: 'fleet-engineer', tiers: { 'engineer.rewrite_instructions': 'T1' } }), runId: 'r_eng' };
+  const short = await execute(engineer, { id: 'e0', name: 'engineer__rewrite_instructions', args: { request_id: req.id, charter: 'Lead with premium.', changed: 'x' } }, new Map());
+  assert.ok(short.error); // just the change, not a whole Charter
+  const charter = `# CHARTER - Outreach\n\n## Mission\nBook meetings with premium buyers.\n\n## What this agent does\nLead every email with the premium plan; never open with the free offer.\n${'Keep it short and specific to the buyer. '.repeat(4)}\n`;
+  const done = await execute(engineer, { id: 'e1', name: 'engineer__rewrite_instructions', args: { request_id: req.id, charter, changed: 'Leads with premium, never the free offer.' } }, new Map());
+  assert.ok(!done.error, done.content);
+  assert.equal(await readFile(join(dir, 'CHARTER.md'), 'utf8'), `${charter.trim()}\n`);
+  assert.equal(one<{ status: string }>('SELECT status FROM requests WHERE id = ?', req.id)!.status, 'done');
+  assert.ok(woken.some(w => w.agent === id && w.trigger === 'request done'));
+  await rm(dir, { recursive: true, force: true });
+});

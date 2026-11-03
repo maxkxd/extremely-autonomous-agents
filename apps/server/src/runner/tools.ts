@@ -268,6 +268,10 @@ export function tooManyWaiting(agentId: string): string | null {
     : `Not filed: ${waiting.length} of your requests are already waiting on the person (${waiting.map(r => `#${r.id}`).join(', ')}), and they haven't got to them yet. Don't add more for now: put this in your end-of-run summary, and ask it once one of those is answered. Carry on with what you have.`;
 }
 
+// The title of a request to rewrite an agent's instructions (the Engineer's
+// engineer.rewrite_instructions answers it).
+export const INSTRUCTIONS_CHANGE = 'Rewrite my instructions the way my person asked in my chat';
+
 const BUILTIN: ToolDef[] = [
   {
     id: 'memory.remember',
@@ -338,7 +342,7 @@ const BUILTIN: ToolDef[] = [
     ),
     impl: (a, ctx) => {
       // A paragraph as the title (53 words, six lines bold on the Requests page): sent back.
-      const words = String(a.what ?? '').trim().split(/s+/).length;
+      const words = String(a.what ?? '').trim().split(/\s+/).length;
       if (words > 14) return `Not filed: the title (what) is ${words} words. Make it 10 words or fewer - what you need and what for - and put the rest in why.`;
       const id = fileRequest(
         ctx.agent.id,
@@ -348,6 +352,26 @@ const BUILTIN: ToolDef[] = [
         ctx.wake,
       );
       return `Filed request #${id}. You'll be told the answer at the start of a later run. Carry on without it for now.`;
+    },
+  },
+  {
+    id: 'requests.change_my_instructions',
+    tier: 'T1',
+    description:
+      'A person told you to change how you work from now on ("never lead with the free offer", "check PostHog before sending"). The Agency Engineer rewrites your instructions to match, with nothing left that says otherwise. Their words, as they said them.',
+    schema: obj({ change: str('What the person asked for, in their words'), context: str('Anything else from the conversation that explains it') }, ['change']),
+    impl: (a, ctx) => {
+      const change = String(a.change ?? '').trim();
+      if (!change) throw new Error('change is what the person asked for, in their words.');
+      const id = fileRequest(
+        ctx.agent.id,
+        ctx.runId,
+        { what: INSTRUCTIONS_CHANGE, why: `Asked in my chat: "${change}"`, evidence: a.context ? String(a.context) : null },
+        ctx.now(),
+        ctx.wake,
+        true,
+      );
+      return `Filed as request #${id}: the Agency Engineer rewrites your instructions. Work the new way from now on, without waiting for it.`;
     },
   },
   {

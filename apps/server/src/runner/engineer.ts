@@ -41,6 +41,7 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'engineer.hand_to_person': 'T0',
   'engineer.close_request': 'T0',
   'engineer.read_agent': 'T0',
+  'engineer.rewrite_instructions': 'T1',
   'engineer.list_integrations': 'T0',
   'engineer.read_integration': 'T0',
   'engineer.write_integration': 'T0',
@@ -88,6 +89,14 @@ What the person says on one request is true for all of them: one waiting on a qu
    e. Connecting it was the person's yes to the connection itself; what they approve is which agents get which tools. engineer.publish_integration - and when other agents' open requests need the same connection, put them in also, so it's one card. A short summary for the person approving: what it lets the agent do, and its limits (which account, which repository, read-only...). Not how you tested it, and no risks unless one is obvious and significant to someone who isn't technical (it costs money, emails people outside, deletes their files) - never technical or hypothetical ones. That's the one approval: approved, it goes live, the agent gets the tools, and the request closes.
 3b. A folder on this computer ("save my reports in Documents", a shared folder, a server set aside for agents): the built-in computer_files tools (read_file, write_file, list_folder) - engineer.give_tools, nothing to connect. Each use waits for the person's approval unless they lower it on the Tools page; the agency's own data and key or password stores are always off limits. Put the folder's full path in your note to the agent.
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
+
+## When a person changes how an agent works
+"Rewrite my instructions the way my person asked in my chat": a person told that agent, in its chat, to work differently from now on. They asked for it, so don't ask them to approve the wording or show it to them.
+1. engineer.read_agent for its Charter now.
+2. Rewrite the whole Charter so what they asked is how it works throughout: change or remove every line that says otherwise (an offer it leads with, a step it skips, an order of work) - never just add a rule at the end that the rest contradicts. Where what they asked and the old Charter disagree, what they asked wins.
+3. Keep everything else it says, its headings and its voice, and keep it set up for the most good output: the change shapes how it works, not how much.
+4. engineer.rewrite_instructions with the whole new Charter and, for the agent, what it does differently. That closes the request.
+5. The change needs a tool it doesn't have ("put all data in PostHog")? That's a missing tool too: handle it as one - in the same run - with the request's agent (engineer.give_tools, or build it), after the rewrite.
 
 ## Where agents' reports go
 Each person has their own default place for their agents' reports (engineer.list_requests says whose, at the top); an agent goes by its owner's. In an organization a teammate can't open a folder on the host's computer, so one teammate's place is never another's. An agent asking where its reports should go:
@@ -602,6 +611,33 @@ const TOOLS: ToolDef[] = [
       const asker = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', r.id)?.agent_id;
       if (asker && asker !== FLEET_ENGINEER) ctx.wake(asker, 'request done', `Request #${r.id} is answered: ${answer.slice(0, 600)}`);
       return `Closed #${r.id}.`;
+    },
+  },
+  {
+    id: 'engineer.rewrite_instructions',
+    tier: 'T1',
+    description:
+      "Replace an agent's whole Charter, answering a request to change how it works (engineer.read_agent first). The request closes and the agent is woken with what changed. Its next run uses the new Charter.",
+    schema: obj(
+      {
+        request_id: int('The request it answers'),
+        charter: str('The full new CHARTER.md in Markdown, # CHARTER - <name> first'),
+        changed: str('For the agent, in a sentence or two: what it does differently now'),
+      },
+      ['request_id', 'charter', 'changed'],
+    ),
+    impl: async (a, ctx) => {
+      const r = openRequest(a.request_id);
+      const meta = await readMeta(r.agent_id);
+      if (!meta || meta.builtIn || meta.service || r.agent_id === FLEET_ENGINEER) throw new Error("A built-in agent's instructions can't be rewritten.");
+      const charter = String(a.charter ?? '').trim();
+      if (!/^# CHARTER\b/.test(charter) || charter.length < 200) throw new Error('charter is the whole new CHARTER.md, starting "# CHARTER - <name>" - not just the change.');
+      await writeFile(join(DATA, slug(r.agent_id), 'CHARTER.md'), `${charter}\n`);
+      const changed = String(a.changed ?? '').slice(0, 2000);
+      exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", changed, Date.now(), r.id);
+      postToRequest(r.id, 'engineer', `Rewrote ${meta.name}'s instructions: ${changed}`);
+      ctx.wake(r.agent_id, 'request done', `Request #${r.id} is done - your instructions are rewritten: ${changed}`);
+      return `Rewrote ${meta.name}'s instructions; #${r.id} closed.`;
     },
   },
   {
