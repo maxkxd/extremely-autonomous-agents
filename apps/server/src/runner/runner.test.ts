@@ -8,7 +8,7 @@ import { all, one, resetDbForTests, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, apocalypticWait, APOCALYPTIC_GAP_MS, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './ferocity.js';
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
 import { ModelError, type Adapter, type Call } from './providers.js';
-import { runAgent, stateOf, type RunDeps } from './run.js';
+import { IDLE, IDLE_CALL_LIMIT, LOOPING, loopGuard, runAgent, SAME_CALL_LIMIT, stateOf, type RunDeps } from './run.js';
 import { book, dropStaleRequestRuns, engineerCanJoin, engineerScope, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
 import { decideApproval } from './approvals.js';
@@ -247,6 +247,37 @@ test('a registered tool the agent does not hold is refused', async () => {
       : { text: '', calls: [{ id: 'x', name: 'zztest__other', args: {} }], usage: { input: 1, output: 1 } };
   await runAgent(agent(), 'scheduled', null, deps(model));
   assert.equal(one<{ outcome: string }>('SELECT outcome FROM actions')!.outcome, 'refused');
+});
+
+test('a run making the same call over and over is ended; one doing new work is not', async () => {
+  setLevel(CHILL);
+  let turns = 0;
+  const stuck: Adapter = async () => {
+    turns++;
+    return { text: '', calls: [{ id: `s${turns}`, name: 'zztest__other', args: { page: 1 } }], usage: { input: 1, output: 1 } };
+  };
+  const r = await runAgent(agent(), 'scheduled', null, deps(stuck));
+  assert.equal(r.status, 'failed');
+  assert.equal(r.error, LOOPING);
+  assert.equal(turns, SAME_CALL_LIMIT);
+
+  // Different calls every turn, well past the repeat limit: it runs to its own end.
+  let n = 0;
+  const busy: Adapter = async () =>
+    n++ < SAME_CALL_LIMIT * 3
+      ? { text: '', calls: [write()], usage: { input: 1, output: 1 } }
+      : { text: 'All written.', calls: [], usage: { input: 1, output: 1 } };
+  const ok = await runAgent(agent(), 'scheduled', null, deps(busy));
+  assert.equal(ok.status, 'succeeded');
+  assert.equal(ok.acts, SAME_CALL_LIMIT * 3);
+});
+
+test('a long stretch of calls producing nothing ends the run; output resets the count', () => {
+  const g = loopGuard();
+  for (let i = 1; i < IDLE_CALL_LIMIT; i++) assert.equal(g({ name: 'search', args: { q: i } }, 0), null);
+  assert.equal(g({ name: 'write', args: {} }, 1), null);
+  for (let i = 1; i < IDLE_CALL_LIMIT; i++) assert.equal(g({ name: 'search', args: { q: -i } }, 0), null);
+  assert.equal(g({ name: 'search', args: { q: 'last' } }, 0), IDLE);
 });
 
 test('a model that fails mid-run hands over to the next one, and no action is repeated', async () => {

@@ -39,6 +39,29 @@ export type RunResult = { id: string; status: 'succeeded' | 'failed' | 'stopped'
 
 export const newRunId = () => `r_${randomBytes(4).toString('hex')}`;
 
+// Runs have no length limit, so a run going round in circles is ended instead:
+// the same call (tool and arguments) several times in a row, or a long stretch
+// of calls that produce nothing new. Real work, however long, never trips it.
+export const SAME_CALL_LIMIT = 5;
+export const IDLE_CALL_LIMIT = 100;
+export const LOOPING = 'It kept repeating the same step, so the run was ended.';
+export const IDLE = 'It went a long time without producing anything new, so the run was ended.';
+export function loopGuard() {
+  let last = '';
+  let same = 0;
+  let idle = 0;
+  // Each call with what it counted; the reason to end the run, or null.
+  return (call: { name: string; args: unknown }, counted: number): string | null => {
+    const sig = `${call.name} ${JSON.stringify(call.args ?? {})}`;
+    same = sig === last ? same + 1 : 1;
+    last = sig;
+    idle = counted > 0 ? 0 : idle + 1;
+    if (same >= SAME_CALL_LIMIT) return LOOPING;
+    if (idle >= IDLE_CALL_LIMIT) return IDLE;
+    return null;
+  };
+}
+
 // --- Card state ---------------------------------------------------------------
 
 export type AgentState = { ferocity: number; state: 'active' | 'draining' | 'stopped'; last_scheduled_at: number | null; fail_streak: number; backoff_until: number | null; spend_cap_usd: number | null; auto_models?: number | null };
@@ -328,8 +351,10 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   try {
     const system = await instructions(agent, level, notReady, deps);
     let health = getHealth();
-    // No limit on a run's length or turns: it ends when its work is done (or it's
-    // stopped); one that keeps failing is caught by failure backoff.
+    const guard = loopGuard();
+    let stuck: string | null = null;
+    // No limit on a run's length or turns: it ends when its work is done, it's
+    // stopped, or it goes round in circles (loopGuard).
     for (;;) {
       if (signal?.aborted) throw new Error('Stopped.');
       // A model for this turn: the first eligible one, falling back down the list.
@@ -355,12 +380,17 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
               system,
               opening: harnessOpening(id, messages),
               tools: specs,
+              // A harness keeps its own loop, so a run going round in circles is
+              // refused every further call and ended once the harness returns.
               call: async call => {
+                if (stuck) return { content: `${stuck} End your turn now.`, error: true };
                 const r = await execute(ctx, call, ids);
                 acts += r.counted;
+                stuck = guard(call, r.counted);
                 return { content: r.content, error: r.error };
               },
               next: () => {
+                if (stuck) return null;
                 if (floor && acts < floor.floor && nudges < floor.nudges && acts > actsAtNudge && canStillCount(agent, id, callableNow)) {
                   actsAtNudge = acts;
                   nudges++;
@@ -408,6 +438,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
         }
       }
       putHealth(health);
+      if (stuck) throw new Error(stuck); // not the model's fault: its health stands
       if (harnessDone) break;
       if (!turn) continue;
       input += turn.usage.input;
@@ -423,6 +454,8 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
           const r = await execute(ctx, call, ids);
           acts += r.counted;
           results.push({ id: call.id, name: call.name, content: r.content, error: r.error });
+          stuck = guard(call, r.counted);
+          if (stuck) throw new Error(stuck);
         }
         messages.push({ role: 'tool', results });
         continue;
