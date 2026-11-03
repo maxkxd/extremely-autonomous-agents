@@ -2162,6 +2162,9 @@ textarea:focus-visible, input:focus-visible { outline: none; }
   .header-title { gap: 12px; }
   .header-right { gap: 8px; }
   .header-tools { gap: 6px; }
+  /* Approvals and Requests: Mine / Everyone as their icons (names on hover), a narrower agent filter. */
+  .header-tools .segmented button { font-size: 0; gap: 0; }
+  .header-tools .agent-filter { width: 150px; }
 }
 .range-btn { white-space: nowrap; overflow: hidden; }
 /* Someone else's request (a member looking at a teammate's agent): greyed, not a dead link. */

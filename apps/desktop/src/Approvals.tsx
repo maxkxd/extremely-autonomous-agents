@@ -162,11 +162,11 @@ export function ApprovalsToolbar({
     <div className="header-tools">
       {ACCOUNT.org && ACCOUNT.role === 'admin' && (
         <div className="segmented" role="tablist" aria-label="Whose approvals">
-          <button role="tab" aria-selected={scope === 'mine'} className={scope === 'mine' ? 'on' : ''} onClick={() => setScope('mine')}>
+          <button role="tab" aria-selected={scope === 'mine'} className={scope === 'mine' ? 'on' : ''} onClick={() => setScope('mine')} title="Mine">
             <User size={14} strokeWidth={1.75} />
             Mine
           </button>
-          <button role="tab" aria-selected={scope === 'all'} className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>
+          <button role="tab" aria-selected={scope === 'all'} className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')} title="Everyone">
             <Users size={14} strokeWidth={1.75} />
             Everyone
           </button>
