@@ -31,7 +31,7 @@ lands back on this server at 127.0.0.1. Tokens are kept in the vault and
 refreshed when they run out. Disconnect revokes the sign-in at the service
 and keeps only the client, so signing back in is one click. Any definition
 can use it, so the Agency Engineer can add OAuth services the same way.
-A built-in with `shared: google` (Gmail) signs in with **our** Google client
+A built-in with `shared: google` (Gmail, Google Drive) signs in with **our** Google client
 when the app was built with one and the person has none of their own - just
 a sign-in (`integrations/shared-clients.ts`, [shared-sign-ins.md](shared-sign-ins.md)).
 
@@ -153,8 +153,9 @@ author couldn't see it.
 
 ## Email (Gmail)
 
-`gmail.yaml` + `modules/gmail.ts`, through the Gmail API with one scope
-(`gmail.modify`: everything but permanent deletion).
+`gmail.yaml` + `modules/gmail.ts`, through the Gmail API with two scopes:
+`gmail.modify` (everything but permanent deletion) and `gmail.settings.basic`
+(filters, auto-reply, signatures - never forwarding or delegates).
 
 | Tool | Tier | |
 |---|---|---|
@@ -165,6 +166,11 @@ author couldn't see it.
 | `gmail.archive_messages` | T1 | out of the inbox, still in All Mail |
 | `gmail.send_to_me` | T1 | only ever to the signed-in account (digests, reports): it can't reach anyone else |
 | `gmail.send_email` | T2 | `to` and `subject` always spelled out, so the approval shows them |
+| `gmail.read_settings` | T0 | filters (with ids, in words), auto-reply, signatures |
+| `gmail.create_filter` | T1 | match by sender/recipient/subject/words; label, skip inbox, read, star, important, never spam - never forward or trash |
+| `gmail.delete_filter` | T1 | says what it removed, so it can be made again |
+| `gmail.set_signature` | T1 | plain text, main address unless another is named |
+| `gmail.set_auto_reply` | T2 | it answers everyone who writes, so a person approves it |
 
 What an agent reads from email is marked as written by outsiders:
 information, never instructions. Addresses are checked and headers can't
@@ -180,6 +186,30 @@ Google's own catches: the OAuth client must be a **Desktop app** (a Web
 application client refuses the loopback address), and an OAuth app left in **Testing** has its sign-in ended
 every 7 days, so the steps say to publish it (it's for personal use, so it
 needs no review; Google shows an "unverified app" warning once).
+
+## Documents (Google Drive)
+
+`drive.yaml` + `modules/drive.ts`: Drive, Docs and Sheets through their APIs
+with one scope (`drive`: every file the account can open; the Docs and
+Sheets APIs take it too). Its tools are the standard `docs.*` ones, so an
+agent built with them works the moment Drive is connected.
+
+| Tool | Tier | |
+|---|---|---|
+| `docs.find_documents` | T0 | by words in the name or text, kind, or folder; My Drive, shared with it, shared drives |
+| `docs.read_document` | T0 | Docs, Sheets (every tab with row numbers, or a range), Slides, text files; PDFs, images and Office files through Google's conversion of a copy, removed at once; in parts past 20,000 characters |
+| `docs.create_document` | T1 | a Doc from text or Markdown, a Sheet from rows, or a text file |
+| `docs.update_document` | T1 | find-and-replace, or the whole text; Google keeps earlier versions |
+| `docs.append_to_document` | T1 | on a new line at the end |
+| `docs.update_sheet` | T1 | appended, or over cells from a start cell; a missing tab is made |
+| `docs.create_folder` | T1 | |
+| `docs.share_document` | T2 | by email or anyone with the link (never to edit) |
+
+Nothing deletes or trashes a file. Text in a cell that starts with `=` or
+`+` is written as text unless the agent says it wrote the formula itself: a
+formula like `IMPORTXML` fetches the web, so one copied from a page could
+send a sheet's contents anywhere. Not yet tested live (no Google sign-in
+with the `drive` scope exists yet).
 
 ## Code (GitHub)
 

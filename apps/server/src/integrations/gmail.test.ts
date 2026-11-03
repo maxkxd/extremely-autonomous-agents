@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addresses, bodyOf, encodeWord, htmlToText, rawEmail } from './modules/gmail.js';
+import { addresses, bodyOf, describeFilter, encodeWord, htmlToText, rawEmail } from './modules/gmail.js';
 
 const decoded = (raw: string) => Buffer.from(raw, 'base64url').toString();
 
@@ -38,4 +38,14 @@ test('a message reads as text: plain part first, else its HTML, attachments list
     htmlToText('<style>p{}</style><p>Hi &amp; welcome</p><ul><li>One</li></ul><a href="https://x.com">site</a>'),
     'Hi & welcome\n- One\nsite (https://x.com)',
   );
+});
+
+test('a filter reads in words, forwarding included, so a person sees what it does', () => {
+  const names = new Map([['Label_7', 'Invoices']]);
+  assert.equal(
+    describeFilter({ id: 'f1', criteria: { from: 'billing@acme.com', subject: 'invoice', hasAttachment: true }, action: { addLabelIds: ['Label_7', 'STARRED'], removeLabelIds: ['INBOX', 'UNREAD'] } }, names),
+    'from:billing@acme.com subject:(invoice) has:attachment -> label Invoices, star it, skip the inbox, mark read',
+  );
+  // One a person made in Gmail itself: shown, though no tool here makes them.
+  assert.equal(describeFilter({ id: 'f2', criteria: { query: 'list:news' }, action: { forward: 'me@elsewhere.com' } }, names), 'list:news -> forward to me@elsewhere.com');
 });

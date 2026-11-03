@@ -1,19 +1,23 @@
-# Gmail - read, search, draft, label, archive and (with a person's approval) send.
+# Gmail - read, search, draft, label, archive, filters, signature and (with a
+# person's approval) send and auto-reply.
 # Its tools are code (src/integrations/modules/gmail.ts): email has to be built
 # and decoded, which request templates can't do.
 # Docs: https://developers.google.com/workspace/gmail/api/reference/rest
 kind: code
 id: gmail
 name: Gmail
-what: Read, search, draft, label and archive email; sending needs your approval
+what: Read, search, draft, label and archive email, and manage filters and your signature; sending needs your approval
 module: gmail
 auth:
   type: oauth2
   authorize_url: https://accounts.google.com/o/oauth2/v2/auth
   token_url: https://oauth2.googleapis.com/token
   revoke_url: https://oauth2.googleapis.com/revoke
-  # One scope covers reading, labels, drafts and sending; never permanent deletion.
-  scopes: [https://www.googleapis.com/auth/gmail.modify]
+  # gmail.modify: reading, labels, drafts and sending - never permanent deletion.
+  # gmail.settings.basic: filters, auto-reply and signatures - never forwarding or
+  # delegates (gmail.settings.sharing). Both are registered on our Google client
+  # (docs/shared-sign-ins.md): a scope added here must be added there first.
+  scopes: [https://www.googleapis.com/auth/gmail.modify, https://www.googleapis.com/auth/gmail.settings.basic]
   # offline + consent: Google only returns a refresh token that way.
   params: { access_type: offline, prompt: consent }
   # Signs in with our Google client where the app has one: nothing to make.

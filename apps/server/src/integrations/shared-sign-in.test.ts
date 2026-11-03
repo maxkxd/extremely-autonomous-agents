@@ -28,6 +28,15 @@ test('Gmail signs in with our client when the person has none: nothing to make, 
   assert.deepEqual(clientParams({ ...saved, clientId: 'old.apps.googleusercontent.com' }), { client_id: 'old.apps.googleusercontent.com' });
 });
 
+test('Drive signs in with our client too, and each asks only for the scopes registered on it', async () => {
+  const scopes = async (id: string) => new URL((await startIntegrationSignIn(id, {})).url).searchParams.get('scope')?.split(' ');
+  assert.equal((await listIntegrations()).find(i => i.id === 'drive')?.signIn?.hasClient, true);
+  assert.equal(clientIn((await startIntegrationSignIn('drive', {})).url), 'ours.apps.googleusercontent.com');
+  assert.deepEqual(await scopes('drive'), ['https://www.googleapis.com/auth/drive']);
+  assert.deepEqual(await scopes('gmail'), ['https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/gmail.settings.basic']);
+  await disconnectIntegration('drive');
+});
+
 test('a Google connection someone wrote never gets our client, even once Gmail signed in with it', async () => {
   await addIntegration({
     kind: 'http',

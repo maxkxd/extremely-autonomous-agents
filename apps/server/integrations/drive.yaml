@@ -1,0 +1,33 @@
+# Google Drive, with Docs, Sheets and Slides - find, read, create, edit and
+# (with a person's approval) share files. Its tools are the agency's standard
+# docs.* ones, as code (src/integrations/modules/drive.ts): files have to be
+# converted, uploaded and paged, which request templates can't do.
+# Docs: https://developers.google.com/workspace/drive/api/reference/rest/v3
+kind: code
+id: drive
+name: Google Drive
+what: Find, read, create and edit your Docs, Sheets and files; sharing needs your approval
+module: drive
+auth:
+  type: oauth2
+  authorize_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  revoke_url: https://oauth2.googleapis.com/revoke
+  # drive: every file the account can open, and the Docs, Sheets and Slides APIs
+  # take it too. Registered on our Google client (docs/shared-sign-ins.md): a
+  # scope added here must be added there first.
+  scopes: [https://www.googleapis.com/auth/drive]
+  # offline + consent: Google only returns a refresh token that way.
+  params: { access_type: offline, prompt: consent }
+  # Signs in with our Google client where the app has one: nothing to make.
+  # The steps below are for an organization using its own Google project.
+  shared: google
+  client_url: https://console.cloud.google.com/auth/clients
+  client_help: |
+    1. In Google Cloud (console.cloud.google.com), pick the project your Gmail sign-in uses, or create one.
+    2. APIs & Services -> Library: enable the Google Drive API, Google Docs API and Google Sheets API.
+    3. Google Auth Platform -> Branding: set up the consent screen if it isn't yet (External is fine; your email as the contact).
+    4. Audience: press Publish app. In Testing, Google ends the sign-in every 7 days.
+    5. Clients -> Create client. Application type: Desktop app (not Web application - Google refuses this app's sign-in for those). Copy its client ID and secret here.
+    6. Signing in will warn that Google hasn't verified the app - it's yours, so Continue.
+test: { tool: docs.find_documents, args: { max: 1 } }
