@@ -37,7 +37,7 @@ import { resume as resumeJobs } from '../jobs.js';
 import { isPrivateIp } from './net.js';
 import { agencyState, stateOf, type AgencyState, type Trigger } from './run.js';
 import { abortAll, abortRun, blockedOnConnections, book, isRunning } from './scheduler.js';
-import { AccessError, currentActor, requireAdmin, requireMakerOrAdmin } from '../access.js';
+import { AccessError, currentActor, nameNow, requireAdmin, requireMakerOrAdmin } from '../access.js';
 import { scrub } from '../secrets.js';
 
 // The runner's routes for the app: each agent's card (ferocity, Drain/Stop,
@@ -303,11 +303,11 @@ export const runnerRoutes: Record<string, Route> = {
     // In an organization, an agent's DMs are its maker's and the admins' (access.ts);
     // the Agency Engineer's are everyone's, as anyone may write to it.
     if (id !== FLEET_ENGINEER) await requireMakerOrAdmin(id, null, currentActor(), 'see its DMs');
-    return all<{ kind: string; body: string; at: number }>('SELECT kind, body, at FROM dm WHERE agent_id = ? ORDER BY at, id', id).map(r => ({
-      ...(JSON.parse(r.body) as object),
-      kind: r.kind,
-      at: r.at,
-    }));
+    return all<{ kind: string; body: string; at: number }>('SELECT kind, body, at FROM dm WHERE agent_id = ? ORDER BY at, id', id).map(r => {
+      const b = JSON.parse(r.body) as { by?: string; byId?: string };
+      // Who wrote it, by the name they have now.
+      return { ...b, ...(b.byId ? { by: nameNow(b.byId, b.by) } : {}), kind: r.kind, at: r.at };
+    });
   },
   'POST /api/dm': async (_req, _q, body) => {
     const { id, text: typed } = await body<{ id: string; text: string }>();

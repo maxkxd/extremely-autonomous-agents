@@ -101,6 +101,18 @@ export async function actorFor(req: Pick<IncomingMessage, 'headers' | 'socket'>)
   throw new AccessError(401, 'Sign in first.');
 }
 
+// --- Each person's name now ---
+// As they last came in (their account's name, after a rename too), so their agents,
+// messages and approvals say who they are now - not the name they had when made.
+let names: Record<string, string> | null = null;
+const knownNames = () => (names ??= getSetting<Record<string, string>>('person_names', {}));
+export function noteName(actor: Actor) {
+  if (actor.via !== 'token' || !actor.id || !actor.name || knownNames()[actor.id] === actor.name) return;
+  names = { ...knownNames(), [actor.id]: actor.name };
+  setSetting('person_names', names);
+}
+export const nameNow = (id: string | null | undefined, was: string | null | undefined): string | null => (id ? knownNames()[id] : undefined) ?? was ?? null;
+
 // --- The request being served, for code deep down (who made this agent, who decided that) ---
 
 const current = new AsyncLocalStorage<Actor>();

@@ -1,4 +1,5 @@
 import { toolsForPeople } from '../catalog.js';
+import { nameNow } from '../access.js';
 import { readMeta } from '../files.js';
 import { discardDraft } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
@@ -30,7 +31,8 @@ export async function pendingApprovals(now = Date.now()) {
     // The Agency Doctor's: about one agent (agent_id).
     const about = (JSON.parse(r.args) as { agent_id?: unknown }).agent_id;
     const id = r.agent_id === FLEET_ENGINEER && typeof forAgent === 'string' ? forAgent : r.agent_id === DOCTOR && typeof about === 'string' ? about : r.agent_id;
-    return (await readMeta(id))?.owner ?? null;
+    const meta = await readMeta(id);
+    return nameNow(meta?.ownerId, meta?.owner);
   };
   const owners = await Promise.all(rows.map(ownerOf));
   // A stopped agent's approvals stay (their clock keeps running) but wait for it to be turned back on.

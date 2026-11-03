@@ -34,7 +34,7 @@ import { getSetting, setSetting } from './runner/db.js';
 import { scrub } from './secrets.js';
 import { aiDisconnected } from './runner/helpers.js';
 import { pickDefaults } from './runner/defaults.js';
-import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, personFor, recordAction, requireAdmin, requireMakerOrAdmin, setAccessConfig } from './access.js';
+import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, nameNow, noteName, personFor, recordAction, requireAdmin, requireMakerOrAdmin, setAccessConfig } from './access.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
 const PORT = Number(process.env.PORT ?? 5175);
@@ -411,7 +411,7 @@ const routes: Record<string, Route> = {
     const out: Record<string, unknown> = {};
     for (const id of await listIds()) {
       const m = await readMeta(id);
-      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output, owner: m.owner ?? null, ownerId: m.ownerId ?? null, builtIn: !!m.builtIn, service: !!m.service, pack: m.pack ?? null };
+      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output, owner: nameNow(m.ownerId, m.owner), ownerId: m.ownerId ?? null, builtIn: !!m.builtIn, service: !!m.service, pack: m.pack ?? null };
     }
     return out;
   },
@@ -479,6 +479,7 @@ createServer(async (req, res) => {
   try {
     // Who's asking, and whether they may (access.ts); the route runs as them.
     const actor = await actorFor(req);
+    noteName(actor);
     authorize(actor, req.method ?? 'GET', url.pathname);
     if (req.method !== 'GET') await readBody(req);
     const out = await asActor(actor, () => (runnerRoute ? runnerRoute(req, url.searchParams, () => body(req)) : route(req, url.searchParams)));

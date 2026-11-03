@@ -498,7 +498,8 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
       : cc?.needsUpdate
         ? `Claude Code ${cc.version ?? ''} is too old for the newest Claude models: update it to ${cc.needsUpdate} or newer.`
         : c.connected
-      ? `${c.label} · signed in with ${isAdmin() ? 'your' : "the owner's"} Claude account`
+      ? // Not "Claude Code 2.1.314 · ...": the version means nothing to most people.
+        `Signed in with ${isAdmin() ? 'your' : "the owner's"} Claude account`
       : task === 'installing'
         ? 'Installing Claude Code in the window that opened...'
         : task === 'signing-in'
