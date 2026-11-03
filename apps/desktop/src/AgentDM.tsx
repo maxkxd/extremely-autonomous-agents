@@ -138,6 +138,34 @@ export function AgentDM({
     const frame = requestAnimationFrame(toBottom); // again once fonts/layout settle
     return () => cancelAnimationFrame(frame);
   }, [agentId, entries.length, thinking]);
+  // Resizing the window rewraps every post: at the bottom before, still at the bottom after
+  // (narrowing it left the newest post and the stopped note below the fold).
+  useEffect(() => {
+    const scroller = end.current?.closest('.main-body');
+    const log = end.current?.parentElement;
+    if (!scroller || !log) return;
+    let atBottom = true;
+    // Only your own scrolling counts: the rewrap scrolls it too (before this hears of the resize).
+    let size = '';
+    const sizeNow = () => `${scroller.scrollHeight}x${scroller.clientHeight}`;
+    const onScroll = () => {
+      if (sizeNow() === size) atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 24;
+    };
+    const keep = () => {
+      if (atBottom) scroller.scrollTop = scroller.scrollHeight;
+      size = sizeNow();
+    };
+    const follow = new ResizeObserver(keep);
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', keep);
+    follow.observe(scroller);
+    follow.observe(log);
+    return () => {
+      scroller.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', keep);
+      follow.disconnect();
+    };
+  }, [agentId]);
 
   const send = () => {
     if (!draft.trim() || thinking) return;

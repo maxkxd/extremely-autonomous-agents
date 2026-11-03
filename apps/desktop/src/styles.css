@@ -2135,3 +2135,11 @@ textarea:focus-visible, input:focus-visible { outline: none; }
   .sinline { flex-wrap: wrap; }
   .sinline input { flex-basis: 100%; }
 }
+/* A narrow page: a request's title takes its own line under the agent, status and time,
+   lined up with the agent's name (it was squeezed into a column a few words wide). */
+@container main (max-width: 700px) {
+  .request { min-width: 0; } /* a grid item: else it grows to its title's full length */
+  .request-row { flex-wrap: wrap; row-gap: 4px; }
+  .request-agent { flex: 1; width: auto; min-width: 0; }
+  .request-summary { order: 1; flex-basis: 100%; padding-left: 50px; }
+}
