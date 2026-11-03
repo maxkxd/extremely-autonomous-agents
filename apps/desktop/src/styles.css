@@ -2152,9 +2152,9 @@ textarea:focus-visible, input:focus-visible { outline: none; }
 /* A narrow page: the header's buttons are just their icons (their names on hover), and its gaps
    tighten, so the owner's header stays one row from the widest window down to about 620px wide.
    (At 760px it was icons with too little room - two rows - then names again with too little room:
-   two rows twice as the window widened.) 880px is just wide enough for the names. */
+   two rows twice as the window widened.) 900px is just wide enough for the names (they need about 890px). */
 .main { container-type: inline-size; container-name: main; }
-@container main (max-width: 880px) {
+@container main (max-width: 900px) {
   .header-tools .agency-btn, .header-tools .builtins-toggle { font-size: 0; gap: 0; padding: 0 10px; }
   .header-tools .range-picker { width: 120px; }
   .main-header { padding: 12px 14px; gap: 10px; }
