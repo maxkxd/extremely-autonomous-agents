@@ -49,12 +49,8 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
   // Arriving for one integration (a request's "Open ... in Settings"): scrolled to, glowing blue.
   useEffect(() => {
     if (!focus || !view) return;
-    const row = document.querySelector<HTMLElement>(`[data-integration="${CSS.escape(focus)}"]`);
     onFocused?.();
-    if (!row) return;
-    row.scrollIntoView({ block: 'center' });
-    row.classList.add('spotlit');
-    window.setTimeout(() => row.classList.remove('spotlit'), 2600);
+    spotlight(focus);
   }, [focus, !!view]);
   if (error && !view) return <p className="custom-error">{error}</p>;
   if (!view) return <SkelRows n={4} h={54} what="integrations" />;
@@ -71,14 +67,20 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
           ))}
         </ul>
       </div>
+      {/* Its own group: it's how you reach the agency, not a service agents use. */}
+      <div className="sgroup">
+        <h3>Your AI assistant</h3>
+        <ul className="sconnectors">
+          {/* Everyone's own: it acts as them (agency-mcp.ts on the host). */}
+          <AgencyMcp />
+        </ul>
+      </div>
       <div className="sgroup">
         <h3>Integrations</h3>
         <p className="slead">Other services agents can use. Add any service that has an MCP server by its address.</p>
         <ul className="sconnectors">
           {/* What acts on the host's computer is the owner's and admins' (access.ts). */}
           {isAdmin() && <CodePlugins />}
-          {/* Everyone's own: it acts as them (agency-mcp.ts on the host). */}
-          <AgencyMcp />
           {isAdmin() && view.integrations.some(i => i.events.some(e => e.webhook)) && <WebhookTunnel tunnel={events.tunnel} onChange={t => setEvents(v => ({ ...v, tunnel: t }))} />}
           {others.map(i => (
             <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} events={events.events} />
@@ -94,6 +96,15 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
       {isAdmin() && <AgentBrowser status={view.profile} />}
     </>
   );
+}
+
+// Scrolled to, glowing blue: an integration you're sent to.
+function spotlight(id: string) {
+  const row = document.querySelector<HTMLElement>(`[data-integration="${CSS.escape(id)}"]`);
+  if (!row) return;
+  row.scrollIntoView({ block: 'center' });
+  row.classList.add('spotlit');
+  window.setTimeout(() => row.classList.remove('spotlit'), 2600);
 }
 
 type RowProps = { i: IntegrationView; refresh: () => void; open: boolean; setOpen: (o: boolean) => void; onOpenApproval: (id: string) => void; events: EventInfo[] };
@@ -145,7 +156,15 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
   const sub = ext
     ? i.connected
       ? [`Uses your ${ext.name} connection`, i.draft ? (i.approvalId ? 'Waiting for your approval' : 'The Agency Engineer is testing it') : tools].filter(Boolean).join(' · ')
-      : `Uses your ${ext.name} connection - connect ${ext.name} to use it`
+      : (
+        <>
+          Uses your {ext.name} connection - connect{' '}
+          <a className="text-link" href="#" onClick={e => (e.preventDefault(), spotlight(ext.id))}>
+            {ext.name}
+          </a>{' '}
+          to use it
+        </>
+      )
     : i.connected
     ? i.draft
       ? i.approvalId ? 'Tested · waiting for your approval' : 'The Agency Engineer is testing it'
