@@ -360,9 +360,12 @@ const BUILTIN: ToolDef[] = [
     description:
       'A person told you to change how you work from now on ("never lead with the free offer", "check PostHog before sending"). The Agency Engineer rewrites your instructions to match, with nothing left that says otherwise. Their words, as they said them.',
     schema: obj({ change: str('What the person asked for, in their words'), context: str('Anything else from the conversation that explains it') }, ['change']),
-    impl: (a, ctx) => {
+    impl: async (a, ctx) => {
       const change = String(a.change ?? '').trim();
       if (!change) throw new Error('change is what the person asked for, in their words.');
+      // A built-in's instructions are the app's, rewritten on every start: nobody can rewrite them.
+      if ((await readMeta(ctx.agent.id))?.builtIn)
+        throw new Error("Your instructions are built in and can't be rewritten. Work the way they asked from now on, keep it with memory.remember, and tell them so in your reply.");
       const id = fileRequest(
         ctx.agent.id,
         ctx.runId,
