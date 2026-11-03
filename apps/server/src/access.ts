@@ -111,7 +111,10 @@ export function noteName(actor: Actor) {
   names = { ...knownNames(), [actor.id]: actor.name };
   setSetting('person_names', names);
 }
-export const nameNow = (id: string | null | undefined, was: string | null | undefined): string | null => (id ? knownNames()[id] : undefined) ?? was ?? null;
+// No account on it but a person named: the host's own person (files.ts), by the name the host app
+// last gave. Nobody named (a built-in's): still nobody - everyone's.
+export const nameNow = (id: string | null | undefined, was: string | null | undefined): string | null =>
+  (id ? knownNames()[id] : was ? getSetting<string | null>('host_person', null) : null) || was || null;
 
 // --- The request being served, for code deep down (who made this agent, who decided that) ---
 

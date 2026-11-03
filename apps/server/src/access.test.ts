@@ -264,3 +264,13 @@ test('who did what: the change and what it was about, never keys or words', () =
     ],
   );
 });
+
+test("people show by the name they have now; the host's own agents by the host's", async () => {
+  const { nameNow, noteName } = await import('./access.js');
+  noteName({ id: 'user_ren', name: 'Ren Old', role: 'member', via: 'token' });
+  noteName({ id: 'user_ren', name: 'Ren New', role: 'member', via: 'token' });
+  assert.equal(nameNow('user_ren', 'Ren Old'), 'Ren New'); // renamed
+  exec("INSERT INTO settings (key, value) VALUES ('host_person', '\"Hana\"') ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+  assert.equal(nameNow(null, 'Hana Was'), 'Hana'); // no account on it: the host's own person
+  assert.equal(nameNow(null, null), null); // nobody named (a built-in's): still nobody
+});

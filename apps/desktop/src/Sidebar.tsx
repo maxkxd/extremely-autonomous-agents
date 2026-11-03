@@ -144,7 +144,8 @@ function OrgPicker({ onNew }: { onNew: () => void }) {
 const BUILT_IN_ORDER = ['fleet', 'conductor', 'doctor', 'reviewer'];
 function dmOrder(agents: typeof AGENTS) {
   const me = myAccountId();
-  const mine = (a: (typeof AGENTS)[number]) => !currentOrg() || !a.ownerId || a.ownerId === me;
+  // No account on it: the host's own person's (files.ts) - mine only if that's me, by name.
+  const mine = (a: (typeof AGENTS)[number]) => !currentOrg() || (a.ownerId ? a.ownerId === me : a.owner === ACCOUNT.name);
   const newest = (x: (typeof AGENTS)[number], y: (typeof AGENTS)[number]) => (y.createdAt ?? 0) - (x.createdAt ?? 0);
   const own = agents.filter(a => !a.builtIn);
   const builtIns = agents.filter(a => a.builtIn).sort((x, y) => (BUILT_IN_ORDER.indexOf(x.id) + 99) % 99 - (BUILT_IN_ORDER.indexOf(y.id) + 99) % 99);
