@@ -175,7 +175,7 @@ function toBuilt(out: ServerAgent): Built {
 export const saveAgent = (b: Built) => post<{ ok: true }>('/api/agents', { files: b.files, setup: b.setup });
 export const deleteAgentFiles = (id: string) => post<{ ok: true }>('/api/agents/delete', { id });
 
-export type AgentStatus = { status: 'ready' | 'setting-up' | 'generic'; name: string; department: Department; output: string[]; owner: string | null; ownerId?: string | null; builtIn?: boolean; service?: boolean; pack?: { id: string; member: string } | null };
+export type AgentStatus = { status: 'ready' | 'setting-up' | 'generic'; name: string; department: Department; output: string[]; owner: string | null; ownerId?: string | null; builtIn?: boolean; service?: boolean; pack?: { id: string; member: string } | null; createdAt?: number };
 export const agentStatuses = () => request<Record<string, AgentStatus>>('/api/agents/status');
 
 // Settings > Tools (server/src/toolSettings.ts): every tool the agents use, and its level.

@@ -9,13 +9,15 @@ import type { Resolution } from './Approvals';
 import { Loading, Skel, SkelLines } from './Skeleton';
 import { getTools } from './builder';
 import { useOffline } from './offline';
+import { clockTime } from './clock';
 
 // Placeholder history is "minutes ago"; pin it to the page's load time.
 const loadedAt = Date.now();
 export type StampedEntry = DmEntry & { at: number };
 export const stamp = (e: DmEntry, at = loadedAt - e.minutesAgo * 60_000): StampedEntry => ({ ...e, at });
 
-const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+// The app's one clock format (clock.ts), everywhere it shows a time.
+const clock = clockTime;
 // A tool the list doesn't know (yet): write_file -> Write file.
 const plainTool = (id: string) => (id.charAt(0).toUpperCase() + id.slice(1)).replace(/[_-]+/g, ' ');
 
@@ -32,10 +34,21 @@ function dayLabel(t: number) {
 type ToolState = 'ok' | 'failed' | 'pending';
 function toolState(t: ToolLine, outcomes: Record<string, Resolution>): ToolState {
   if (!t.approvalId) return t.status;
-  const o = outcomes[t.approvalId];
+  // Decided this session, or as the server last knew it (after a reload).
+  const o = outcomes[t.approvalId] ?? (t.decided && t.decided !== 'pending' ? t.decided : undefined);
   return o === 'approved' ? 'ok' : o ? 'failed' : 'pending';
 }
 const TOOL_TITLE: Record<ToolState, string> = { ok: 'Succeeded', failed: 'Failed', pending: 'Waiting on approval' };
+
+// Counting up while it works on your message.
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  return <span className="dm-elapsed"> {duration(Math.max(0, Math.round((now - since) / 1000)))}</span>;
+}
 
 const duration = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`);
 
@@ -109,8 +122,10 @@ export function AgentDM({
   stopped = false,
   sendError = null,
   onOpenDashboard,
+  since = null,
 }: {
   onOpenDashboard?: () => void; // a stopped agent's reply links to where it's resumed
+  since?: number | null; // when the message it's answering was sent: "running... 2m"
   agentId: string;
   stopped?: boolean; // it or the agency is stopped: it won't answer until it's resumed
   sendError?: string | null; // the message wasn't taken (e.g. it's stopped): why
@@ -261,14 +276,19 @@ export function AgentDM({
             <div className="dm-post-main">
               <div className="dm-running">
                 <Loader2 size={13} className="spin" />
-                {agent.name} is running…
+                {agent.name} is running…{since != null && <Elapsed since={since} />}
               </div>
             </div>
           </div>
         )}
         {/* Once it has said so itself (a message sent while stopped), no second note. */}
-        {(sendError || (stopped && !entries.some(e => e.kind === 'stopped'))) && (
-          <div className="dm-stopped">{sendError ?? `${agent.name} is stopped, so it won't answer until it's resumed.`}</div>
+        {/* A helper takes no messages: it works when an agent needs it, stopped or not. */}
+        {agent.service ? (
+          <div className="dm-stopped">{agent.name} works only when an agent needs it.</div>
+        ) : (
+          (sendError || (stopped && !entries.some(e => e.kind === 'stopped'))) && (
+            <div className="dm-stopped">{sendError ?? `${agent.name} is stopped, so it won't answer until it's resumed.`}</div>
+          )
         )}
         <div ref={end} />
       </div>

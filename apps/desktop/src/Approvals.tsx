@@ -172,7 +172,8 @@ export function ApprovalsToolbar({
           </button>
         </div>
       )}
-      {options.length > 0 && <AgentFilter options={options} value={agentFilter} onChange={setAgentFilter} />}
+      {/* Always there, on Approvals as on Requests: it used to vanish whenever nothing was waiting. */}
+      <AgentFilter options={options} value={agentFilter} onChange={setAgentFilter} />
     </div>
   );
 }

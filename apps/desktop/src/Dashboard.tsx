@@ -44,12 +44,14 @@ const TOTAL_MAX_WIDTH = 100;
 // help window uses it to show what hovering does).
 export function Donut({
   caption,
+  period,
   slices,
   format,
   loading = false,
   pin,
 }: {
   caption: string;
+  period?: string; // the time frame it covers ("all time"), under the caption
   slices: Slice[];
   format: (n: number) => string;
   loading?: boolean;
@@ -159,6 +161,7 @@ export function Donut({
         </g>
         {!loading && <text ref={totalRef} x={SIZE / 2} y={SIZE / 2 - 9} className="donut-total">{format(total)}</text>}
         <text x={SIZE / 2} y={SIZE / 2 + 20} className="donut-caption">{caption}</text>
+        {period && <text x={SIZE / 2} y={SIZE / 2 + 40} className="donut-period">{period}</text>}
       </svg>
       {hover && (
         <div className="chart-tip" style={{ left: hover.x, top: hover.y }}>
@@ -484,8 +487,9 @@ export function AgentCard({
           {inSetup && <SetupList setup={setup!} onOpenRequest={id => onOpenRequest?.(id)} onStart={startable ? () => setState('active') : undefined} someoneElse={viewOnly ? agent.owner || 'Its owner' : null} />}
         </header>
         <div className="card-charts">
-          <Donut caption="output" slices={output} format={count} loading={loading} />
-          <Donut caption="cost" slices={cost} format={dollars} loading={loading} />
+          {/* Their time frame, as "Runs · this week" says it beside them. */}
+          <Donut caption="output" period={rangeLabel(range).toLowerCase()} slices={output} format={count} loading={loading} />
+          <Donut caption="cost" period={rangeLabel(range).toLowerCase()} slices={cost} format={dollars} loading={loading} />
         </div>
       </div>
 

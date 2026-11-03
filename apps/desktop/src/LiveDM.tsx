@@ -99,6 +99,7 @@ export function LiveDM({
       onSend={send}
       approvalOutcomes={approvalOutcomes}
       onOpenDashboard={onOpenDashboard}
+      since={waitingSince}
     />
   );
 }

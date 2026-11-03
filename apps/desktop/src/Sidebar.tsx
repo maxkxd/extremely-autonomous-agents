@@ -22,7 +22,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { ACCOUNT, AGENTS, type Department } from './data';
-import { checkWaitingInvites, currentOrg, myName, onMyName, onWaitingInvites, ownOrg, state, switchAgency, teamOrgs, waitingInvites } from './account';
+import { checkWaitingInvites, currentOrg, myAccountId, myName, onMyName, onWaitingInvites, ownOrg, state, switchAgency, teamOrgs, waitingInvites } from './account';
 import { openSignIn } from './SignIn';
 import { useDismiss } from './useDismiss';
 import { usePhoto } from './photo';
@@ -138,6 +138,18 @@ function OrgPicker({ onNew }: { onNew: () => void }) {
   );
 }
 
+// Agent DMs: yours first, then teammates', newest first in each, the built-ins last
+// (the Dashboard keeps its own drag order).
+const BUILT_IN_ORDER = ['fleet', 'conductor', 'doctor', 'reviewer'];
+function dmOrder(agents: typeof AGENTS) {
+  const me = myAccountId();
+  const mine = (a: (typeof AGENTS)[number]) => !currentOrg() || !a.ownerId || a.ownerId === me;
+  const newest = (x: (typeof AGENTS)[number], y: (typeof AGENTS)[number]) => (y.createdAt ?? 0) - (x.createdAt ?? 0);
+  const own = agents.filter(a => !a.builtIn);
+  const builtIns = agents.filter(a => a.builtIn).sort((x, y) => (BUILT_IN_ORDER.indexOf(x.id) + 99) % 99 - (BUILT_IN_ORDER.indexOf(y.id) + 99) % 99);
+  return [...own.filter(mine).sort(newest), ...own.filter(a => !mine(a)).sort(newest), ...builtIns];
+}
+
 export function Sidebar({
   view,
   onSelect,
@@ -226,7 +238,7 @@ export function Sidebar({
           <ul className="dm-list">
             {/* Everyone in an organization sees every agent (and can talk to the Agency Engineer);
                 only an agent's owner or an admin changes it (Dashboard). */}
-            {AGENTS.map(a => {
+            {dmOrder(AGENTS).map(a => {
               const v: View = `agent:${a.id}`;
               const DeptIcon = DEPARTMENT_ICON[a.department];
               return (

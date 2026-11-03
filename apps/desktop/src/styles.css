@@ -211,6 +211,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .donut-seg.hot { stroke-width: 50; }
 .donut-total { fill: var(--text); font-size: 30px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
 .donut-caption { fill: var(--muted); font-size: 15px; text-anchor: middle; dominant-baseline: central; }
+.donut-period { fill: #6a6a6a; font-size: 11px; text-anchor: middle; dominant-baseline: central; }
 .chart-tip {
   position: absolute; z-index: 5; pointer-events: none;
   transform: translate(12px, -50%);
@@ -357,6 +358,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .builtins-toggle:hover { border-color: var(--border-strong); }
 .builtins-toggle.on { border-color: var(--border-strong); color: var(--fg, inherit); }
+.builtins-toggle .switch { display: inline-block; flex: none; pointer-events: none; }
 .range-picker.open .range-btn { border-color: var(--border-strong); border-bottom-color: transparent; border-radius: 8px 8px 0 0; }
 .range-picker.open .chev { transform: rotate(180deg); }
 .range-picker { --dd-bg: var(--bg); }
@@ -1120,6 +1122,7 @@ ul { list-style: none; margin: 0; padding: 0; }
    approval (pulses, glows and sends out a sonar ring). */
 .dm-tool-dot { position: relative; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--attention); }
 .dm-tool-dot.failed { background: #e5484d; }
+.dm-elapsed { color: var(--muted); font-variant-numeric: tabular-nums; }
 .dm-tool-dot.pending { background: #f2c46d; animation: tool-pulse 1.4s ease-in-out infinite; }
 .dm-tool-dot.pending::after {
   content: ''; position: absolute; inset: -1px; border-radius: 50%;

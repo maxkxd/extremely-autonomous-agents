@@ -1,9 +1,10 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { serveUi } from './ui.js';
 import { collectTicket, handInTicket, startHandoff } from './handoff.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { BuilderError, build, interview, matchPack, profileInterview, type Build, type Context, type Pack, type Turn } from './builder.js';
-import { compose, kpiLabels, listIds, readMeta, remove, save, slug, type AgentFiles } from './files.js';
+import { compose, DATA, kpiLabels, listIds, readMeta, remove, save, slug, type AgentFiles } from './files.js';
 import { scanFleet } from './fleet.js';
 import { createAgent, deleteAgent } from './agents.js';
 import { enqueue, resume } from './jobs.js';
@@ -411,7 +412,9 @@ const routes: Record<string, Route> = {
     const out: Record<string, unknown> = {};
     for (const id of await listIds()) {
       const m = await readMeta(id);
-      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output, owner: nameNow(m.ownerId, m.owner), ownerId: m.ownerId ?? null, builtIn: !!m.builtIn, service: !!m.service, pack: m.pack ?? null };
+      // When it was made (its folder's), for newest-first lists.
+      const createdAt = await stat(join(DATA, slug(id))).then(s => s.birthtimeMs || s.ctimeMs, () => 0);
+      if (m) out[id] = { status: m.status, name: m.name, department: m.department, output: m.output, owner: nameNow(m.ownerId, m.owner), ownerId: m.ownerId ?? null, builtIn: !!m.builtIn, service: !!m.service, pack: m.pack ?? null, createdAt };
     }
     return out;
   },

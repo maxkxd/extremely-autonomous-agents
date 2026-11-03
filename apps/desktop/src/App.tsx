@@ -1,7 +1,7 @@
 import { HelpButton } from './help/HelpButton';
 import { helpTopicFor } from './help/topics';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ChevronRight, Eye, EyeOff, Plus } from 'lucide-react';
+import { ChevronRight, Plus } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
@@ -16,6 +16,7 @@ import { NEW_SESSION, agentStatuses, getAgency, getIntegrations, getHostZone, se
 import { subscribeToDecisions } from './live';
 import { carryAssistantMessages, currentOrg, isAdmin, offline, onOffline, scoped, signOut, state } from './account';
 import { OFFLINE_WHY } from './offline';
+import { clockTime } from './clock';
 import { SignIn, type SignInAsk } from './SignIn';
 import { Elsewhere } from './Elsewhere';
 import { Onboarding, onboarded } from './Onboarding';
@@ -116,12 +117,12 @@ function Agency() {
   const [dmStopped, setDmStopped] = useState(false); // the agent whose DM is open is stopped (LiveDM)
   useEffect(() => setDmStopped(false), [view]);
   const [range, setRange] = useState<TimeRange>('week');
-  // The built-in agents' cards, hidden on the Dashboard only (off by default; remembered here).
+  // The built-in agents' cards, hidden on the Dashboard only (hidden by default; remembered here).
   const [hideBuiltIns, setHideBuiltIns] = useState(() => {
     try {
-      return localStorage.getItem(scoped('eaa.hideBuiltIns')) === '1';
+      return localStorage.getItem(scoped('eaa.hideBuiltIns')) !== '0';
     } catch {
-      return false;
+      return true;
     }
   });
   const toggleBuiltIns = () =>
@@ -362,8 +363,10 @@ function Agency() {
           const have = AGENTS.find(x => x.id === id);
           if (have) {
             // What only the server knows, kept current on one this browser already has.
-            if (!!have.service !== !!a.service || !!have.builtIn !== !!a.builtIn || have.name !== a.name || (have.ownerId ?? null) !== (a.ownerId ?? null) || JSON.stringify(have.pack ?? null) !== JSON.stringify(a.pack ?? null)) {
-              Object.assign(have, { name: a.name, ownerId: a.ownerId ?? null, pack: a.pack ?? null, builtIn: a.builtIn || undefined, service: a.service || undefined, ...(a.builtIn ? { owner: 'Built-in' } : {}) });
+            // Its owner's name too: the one they have now, after a rename (access.ts).
+            const owner = a.builtIn ? 'Built-in' : (a.owner ?? have.owner);
+            if (!!have.service !== !!a.service || !!have.builtIn !== !!a.builtIn || have.name !== a.name || have.owner !== owner || have.createdAt !== a.createdAt || (have.ownerId ?? null) !== (a.ownerId ?? null) || JSON.stringify(have.pack ?? null) !== JSON.stringify(a.pack ?? null)) {
+              Object.assign(have, { name: a.name, owner, ownerId: a.ownerId ?? null, createdAt: a.createdAt, pack: a.pack ?? null, builtIn: a.builtIn || undefined, service: a.service || undefined });
               added = true;
             }
             continue;
@@ -374,6 +377,7 @@ function Agency() {
             department: a.department,
             owner: a.builtIn ? 'Built-in' : (a.owner ?? ACCOUNT.name),
             ownerId: a.ownerId ?? null,
+            createdAt: a.createdAt,
             builtIn: a.builtIn || undefined,
             service: a.service || undefined,
             output: outputSlices(a.output),
@@ -620,7 +624,7 @@ function Agency() {
       <main className="main">
         {offlineSince && (
           <div className="offline-banner" role="status">
-            Host offline since {new Date(offlineSince).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. Showing what you last saw; changes wait until it's back.
+            Host offline since {new Date(offlineSince).toLocaleDateString([], { weekday: 'short' })} {clockTime(offlineSince)}. Showing what you last saw; changes wait until it's back.
           </div>
         )}
         <header className="main-header" ref={headerRef}>
@@ -649,8 +653,9 @@ function Agency() {
           {view === 'dashboard' && (
             <div className="header-tools">
               {isAdmin() && <AgencyControls state={agency} onChange={changeAgency} />}
-              <button className={`builtins-toggle${hideBuiltIns ? ' on' : ''}`} aria-pressed={hideBuiltIns} onClick={toggleBuiltIns} title={hideBuiltIns ? "Built-in agents hidden on the Dashboard - show them" : "Hide the built-in agents on the Dashboard"}>
-                {hideBuiltIns ? <EyeOff size={15} strokeWidth={1.75} /> : <Eye size={15} strokeWidth={1.75} />}
+              {/* A switch: on shows the built-in agents' cards. */}
+              <button className="builtins-toggle" role="switch" aria-checked={!hideBuiltIns} onClick={toggleBuiltIns} title={hideBuiltIns ? 'Show the built-in agents on the Dashboard' : 'Hide the built-in agents on the Dashboard'}>
+                <span className={`switch sm${hideBuiltIns ? '' : ' on'}`} aria-hidden />
                 Built-ins
               </button>
               <RangePicker value={range} onChange={setRange} />

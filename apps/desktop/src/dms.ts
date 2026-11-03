@@ -4,7 +4,7 @@
 // One tool call in a run post. Field NAMES only, never values.
 // status: ok / failed, or for a human-approved tool, decided by its approval:
 // pending until it's approved (ok) or rejected / expired (failed).
-export type ToolLine = { server: string; tool: string; fields: string[]; status: 'ok' | 'failed'; approvalId?: string };
+export type ToolLine = { server: string; tool: string; fields: string[]; status: 'ok' | 'failed'; approvalId?: string; decided?: string };
 
 export type RunPost = {
   kind: 'run';

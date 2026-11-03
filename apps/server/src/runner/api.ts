@@ -304,9 +304,11 @@ export const runnerRoutes: Record<string, Route> = {
     // the Agency Engineer's are everyone's, as anyone may write to it.
     if (id !== FLEET_ENGINEER) await requireMakerOrAdmin(id, null, currentActor(), 'see its DMs');
     return all<{ kind: string; body: string; at: number }>('SELECT kind, body, at FROM dm WHERE agent_id = ? ORDER BY at, id', id).map(r => {
-      const b = JSON.parse(r.body) as { by?: string; byId?: string };
+      const b = JSON.parse(r.body) as { by?: string; byId?: string; tools?: { approvalId?: string }[] };
+      // A tool that waited on approval: how it was decided, so its dot says so after a reload too.
+      const tools = b.tools?.map(t => (t.approvalId ? { ...t, decided: one<{ status: string }>('SELECT status FROM approvals WHERE id = ?', t.approvalId)?.status ?? 'pending' } : t));
       // Who wrote it, by the name they have now.
-      return { ...b, ...(b.byId ? { by: nameNow(b.byId, b.by) } : {}), kind: r.kind, at: r.at };
+      return { ...b, ...(tools ? { tools } : {}), ...(b.byId ? { by: nameNow(b.byId, b.by) } : {}), kind: r.kind, at: r.at };
     });
   },
   'POST /api/dm': async (_req, _q, body) => {
