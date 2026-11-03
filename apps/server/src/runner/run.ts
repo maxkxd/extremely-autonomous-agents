@@ -39,26 +39,22 @@ export type RunResult = { id: string; status: 'succeeded' | 'failed' | 'stopped'
 
 export const newRunId = () => `r_${randomBytes(4).toString('hex')}`;
 
-// Runs have no length limit, so a run going round in circles is ended instead:
-// the same call (tool and arguments) several times in a row, or a long stretch
-// of calls that produce nothing new. Real work, however long, never trips it.
-export const SAME_CALL_LIMIT = 5;
-export const IDLE_CALL_LIMIT = 100;
-export const LOOPING = 'It kept repeating the same step, so the run was ended.';
-export const IDLE = 'It went a long time without producing anything new, so the run was ended.';
+// Runs have no length limit, so a run stuck in a loop is ended instead: the
+// exact same call (tool and arguments), failing or producing nothing, hundreds
+// of times in a row. Anything that produces output, or any different call,
+// starts the count again - output is never cut short by it.
+export const SAME_CALL_LIMIT = 300;
+export const LOOPING = 'It kept repeating the same step with nothing to show for it, so the run was ended.';
 export function loopGuard() {
   let last = '';
   let same = 0;
-  let idle = 0;
-  // Each call with what it counted; the reason to end the run, or null.
-  return (call: { name: string; args: unknown }, counted: number): string | null => {
+  // Each call with what it counted and whether it failed; the reason to end the run, or null.
+  return (call: { name: string; args: unknown }, counted: number, failed = false): string | null => {
     const sig = `${call.name} ${JSON.stringify(call.args ?? {})}`;
-    same = sig === last ? same + 1 : 1;
-    last = sig;
-    idle = counted > 0 ? 0 : idle + 1;
-    if (same >= SAME_CALL_LIMIT) return LOOPING;
-    if (idle >= IDLE_CALL_LIMIT) return IDLE;
-    return null;
+    const empty = failed || counted <= 0;
+    same = !empty ? 0 : sig === last ? same + 1 : 1;
+    last = empty ? sig : '';
+    return same >= SAME_CALL_LIMIT ? LOOPING : null;
   };
 }
 
@@ -386,7 +382,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
                 if (stuck) return { content: `${stuck} End your turn now.`, error: true };
                 const r = await execute(ctx, call, ids);
                 acts += r.counted;
-                stuck = guard(call, r.counted);
+                stuck = guard(call, r.counted, !!r.error);
                 return { content: r.content, error: r.error };
               },
               next: () => {
@@ -454,7 +450,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
           const r = await execute(ctx, call, ids);
           acts += r.counted;
           results.push({ id: call.id, name: call.name, content: r.content, error: r.error });
-          stuck = guard(call, r.counted);
+          stuck = guard(call, r.counted, !!r.error);
           if (stuck) throw new Error(stuck);
         }
         messages.push({ role: 'tool', results });

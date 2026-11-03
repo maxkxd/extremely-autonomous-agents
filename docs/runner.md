@@ -166,9 +166,10 @@ opening says what it already did, so nothing is done twice.
 - **Failure backoff**: an agent whose runs keep failing within seconds (broken
   model, broken tool) backs off instead of spinning, at every level.
 - **Going round in circles** (`loopGuard` in `runner/run.ts`): a run has no
-  length or turn limit, but one that makes the same tool call (same arguments)
-  5 times in a row, or 100 calls in a row that produce no output, is ended as
-  failed with that reason, so failure backoff applies. The model's health isn't
+  length or turn limit, but one that makes the exact same tool call (same
+  arguments) 300 times in a row, each failing or producing no output, is ended
+  as failed with that reason, so failure backoff applies. Any output, or any
+  different call, starts the count again: output is never cut short. The model's health isn't
   marked down for it. A run on a plan with its own loop (Copilot) has its
   further calls refused and is ended when that loop returns.
 - **Runaway backstop**: at most 1,000 runs a day for an agent at Chill, Steady
