@@ -31,7 +31,7 @@ import {
   type ResourceRequest,
   type TimeRange,
 } from './data';
-import { Requests, requestItems, type RequestResolution } from './Requests';
+import { Requests, requestItems, visibleRequests, type RequestResolution } from './Requests';
 import {
   Approvals,
   ApprovalsToolbar,
@@ -320,7 +320,7 @@ function Agency() {
   const [requestScope, setRequestScope] = useState<ApprovalScope>('mine');
   const [requestFilterRaw, setRequestFilter] = useState<string | null>(null);
   const requestFilter =
-    requestFilterRaw && visibleApprovals(pendingRequests, requestScope).some(r => r.agentId === requestFilterRaw)
+    requestFilterRaw && visibleRequests(pendingRequests, requestScope).some(r => r.agentId === requestFilterRaw)
       ? requestFilterRaw
       : null;
   const requestCounts: Record<string, number> = {};
@@ -438,7 +438,7 @@ function Agency() {
   const openRequest = (live: number) => {
     const r = openRequests.find(x => x.live === live);
     if (!r) return;
-    if (!visibleApprovals([r], requestScope).length && isAdmin()) setRequestScope('all');
+    if (!visibleRequests([r], requestScope).length && isAdmin()) setRequestScope('all');
     setRequestFilter(null);
     setFocusRequest(live);
     setView('requests');
@@ -742,7 +742,7 @@ function Agency() {
               // A member opens only their own requests (someone else's showed as a link that did nothing).
               refs={{
                 onRequest: openRequest,
-                canOpen: id => openRequests.some(r => r.live === id && (isAdmin() || visibleApprovals([r], 'mine').length > 0)),
+                canOpen: id => openRequests.some(r => r.live === id && (isAdmin() || visibleRequests([r], 'mine').length > 0)),
                 onSettings: openIntegration,
               }}
               focus={focusRequest}

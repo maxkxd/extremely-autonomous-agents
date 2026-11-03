@@ -8,6 +8,16 @@ import { sendRequestMessage, sendToIde } from './builder';
 import { RichText } from './RichText';
 import { Loading, Skel } from './Skeleton';
 import { useOffline } from './offline';
+import { isAdmin } from './account';
+
+// A request waiting for a sign-in the whole organization shares (Gmail, Square...)
+// is everyone's to see, not just its agent's owner's: a teammate's request can
+// point at it ("the same connection as request #4"). Acting on it stays theirs.
+export function visibleRequests(list: ResourceRequest[], scope: ApprovalScope): ResourceRequest[] {
+  if (!ACCOUNT.org || scope === 'all') return list;
+  const mine = new Set(visibleApprovals(list, scope));
+  return list.filter(r => mine.has(r) || !!r.waitingOn);
+}
 
 // How a request left the page: you did it, or you rejected it. (One the Fleet
 // Engineer settles is closed on the server.)
@@ -121,7 +131,10 @@ function RequestRow({
   }, [serverThread.length]);
   const thread: Message[] = [...serverThread, ...echo];
   const [draft, setDraft] = useState('');
-  const off = useOffline(); // the host is offline: nothing here can be sent or decided
+  // Nothing here can be sent or decided while the host is offline, nor on a teammate's
+  // shared sign-in request (shown to everyone, theirs or an admin's to answer).
+  const theirs = !!ACCOUNT.org && !isAdmin() && !visibleApprovals([request], 'mine').length;
+  const off = useOffline() ?? (theirs ? `Only ${agent.owner || 'its owner'} or an admin can answer this request` : null);
   const [leaving, setLeaving] = useState<RequestResolution | 'done' | null>(null);
   const [collapsing, setCollapsing] = useState(false);
   const timers = useRef<number[]>([]);
@@ -205,7 +218,7 @@ function RequestRow({
           )}
           {waitingOnYou && <span className="request-status waiting">{request.stage === 'person' ? 'Needs you' : 'Waiting on you'}</span>}
           {waitingOnApproval && <span className="request-status approval">Waiting on approval</span>}
-          {showOwner && (
+          {(showOwner || theirs) && (
             <span className="request-owner" title="Owner">
               <User size={12} strokeWidth={1.75} />
               {agent.owner}
@@ -459,7 +472,7 @@ export function Requests({
   // together: the Agency Engineer hands over older requests while you're reading
   // or answering a newer one, and each used to push it down under your cursor.
   const seen = useRef(new Map<string, number>());
-  const oldestFirst = visibleApprovals(pending, scope)
+  const oldestFirst = visibleRequests(pending, scope)
     .filter(r => !agentFilter || r.agentId === agentFilter)
     // Filed in the same minute (a pack's setup files a dozen at once): by number.
     .sort((a, b) => b.minutesAgo - a.minutesAgo || (a.live ?? 0) - (b.live ?? 0));
