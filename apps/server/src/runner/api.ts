@@ -590,9 +590,12 @@ export const runnerRoutes: Record<string, Route> = {
   // A run on a plan is priced as the same model on an API; Ollama costs $0; one
   // whose model has no known price is counted, and its cost reported as unknown.
   // The month is the host's (clock.ts).
-  'GET /api/usage': async () => {
+  'GET /api/usage': async (_req, q) => {
     const now = Date.now();
-    const monthStart = startOfMonth(now);
+    // This calendar month, or the Dashboard's time frame (days back) when asked - the
+    // limits are monthly either way.
+    const days = Number(q.get('days'));
+    const monthStart = days > 0 ? now - Math.min(36_500, days) * 86_400_000 : startOfMonth(now);
     const month = new Map(
       all<{ agent_id: string; spend: number | null; runs: number; unknown: number }>(
         'SELECT agent_id, SUM(cost_usd) AS spend, COUNT(*) AS runs, SUM(cost_usd IS NULL) AS unknown FROM runs WHERE started_at >= ? GROUP BY agent_id',

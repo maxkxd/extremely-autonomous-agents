@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Building2, Check, ChevronDown, ChevronRight, Gauge, LoaderCircle, LogOut, Plug, Plus, Trash2, User, Wrench, X } from 'lucide-react';
-import { ACCOUNT, AGENTS } from './data';
+import { ACCOUNT, AGENTS, rangeDays, rangeLabel, type TimeRange } from './data';
+import { RangePicker } from './RangePicker';
 import {
   createInvite,
   joinSelf,
@@ -125,7 +126,7 @@ export function Settings({
           <div className="settings-nav-foot">
             <button className="settings-nav-item" onClick={onLogOut}>
               <LogOut size={16} strokeWidth={1.8} />
-              {state.me ? 'Log out' : 'Sign in'}
+              {state.me ? 'Log out' : 'SIGN IN'}
             </button>
           </div>
         </nav>
@@ -649,7 +650,7 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
         <div className="sorg-row">
           <span>Sign up to create or join one with us</span>
           <button className="sbtn signup-btn" onClick={e => openSignIn('up', e.currentTarget)}>
-            Sign up
+            SIGN UP
           </button>
         </div>
       ) : mine ? (
@@ -667,7 +668,9 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
         <p className="snotes-empty">{step}...</p>
       ) : (
         <div className="sfield">
-          <span className="sfield-label">Create an organization, hosted on this computer</span>
+          <span className="sfield-label">
+            Create an organization, hosted on this computer <span className="muted">- teammates can use it while this computer is on with the app open</span>
+          </span>
           <input value={name} placeholder="Name" maxLength={80} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && start()} />
           <button className="sbtn swhite" disabled={!name.trim()} onClick={start}>
             Create
@@ -897,6 +900,7 @@ function OrgPeople() {
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const manage = org.role !== 'member';
   // Self-hosted: the address invites go with.
   const [address, setAddressShown] = useState<string | null>(null);
@@ -933,6 +937,8 @@ function OrgPeople() {
             <span className="smember-name">
               {m.userId === me ? ACCOUNT.name : m.name}
               {m.userId === me && <span className="muted"> (you)</span>}
+              {/* Two Jos can be told apart. */}
+              {m.email && <span className="smember-email">{m.email}</span>}
             </span>
             {org.role === 'owner' && m.role !== 'owner' ? (
               <RolePicker value={m.role as 'admin' | 'member'} onChange={r => act(() => setRole(org.id, m.userId, r))} />
@@ -1002,6 +1008,7 @@ function OrgPeople() {
                 <li key={i.code}>
                   {org.self && <code className="scode">{i.code}</code>}
                   <span className="muted">{i.email ?? 'Anyone with the code'}</span>
+                  <span className="sinvite-when">Invited · expires {new Date(i.expiresAt).toLocaleDateString([], { day: 'numeric', month: 'short' })}</span>
                   <button
                     className="sicon"
                     aria-label="Revoke"
@@ -1032,11 +1039,12 @@ function OrgPeople() {
             Delete organization
           </button>
         ) : (
-          <button className="sbtn danger" onClick={() => act(async () => (await leaveOrganisation(org.id), switchAgency('personal')))}>
+          <button className="sbtn danger strong" onClick={() => setLeaving(true)}>
             Leave
           </button>
         )}
       </div>
+      {leaving && <LeaveOrgDialog name={org.name} onCancel={() => setLeaving(false)} onConfirm={async () => (await leaveOrganisation(org.id), switchAgency('personal'))} />}
       {confirming && <DeleteOrgDialog name={org.name} onCancel={() => setConfirming(false)} onConfirm={async () => (await deleteOrganisation(org.id), switchAgency('personal'))} />}
     </>
   );
@@ -1076,6 +1084,38 @@ function DeleteOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel
           <button className="confirm-delete" onClick={go} disabled={!ok || busy}>
             <Trash2 size={14} strokeWidth={2} />
             {busy ? 'Deleting...' : 'Delete organization'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Leaving asks first: it looked as harmless as "Back to your agency" beside it.
+function LeaveOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    setBusy(true);
+    try {
+      await onConfirm();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && !busy && onCancel()}>
+      <div className="confirm" role="alertdialog" aria-labelledby="leave-title">
+        <h2 id="leave-title">Leave {name}?</h2>
+        <p>You'll stop seeing its agents, requests and approvals. Your agents there stay with the organization. To come back, someone has to invite you again.</p>
+        {error && <div className="custom-error">{error}</div>}
+        <div className="confirm-actions">
+          <button className="confirm-cancel" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button className="confirm-delete" onClick={go} disabled={busy}>
+            {busy ? 'Leaving...' : 'Leave'}
           </button>
         </div>
       </div>
@@ -1196,11 +1236,13 @@ const money = (n: number) => `$${n.toFixed(2)}`;
 
 function UsageSection() {
   const off = useOffline();
-  // This calendar month, from the runner: what each agent's runs cost.
+  // What each agent's runs cost, from the runner: this calendar month, or another time frame
+  // (the Dashboard's picker). The limits stay monthly.
+  const [range, setRange] = useState<TimeRange>('month');
   const [usage, setUsage] = useState<Usage | null>(null);
   useEffect(() => {
-    getUsage().then(setUsage, () => {});
-  }, []);
+    getUsage(range === 'month' ? undefined : rangeDays(range)).then(setUsage, () => {});
+  }, [range]);
   // Most first: by spend to the cent, then by runs (a fraction of a cent put 1 run above 7).
   const cents = (n: number) => Math.round(n * 100);
   const rows = (usage?.agents ?? []).map(a => ({ a, spend: a.monthUsd })).sort((x, y) => cents(y.spend) - cents(x.spend) || y.a.monthRuns - x.a.monthRuns);
@@ -1213,8 +1255,10 @@ function UsageSection() {
   const barOf = (spend: number, runs: number) => (bySpend ? spend / Math.max(...rows.map(r => r.spend)) : runs / Math.max(...rows.map(r => r.a.monthRuns), 1));
   return (
     <section className="ssection">
-      <h2>Usage</h2>
-      <p className="slead">This month.</p>
+      <div className="susage-head">
+        <h2>Usage</h2>
+        <RangePicker value={range} onChange={setRange} />
+      </div>
       <div className="stiles">
         <div className="stile">
           <span className="stile-label">Spend</span>
@@ -1240,7 +1284,10 @@ function UsageSection() {
       </div>
       {/* All on AI plans: nothing is charged per run, which "$0.00 over 18 runs" didn't say. */}
       {usage && runs > 0 && total < 0.01 && <p className="slead">Runs on an AI plan aren't charged per run, so they show as $0.00.</p>}
-      <h3>By agent</h3>
+      <div className="susage-cols">
+        <h3>By agent</h3>
+        <span className="susage-limit-head">Monthly limit</span>
+      </div>
       {/* Above the list, as on Connectors (it was below ten rows of locked boxes). */}
       {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change the monthly limits.</p>}
       {/* Each one's monthly spending limit sits beside its cost this month
@@ -1257,7 +1304,7 @@ function UsageSection() {
             </li>
           ))}
         {usage && (
-          <li className="susage-org" title={`${ACCOUNT.org ? 'The whole organization' : 'All agents'}: ${money(total)} over ${runs} runs this month`}>
+          <li className="susage-org" title={`${ACCOUNT.org ? 'The whole organization' : 'All agents'}: ${money(total)} over ${runs} runs ${rangeLabel(range).toLowerCase()}`}>
             <span className="susage-name">
               <Building2 size={14} strokeWidth={1.75} />
               {ACCOUNT.org ? 'Whole organization' : 'All agents'}
@@ -1278,7 +1325,7 @@ function UsageSection() {
           const dept = AGENTS.find(x => x.id === a.id)?.department ?? a.department;
           const Icon = DEPARTMENT_ICON[dept as keyof typeof DEPARTMENT_ICON] ?? DEPARTMENT_ICON.agency;
           return (
-            <li key={a.id} title={`${a.name}: ${money(spend)} over ${a.monthRuns} runs this month${a.monthUnknownRuns ? ` (${a.monthUnknownRuns} at an unknown price)` : ''}`}>
+            <li key={a.id} title={`${a.name}: ${money(spend)} over ${a.monthRuns} runs ${rangeLabel(range).toLowerCase()}${a.monthUnknownRuns ? ` (${a.monthUnknownRuns} at an unknown price)` : ''}`}>
               <span className="susage-name">
                 <Icon size={14} strokeWidth={1.75} />
                 {a.name}
@@ -1445,12 +1492,31 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
 
 // --- Connectors --------------------------------------------------------------
 
+// To a heading on the same page (Connectors' jump links).
+function jumpTo(from: HTMLElement, heading: string) {
+  const page = from.closest('.settings-body');
+  const h = [...(page?.querySelectorAll('h3') ?? [])].find(x => x.textContent?.trim() === heading);
+  h?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
 function ConnectorsSection({ onOpenApproval, focus, onFocused }: { onOpenApproval: (id: string) => void; focus?: string | null; onFocused?: () => void }) {
   const off = useOffline();
   return (
     <section className="ssection">
       <h2>Connectors</h2>
-      <p className="slead">Keys and sign-ins go here - never in a chat with an agent.</p>
+      <p className="slead">
+        Keys and sign-ins go here - never in a chat with an agent.
+        {/* Whose they are: one Disconnect is everyone's. */}
+        {ACCOUNT.org && <> Shared by everyone in {ACCOUNT.org.name}.</>}
+      </p>
+      {/* A long page: straight to each part. */}
+      <nav className="sjump" aria-label="Parts of this page">
+        {['Your AI plans', 'API keys', 'Web search', 'Integrations'].map(h => (
+          <button key={h} className="slink" onClick={e => jumpTo(e.currentTarget, h)}>
+            {h === 'Your AI plans' ? 'AI plans' : h}
+          </button>
+        ))}
+      </nav>
       {/* The AI models the host runs everyone's agents on: the owner's and admins' to change. */}
       {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change the AI models.</p>}
       {/* Kept on the host: nothing here changes while it's offline. */}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ExternalLink, Globe, Plus } from 'lucide-react';
+import { ExternalLink, Globe, Plug, Plus } from 'lucide-react';
+import { siBrave, siGithub, siGmail, siGoogledrive, siGooglecalendar, siHubspot, siNotion, siPosthog, siSentry, siShopify, siSquare, siStripe, siZoho, type SimpleIcon } from 'simple-icons';
 import { SpinButton } from './ModelConnectors';
 import { SkelRows } from './Skeleton';
 import { connectAssistantTo, currentOrg, isAdmin, remoteAssistantUrl } from './account';
@@ -107,6 +108,27 @@ function spotlight(id: string) {
   window.setTimeout(() => row.classList.remove('spotlit'), 2600);
 }
 
+// Each service's mark, as the AI connections above have theirs (a plug for the rest).
+const MARKS: [RegExp, SimpleIcon][] = [
+  [/^brave/, siBrave], [/^github/, siGithub], [/^gmail/, siGmail], [/^drive/, siGoogledrive], [/calendar/, siGooglecalendar],
+  [/^hubspot/, siHubspot], [/^notion/, siNotion], [/^posthog/, siPosthog], [/^sentry/, siSentry], [/^shopify/, siShopify],
+  [/^square/, siSquare], [/^stripe/, siStripe], [/^zoho/, siZoho],
+];
+function ServiceMark({ id }: { id: string }) {
+  const mark = MARKS.find(([re]) => re.test(id))?.[1];
+  return (
+    <span className="mlogo">
+      {mark ? (
+        <svg viewBox="0 0 24 24" width={16} height={16} aria-hidden fill="currentColor">
+          <path d={mark.path} />
+        </svg>
+      ) : (
+        <Plug size={16} strokeWidth={1.8} />
+      )}
+    </span>
+  );
+}
+
 type RowProps = { i: IntegrationView; refresh: () => void; open: boolean; setOpen: (o: boolean) => void; onOpenApproval: (id: string) => void; events: EventInfo[] };
 
 // A service you sign in to, or one that takes a key.
@@ -173,10 +195,11 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
       ? 'Working now - free, no key needed · add a key for more searches'
       : i.test && !i.test.ok
         ? i.test.message
-        : '';
+        : i.what;
   return (
     <li className={open || error ? 'with-form' : undefined} data-integration={i.id}>
       <span className="sconn-name">
+        <ServiceMark id={i.id} />
         {i.name}
         {i.kind === 'mcp' && <span className="sint-kind">MCP</span>}
       </span>
@@ -193,7 +216,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
           </>
         ) : open ? null : i.needsKey || i.fields ? (
           <button className="sbtn" onClick={() => setOpen(true)}>
-            {i.free ? 'Add a key' : 'Connect'}
+            Connect
           </button>
         ) : (
           <SpinButton spinning={busy} onClick={() => run(() => connectIntegration(i.id))}>
@@ -381,11 +404,12 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
         : [i.test?.message, tools].filter(Boolean).join(' · ')
       : i.test && !i.test.ok
         ? i.test.message
-        : '';
+        : i.what;
   const bad = !waiting && !!i.test && !i.test.ok;
   return (
     <li className={open || error ? 'with-form' : undefined} data-integration={i.id}>
       <span className="sconn-name">
+        <ServiceMark id={i.id} />
         {i.name}
       </span>
       {sub && <span className={`sconn-what${bad ? ' sint-bad' : ''}`}>{sub}</span>}
@@ -405,8 +429,9 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
                 Change client
               </button>
             )}
+            {/* "Connect", as every connection's button says - a sign-in or a key alike. */}
             <SpinButton spinning={busy || waiting !== null} onClick={() => (signIn.hasClient ? start() : setOpen(true))}>
-              Sign in
+              Connect
             </SpinButton>
           </>
         )}
@@ -739,7 +764,8 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
           className="srow2-input mwide"
           autoFocus
           value={url}
-          placeholder="Its address (https://mcp.example.com/mcp), or a command that starts one on this computer (npx -y ...)"
+          placeholder="https://mcp.example.com/mcp or npx -y ..."
+          title="Its address, or a command that starts one on this computer"
           onChange={e => setUrl(e.target.value)}
         />
         {onThisComputer(url) && (
@@ -752,16 +778,13 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
           </p>
         )}
         <input className="srow2-input mwide" value={name} placeholder="Name (optional)" onChange={e => setName(e.target.value)} />
-        <div className="sint-auth">
-          <label>
-            <input type="radio" checked={auth === 'none'} onChange={() => setAuth('none')} /> No sign-in
-          </label>
-          <label>
-            <input type="radio" checked={auth === 'bearer'} onChange={() => setAuth('bearer')} /> API key / token
-          </label>
-          <label>
-            <input type="radio" checked={auth === 'signin'} onChange={() => setAuth('signin')} /> Sign in
-          </label>
+        {/* The app's own choice buttons, not the browser's radio dots. */}
+        <div className="segmented sint-auth" role="radiogroup" aria-label="How it signs in">
+          {([['none', 'No sign-in'], ['bearer', 'API key / token'], ['signin', 'Sign in']] as const).map(([v, label]) => (
+            <button key={v} type="button" role="radio" aria-checked={auth === v} className={auth === v ? 'on' : ''} onClick={() => setAuth(v)}>
+              {label}
+            </button>
+          ))}
         </div>
         {auth === 'bearer' && (
           <input className="srow2-input mwide" type="password" autoComplete="off" value={key} placeholder="Key or token" onChange={e => setKey(e.target.value)} />
@@ -797,7 +820,7 @@ function AgentBrowser({ status }: { status: IntegrationsView['profile'] }) {
   };
   return (
     <div className="sgroup">
-      <h3>Signed-in browser for agents</h3>
+      <h3>Signed-in browser</h3>
       <p className="slead">
         A separate Edge or Chrome profile just for agents. Sign it in to the sites you want agents to use as you - your own browser, passwords
         and history stay out of it. Clicking and typing in it needs your approval unless an agent's job allows otherwise.

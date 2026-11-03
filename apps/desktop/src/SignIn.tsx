@@ -49,7 +49,12 @@ function grow(box: HTMLElement, from: DOMRect, back = false) {
 // Signing in, for organizations (account.ts): Google, GitHub, or a code by
 // email - the same code makes an account the first time. Development without
 // Clerk: an email and a name, no code.
-export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { onDone: () => void; onCancel: () => void; mode?: 'in' | 'up'; from?: DOMRect | null }) {
+// Looks like an email address: until it does, the button waits (greyed, saying why).
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function SignIn({ onDone, onCancel: close, mode: asked = 'in', from = null }: { onDone: () => void; onCancel: () => void; mode?: 'in' | 'up'; from?: DOMRect | null }) {
+  // Either dialog links to the other ("Need an account? SIGN UP").
+  const [mode, setMode] = useState(asked);
   const box = useRef<HTMLFormElement & HTMLDivElement>(null);
   const grown = useRef(false);
   useLayoutEffect(() => {
@@ -117,7 +122,7 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
     return (
       <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && onCancel()}>
         <div ref={box} className={`confirm signin${from ? ' grows' : ''}`} role="dialog" aria-labelledby="signin-title">
-          <Head title="Sign in" />
+          <Head title="SIGN IN" />
           <p>Can't reach sign-in right now. Your own agency works without it.</p>
           <div className="confirm-actions">
             <button className="confirm-cancel" onClick={onCancel}>
@@ -141,13 +146,16 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
         }}
       >
         <Head
-          title={finish ? 'Check your email' : mode === 'up' ? 'SIGN UP' : 'Sign in'}
+          title={finish ? 'Check your email' : mode === 'up' ? 'SIGN UP' : 'SIGN IN'}
           sub={!finish && mode === 'up' ? 'to unlock EXTREMELY agentic collaboration' : undefined}
         />
         {finish ? (
           <>
             <p>A code went to {email.trim()}.</p>
-            <input key="code" ref={first} className="signin-input" inputMode="numeric" autoComplete="one-time-code" placeholder="Code" value={code} onChange={e => setCode(e.target.value)} />
+            <label className="signin-label">
+              Code
+              <input key="code" ref={first} className="signin-input" inputMode="numeric" autoComplete="one-time-code" placeholder="Code" value={code} onChange={e => setCode(e.target.value)} />
+            </label>
           </>
         ) : (
           <>
@@ -163,19 +171,40 @@ export function SignIn({ onDone, onCancel: close, mode = 'in', from = null }: { 
                 </button>
               </div>
             )}
-            <input ref={first} className="signin-input" type="email" autoComplete="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
-            {dev && <input className="signin-input" autoComplete="name" placeholder="Name" value={name} onChange={e => setName(e.target.value)} />}
+            <label className="signin-label">
+              Email
+              <input ref={first} className="signin-input" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} />
+            </label>
+            {dev && (
+              <label className="signin-label">
+                Name
+                <input className="signin-input" autoComplete="name" placeholder="Your name" value={name} onChange={e => setName(e.target.value)} />
+              </label>
+            )}
             {dev && <p className="signin-note">Development sign-in: no code.</p>}
             {inBrowser && <p className="signin-note">Finish signing in in the browser window that opened.</p>}
           </>
         )}
         {error && <div className="custom-error">{error}</div>}
+        {!finish && (
+          <p className="signin-switch">
+            {mode === 'up' ? 'Already have an account? ' : 'Need an account? '}
+            <button type="button" className="text-link" onClick={() => setMode(m => (m === 'up' ? 'in' : 'up'))}>
+              {mode === 'up' ? 'SIGN IN' : 'SIGN UP'}
+            </button>
+          </p>
+        )}
         <div className="confirm-actions">
           <button type="button" className="confirm-cancel" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
-          <button type="submit" className="sbtn signup-btn" disabled={busy || (finish ? !code.trim() : !email.trim())}>
-            {busy ? 'One moment...' : finish || dev ? (mode === 'up' ? 'Sign up' : 'Sign in') : 'Continue'}
+          <button
+            type="submit"
+            className="sbtn signup-btn"
+            disabled={busy || (finish ? !code.trim() : !EMAIL.test(email.trim()))}
+            title={!finish && !busy && !EMAIL.test(email.trim()) ? (email.trim() ? "That doesn't look like an email address yet" : 'Enter your email first') : undefined}
+          >
+            {busy ? 'One moment...' : finish || dev ? (mode === 'up' ? 'SIGN UP' : 'SIGN IN') : 'Continue'}
           </button>
         </div>
       </form>

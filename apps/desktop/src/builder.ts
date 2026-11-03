@@ -377,7 +377,7 @@ export type Usage = {
     monthUnknownRuns: number; // runs on a model with no known price
   }[];
 };
-export const getUsage = () => request<Usage>('/api/usage');
+export const getUsage = (days?: number) => request<Usage>(`/api/usage${days ? `?days=${days}` : ''}`);
 export const setOrgCap = (orgCapUsd: number | null) => post<{ ok: boolean }>('/api/usage', { orgCapUsd });
 
 // Whether a model really works on this account: one tiny test request when

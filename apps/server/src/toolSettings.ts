@@ -38,7 +38,15 @@ const words = (s: string) => {
 // A service's name: "seo_data" -> "SEO Data", "cms" -> "CMS" (as its card says), not "Seo data".
 // The agency's own areas say where they act: two tools both read "Write file",
 // one on the person's computer and one in the agent's workspace.
-const OWN_AREAS: Record<string, string> = { computer_files: 'This computer', files: "Agent's own files" };
+const OWN_AREAS: Record<string, string> = { computer_files: 'This computer', files: "Agent's own files", signed_in_browser: 'Signed-in browser' };
+// Tools whose one-word names read like buttons ("Back", "Open"): what they do.
+const NAMES: Record<string, string> = {
+  'signed_in_browser.open': 'Open a page',
+  'signed_in_browser.back': 'Go back a page',
+  'signed_in_browser.scroll': 'Scroll the page',
+  'signed_in_browser.click': 'Click on a page',
+  'signed_in_browser.type': 'Type into a page',
+};
 const service = (s: string) =>
   OWN_AREAS[s] ??
   s
@@ -85,7 +93,7 @@ export async function listTools(): Promise<ToolView[]> {
         const builtIn = BUILT_IN_ACTIONS[id];
         t = {
           id,
-          name: builtIn?.name ?? words(rest.join(' ') || id),
+          name: builtIn?.name ?? NAMES[id] ?? words(rest.join(' ') || id),
           // The catalogue's own tools by their area (Web); others by the service they come through (Gmail); a built-in's by the agent.
           source: builtIn ? agent.name : known ? service(server) : via?.via || service(server),
           does: (builtIn?.does ?? known?.does ?? via?.description ?? '').split('\n')[0].slice(0, 200),

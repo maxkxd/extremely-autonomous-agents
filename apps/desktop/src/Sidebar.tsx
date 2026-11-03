@@ -324,7 +324,7 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
             >
               <span className="option-with-avatar">
                 <LogOut size={15} className="option-icon" />
-                {state.me ? 'Log out' : 'Sign in'}
+                {state.me ? 'Log out' : 'SIGN IN'}
               </span>
             </button>
           </li>

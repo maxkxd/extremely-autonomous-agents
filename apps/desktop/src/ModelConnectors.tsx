@@ -456,16 +456,17 @@ function KeyRow({
         </>
       ) : (
         <>
+          {/* One word for it everywhere: Connect. One that signs in (OpenRouter) offers its key too. */}
           {c.oneClick && (
-            <SpinButton spinning={busy || waiting} onClick={() => act(async () => {
+            <button className="slink" onClick={() => setOpen(true)}>
+              or add a key
+            </button>
+          )}
+          <SpinButton spinning={c.oneClick ? busy || waiting : checking} onClick={() => (c.oneClick ? act(async () => {
               const { url } = await startSignIn(c.id);
               watch(c.id, openSignIn(url));
-            })}>
-              Sign in
-            </SpinButton>
-          )}
-          <SpinButton spinning={checking} onClick={() => setOpen(true)}>
-            {local ? 'Connect' : 'Add key'}
+            }) : setOpen(true))}>
+            Connect
           </SpinButton>
         </>
       )}
@@ -521,23 +522,23 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
         below={errorLine}
       >
         {cc?.needsUpdate && (
-          <SpinButton className="sbtn primary" spinning={busy || task === 'updating'} onClick={() => start(updateClaudeCode)}>
+          <SpinButton spinning={busy || task === 'updating'} onClick={() => start(updateClaudeCode)}>
             Update Claude Code
           </SpinButton>
         )}
         {c.connected ? (
           disconnect
         ) : !cc?.installed ? (
-          <SpinButton className="sbtn primary" spinning={busy || !!task} onClick={() => start(installClaudeCode)}>
+          <SpinButton spinning={busy || !!task} onClick={() => start(installClaudeCode)}>
             Install Claude Code
           </SpinButton>
         ) : cc.loggedIn ? (
-          <SpinButton className="sbtn primary" spinning={busy || waiting} onClick={() => act(connectClaudeCode)}>
-            Use my Claude plan
+          <SpinButton spinning={busy || waiting} onClick={() => act(connectClaudeCode)}>
+            Connect
           </SpinButton>
         ) : (
-          <SpinButton className="sbtn primary" spinning={busy || !!task} onClick={() => start(signInClaudeCode)}>
-            Sign in to Claude
+          <SpinButton spinning={busy || !!task} onClick={() => start(signInClaudeCode)}>
+            Connect
           </SpinButton>
         )}
       </RowShell>
@@ -556,7 +557,6 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
           </>
         ) : (
           <SpinButton
-            className="sbtn primary"
             spinning={busy || waiting}
             onClick={() =>
               act(async () => {
@@ -565,7 +565,7 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
               })
             }
           >
-            Sign in with ChatGPT
+            Connect
           </SpinButton>
         )}
       </RowShell>
@@ -609,7 +609,6 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
         </>
       ) : (
         <SpinButton
-          className="sbtn primary"
           spinning={busy || waiting}
           disabled={!!c.setupNeeded}
           title={c.setupNeeded}
