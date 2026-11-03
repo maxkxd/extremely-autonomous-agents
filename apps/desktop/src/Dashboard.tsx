@@ -582,7 +582,7 @@ export function AgentCard({
         {models && !modelsLoading && (
           <ModelRow choices={models} available={available} checks={checks} open={modelsOpen} readOnly={preview || viewOnly} lockedWhy={off} onOpen={() => setModelsOpen(o => !o)} />
         )}
-        {models && !modelsLoading && onAutoModels && !preview && <AutoModels on={agent.autoModels !== false} onChange={onAutoModels} why={off ?? (viewOnly ? `Only ${agent.owner || 'its owner'} or an admin can change this agent` : null)} />}
+        {models && !modelsLoading && onAutoModels && !preview && <AutoModels on={agent.autoModels !== false} onChange={onAutoModels} why={off ?? (viewOnly ? `Only ${agent.builtIn ? 'the owner' : agent.owner || 'its owner'} or an admin can change this agent` : null)} />}
       </aside>
       {modelsOpen && models && onModels && <ModelPanel choices={models} available={available} onChange={onModels} checks={checks} onCheck={onCheck} />}
     </article>
