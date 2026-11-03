@@ -223,6 +223,8 @@ export const runnerRoutes: Record<string, Route> = {
         costUnknown: costs.some(c => c.unknown > 0),
         decisions: { approved: decisions?.approved ?? 0, rejected: decisions?.rejected ?? 0, expired: decisions?.expired ?? 0 },
         spendCapUsd: st.spend_cap_usd,
+        // Moved to working models when none of its own work (helpers.ts), unless turned off.
+        autoModels: st.auto_models !== 0,
         runsPerDay,
         waitingOnTools,
         perRun: perRun ?? null, // output actions per run, recently (null: never run, or nothing counted yet)
@@ -248,11 +250,11 @@ export const runnerRoutes: Record<string, Route> = {
 
   // Ferocity, Drain/Stop, a per-agent spend cap.
   'POST /api/runner/agent': async (_req, _q, body) => {
-    const b = await body<{ id: string; ferocity?: number; state?: 'active' | 'draining' | 'stopped'; spendCapUsd?: number | null }>();
+    const b = await body<{ id: string; ferocity?: number; state?: 'active' | 'draining' | 'stopped'; spendCapUsd?: number | null; autoModels?: boolean }>();
     if (!isId(b.id)) throw new Error('Unknown agent.');
     // In an organization, only the agent's maker or an admin controls it (access.ts).
-    if (b.ferocity !== undefined || b.state !== undefined)
-      await requireMakerOrAdmin(b.id, null, currentActor(), b.state === 'stopped' ? 'stop it' : b.state === 'draining' ? 'put it on standby' : b.state === 'active' ? 'resume it' : 'change its ferocity');
+    if (b.ferocity !== undefined || b.state !== undefined || b.autoModels !== undefined)
+      await requireMakerOrAdmin(b.id, null, currentActor(), b.state === 'stopped' ? 'stop it' : b.state === 'draining' ? 'put it on standby' : b.state === 'active' ? 'resume it' : b.autoModels !== undefined ? 'change how its models are picked' : 'change its ferocity');
     if (b.spendCapUsd !== undefined) requireAdmin(currentActor(), 'A spend limit');
     const cap = b.spendCapUsd !== undefined ? capUsd(b.spendCapUsd) : undefined;
     stateOf(b.id);
@@ -271,6 +273,7 @@ export const runnerRoutes: Record<string, Route> = {
       if (state !== 'stopped') exec('UPDATE agent_state SET setup = NULL WHERE agent_id = ?', b.id);
     }
     if (cap !== undefined) exec('UPDATE agent_state SET spend_cap_usd = ? WHERE agent_id = ?', cap, b.id);
+    if (typeof b.autoModels === 'boolean') exec('UPDATE agent_state SET auto_models = ? WHERE agent_id = ?', b.autoModels ? 1 : 0, b.id);
     return { ok: true, state: stateOf(b.id) };
   },
 

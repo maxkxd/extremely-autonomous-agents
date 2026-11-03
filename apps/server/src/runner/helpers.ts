@@ -2,7 +2,7 @@ import { stringify } from 'yaml';
 import { listIds, readMeta, save } from '../files.js';
 import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER } from './agent.js';
-import { all, getSetting, run as exec, setSetting } from './db.js';
+import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { fileRequest } from './tools.js';
 import { availableModels } from '../models/connections.js';
 import { allChecks } from '../models/check.js';
@@ -113,6 +113,8 @@ export async function fillBuiltInModels() {
   const moved = new Map<string, Set<string>>(); // a connection that went -> where its agents went
   for (const id of await listIds()) {
     const mine = chosen[id] ?? [];
+    // Its person turned moving off (its card's switch): its own models stay, working or not.
+    if (mine.length && one<{ auto: number | null }>('SELECT auto_models AS auto FROM agent_state WHERE agent_id = ?', id)?.auto === 0) continue;
     const next = rescued(mine, working, works, WANTS[id] ?? 'strong');
     if (!next) continue;
     const meta = await readMeta(id);

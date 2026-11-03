@@ -2042,6 +2042,23 @@ a.sbtn { text-decoration: none; color: inherit; }
 .setup-go:hover { filter: brightness(1.1); }
 .state-pill.complete { display: inline-flex; align-items: center; gap: 4px; background: rgba(63, 178, 127, 0.14); color: #3fb27f; }
 .setup-list li.done .setup-name { color: var(--muted); }
+/* The card's model section: its auto-switch (Dashboard.tsx AutoModels). */
+.auto-models { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.switch.sm { width: 30px; height: 18px; border-radius: 9px; }
+.switch.sm::after { width: 12px; height: 12px; }
+.switch.sm.on::after { transform: translateX(12px); }
+.switch:disabled { opacity: 0.4; cursor: default; }
+/* All connected: the ticked items slide and fade off, and one last one is left - Start. */
+.setup-list li.leaving { animation: setup-leave 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.setup-list li.leaving:nth-child(2) { animation-delay: 0.05s; }
+.setup-list li.leaving:nth-child(3) { animation-delay: 0.1s; }
+@keyframes setup-leave { to { opacity: 0; transform: translateX(40px); } }
+.setup-list li.setup-start { animation: setup-arrive 0.4s ease-out; }
+.setup-list li.setup-start .setup-name { color: #f2c94c; }
+@keyframes setup-arrive { from { opacity: 0; transform: translateY(6px); } }
+.setup-go.start, .ctl-btn.start { background: #f2c94c; border-color: #f2c94c; color: #1a1400; text-transform: uppercase; letter-spacing: 0.04em; animation: start-glow 1.8s ease-in-out infinite; }
+.ctl-btn.start:hover:not(:disabled) { background: #f2c94c; filter: brightness(1.08); }
+@keyframes start-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(242, 201, 76, 0.35); } 50% { box-shadow: 0 0 14px 3px rgba(242, 201, 76, 0.45); } }
 .confirm-resume {
   display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 8px; border: 0;
   background: var(--attention); color: var(--attention-text); font-size: 13px; font-weight: 600; cursor: pointer;

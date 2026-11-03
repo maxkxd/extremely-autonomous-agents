@@ -41,7 +41,7 @@ export const newRunId = () => `r_${randomBytes(4).toString('hex')}`;
 
 // --- Card state ---------------------------------------------------------------
 
-export type AgentState = { ferocity: number; state: 'active' | 'draining' | 'stopped'; last_scheduled_at: number | null; fail_streak: number; backoff_until: number | null; spend_cap_usd: number | null };
+export type AgentState = { ferocity: number; state: 'active' | 'draining' | 'stopped'; last_scheduled_at: number | null; fail_streak: number; backoff_until: number | null; spend_cap_usd: number | null; auto_models?: number | null };
 
 // The whole agency's state (the dashboard's Standby and Stop), over each agent's
 // own without touching it:

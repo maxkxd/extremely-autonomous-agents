@@ -51,7 +51,8 @@ const generic = (service: string | null, what: string) =>
     .replace(/^./, c => c.toUpperCase());
 
 export type SetupItem = { name: string; requestId: number; stars: number; connected: boolean; building: boolean };
-export type AgentSetup = { items: SetupItem[]; building: number; progress: number };
+// ready: everything it needs is connected - it waits for its person to press Start.
+export type AgentSetup = { items: SetupItem[]; building: number; progress: number; ready: boolean };
 
 export async function setups(): Promise<Record<string, AgentSetup>> {
   const agents = all<{ agent_id: string }>('SELECT agent_id FROM agent_state WHERE setup = 1').map(r => r.agent_id);
@@ -83,27 +84,22 @@ export async function setups(): Promise<Record<string, AgentSetup>> {
     // Unrated ones count as middling, so a rating coming in doesn't move the bar.
     const weight = (i: SetupItem) => i.stars || 3;
     const total = list.reduce((n, i) => n + weight(i), 0);
+    const building = list.filter(i => i.building).length;
     out[id] = {
       items: list,
-      building: list.filter(i => i.building).length,
+      building,
       // Weighted by stars: the connectors it can't do without move it most.
       progress: total ? list.filter(i => i.connected).reduce((n, i) => n + weight(i), 0) / total : 1,
+      ready: !building && list.every(i => i.connected) && !refusedAll(id),
     };
   }
   return out;
 }
 
-// Every connector connected (and none still being got ready): it starts by itself,
-// and its setup is over - as if its person had resumed it.
-export async function finishSetups(now = Date.now()): Promise<string[]> {
-  // Not when every one was turned down: nothing it needs is there, so it waits
-  // for its person to resume it (it had started with no tools at all).
-  const refusedAll = (id: string) =>
-    one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE agent_id = ? AND setup = 1 AND status = 'done'", id)?.n === 0 &&
-    (one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE agent_id = ? AND setup = 1 AND status = 'rejected'", id)?.n ?? 0) > 0;
-  const done = Object.entries(await setups())
-    .filter(([id, s]) => !s.building && s.items.every(i => i.connected) && !refusedAll(id))
-    .map(([id]) => id);
-  for (const id of done) exec("UPDATE agent_state SET state = 'active', setup = NULL, updated_at = ? WHERE agent_id = ? AND setup = 1", now, id);
-  return done;
-}
+// Every one turned down: nothing it needs is there, so it isn't "ready" either
+// (it would start with no tools at all) - its person resumes it if they want.
+const refusedAll = (id: string) =>
+  one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE agent_id = ? AND setup = 1 AND status = 'done'", id)?.n === 0 &&
+  (one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE agent_id = ? AND setup = 1 AND status = 'rejected'", id)?.n ?? 0) > 0;
+// A new agent never starts by itself: once its setup is ready its card says Start,
+// and pressing it ends the setup (api.ts) - it used to resume itself unannounced.

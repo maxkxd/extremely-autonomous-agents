@@ -246,12 +246,13 @@ export type LiveAgent = {
   costUnknown: boolean;
   decisions: { approved: number; rejected: number; expired: number };
   spendCapUsd: number | null;
+  autoModels: boolean; // moved to working models when none of its own work (its card's switch)
   runsPerDay: number[]; // expected at each ferocity level
   waitingOnTools: boolean; // none of what it's counted by is connected yet (it runs at its level all the same)
   perRun: number | null; // output actions per run, recently
 };
 export const getLiveAgents = (days: number) => request<Record<string, LiveAgent>>(`/api/runner/agents?days=${days}`);
-export const setAgentRunner = (id: string, patch: { ferocity?: number; state?: RunState; spendCapUsd?: number | null }) =>
+export const setAgentRunner = (id: string, patch: { ferocity?: number; state?: RunState; spendCapUsd?: number | null; autoModels?: boolean }) =>
   post<{ ok: boolean }>('/api/runner/agent', { id, ...patch });
 // The host's time zone: whose midnight the agency's days start at.
 export const getHostZone = () => request<{ zone: string; set: boolean }>('/api/settings/host-timezone');
@@ -292,6 +293,7 @@ export type AgentSetup = {
   items: { name: string; requestId: number; stars: number; connected: boolean; building: boolean }[];
   building: number;
   progress: number;
+  ready: boolean; // everything's connected: it waits for Start
 };
 export const getSetups = () => request<Record<string, AgentSetup>>('/api/runner/setup');
 export const answerRequest = (id: number, status: 'done' | 'rejected', answer: string) =>

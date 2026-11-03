@@ -31,6 +31,7 @@ export type Agent = {
   runsPerDay?: number[]; // expected runs a day at each ferocity level
   queued?: boolean; // Run now pressed, waiting for a free slot
   waitingOnTools?: boolean; // none of what it's counted by is connected yet
+  autoModels?: boolean; // moved to working models when none of its own work (default on)
   perRun?: number | null; // output actions per run, recently
   // A pack agent still being customized for the organization: it isn't run,
   // and DMs to it wait, until this clears.

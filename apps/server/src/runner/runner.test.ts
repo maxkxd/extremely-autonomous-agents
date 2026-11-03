@@ -833,18 +833,19 @@ test('a target counts real outcomes only; a plan that counted only files counts 
   assert.deepEqual(planFrom({ counts: ['files.write_file'] }, ['files.write_file']).counts, []); // nothing real: no target
 });
 
-test('a new agent in setup starts by itself once every connector is connected, not before', async () => {
-  const { finishSetups, setups } = await import('./setup.js');
+test('a new agent in setup is ready once every connector is connected, and waits to be started', async () => {
+  const { setups } = await import('./setup.js');
   exec("INSERT INTO agent_state (agent_id, state, setup, updated_at) VALUES ('zz-setup', 'stopped', 1, 0)");
   const crm = Number(exec("INSERT INTO requests (agent_id, what, why, created_at, stage, setup, service, stars) VALUES ('zz-setup', 'Connect a CRM', 'x', 0, 'waiting_you', 1, 'crm', 5)").lastInsertRowid);
   exec("INSERT INTO requests (agent_id, what, why, status, created_at, setup, service) VALUES ('zz-setup', 'Connect GitHub', 'x', 'done', 0, 1, 'github')");
   const s = (await setups())['zz-setup'];
   assert.deepEqual(s.items.map(i => [i.name, i.stars, i.connected]), [['CRM', 5, false], ['Code repository', 0, true]]); // unrated: no stars yet
   assert.equal(s.progress, 3 / 8); // weighted as 3 until rated
-  assert.deepEqual(await finishSetups(), []); // the CRM isn't connected yet
+  assert.equal(s.ready, false); // the CRM isn't connected yet
   exec("UPDATE requests SET status = 'done' WHERE id = ?", crm);
-  assert.deepEqual(await finishSetups(), ['zz-setup']);
-  assert.deepEqual({ ...one<{ state: string; setup: number | null }>('SELECT state, setup FROM agent_state WHERE agent_id = ?', 'zz-setup') }, { state: 'active', setup: null });
+  assert.equal((await setups())['zz-setup'].ready, true);
+  // Ready, but it doesn't start by itself.
+  assert.deepEqual({ ...one<{ state: string; setup: number | null }>('SELECT state, setup FROM agent_state WHERE agent_id = ?', 'zz-setup') }, { state: 'stopped', setup: 1 });
 });
 
 test('a setup connector is rated 1-5 before it goes to the person, whichever way it goes', () => {
@@ -928,11 +929,11 @@ test("with no AI connected, the person is told nothing can run - once, and it cl
   assert.equal(open().length, 0);
 });
 
-test("a new agent whose every connector was turned down doesn't start by itself", async () => {
-  const { finishSetups } = await import('./setup.js');
+test("a new agent whose every connector was turned down isn't ready", async () => {
+  const { setups } = await import('./setup.js');
   exec("INSERT INTO agent_state (agent_id, state, setup, updated_at) VALUES ('zz-refused', 'stopped', 1, 0)");
   exec("INSERT INTO requests (agent_id, what, why, status, created_at, setup, service) VALUES ('zz-refused', 'Set up a CRM', 'x', 'rejected', 0, 1, 'crm')");
-  assert.deepEqual(await finishSetups(), []);
+  assert.equal((await setups())['zz-refused']?.ready ?? false, false);
   assert.equal(one<{ state: string }>("SELECT state FROM agent_state WHERE agent_id = 'zz-refused'")?.state, 'stopped');
 });
 

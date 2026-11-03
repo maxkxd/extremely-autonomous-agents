@@ -18,7 +18,6 @@ import { expireApprovals } from './approvals.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, apocalypticWait, backstop, scheduledDue, SHORT_RUNS_TO_RELENTLESS } from './ferocity.js';
 import { fileRequest, settleJoined, toolsFor } from './tools.js';
-import { finishSetups } from './setup.js';
 import { costOf, isFree, spentThisMonth, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
 import { adapterFor } from './providers.js';
@@ -142,8 +141,6 @@ export async function tick(deps: RunDeps = liveDeps) {
     models = await availableModels();
     checks = await allChecks();
     await fillBuiltInModels().catch(() => {});
-    // New agents whose connectors are all connected start by themselves (setup.ts).
-    await finishSetups().catch(() => {});
     noAiRequest(models.length > 0, deps.now());
     capRequest(models.map(m => m.connection), deps.now());
     hookAddressRequest(hooksBase(), liveEvents().filter(e => e.event.webhook).map(e => ({ service: e.integration.name, id: e.event.id })), deps.now());

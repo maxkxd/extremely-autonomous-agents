@@ -294,6 +294,7 @@ export function AgentCard({
   checks,
   onCheck,
   onLevel,
+  onAutoModels,
   onRunNow,
   agencyHeld = false,
   agencyStopped = false,
@@ -328,6 +329,7 @@ export function AgentCard({
   checks?: Checks; // whether each model really works on this account
   onCheck?: (connection: string, model: string) => void;
   onLevel?: (level: number) => void; // a real agent: save its ferocity
+  onAutoModels?: (on: boolean) => void; // a real agent: its model section's switch
   onRunNow?: () => void; // a real agent: start a run now
   agencyHeld?: boolean; // the whole agency is on standby or stopped: its own controls wait
   agencyStopped?: boolean; // the whole agency is stopped: the card says so
@@ -380,6 +382,9 @@ export function AgentCard({
   }, [kick, level]);
   // In setup until first resumed; resuming before everything's connected warns first.
   const inSetup = !!setup && !preview && !agent.builtIn;
+  // Everything it needs is connected: it waits for a Start (it never starts by itself).
+  const ready = inSetup && setup!.ready && state === 'stopped';
+  const startable = ready && !agencyHeld && !viewOnly && !off;
   const [resumeWarn, setResumeWarn] = useState<RunState | null>(null);
   const turn = (to: RunState) => (inSetup && to !== 'stopped' && setup!.items.some(i => !i.connected) ? setResumeWarn(to) : setState(to));
   // Stopping halts an in-flight run; standby lets it finish.
@@ -475,7 +480,7 @@ export function AgentCard({
             )}
           </div>
           {/* Under the name: what's left to connect (each gone once it's connected). */}
-          {inSetup && <SetupList setup={setup!} onOpenRequest={id => onOpenRequest?.(id)} someoneElse={viewOnly ? agent.owner || 'Its owner' : null} />}
+          {inSetup && <SetupList setup={setup!} onOpenRequest={id => onOpenRequest?.(id)} onStart={startable ? () => setState('active') : undefined} someoneElse={viewOnly ? agent.owner || 'Its owner' : null} />}
         </header>
         <div className="card-charts">
           <Donut caption="output" slices={output} format={count} loading={loading} />
@@ -545,7 +550,7 @@ export function AgentCard({
             <span className="skel skel-btn" />
           </div>
         )}
-        {!agent.builtIn && !loading && <div className="controls" title={off ?? (viewOnly ? `Only ${(agent.builtIn ? 'the owner' : agent.owner || 'its owner')} or an admin can change this agent` : undefined)}>
+        {!agent.builtIn && !loading && <div className="controls" title={off ?? (viewOnly ? `Only ${(agent.builtIn ? 'the owner' : agent.owner || 'its owner')} or an admin can change this agent` : agencyHeld ? (isAdmin() ? 'The whole agency is stopped or on standby - resume it at the top first' : 'The whole agency is stopped or on standby - the owner or an admin resumes it') : undefined)}>
           <button
             key={state === 'draining' ? 'drain-resume' : 'drain'}
             className={`ctl-btn${state === 'draining' ? ' resume' : ''}`}
@@ -556,13 +561,13 @@ export function AgentCard({
             {state === 'draining' ? 'Resume' : 'Standby'}
           </button>
           <button
-            key={state === 'stopped' ? 'stop-resume' : 'stop'}
-            className={`ctl-btn ${state === 'stopped' ? 'resume' : 'stop'}`}
+            key={ready ? 'start' : state === 'stopped' ? 'stop-resume' : 'stop'}
+            className={`ctl-btn ${ready ? 'resume start' : state === 'stopped' ? 'resume' : 'stop'}`}
             disabled={agencyHeld || viewOnly || !!off}
-            onClick={() => turn(state === 'stopped' ? 'active' : 'stopped')}
+            onClick={() => (ready ? setState('active') : turn(state === 'stopped' ? 'active' : 'stopped'))}
           >
             {state === 'stopped' ? <Play size={15} /> : <Square size={13} fill="currentColor" />}
-            {state === 'stopped' ? 'Resume' : 'Stop'}
+            {ready ? 'Start' : state === 'stopped' ? 'Resume' : 'Stop'}
           </button>
         </div>}
 
@@ -572,6 +577,7 @@ export function AgentCard({
         {models && !modelsLoading && (
           <ModelRow choices={models} available={available} checks={checks} open={modelsOpen} readOnly={preview || viewOnly} lockedWhy={off} onOpen={() => setModelsOpen(o => !o)} />
         )}
+        {models && !modelsLoading && onAutoModels && !preview && <AutoModels on={agent.autoModels !== false} onChange={onAutoModels} why={off ?? (viewOnly ? `Only ${agent.owner || 'its owner'} or an admin can change this agent` : null)} />}
       </aside>
       {modelsOpen && models && onModels && <ModelPanel choices={models} available={available} onChange={onModels} checks={checks} onCheck={onCheck} />}
     </article>
@@ -608,6 +614,29 @@ function RunNowButton({ running, queued, why, onRun }: { running: boolean; queue
       {busy ? <LoaderCircle size={12} strokeWidth={2} className="spin" /> : <Play size={12} strokeWidth={2} />}
       {running ? 'Running' : queued ? 'Queued' : 'Run now'}
     </button>
+  );
+}
+
+// The model section's switch: when none of its models works (a key revoked, a plan
+// signed out), it's moved to ones that do (runner/helpers.ts) - on unless turned off.
+function AutoModels({ on, onChange, why }: { on: boolean; onChange: (on: boolean) => void; why: string | null }) {
+  const [value, setValue] = useState(on);
+  useEffect(() => setValue(on), [on]);
+  return (
+    <div className="auto-models" title={why ?? 'If none of its models works, move it to ones that do'}>
+      <span className="stat-label">Auto-switch</span>
+      <button
+        className={`switch sm${value ? ' on' : ''}`}
+        role="switch"
+        aria-checked={value}
+        aria-label="Auto-switch models"
+        disabled={!!why}
+        onClick={() => {
+          setValue(!value);
+          onChange(!value);
+        }}
+      />
+    </div>
   );
 }
 
@@ -794,6 +823,7 @@ export function Dashboard({
       runsPerDay: l.runsPerDay,
       perRun: l.perRun,
       waitingOnTools: l.waitingOnTools,
+      autoModels: l.autoModels,
       queued: l.queued,
     };
   };
@@ -1012,6 +1042,7 @@ export function Dashboard({
               checks={checks}
               onCheck={check}
               onLevel={l ? level => setAgentRunner(a.id, { ferocity: level }).catch(() => {}) : undefined}
+              onAutoModels={l ? on => setAgentRunner(a.id, { autoModels: on }).catch(() => {}) : undefined}
               onRunNow={l ? () => runNow(a.id).catch(() => {}) : undefined}
               setup={setups[a.id]}
               onOpenRequest={onOpenRequest}

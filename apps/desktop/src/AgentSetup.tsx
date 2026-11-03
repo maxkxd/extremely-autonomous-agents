@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Play, Star } from 'lucide-react';
 import type { AgentSetup } from './builder';
 
@@ -26,15 +26,53 @@ const Stars = ({ n }: { n: number }) => (
 
 // someoneElse: a member looking at a teammate's agent - its requests are its owner's, not on their
 // Requests page, so Go to request is greyed (an admin opens them under Everyone).
-export function SetupList({ setup, onOpenRequest, someoneElse = null }: { setup: AgentSetup; onOpenRequest: (id: number) => void; someoneElse?: string | null }) {
+export function SetupList({
+  setup,
+  onOpenRequest,
+  onStart,
+  someoneElse = null,
+}: {
+  setup: AgentSetup;
+  onOpenRequest: (id: number) => void;
+  onStart?: () => void; // ready: what the last item's Start does (the card's Start)
+  someoneElse?: string | null;
+}) {
   // Connected ones stay, marked Complete - seeing them tick off is the point. Once
-  // all are, it starts by itself and the list goes (runner/setup.ts).
+  // all are, they slide and fade off and one last item is left: start it. It never
+  // starts by itself (runner/setup.ts). Ready when the card first shows: no slide.
+  const [leaving, setLeaving] = useState(false);
+  const [gone, setGone] = useState(setup.ready);
+  const wasReady = useRef(setup.ready);
+  useEffect(() => {
+    if (!setup.ready) return void ((wasReady.current = false), setGone(false));
+    if (wasReady.current) return;
+    wasReady.current = true;
+    setLeaving(true);
+    const t = window.setTimeout(() => (setGone(true), setLeaving(false)), 700);
+    return () => window.clearTimeout(t);
+  }, [setup.ready]);
   if (!setup.items.length) return null;
+  if (gone)
+    return (
+      <div className="setup-list">
+        <ul>
+          <li className="setup-start">
+            <span className="setup-name">Start the agent</span>
+            <span />
+            <span className="setup-act">
+              <button className="setup-go start" disabled={!!someoneElse || !onStart} title={someoneElse ? `Only ${someoneElse} or an admin can start it` : undefined} onClick={onStart}>
+                Start
+              </button>
+            </span>
+          </li>
+        </ul>
+      </div>
+    );
   return (
     <div className="setup-list">
       <ul>
         {setup.items.map(i => (
-          <li key={i.name} className={i.connected ? 'done' : ''}>
+          <li key={i.name} className={`${i.connected ? 'done' : ''}${leaving ? ' leaving' : ''}`}>
             <span className="setup-name">{i.name}</span>
             <Stars n={i.stars} />
             <span className="setup-act">

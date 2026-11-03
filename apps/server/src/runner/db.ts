@@ -43,6 +43,8 @@ export function openDb(path = FILE): DatabaseSync {
     'ALTER TABLE requests ADD COLUMN service TEXT',
     'ALTER TABLE requests ADD COLUMN stars INTEGER',
     'ALTER TABLE agent_state ADD COLUMN setup INTEGER',
+    // 0: don't move it to working models when none of its own work (its card's switch; null = on).
+    'ALTER TABLE agent_state ADD COLUMN auto_models INTEGER',
     // One request per connection (tools.ts): another agent's ask for a service that
     // already has an open request joins it - the request it joined (its stage 'joined').
     'ALTER TABLE requests ADD COLUMN joined_to INTEGER',
