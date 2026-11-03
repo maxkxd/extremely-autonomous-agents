@@ -1,3 +1,4 @@
+import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { rm } from 'node:fs/promises';

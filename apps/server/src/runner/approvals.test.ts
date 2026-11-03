@@ -1,3 +1,4 @@
+import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import { DEFAULT_PLAN, type AgentDef } from './agent.js';

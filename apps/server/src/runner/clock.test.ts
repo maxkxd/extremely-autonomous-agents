@@ -1,3 +1,4 @@
+import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { startOfDay, startOfMonth } from './clock.js';

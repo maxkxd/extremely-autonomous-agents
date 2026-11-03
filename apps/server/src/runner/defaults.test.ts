@@ -1,3 +1,4 @@
+import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { pickDefaults } from './defaults.js';

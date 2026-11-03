@@ -1,3 +1,4 @@
+import './test-data-dir.js';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { after, before, beforeEach, test } from 'node:test';

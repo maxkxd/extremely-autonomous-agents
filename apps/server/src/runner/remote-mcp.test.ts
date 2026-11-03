@@ -1,3 +1,4 @@
+import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -27,7 +28,7 @@ test('each organization keeps one address, and only those are taken for remote o
   assert.equal(remoteMcpUrl('org-a'), a);
   assert.notEqual(remoteMcpUrl('org-b'), a);
   assert.ok(isRemoteMcpUrl(a));
-  assert.ok(!isRemoteMcpUrl(a.replace(/.$/, '0')));
+  assert.ok(!isRemoteMcpUrl(a.slice(0, -1) + (a.endsWith('0') ? '1' : '0')));
 });
 
 test("a message waits for the app, which carries it and brings the host's answer back", async () => {
