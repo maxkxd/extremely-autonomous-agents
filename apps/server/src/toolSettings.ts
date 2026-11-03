@@ -26,6 +26,7 @@ const BUILT_IN_ACTIONS: Record<string, { name: string; does: string }> = {
   'doctor.propose_rule': { name: "Add a rule to an agent's instructions", does: 'A short rule for a pattern that keeps going wrong.' },
   'doctor.tell_agent': { name: 'Tell an agent something', does: 'Put a note in an agent\'s memory.' },
   'doctor.close_request': { name: 'Close a repeated request', does: "Close an agent's request that is a repeat or a loop." },
+  'doctor.tidy_memories': { name: 'Tidy what agents have learned', does: 'Merge memories that repeat each other, and remove or correct one that has turned out wrong - about the organization or a person.' },
 };
 const DEFAULT_APPROVAL_HOURS = 24;
 
