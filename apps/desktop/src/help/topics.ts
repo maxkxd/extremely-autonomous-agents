@@ -25,7 +25,7 @@ export const HELP_TOPICS = {
   // it's read, every "?" glows and opens on it (HelpButton.tsx).
   start: {
     title: 'Getting started',
-    version: 3,
+    version: 4,
     sections: [
       {
         heading: 'Welcome to Extremely Autonomous Agents',
@@ -59,7 +59,7 @@ export const HELP_TOPICS = {
         heading: 'Its first run',
         diagram: 'first-run',
         caption: [
-          "Once you've added your first agent, give it a little while to finish setting up. Then explore the [Dashboard](dashboard) while the agent does its first run.",
+          "Once you've added your first agent, connect what its card asks for. When everything's ticked off, its button turns into a glowing yellow START - press it and it does its first run. It never starts by itself.",
           'Meanwhile, in the background:',
           [
             'The Agency Engineer is hard at work building the tools your agents need.',
@@ -72,7 +72,7 @@ export const HELP_TOPICS = {
   },
   dashboard: {
     title: 'Dashboard',
-    version: 4,
+    version: 5,
     sections: [
       {
         heading: 'Agent card',
@@ -96,7 +96,7 @@ export const HELP_TOPICS = {
       {
         heading: 'Choosing models',
         diagram: 'models',
-        caption: 'Pick up to three AI models, in order. Number 1 is the default; if it fails, 2 takes over, then 3.',
+        caption: 'Pick up to three AI models, in order. Number 1 is the default; if it fails, 2 takes over, then 3. If all three stop working, Auto-switch moves the agent to ones that do - turn it off on the card to keep its own.',
       },
     ],
   },
