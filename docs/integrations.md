@@ -208,8 +208,14 @@ agent built with them works the moment Drive is connected.
 Nothing deletes or trashes a file. Text in a cell that starts with `=` or
 `+` is written as text unless the agent says it wrote the formula itself: a
 formula like `IMPORTXML` fetches the web, so one copied from a page could
-send a sheet's contents anywhere. Not yet tested live (no Google sign-in
-with the `drive` scope exists yet).
+send a sheet's contents anywhere.
+
+Tested live (2026-11-03) on a Google Workspace account signed in with our
+shared client: every tool. A Markdown Doc came out formatted, a PDF read
+through its converted copy (the copy was gone afterwards), a missing tab was
+made, an `=IMPORTXML(...)` cell stayed text, and sharing without an email
+worked. The same day, Gmail's settings tools: a filter made, read back in
+words and removed; signature and auto-reply calls that changed nothing.
 
 ## Code (GitHub)
 

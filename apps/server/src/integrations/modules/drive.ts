@@ -58,6 +58,7 @@ const MADE = `${ALL}&fields=id,name,webViewLink`;
 
 const oneLine = (s: unknown) => String(s ?? '').replace(/[\r\n]+/g, ' ').trim();
 const short = (s: string) => (s.length > 40 ? `${s.slice(0, 40)}...` : s);
+const times = (n: number) => (n === 0 ? 'not found' : n === 1 ? 'changed once' : `changed ${n} times`);
 
 // A file's id, from the id itself or any Drive, Docs, Sheets or Slides link.
 export function fileId(raw: unknown): string {
@@ -342,7 +343,7 @@ const updateDocument: CodeTool = {
           method: 'POST',
           body: { requests: swaps.map(s => ({ replaceAllText: { containsText: { text: s.find, matchCase: true }, replaceText: s.with } })) },
         });
-        return `Updated "${f.name}": ${swaps.map((s, i) => `"${short(s.find)}" changed ${r.replies?.[i]?.replaceAllText?.occurrencesChanged ?? 0} times`).join(', ')}.`;
+        return `Updated "${f.name}": ${swaps.map((s, i) => `"${short(s.find)}" ${times(r.replies?.[i]?.replaceAllText?.occurrencesChanged ?? 0)}`).join(', ')}.`;
       }
       const doc = await api<{ body?: { content?: { endIndex?: number }[] } }>(token, `${DOCS}/${f.id}?fields=body.content.endIndex`);
       const end = doc.body?.content?.at(-1)?.endIndex ?? 1;
@@ -357,7 +358,7 @@ const updateDocument: CodeTool = {
       if (swaps.length) {
         text = await call(token, media(f.id));
         for (const s of swaps) {
-          counts.push(`"${short(s.find)}" changed ${text.split(s.find).length - 1} times`);
+          counts.push(`"${short(s.find)}" ${times(text.split(s.find).length - 1)}`);
           text = text.split(s.find).join(s.with);
         }
       }
