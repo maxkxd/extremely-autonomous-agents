@@ -384,8 +384,10 @@ function SavedInput({ value, placeholder, onSave }: { value: string; placeholder
   useEffect(() => () => flush(), []);
   return (
     <input
-      className="srow2-input"
+      // Grows with a long name instead of cutting it off.
+      className="srow2-input grow"
       value={text}
+      title={text}
       placeholder={placeholder}
       onChange={e => setText(e.target.value)}
       onBlur={flush}

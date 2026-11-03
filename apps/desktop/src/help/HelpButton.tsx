@@ -181,7 +181,7 @@ function HelpTab({ id, on, onSelect }: { id: HelpTopicId; on: boolean; onSelect:
   return (
     <button className={`help-tab${on ? ' on' : ''}`} onClick={onSelect} aria-current={on}>
       {HELP_TOPICS[id].title}
-      {unread && <span className="help-tab-new" aria-label="not read yet" />}
+      {unread && <span className="help-tab-new" aria-label="not read yet" title="Not read yet" />}
     </button>
   );
 }

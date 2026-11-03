@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useMoreBelow } from './moreBelow';
 import { checkModel, getAvailableModels, type AvailableModels } from './builder';
 import { ModelConnectors } from './ModelConnectors';
 
@@ -92,6 +93,9 @@ function SkipDialog({ onCancel, onSkip }: { onCancel: () => void; onSkip: () => 
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const { ok, testing, failed } = useModelTests();
   const [skipping, setSkipping] = useState(false);
+  // What continues under the Skip / Next bar: a fade says so.
+  const body = useRef<HTMLDivElement>(null);
+  const moreBelow = useMoreBelow(body);
   const done = () => {
     try {
       localStorage.setItem(KEY, '1');
@@ -102,7 +106,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   };
   return (
     <div className="onboarding">
-      <div className="onboarding-body">
+      <div className={`onboarding-body${moreBelow ? ' more-below' : ''}`} ref={body}>
         <header className="onboarding-head">
           {/* The logo, as on extremely.agency (extremely-agency-site/logo.svg). */}
           <svg className="onboarding-logo" viewBox="-42 0 164 96" role="img" aria-label="Extremely Autonomous Agents logo">

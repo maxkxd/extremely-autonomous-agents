@@ -365,7 +365,7 @@ function ApprovalCard({
                     Cancel
                   </button>
                   <button className="ap-btn confirm-reject" onClick={() => resolve('rejected')} disabled={!!off} title={off ?? undefined}>
-                    Reject{reason.trim() ? ' with reason' : ''}
+                    Reject
                   </button>
                 </div>
               </div>

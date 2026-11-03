@@ -27,6 +27,7 @@ import { openSignIn } from './SignIn';
 import { useDismiss } from './useDismiss';
 import { usePhoto } from './photo';
 import { useOffline } from './offline';
+import { useMoreBelow } from './moreBelow';
 import type { SettingsSection } from './Settings';
 
 export type View = 'dashboard' | 'approvals' | 'requests' | 'new-agent' | `agent:${string}`;
@@ -178,6 +179,8 @@ export function Sidebar({
 }) {
   const [dmsOpen, setDmsOpen] = useState(true);
   const off = useOffline();
+  const dmList = useRef<HTMLUListElement>(null);
+  const moreBelow = useMoreBelow(dmList);
   // Clicking the already-selected nav button replays its icon animation: a new
   // key remounts the icon, which restarts the CSS animation.
   const [replay, setReplay] = useState<Record<string, number>>({});
@@ -235,7 +238,7 @@ export function Sidebar({
         </div>
 
         {dmsOpen && (
-          <ul className="dm-list">
+          <ul className={`dm-list${moreBelow ? ' more-below' : ''}`} ref={dmList}>
             {/* Everyone in an organization sees every agent (and can talk to the Agency Engineer);
                 only an agent's owner or an admin changes it (Dashboard). */}
             {dmOrder(AGENTS).map(a => {

@@ -91,6 +91,8 @@ ul { list-style: none; margin: 0; padding: 0; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text); }
 
 .dm-list { overflow-y: auto; overscroll-behavior-y: contain; margin-top: 4px; min-height: 0; }
+/* More below what's in view (moreBelow.ts): the bottom edge fades out. */
+.more-below { mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent); }
 .dm-item {
   display: flex; align-items: center; gap: 10px;
   width: 100%; padding: 7px 10px; border-radius: 8px; text-align: left; font-size: 14px;
@@ -1637,6 +1639,11 @@ ul { list-style: none; margin: 0; padding: 0; }
   color: var(--text); background: var(--surface-hover); border: 1px solid var(--border);
 }
 .srow2-input:focus { outline: none; border-color: var(--border-strong); }
+.srow2-input.grow { field-sizing: content; min-width: 224px; max-width: 100%; }
+/* A narrow sidebar: a long organization or agency name takes two lines rather than "Jo Nguyen's a...". */
+@container (max-width: 250px) {
+  .org-switcher .switcher-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.25; }
+}
 .srow2-input:disabled { color: var(--muted); background: transparent; }
 .sphoto {
   width: 40px; height: 40px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
@@ -2057,6 +2064,8 @@ a.sbtn { text-decoration: none; color: inherit; }
 .setup-go:hover { filter: brightness(1.1); }
 .state-pill.complete { display: inline-flex; align-items: center; gap: 4px; background: rgba(63, 178, 127, 0.14); color: #3fb27f; }
 .setup-list li.done .setup-name { color: var(--muted); }
+.custom-over { margin-top: 8px; font-size: 12.5px; }
+.custom-over.sure { color: #e5797c; }
 /* The card's model section: its auto-switch (Dashboard.tsx AutoModels). */
 .auto-models { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
 .switch.sm { width: 30px; height: 18px; border-radius: 9px; }
@@ -2095,7 +2104,7 @@ a.sbtn { text-decoration: none; color: inherit; }
 .sidebar.compact .nav-square { height: 48px; padding: 0; justify-content: center; }
 .sidebar.compact .nav-square svg { width: 24px; height: 24px; }
 .sidebar.compact .nav-square > span:not(.square-badge) { display: none; }
-.sidebar.compact .square-badge { position: absolute; top: 4px; right: 4px; min-width: 18px; padding: 0 5px; line-height: 18px; font-size: 11px; }
+.sidebar.compact .square-badge { position: absolute; top: -5px; right: -5px; min-width: 18px; padding: 0 5px; line-height: 18px; font-size: 11px; } /* at the corner, off the icon */
 .sidebar.compact .section-row { justify-content: center; padding: 0; }
 .sidebar.compact .section-toggle { display: none; }
 .sidebar.compact .dm-item { justify-content: center; padding: 8px 0; }
@@ -2149,6 +2158,7 @@ textarea:focus-visible, input:focus-visible { outline: none; }
   .header-tools .agency-btn, .header-tools .builtins-toggle { font-size: 0; gap: 0; padding: 0 10px; }
   .header-tools .range-picker { width: 120px; }
   .main-header { padding: 12px 14px; gap: 10px; }
+  .main-header .help-btn { margin-right: 4px; } /* room for its glow, not cut off at the edge */
   .header-title { gap: 12px; }
   .header-right { gap: 8px; }
   .header-tools { gap: 6px; }

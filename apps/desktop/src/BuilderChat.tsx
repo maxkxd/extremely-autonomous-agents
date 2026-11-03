@@ -32,6 +32,7 @@ export function BuilderChat({
   onRetry,
   onBuild,
   onClose,
+  noAi = false,
   title = 'New agent',
   buildLabel = 'Build agent',
   buildingText = 'Building your agent - this could take a minute',
@@ -47,10 +48,11 @@ export function BuilderChat({
   onRetry: () => void;
   onBuild: () => void;
   onClose: () => void;
+  noAi?: boolean; // no AI model connected: nothing to answer it, so Send waits (greyed, saying why)
 }) {
   const [grown, setGrown] = useState(false);
   const [text, setText] = useState('');
-  const off = useOffline();
+  const off = useOffline() ?? (noAi ? 'No AI model is connected - connect one in Settings > Connectors' : null);
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const building = session.phase === 'building';

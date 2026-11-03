@@ -5,7 +5,7 @@ import { DEPARTMENT_ICON } from './Sidebar';
 import { BuilderChat } from './BuilderChat';
 import { ACCOUNT, AGENTS } from './data';
 import { useProfileChat } from './ProfileChat';
-import { addPack, buildAgent, getProfile, interviewDone, matchPack, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
+import { addPack, buildAgent, getProfile, interviewDone, matchPack, NEW_SESSION, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
 import { ConnectModel, useHasModels } from './NoModels';
 import { Skel } from './Skeleton';
 import { useOffline } from './offline';
@@ -110,15 +110,19 @@ function CustomCard({
   session,
   onSubmit,
   onReopen,
+  onStartOver,
   cardRef,
   stopped,
 }: {
   session: BuilderSession;
   onSubmit: (text: string) => void;
   onReopen: () => void;
+  onStartOver: () => void; // throw the half-built one away
   cardRef: React.Ref<HTMLElement>;
   stopped: boolean; // the whole agency is stopped: no building until it's resumed
 }) {
+  // Start over asks once more before the conversation goes.
+  const [discard, setDiscard] = useState(false);
   const [text, setText] = useState('');
   const { phase } = session;
   const off = useOffline();
@@ -153,9 +157,14 @@ function CustomCard({
             The whole agency is stopped
           </div>
         ) : started ? (
-          <button className="pack-add custom-add" onClick={onReopen} disabled={!!off} title={off ?? undefined}>
-            Continue building
-          </button>
+          <>
+            <button className="pack-add custom-add" onClick={onReopen} disabled={!!off} title={off ?? undefined}>
+              Continue building
+            </button>
+            <button className={`slink custom-over${discard ? ' sure' : ''}`} disabled={!!off} onClick={() => (discard ? (setDiscard(false), onStartOver()) : setDiscard(true))} onBlur={() => setDiscard(false)}>
+              {discard ? 'Throw it away and start over?' : 'Start over'}
+            </button>
+          </>
         ) : (
           <div className="custom-input">
             <textarea
@@ -314,8 +323,10 @@ export function NewAgent({
       session={session}
       onSubmit={submitBox}
       onReopen={() => setSession(s => ({ ...s, open: true }))}
+      onStartOver={() => setSession(() => NEW_SESSION)}
       cardRef={customEl}
-      stopped={agencyStopped}
+      // One thing in the way at a time: no AI model first (the overlay), then a stopped agency.
+      stopped={agencyStopped && hasModels !== false}
     />,
     ...AGENT_PACKS.slice(at).map(pack),
   ];
@@ -335,6 +346,7 @@ export function NewAgent({
           onRetry={() => ask(session.turns, session.declinedPack)}
           onBuild={build}
           onClose={() => setSession(s => ({ ...s, open: false }))}
+          noAi={hasModels === false}
         />
       )}
       {profileChat.element}

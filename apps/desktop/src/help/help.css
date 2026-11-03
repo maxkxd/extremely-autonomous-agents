@@ -349,6 +349,7 @@
 @media (max-width: 760px) {
   .help-window.grown { top: 8px; left: 8px; width: calc(100vw - 16px); height: calc(100vh - 16px); }
   .help-nav { width: 140px; padding: 14px 6px 10px; }
+  .help-tab { font-size: 13px; padding: 8px; white-space: nowrap; } /* "Your AI assistant" on one line */
   .help-body { padding: 16px 16px 22px; }
   .help-section > :not(h3):not(.help-caption) { zoom: 0.7; }
 }

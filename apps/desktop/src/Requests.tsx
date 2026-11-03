@@ -320,7 +320,7 @@ function RequestRow({
                     className={`rq-btn diy${drawer === 'diy' ? ' on' : ''}`}
                     onClick={e => openDrawer('diy', e)}
                     disabled={!!leaving || !!off}
-                    title={off ?? "Did it yourself? Say what you did, and it's marked done (shift-click: no note)"}
+                    title={off ?? "Done it yourself? Mark it done - say what you did, if you like (shift-click: no note)"}
                   >
                     <Hand size={14} strokeWidth={1.9} />
                     DIY
@@ -359,7 +359,7 @@ function RequestRow({
                         onClick={() => resolve(drawer === 'reject' ? 'rejected' : 'diy')}
                       >
                         {drawer === 'reject' ? (
-                          <>Reject{note.trim() ? ' with reason' : ''}</>
+                          <>Reject</>
                         ) : (
                           <>
                             <Check size={14} strokeWidth={2.25} />

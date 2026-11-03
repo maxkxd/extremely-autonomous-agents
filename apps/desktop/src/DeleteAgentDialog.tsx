@@ -16,7 +16,9 @@ export function DeleteAgentDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
-  const matches = typed.trim() === agent.name;
+  // Its name however it's typed: case and extra spaces don't matter.
+  const same = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+  const matches = same(typed) === same(agent.name);
 
   useEffect(() => {
     input.current?.focus();

@@ -12,9 +12,9 @@ import { LiveDM } from './LiveDM';
 import { NewAgent } from './NewAgent';
 import { AgentReveal } from './AgentReveal';
 import { Settings, type SettingsSection } from './Settings';
-import { NEW_SESSION, agentStatuses, getAgency, getIntegrations, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
+import { NEW_SESSION, agentStatuses, getAgency, getLiveAgents, getIntegrations, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
-import { carryAssistantMessages, currentOrg, isAdmin, offline, onOffline, scoped, signOut, state } from './account';
+import { carryAssistantMessages, currentOrg, isAdmin, myAccountId, offline, onOffline, scoped, signOut, state } from './account';
 import { OFFLINE_WHY } from './offline';
 import { clockTime } from './clock';
 import { SignIn, type SignInAsk } from './SignIn';
@@ -454,7 +454,16 @@ function Agency() {
     window.addEventListener('eaa:sign-in', open);
     return () => window.removeEventListener('eaa:sign-in', open);
   }, []);
-  const logInOut = () => (state.me ? void signOut() : setSigningIn({ mode: 'in', from: null }));
+  // Logging out while one of your agents is mid-run asks first (it used to just happen).
+  const [loggingOut, setLoggingOut] = useState<string[] | null>(null);
+  const logInOut = async () => {
+    if (!state.me) return setSigningIn({ mode: 'in', from: null });
+    const live = await getLiveAgents(1).catch(() => ({}) as Record<string, { running: boolean }>);
+    const me = myAccountId();
+    const running = AGENTS.filter(a => !a.builtIn && live[a.id]?.running && (!currentOrg() || !a.ownerId || a.ownerId === me)).map(a => a.name);
+    if (running.length) setLoggingOut(running);
+    else void signOut();
+  };
   // Settings at a section, from anywhere (NoModels.tsx: "Connect a model").
   useEffect(() => {
     const open = (e: Event) => {
@@ -787,6 +796,24 @@ function Agency() {
         />
       )}
       {/* Signed in: the app starts again, with your organizations. */}
+      {loggingOut && (
+        <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && setLoggingOut(null)}>
+          <div className="confirm" role="alertdialog" aria-labelledby="logout-title">
+            <h2 id="logout-title">Log out?</h2>
+            <p>
+              {loggingOut.join(', ')} {loggingOut.length === 1 ? 'is' : 'are'} running right now. {currentOrg() ? "It carries on on the organization's computer; you just won't see it until you sign in again." : 'Logging out takes you back to your own agency.'}
+            </p>
+            <div className="confirm-actions">
+              <button className="confirm-cancel" onClick={() => setLoggingOut(null)}>
+                Cancel
+              </button>
+              <button className="confirm-delete" onClick={() => (setLoggingOut(null), void signOut())}>
+                Log out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {signingIn && <SignIn mode={signingIn.mode} from={signingIn.from} onCancel={() => setSigningIn(null)} onDone={() => location.reload()} />}
       {reveal && (
         <AgentReveal
