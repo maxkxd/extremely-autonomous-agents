@@ -5,6 +5,7 @@ import { SkelRows } from './Skeleton';
 import { connectAssistantTo, currentOrg, isAdmin, remoteAssistantUrl } from './account';
 import { ACCOUNT } from './data';
 import { AI_IDES, IdeLogo, type IdeId } from './Requests';
+import { useOffline } from './offline';
 import {
   addMcpIntegration,
   connectIntegration,
@@ -498,6 +499,7 @@ function CodePlugins() {
 // computer gets one on their own, which this app carries to the host while it's
 // open (account.ts, runner/remote-mcp.ts). Either way it looks the same here.
 function AgencyMcp() {
+  const off = useOffline();
   const [mcp, setMcp] = useState<{ url: string; here: boolean; remote?: boolean } | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -544,7 +546,7 @@ function AgencyMcp() {
               Connect {AI_IDES[id].name}
             </button>
           ))}
-          <button className="sbtn" title="For another AI app that can add an MCP server by its address" onClick={copy}>
+          <button className="sbtn" title={off ?? 'For another AI app that can add an MCP server by its address'} onClick={copy}>
             {copied ? 'Copied' : 'Copy address'}
           </button>
         </span>
@@ -560,6 +562,7 @@ function EventHooks({ i, events, refresh }: { i: IntegrationView; events: EventI
   const [secret, setSecret] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const off = useOffline();
   const hooks = i.events.filter(e => e.webhook);
   if (!hooks.length) return null;
   const signed = hooks.find(e => e.signed);
@@ -584,7 +587,7 @@ function EventHooks({ i, events, refresh }: { i: IntegrationView; events: EventI
           <div className="sint-event" key={e.id}>
             <span className="sint-event-name">{e.description}</span>
             {url && (
-              <button className="sbtn" onClick={() => copy(e.id, url)} title={url}>
+              <button className="sbtn" onClick={() => copy(e.id, url)} title={off ?? url}>
                 {copied === e.id ? 'Copied' : 'Copy webhook address'}
               </button>
             )}

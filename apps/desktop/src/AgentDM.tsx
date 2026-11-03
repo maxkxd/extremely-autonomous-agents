@@ -8,6 +8,7 @@ import type { DmEntry, RunPost, ToolLine } from './dms';
 import type { Resolution } from './Approvals';
 import { Loading, Skel, SkelLines } from './Skeleton';
 import { getTools } from './builder';
+import { useOffline } from './offline';
 
 // Placeholder history is "minutes ago"; pin it to the page's load time.
 const loadedAt = Date.now();
@@ -113,6 +114,7 @@ export function AgentDM({
   const agent = AGENTS.find(a => a.id === agentId)!;
   const Icon = DEPARTMENT_ICON[agent.department];
   const [draft, setDraft] = useState('');
+  const off = useOffline(); // the host is offline: nothing can be sent until it's back
   const end = useRef<HTMLDivElement>(null);
   // Its Silent tools, which its posts leave out.
   const [silent, setSilent] = useState<Set<string>>();
@@ -214,17 +216,19 @@ export function AgentDM({
         <textarea
           rows={1}
           placeholder={`Message ${agent.name}`}
+          disabled={!!off}
+          title={off ?? undefined}
           value={draft}
           onChange={e => setDraft(e.target.value)}
           onKeyDown={e => {
             // Enter sends, Shift+Enter is a new line.
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
-              send();
+              if (!off) send();
             }
           }}
         />
-        <button className="dm-send" onClick={send} disabled={!draft.trim() || thinking} aria-label="Send">
+        <button className="dm-send" onClick={send} disabled={!draft.trim() || thinking || !!off} title={off ?? undefined} aria-label="Send">
           <SendHorizontal size={16} strokeWidth={1.9} />
         </button>
       </div>}

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { AlertTriangle, Cpu, ExternalLink, Loader2 } from 'lucide-react';
+import { useOffline } from './offline';
 import {
   siAnthropic,
   siClaude,
@@ -211,11 +212,13 @@ export function SpinButton({
   onClick: () => void;
   children: React.ReactNode;
 }) {
+  // Inside Connectors' offline lock (Settings.tsx) its own hover text would hide why it's greyed.
+  const off = useOffline();
   return (
     <button
       className={`${className}${spinning ? ' spinning' : ''}`}
       disabled={disabled || spinning}
-      title={title}
+      title={off ?? title}
       onClick={onClick}
       aria-busy={spinning}
     >

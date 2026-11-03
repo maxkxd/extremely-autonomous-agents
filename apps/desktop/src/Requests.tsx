@@ -7,6 +7,7 @@ import { visibleApprovals, type ApprovalScope } from './Approvals';
 import { sendRequestMessage, sendToIde } from './builder';
 import { RichText } from './RichText';
 import { Loading, Skel } from './Skeleton';
+import { useOffline } from './offline';
 
 // How a request left the page: you did it, or you rejected it. (One the Fleet
 // Engineer settles is closed on the server.)
@@ -120,6 +121,7 @@ function RequestRow({
   }, [serverThread.length]);
   const thread: Message[] = [...serverThread, ...echo];
   const [draft, setDraft] = useState('');
+  const off = useOffline(); // the host is offline: nothing here can be sent or decided
   const [leaving, setLeaving] = useState<RequestResolution | 'done' | null>(null);
   const [collapsing, setCollapsing] = useState(false);
   const timers = useRef<number[]>([]);
@@ -258,19 +260,21 @@ function RequestRow({
                       className="reject-reason"
                       rows={2}
                       placeholder="Reply to the Agency Engineer"
+                      disabled={!!off}
+                      title={off ?? undefined}
                       value={draft}
                       onChange={e => setDraft(e.target.value)}
                       onKeyDown={e => {
                         // Enter sends, Shift+Enter is a new line.
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          if (draft.trim()) send(draft);
+                          if (draft.trim() && !off) send(draft);
                         }
                       }}
                     />
                     <div className="reject-actions">
                       <span className="drawer-hint">Don't paste API keys or passwords here - they go in Settings &gt; Connectors.</span>
-                      <button className="ap-btn confirm-engineer" onClick={() => send(draft)} disabled={!draft.trim()}>
+                      <button className="ap-btn confirm-engineer" onClick={() => send(draft)} disabled={!draft.trim() || !!off} title={off ?? undefined}>
                         <SendHorizontal size={14} strokeWidth={1.9} />
                         Send
                       </button>
@@ -283,8 +287,8 @@ function RequestRow({
                 {/* Your AI assistant, with this request and the agency's tools as you (runner/ide.ts). */}
                 <button
                   className="rq-btn ide"
-                  disabled={!!leaving || sending}
-                  title={`Opens ${AI_IDES[yourIde()].name} on this request. Connect it to your agency in Settings > Connectors so it can work on it.`}
+                  disabled={!!leaving || sending || !!off}
+                  title={off ?? `Opens ${AI_IDES[yourIde()].name} on this request. Connect it to your agency in Settings > Connectors so it can work on it.`}
                   onClick={sendIde}
                 >
                   <IdeLogo logo={AI_IDES[yourIde()].logo} />
@@ -295,8 +299,8 @@ function RequestRow({
                   <button
                     className={`rq-btn diy${drawer === 'diy' ? ' on' : ''}`}
                     onClick={e => openDrawer('diy', e)}
-                    disabled={!!leaving}
-                    title="Did it yourself? Say what you did, and it's marked done (shift-click: no note)"
+                    disabled={!!leaving || !!off}
+                    title={off ?? "Did it yourself? Say what you did, and it's marked done (shift-click: no note)"}
                   >
                     <Hand size={14} strokeWidth={1.9} />
                     DIY
@@ -304,8 +308,8 @@ function RequestRow({
                   <button
                     className={`rq-btn reject${drawer === 'reject' ? ' on' : ''}`}
                     onClick={e => openDrawer('reject', e)}
-                    disabled={!!leaving}
-                    title="Shift-click to reject without a reason"
+                    disabled={!!leaving || !!off}
+                    title={off ?? 'Shift-click to reject without a reason'}
                   >
                     <X size={14} strokeWidth={2.25} />
                     Reject
@@ -330,6 +334,8 @@ function RequestRow({
                       </button>
                       <button
                         className={`ap-btn ${drawer === 'reject' ? 'confirm-reject' : 'confirm-diy'}`}
+                        disabled={!!off}
+                        title={off ?? undefined}
                         onClick={() => resolve(drawer === 'reject' ? 'rejected' : 'diy')}
                       >
                         {drawer === 'reject' ? (

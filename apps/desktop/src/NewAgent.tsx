@@ -8,6 +8,7 @@ import { useProfileChat } from './ProfileChat';
 import { addPack, buildAgent, getProfile, interviewDone, matchPack, nextTurn, type BuilderSession, type Built, type Turn } from './builder';
 import { ConnectModel, useHasModels } from './NoModels';
 import { Skel } from './Skeleton';
+import { useOffline } from './offline';
 
 // "Customize your own agent" always takes the last slot of the top row (the
 // 4th card), or follows the packs straight away if there are fewer than three.
@@ -30,6 +31,7 @@ function PackCard({
 }) {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const off = useOffline();
   // What of it is in the fleet: by where each agent came from (its pack and the
   // pack's name for it), not what it's called now. Delete one and it can be
   // added back; nothing else of the pack is added twice.
@@ -88,7 +90,7 @@ function PackCard({
         </ul>
         {/* Until it's known what's in, no Add (or Already added) that might not be true. */}
         {ready ? (
-          <button className="pack-add" disabled={adding || allIn} onClick={add}>
+          <button className="pack-add" disabled={adding || allIn || !!off} title={off ?? undefined} onClick={add}>
             {allIn ? <Check size={15} strokeWidth={2} /> : <Plus size={15} strokeWidth={2} />}
             {label}
           </button>
@@ -119,6 +121,7 @@ function CustomCard({
 }) {
   const [text, setText] = useState('');
   const { phase } = session;
+  const off = useOffline();
   const started = phase === 'chat' || phase === 'building';
   // Cleared once the builder has taken it, so a failed send keeps your words.
   useEffect(() => {
@@ -126,7 +129,7 @@ function CustomCard({
   }, [phase]);
   const send = () => {
     const t = text.trim();
-    if (!t || phase === 'matching') return;
+    if (!t || phase === 'matching' || off) return;
     onSubmit(t);
   };
   return (
@@ -150,7 +153,7 @@ function CustomCard({
             The whole agency is stopped
           </div>
         ) : started ? (
-          <button className="pack-add custom-add" onClick={onReopen}>
+          <button className="pack-add custom-add" onClick={onReopen} disabled={!!off} title={off ?? undefined}>
             Continue building
           </button>
         ) : (
@@ -158,7 +161,8 @@ function CustomCard({
             <textarea
               value={text}
               rows={4}
-              disabled={phase === 'matching'}
+              disabled={phase === 'matching' || !!off}
+              title={off ?? undefined}
               placeholder={phase === 'recommended' ? "How it's different..." : 'What should it do?'}
               onChange={e => setText(e.target.value)}
               onKeyDown={e => {
@@ -168,7 +172,7 @@ function CustomCard({
                 }
               }}
             />
-            <button className="custom-send" onClick={send} disabled={!text.trim() || phase === 'matching'} aria-label="Send">
+            <button className="custom-send" onClick={send} disabled={!text.trim() || phase === 'matching' || !!off} title={off ?? undefined} aria-label="Send">
               <ArrowUp size={16} strokeWidth={2.25} />
             </button>
           </div>

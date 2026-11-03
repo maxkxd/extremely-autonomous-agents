@@ -1,5 +1,6 @@
 import { Pause, Play, Square } from 'lucide-react';
 import type { AgencyState } from './builder';
+import { useOffline } from './offline';
 
 // The whole agency's Standby and Stop (next to the time range on the
 // dashboard), like a card's own pair. Standby: no agent starts anything by
@@ -7,19 +8,20 @@ import type { AgencyState } from './builder';
 // go on. Stop: every run is cut short and nothing happens at all - no
 // building either - until it's resumed.
 export function AgencyControls({ state, onChange }: { state: AgencyState; onChange: (state: AgencyState) => void }) {
+  const off = useOffline();
   return (
     <div className="agency-controls">
       <button
         className={`ctl-btn agency-btn${state === 'standby' ? ' resume' : ''}`}
         // Its name on hover: in a narrow window the button is just its icon (styles.css).
-        title={state === 'standby' ? 'Resume agency' : 'Standby'}
-        disabled={state === 'stopped'}
+        title={off ?? (state === 'standby' ? 'Resume agency' : 'Standby')}
+        disabled={state === 'stopped' || !!off}
         onClick={() => onChange(state === 'standby' ? 'active' : 'standby')}
       >
         {state === 'standby' ? <Play size={15} /> : <Pause size={15} />}
         {state === 'standby' ? 'Resume agency' : 'Standby'}
       </button>
-      <button className={`ctl-btn agency-btn ${state === 'stopped' ? 'resume' : 'stop'}`} title={state === 'stopped' ? 'Resume agency' : 'Stop agency'} onClick={() => onChange(state === 'stopped' ? 'active' : 'stopped')}>
+      <button className={`ctl-btn agency-btn ${state === 'stopped' ? 'resume' : 'stop'}`} title={off ?? (state === 'stopped' ? 'Resume agency' : 'Stop agency')} disabled={!!off} onClick={() => onChange(state === 'stopped' ? 'active' : 'stopped')}>
         {state === 'stopped' ? <Play size={15} /> : <Square size={13} fill="currentColor" />}
         {state === 'stopped' ? 'Resume agency' : 'Stop agency'}
       </button>

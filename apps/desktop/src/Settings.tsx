@@ -46,6 +46,7 @@ import { Integrations } from './Integrations';
 import { useDismiss } from './useDismiss';
 import { ACCEPT, removePhoto, setPhoto, usePhoto } from './photo';
 import { Skel, SkelFields, SkelRows } from './Skeleton';
+import { useOffline } from './offline';
 import {
   getCatalog,
   getPerson,
@@ -157,13 +158,14 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 // What the builder has learned over time: shown so you can remove anything wrong.
 function Notes({ notes, onChange, empty }: { notes: string[]; onChange: (n: string[]) => void; empty: string }) {
+  const off = useOffline();
   if (!notes.length) return <p className="snotes-empty">{empty}</p>;
   return (
     <ul className="snotes">
       {notes.map((n, i) => (
         <li key={i}>
           <span>{n}</span>
-          <button aria-label="Forget this" title="Forget this" onClick={() => onChange(notes.filter((_, j) => j !== i))}>
+          <button aria-label="Forget this" title={off ?? 'Forget this'} onClick={() => onChange(notes.filter((_, j) => j !== i))}>
             <Trash2 size={13} />
           </button>
         </li>
@@ -558,6 +560,7 @@ function AccountSection() {
 // What your agents know about you. They add to it over time (only lasting
 // things); you can add your own with + and forget anything with the bin.
 function Memories({ notes, onChange }: { notes: string[]; onChange: (n: string[]) => void }) {
+  const off = useOffline(); // kept on the host: nothing changes while it's offline
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState('');
   const add = () => {
@@ -577,10 +580,11 @@ function Memories({ notes, onChange }: { notes: string[]; onChange: (n: string[]
     [],
   );
   return (
+    <fieldset className="soffline" disabled={!!off} title={off ?? undefined}>
     <div className="sfield">
       <div className="smem-head">
         <h3>Memories</h3>
-        <button className="smem-add" onClick={() => setAdding(true)} aria-label="Add a memory" title="Add a memory">
+        <button className="smem-add" onClick={() => setAdding(true)} aria-label="Add a memory" title={off ?? 'Add a memory'}>
           <Plus size={15} />
         </button>
       </div>
@@ -604,6 +608,7 @@ function Memories({ notes, onChange }: { notes: string[]; onChange: (n: string[]
       )}
       <Notes notes={notes} onChange={onChange} empty={adding ? '' : 'Nothing yet. Your agents add lasting things they learn about you here.'} />
     </div>
+    </fieldset>
   );
 }
 
@@ -1115,6 +1120,7 @@ function OrganizationProfile({ name }: { name: string }) {
   // Members read it; the owner and admins change it (access.ts on the host).
   // (ACCOUNT.role wasn't set for a member, so the fields were left editable.)
   const readOnly = !isAdmin();
+  const off = useOffline();
   useEffect(() => {
     if (loaded && !readOnly) relink();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1128,6 +1134,7 @@ function OrganizationProfile({ name }: { name: string }) {
       {!p ? (
         rec.error ? <p className="custom-error">{rec.error}</p> : <SkelFields n={5} what="the organization" />
       ) : (
+        <fieldset className="soffline" disabled={!!off} title={off ?? undefined}>
         <fieldset className="sreadonly" disabled={readOnly}>
           <Field label="What it does">
             <textarea rows={2} value={p.what_it_does} onChange={e => rec.edit({ what_it_does: e.target.value })} />
@@ -1176,6 +1183,7 @@ function OrganizationProfile({ name }: { name: string }) {
             <SaveStatus status={rec.status} error={rec.error} />
           </div>
         </fieldset>
+        </fieldset>
       )}
       <OrgPeople />
     </section>
@@ -1187,6 +1195,7 @@ function OrganizationProfile({ name }: { name: string }) {
 const money = (n: number) => `$${n.toFixed(2)}`;
 
 function UsageSection() {
+  const off = useOffline();
   // This calendar month, from the runner: what each agent's runs cost.
   const [usage, setUsage] = useState<Usage | null>(null);
   useEffect(() => {
@@ -1261,7 +1270,7 @@ function UsageSection() {
               {money(total)}
               {unknown > 0 && '*'}
             </span>
-            <CapInput value={usage.orgCapUsd} disabled={!isAdmin()} onSave={v => setOrgCap(parseCap(v)).catch(() => {})} label="Monthly limit for the whole organization" />
+            <CapInput value={usage.orgCapUsd} disabled={!isAdmin()} why={off} onSave={v => setOrgCap(parseCap(v)).catch(() => {})} label="Monthly limit for the whole organization" />
           </li>
         )}
         {rows.map(({ a, spend }) => {
@@ -1282,7 +1291,7 @@ function UsageSection() {
                 {money(spend)}
                 {a.monthUnknownRuns > 0 && '*'}
               </span>
-              <CapInput value={a.capUsd} disabled={!isAdmin()} onSave={v => setAgentRunner(a.id, { spendCapUsd: parseCap(v) }).catch(() => {})} label={`Monthly limit for ${a.name}`} />
+              <CapInput value={a.capUsd} disabled={!isAdmin()} why={off} onSave={v => setAgentRunner(a.id, { spendCapUsd: parseCap(v) }).catch(() => {})} label={`Monthly limit for ${a.name}`} />
             </li>
           );
         })}
@@ -1305,7 +1314,7 @@ const parseCap = (v: string) => (v.trim() === '' ? null : Math.round(Number(v.re
 
 // A monthly dollar limit that saves when you leave it (or press Enter). One that isn't
 // a limit turns red and says why on hover - never a box stuck under it.
-function CapInput({ value, onSave, label, disabled }: { value: number | null; onSave: (v: string) => void; label: string; disabled?: boolean }) {
+function CapInput({ value, onSave, label, disabled, why }: { value: number | null; onSave: (v: string) => void; label: string; disabled?: boolean; why?: string | null }) {
   const [text, setText] = useState(value == null ? '' : String(value));
   const [problem, setProblem] = useState<string | null>(null);
   const saved = useRef(text);
@@ -1318,7 +1327,7 @@ function CapInput({ value, onSave, label, disabled }: { value: number | null; on
     onSave(text);
   };
   return (
-    <label className={`slimit-input${problem ? ' bad' : ''}`} title={problem ?? undefined}>
+    <label className={`slimit-input${problem ? ' bad' : ''}`} title={why ?? problem ?? undefined}>
       <span>$</span>
       <input
         inputMode="decimal"
@@ -1329,7 +1338,7 @@ function CapInput({ value, onSave, label, disabled }: { value: number | null; on
         onChange={e => setText(e.target.value)}
         onBlur={save}
         onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-        disabled={disabled}
+        disabled={disabled || !!why}
       />
     </label>
   );
@@ -1346,6 +1355,7 @@ const LEVELS: { tier: ToolTier; label: string; says: string }[] = [
 const levelOf = (t: ToolView['tier']) => (t === 'mixed' ? null : LEVELS.find(l => l.tier === t)!);
 
 function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?: () => void }) {
+  const off = useOffline();
   const [tools, setTools] = useState<ToolView[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1403,7 +1413,7 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
                   <div className="stool-body">
                     {t.does && <p className="stool-does">{t.does}</p>}
                     <p className="stool-used">Used by {t.agents.map(a => a.name).join(', ')}</p>
-                    <fieldset className="stool-slider" disabled={!isAdmin()}>
+                    <fieldset className="stool-slider" disabled={!isAdmin() || !!off} title={off ?? undefined}>
                       <input
                         type="range"
                         min={0}
@@ -1436,16 +1446,20 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
 // --- Connectors --------------------------------------------------------------
 
 function ConnectorsSection({ onOpenApproval, focus, onFocused }: { onOpenApproval: (id: string) => void; focus?: string | null; onFocused?: () => void }) {
+  const off = useOffline();
   return (
     <section className="ssection">
       <h2>Connectors</h2>
       <p className="slead">Keys and sign-ins go here - never in a chat with an agent.</p>
       {/* The AI models the host runs everyone's agents on: the owner's and admins' to change. */}
       {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change the AI models.</p>}
-      <fieldset className="slocked" disabled={!isAdmin()}>
-        <ModelConnectors />
+      {/* Kept on the host: nothing here changes while it's offline. */}
+      <fieldset className="soffline" disabled={!!off} title={off ?? undefined}>
+        <fieldset className="slocked" disabled={!isAdmin()}>
+          <ModelConnectors />
+        </fieldset>
+        <Integrations onOpenApproval={onOpenApproval} focus={focus} onFocused={onFocused} />
       </fieldset>
-      <Integrations onOpenApproval={onOpenApproval} focus={focus} onFocused={onFocused} />
     </section>
   );
 }

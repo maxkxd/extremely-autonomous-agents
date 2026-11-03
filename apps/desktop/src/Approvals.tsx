@@ -7,6 +7,7 @@ import { renderApproval } from './approvalTools';
 import { useDismiss } from './useDismiss';
 import { openSettings } from './NoModels';
 import { Loading, Skel, SkelLines } from './Skeleton';
+import { useOffline } from './offline';
 
 export type ApprovalScope = 'mine' | 'all';
 // 'expired' = nobody answered in time; like a rejection, the action does not happen.
@@ -254,6 +255,7 @@ function ApprovalCard({
   const card = renderApproval(approval.tool, approval.args);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
+  const off = useOffline(); // the host is offline: it can't be decided until it's back
   const [leaving, setLeaving] = useState<Resolution | null>(null);
   const [collapsing, setCollapsing] = useState(false);
   // Arriving for this one (Open Approvals, a draft's Approve): scroll it to the
@@ -317,16 +319,16 @@ function ApprovalCard({
 
           <footer className="approval-foot">
             <div className="approval-buttons">
-              <button className="ap-btn approve" onClick={() => resolve('approved')} disabled={!!leaving || approval.paused}>
+              <button className="ap-btn approve" onClick={() => resolve('approved')} disabled={!!leaving || approval.paused || !!off} title={off ?? undefined}>
                 <Check size={15} strokeWidth={2.25} />
                 Approve
               </button>
               <button
                 className={`ap-btn reject${rejecting ? ' on' : ''}`}
-                title="Shift-click to reject without a reason"
+                title={off ?? 'Shift-click to reject without a reason'}
                 // Shift-click skips the reason box and rejects straight away.
                 onClick={e => (e.shiftKey ? resolve('rejected') : setRejecting(r => !r))}
-                disabled={!!leaving || approval.paused}
+                disabled={!!leaving || approval.paused || !!off}
                 aria-expanded={rejecting}
               >
                 <X size={15} strokeWidth={2.25} />
@@ -361,7 +363,7 @@ function ApprovalCard({
                   <button className="ap-btn ghost" onClick={() => setRejecting(false)}>
                     Cancel
                   </button>
-                  <button className="ap-btn confirm-reject" onClick={() => resolve('rejected')}>
+                  <button className="ap-btn confirm-reject" onClick={() => resolve('rejected')} disabled={!!off} title={off ?? undefined}>
                     Reject{reason.trim() ? ' with reason' : ''}
                   </button>
                 </div>

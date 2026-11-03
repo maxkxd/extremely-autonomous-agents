@@ -26,6 +26,7 @@ import { checkWaitingInvites, currentOrg, myName, onMyName, onWaitingInvites, ow
 import { openSignIn } from './SignIn';
 import { useDismiss } from './useDismiss';
 import { usePhoto } from './photo';
+import { useOffline } from './offline';
 import type { SettingsSection } from './Settings';
 
 export type View = 'dashboard' | 'approvals' | 'requests' | 'new-agent' | `agent:${string}`;
@@ -164,6 +165,7 @@ export function Sidebar({
   onExpand?: () => void;
 }) {
   const [dmsOpen, setDmsOpen] = useState(true);
+  const off = useOffline();
   // Clicking the already-selected nav button replays its icon animation: a new
   // key remounts the icon, which restarts the CSS animation.
   const [replay, setReplay] = useState<Record<string, number>>({});
@@ -212,7 +214,8 @@ export function Sidebar({
           {/* Opens the New agent page (agent packs + build your own). */}
           <button
             className={`icon-btn${view === 'new-agent' ? ' on' : ''}`}
-            title="Add agent"
+            title={off ?? 'Add agent'}
+            disabled={!!off}
             onClick={() => onSelect('new-agent')}
           >
             <Plus size={16} />

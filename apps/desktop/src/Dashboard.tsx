@@ -11,6 +11,7 @@ import { DEPARTMENT_ICON, type View } from './Sidebar';
 import { currentOrg, isAdmin, myAccountId, scoped } from './account';
 import { Skel } from './Skeleton';
 import { ConnectModel } from './NoModels';
+import { useOffline } from './offline';
 
 // Slice colours come from --slice-0..4 on the card (styles.css): blue-to-gray
 // normally, red at Apocalyptic, grays when the agent is stopped.
@@ -194,6 +195,7 @@ function Tuning({
   level,
   setLevel,
   disabled = false,
+  why,
   stopped = false,
 }: {
   agent: Agent;
@@ -201,6 +203,7 @@ function Tuning({
   level: number;
   setLevel: (l: number) => void;
   disabled?: boolean; // someone else's agent: shown, not changed
+  why?: string | null; // greyed out for a reason (the host is offline): said on hover
   stopped?: boolean; // it, or the whole agency, is stopped: no runs coming
 }) {
   // A real agent: its recent output per run times the runs its own plan gives
@@ -211,7 +214,7 @@ function Tuning({
   const cadence = agent.live ? `${runsLabel(perDay)}${agent.waitingOnTools ? ' until its tools are connected' : ''}` : `${FEROCITY[level].cadence} (placeholder schedule)`;
 
   return (
-    <div className="tuning">
+    <div className="tuning" title={why ?? undefined}>
       <div className="ferocity">
         <div className="ferocity-head">
           <span className="stat-label">Ferocity</span>
@@ -224,7 +227,7 @@ function Tuning({
           max={FEROCITY.length - 1}
           step={1}
           value={level}
-          disabled={disabled}
+          disabled={disabled || !!why}
           onChange={e => setLevel(Number(e.target.value))}
           aria-label="Ferocity"
           aria-valuetext={FEROCITY[level].name}
@@ -336,6 +339,9 @@ export function AgentCard({
   const [modelsOpen, setModelsOpen] = useState(false);
   const closeModels = useCallback(() => setModelsOpen(false), []);
   const slide = useModelSlide(cardRef, modelsOpen, closeModels);
+  // The host is offline: it's shown as last seen, nothing on it changes.
+  const offline = useOffline();
+  const off = preview ? null : offline;
   const DeptIcon = DEPARTMENT_ICON[agent.department];
   // Ferocity lives on the card because each level restyles the whole card
   // (fero-0..4 in styles.css). How a change looks depends on its direction:
@@ -403,7 +409,7 @@ export function AgentCard({
         <GripVertical size={16} />
       </button>
       )}
-      {onDelete && !preview && !viewOnly && <CardMenu onDelete={onDelete} />}
+      {onDelete && !preview && !viewOnly && <CardMenu onDelete={onDelete} why={off} />}
       <div className="card-main">
         <header className="card-head">
           <div className="card-name">
@@ -488,7 +494,9 @@ export function AgentCard({
                 why={
                   agent.service
                     ? 'It works only when an agent needs it - it has no runs of its own'
-                    : viewOnly
+                    : off
+                      ? off
+                      : viewOnly
                       ? `Only ${(agent.builtIn ? 'the owner' : agent.owner || 'its owner')} or an admin can run it`
                       : noAi
                         ? 'No AI model is connected - connect one in Settings > Connectors'
@@ -534,11 +542,11 @@ export function AgentCard({
             <span className="skel skel-btn" />
           </div>
         )}
-        {!agent.builtIn && !loading && <div className="controls" title={viewOnly ? `Only ${(agent.builtIn ? 'the owner' : agent.owner || 'its owner')} or an admin can change this agent` : undefined}>
+        {!agent.builtIn && !loading && <div className="controls" title={off ?? (viewOnly ? `Only ${(agent.builtIn ? 'the owner' : agent.owner || 'its owner')} or an admin can change this agent` : undefined)}>
           <button
             key={state === 'draining' ? 'drain-resume' : 'drain'}
             className={`ctl-btn${state === 'draining' ? ' resume' : ''}`}
-            disabled={state === 'stopped' || agencyHeld || viewOnly}
+            disabled={state === 'stopped' || agencyHeld || viewOnly || !!off}
             onClick={() => turn(state === 'draining' ? 'active' : 'draining')}
           >
             {state === 'draining' ? <Play size={15} /> : <Pause size={15} />}
@@ -547,7 +555,7 @@ export function AgentCard({
           <button
             key={state === 'stopped' ? 'stop-resume' : 'stop'}
             className={`ctl-btn ${state === 'stopped' ? 'resume' : 'stop'}`}
-            disabled={agencyHeld || viewOnly}
+            disabled={agencyHeld || viewOnly || !!off}
             onClick={() => turn(state === 'stopped' ? 'active' : 'stopped')}
           >
             {state === 'stopped' ? <Play size={15} /> : <Square size={13} fill="currentColor" />}
@@ -556,10 +564,10 @@ export function AgentCard({
         </div>}
 
         {/* Built-ins work when there's work: no schedule to set. */}
-        {!agent.builtIn && (loading ? <TuningSkeleton /> : <Tuning agent={agent} range={range} level={level} setLevel={setLevel} disabled={viewOnly} stopped={!preview && (state === 'stopped' || agencyStopped)} />)}
+        {!agent.builtIn && (loading ? <TuningSkeleton /> : <Tuning agent={agent} range={range} level={level} setLevel={setLevel} disabled={viewOnly} why={off} stopped={!preview && (state === 'stopped' || agencyStopped)} />)}
         {models && modelsLoading && <span className="skel skel-model" />}
         {models && !modelsLoading && (
-          <ModelRow choices={models} available={available} checks={checks} open={modelsOpen} readOnly={preview || viewOnly} onOpen={() => setModelsOpen(o => !o)} />
+          <ModelRow choices={models} available={available} checks={checks} open={modelsOpen} readOnly={preview || viewOnly} lockedWhy={off} onOpen={() => setModelsOpen(o => !o)} />
         )}
       </aside>
       {modelsOpen && models && onModels && <ModelPanel choices={models} available={available} onChange={onModels} checks={checks} onCheck={onCheck} />}
@@ -600,14 +608,14 @@ function RunNowButton({ running, queued, why, onRun }: { running: boolean; queue
   );
 }
 
-function CardMenu({ onDelete }: { onDelete: () => void }) {
+function CardMenu({ onDelete, why }: { onDelete: () => void; why?: string | null }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
   useDismiss(ref, open, close);
   return (
     <div className={`card-menu${open ? ' open' : ''}`} ref={ref}>
-      <button className="card-menu-btn" onClick={() => setOpen(o => !o)} aria-label="Agent options" aria-expanded={open}>
+      <button className="card-menu-btn" onClick={() => setOpen(o => !o)} aria-label="Agent options" aria-expanded={open} disabled={!!why} title={why ?? undefined}>
         <Ellipsis size={18} />
       </button>
       {open && (

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, Hammer, RotateCcw, Sparkles, X } from 'lucide-react';
 import type { BuilderSession } from './builder';
 import { RichText } from './RichText';
+import { useOffline } from './offline';
 
 // A build takes up to a minute or so: count up so it never looks stuck.
 function BuildingNote({ text }: { text: string }) {
@@ -49,6 +50,7 @@ export function BuilderChat({
 }) {
   const [grown, setGrown] = useState(false);
   const [text, setText] = useState('');
+  const off = useOffline();
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const building = session.phase === 'building';
@@ -134,7 +136,7 @@ export function BuilderChat({
 
         <footer className="builder-foot">
           {session.ready && !building && (
-            <button className="builder-build" onClick={onBuild}>
+            <button className="builder-build" onClick={onBuild} disabled={!!off} title={off ?? undefined}>
               <Hammer size={15} strokeWidth={2} />
               {buildLabel}
             </button>
@@ -144,17 +146,18 @@ export function BuilderChat({
               ref={input}
               value={text}
               rows={1}
-              disabled={building}
+              disabled={building || !!off}
+              title={off ?? undefined}
               placeholder={session.ready ? 'Anything else? Or build it.' : 'Reply...'}
               onChange={e => setText(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  send();
+                  if (!off) send();
                 }
               }}
             />
-            <button className="custom-send" onClick={send} disabled={!text.trim() || session.thinking || building} aria-label="Send">
+            <button className="custom-send" onClick={send} disabled={!text.trim() || session.thinking || building || !!off} title={off ?? undefined} aria-label="Send">
               <ArrowUp size={16} strokeWidth={2.25} />
             </button>
           </div>

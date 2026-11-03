@@ -15,6 +15,7 @@ import { Settings, type SettingsSection } from './Settings';
 import { NEW_SESSION, agentStatuses, getAgency, getIntegrations, getHostZone, setAgency, setHostPerson, setHostZone, answerRequest, decideApproval, deleteAgentFiles, getLiveApprovals, getLiveRequests, outputSlices, saveAgent, type AgencyState, type BuilderSession, type Built } from './builder';
 import { subscribeToDecisions } from './live';
 import { carryAssistantMessages, currentOrg, isAdmin, offline, onOffline, scoped, signOut, state } from './account';
+import { OFFLINE_WHY } from './offline';
 import { SignIn, type SignInAsk } from './SignIn';
 import { Elsewhere } from './Elsewhere';
 import { Onboarding, onboarded } from './Onboarding';
@@ -626,7 +627,7 @@ function Agency() {
             {view === 'approvals' && <DecisionTally approved={decidedToday.approved} rejected={decidedToday.rejected} />}
             {view === 'dashboard' && (
               <>
-                <button className={`new-agent-btn${firstAgent ? ' first' : ''}`} onClick={() => setView('new-agent')}>
+                <button className={`new-agent-btn${firstAgent ? ' first' : ''}`} onClick={() => setView('new-agent')} disabled={!!offlineSince} title={offlineSince ? OFFLINE_WHY : undefined}>
                   <Plus size={14} strokeWidth={2} />
                   New agent
                 </button>

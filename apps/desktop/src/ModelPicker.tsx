@@ -42,6 +42,7 @@ export function ModelRow({
   onOpen,
   open,
   readOnly,
+  lockedWhy,
   checks,
 }: {
   choices: ModelChoice[];
@@ -49,6 +50,7 @@ export function ModelRow({
   onOpen: () => void;
   open: boolean;
   readOnly?: boolean;
+  lockedWhy?: string | null; // greyed out for a reason (the host is offline): said on hover
   checks?: Checks;
 }) {
   const first = choices[0];
@@ -60,9 +62,11 @@ export function ModelRow({
     <button
       className={`model-row${problem ? ' flagged' : ''}${open ? ' open' : ''}`}
       onClick={onOpen}
-      disabled={readOnly}
+      disabled={readOnly || !!lockedWhy}
       title={
-        first
+        lockedWhy
+          ? lockedWhy
+          : first
           ? `${modelLabel(first)} on ${connectionName(first.connection, available)}${problem ? ` - ${problem}: pick another model` : ''}`
           : 'This agent has no model to run on'
       }
@@ -78,7 +82,7 @@ export function ModelRow({
         ) : (
           problem
         )}
-        {!readOnly && <ChevronRight size={14} className="model-row-chev" />}
+        {!readOnly && !lockedWhy && <ChevronRight size={14} className="model-row-chev" />}
       </span>
     </button>
   );
