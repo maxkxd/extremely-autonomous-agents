@@ -600,7 +600,7 @@ const TOOLS: ToolDef[] = [
       // Woken with it: an answer that unblocks it (the playbook's real path) waited a day
       // for its next scheduled run.
       const asker = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', r.id)?.agent_id;
-      if (asker && asker !== FLEET_ENGINEER) ctx.wake(asker, 'self-booked', `Request #${r.id} is answered: ${answer.slice(0, 600)}`);
+      if (asker && asker !== FLEET_ENGINEER) ctx.wake(asker, 'request done', `Request #${r.id} is answered: ${answer.slice(0, 600)}`);
       return `Closed #${r.id}.`;
     },
   },
@@ -886,14 +886,14 @@ const TOOLS: ToolDef[] = [
           ctx.wake(FLEET_ENGINEER, 'request', `${ids} went live for ${g.for_agent}. Request #${g.request_id} still needs: ${rest}.`);
           // What it has now is usable now: it isn't left waiting on the rest (Market
           // Research got the Census tools and didn't touch them until its next scheduled run).
-          ctx.wake(g.for_agent, 'self-booked', `You now have ${ids} (request #${g.request_id} stays open for: ${rest}). Use them on your real work now.`);
+          ctx.wake(g.for_agent, 'request done', `You now have ${ids} (request #${g.request_id} stays open for: ${rest}). Use them on your real work now.`);
           said.push(`${g.for_agent} (request #${g.request_id} stays open for: ${rest})`);
           continue;
         }
         exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", `${String(a.summary)}\n\nYou now have: ${ids}.`, Date.now(), g.request_id);
         // Woken to use them now: an agent that was blocked runs only as Steady (scheduler).
         const instead = replaced.length ? ` They are the service's own, in place of the ones you were written with (${replaced.join(', ')}): use these.` : '';
-        ctx.wake(g.for_agent, 'self-booked', `Request #${g.request_id} is done - you now have ${ids}.${instead} Use them on your real work now.`);
+        ctx.wake(g.for_agent, 'request done', `Request #${g.request_id} is done - you now have ${ids}.${instead} Use them on your real work now.`);
         said.push(g.for_agent);
       }
       return `Live: ${String(a.name ?? a.integration_id)} for ${said.join(', ') || 'nobody (their requests had closed)'}.${tested}`;
@@ -989,7 +989,7 @@ const TOOLS: ToolDef[] = [
       const r = openRequest(a.request_id);
       const tools = (a.tools as { id: string; tier: Tier }[]) ?? [];
       await giveTools(String(a.for_agent), tools);
-      ctx.wake(String(a.for_agent), 'self-booked', `Request #${r.id} is done - you now have ${tools.map(t => t.id).join(', ')}. Use them on your real work now.`);
+      ctx.wake(String(a.for_agent), 'request done', `Request #${r.id} is done - you now have ${tools.map(t => t.id).join(', ')}. Use them on your real work now.`);
       const answer = `${String(a.why)}\n\nYou now have: ${tools.map(t => t.id).join(', ')}.`;
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
       postToRequest(r.id, 'engineer', `Given to ${await nameOf(String(a.for_agent))}.`);

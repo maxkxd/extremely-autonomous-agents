@@ -187,7 +187,7 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (next.bookingId) exec('DELETE FROM bookings WHERE id = ?', next.bookingId);
       // A run it booked itself counts as its scheduled run: the schedule's clock
       // restarts, so booking a run never adds one on top of the level's pace.
-      if (next.trigger === 'scheduled' || next.trigger === 'self-booked' || next.trigger === 'run now')
+      if (next.trigger === 'scheduled' || next.trigger === 'self-booked' || next.trigger === 'request done' || next.trigger === 'run now')
         exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now, id);
       start(agent, next.trigger, next.task, deps, eligible[0]?.connection ?? null, resumeFrom);
     }

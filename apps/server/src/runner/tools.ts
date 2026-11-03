@@ -10,6 +10,7 @@ import { APOCALYPTIC } from './ferocity.js';
 import { remember } from './memory.js';
 import type { Call, ToolSpec } from './providers.js';
 import { DATA_DIR } from '../paths.js';
+import { hasIntegration } from '../integrations/index.js';
 
 // The tools a run can call (docs/runner.md). Built-in agency tools work for
 // every agent; integration tools (web, email, GitHub...) are added one area
@@ -123,7 +124,7 @@ export function settleJoined(wake: Wake, now = Date.now()): number[] {
     if (r.status === 'done') {
       const answer = r.answer?.trim() || 'Done.';
       run("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, now, r.id);
-      wake(r.agent_id, 'self-booked', `Request #${r.id} is answered: ${answer.slice(0, 600)}`);
+      wake(r.agent_id, 'request done', `Request #${r.id} is answered: ${answer.slice(0, 600)}`);
       continue;
     }
     const lead = next.get(r.lead);
@@ -190,7 +191,9 @@ export function requestConnections(agentId: string, agentName: string, tiers: Re
     const g = groups.get(server) ?? { label, what: '', names: [], ready: true, exists: true };
     g.names.push(known?.does ?? (t?.description.split(/[.\n]/)[0] || id));
     g.ready &&= ready;
-    g.exists &&= !!t;
+    // Listed in Settings > Connectors but not signed in yet (Square's sign-in finds its own
+    // tools): it exists - "nothing here connects to it" was wrong.
+    g.exists &&= !!t || hasIntegration(server);
     g.what = g.exists ? `Connect ${label}` : `Set up ${label}`;
     groups.set(server, g);
   }
@@ -326,7 +329,7 @@ const BUILTIN: ToolDef[] = [
       'Ask for something you need and cannot get yourself: a tool, access, an account, data, a decision. It is answered later; carry on without it for now.',
     schema: obj(
       {
-        what: str('What you need, in one sentence'),
+        what: str("Its title: what you need, in 10 words or fewer, with what it's for, so it makes sense on its own - \"Sign in to Facebook so I can read the two groups\", not \"A request\". The details go in why."),
         why: str('Why: what it lets you do'),
         evidence: str('What you tried, or what shows you need it'),
         expected_effect: str('What changes once you have it'),
@@ -334,6 +337,9 @@ const BUILTIN: ToolDef[] = [
       ['what', 'why'],
     ),
     impl: (a, ctx) => {
+      // A paragraph as the title (53 words, six lines bold on the Requests page): sent back.
+      const words = String(a.what ?? '').trim().split(/s+/).length;
+      if (words > 14) return `Not filed: the title (what) is ${words} words. Make it 10 words or fewer - what you need and what for - and put the rest in why.`;
       const id = fileRequest(
         ctx.agent.id,
         ctx.runId,

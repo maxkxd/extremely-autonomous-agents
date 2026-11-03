@@ -162,6 +162,9 @@ async function readDir(dir: string, shipped: boolean) {
   }
 }
 
+// Whether a service is in Settings > Connectors at all (signed in or not).
+export const hasIntegration = (id: string) => loaded.some(l => l.integration.id === id);
+
 // A live integration being redrafted: the version agents keep using meanwhile.
 let liveCopies = new Map<string, Integration>();
 

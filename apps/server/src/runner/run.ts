@@ -20,7 +20,7 @@ import { canStillCount, execute, fileRequest, requestConnections, runEnded, tool
 // tool loop on its first working model, the floor and its nudges, then the
 // record and its post in the agent's DM channel.
 
-export type Trigger = 'scheduled' | 'self-booked' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'turned down' | 'connected' | 'event' | 'task done';
+export type Trigger = 'scheduled' | 'self-booked' | 'request done' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'turned down' | 'connected' | 'event' | 'task done';
 
 // What a run needs from outside, so tests can stand it up without a network.
 export type RunDeps = {
@@ -34,8 +34,6 @@ export type RunDeps = {
   compact: boolean; // compact memory after the run (off in tests)
 };
 
-export const MAX_STEPS = 150; // model turns in one run
-export const RUN_CEILING_MS = 60 * 60_000; // WAR's per-run ceiling
 
 export type RunResult = { id: string; status: 'succeeded' | 'failed' | 'stopped'; acts: number; nudges: number; summary: string; error?: string };
 
@@ -217,6 +215,9 @@ function opening(agent: AgentDef, trigger: Trigger, task: string | null): string
       return 'Scheduled run. Start with what you owe (tasks.list_my_tasks), then do your job as your Charter says.';
     case 'self-booked':
       return `You booked this run: ${task ?? 'to carry on'}. Carry on with that, then anything else your job needs.`;
+    // A request it filed was answered or done (the Agency Engineer, or a person): woken to use it.
+    case 'request done':
+      return `${task ?? 'A request you filed is done.'} Then anything else your job needs.`;
     case 'apocalyptic':
       return 'Your next run, straight after the last one. Pick up where you left off and keep your output going: what you owe, then everything your Charter names.';
     case 'handoff':
@@ -293,7 +294,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   // it's done - padding one out to a target was busywork (a one-line answer became
   // 21 files).
   const callableNow = new Set(toolsFor(agent).ids.values());
-  const floor = ['scheduled', 'apocalyptic', 'self-booked', 'run now'].includes(trigger) ? floorFor(agent, level, callableNow) : null;
+  const floor = ['scheduled', 'apocalyptic', 'self-booked', 'request done', 'run now'].includes(trigger) ? floorFor(agent, level, callableNow) : null;
   exec(
     'INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at, floor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     id,
@@ -327,12 +328,10 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   try {
     const system = await instructions(agent, level, notReady, deps);
     let health = getHealth();
-    for (let step = 0; step < MAX_STEPS; step++) {
+    // No limit on a run's length or turns: it ends when its work is done (or it's
+    // stopped); one that keeps failing is caught by failure backoff.
+    for (;;) {
       if (signal?.aborted) throw new Error('Stopped.');
-      if (deps.now() - startedAt > RUN_CEILING_MS) {
-        summary ||= 'Stopped at the one-hour run limit.';
-        break;
-      }
       // A model for this turn: the first eligible one, falling back down the list.
       const tried = new Set<string>();
       let turn: Awaited<ReturnType<Adapter>> | null = null;
@@ -596,7 +595,7 @@ export function postRun(agentId: string, runId: string, trigger: Trigger, outcom
       ...(a.approval_id ? { approvalId: a.approval_id } : {}),
     };
   });
-  const body = { kind: 'run', id: runId, trigger: trigger === 'apocalyptic' ? 'self-booked' : trigger, outcome, cost: cost ?? 0, costKnown: cost != null, seconds: Math.round(ms / 1000), text, tools };
+  const body = { kind: 'run', id: runId, trigger, outcome, cost: cost ?? 0, costKnown: cost != null, seconds: Math.round(ms / 1000), text, tools };
   exec("INSERT INTO dm (agent_id, kind, run_id, body, at) VALUES (?, 'run', ?, ?, ?)", agentId, runId, JSON.stringify(body), Date.now());
 }
 
