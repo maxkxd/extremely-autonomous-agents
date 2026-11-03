@@ -113,6 +113,8 @@ function Agency() {
   // Your AI assistant's messages for an organization hosted elsewhere, carried while the app is open.
   useEffect(() => carryAssistantMessages(), []);
   const [view, setView] = useState<View>('dashboard');
+  const [dmStopped, setDmStopped] = useState(false); // the agent whose DM is open is stopped (LiveDM)
+  useEffect(() => setDmStopped(false), [view]);
   const [range, setRange] = useState<TimeRange>('week');
   // The built-in agents' cards, hidden on the Dashboard only (off by default; remembered here).
   const [hideBuiltIns, setHideBuiltIns] = useState(() => {
@@ -624,6 +626,8 @@ function Agency() {
         <header className="main-header" ref={headerRef}>
           <div className="header-title">
             <h1>{viewLabel(view)}</h1>
+            {/* An agent's DM: stopped (it, or the whole agency) says so up here, like its card. */}
+            {view.startsWith('agent:') && dmStopped && <span className="state-pill stopped">Stopped</span>}
             {view === 'approvals' && <DecisionTally approved={decidedToday.approved} rejected={decidedToday.rejected} />}
             {view === 'dashboard' && (
               <>
@@ -757,7 +761,7 @@ function Agency() {
               agentsReady={realIds.size > 0}
             />
           ) : view.startsWith('agent:') ? (
-            <LiveDM key={view} agentId={view.slice('agent:'.length)} approvalOutcomes={resolved} />
+            <LiveDM key={view} agentId={view.slice('agent:'.length)} approvalOutcomes={resolved} onOpenDashboard={() => setView('dashboard')} onStopped={setDmStopped} />
           ) : (
             <div className="main-empty">Coming next.</div>
           )}

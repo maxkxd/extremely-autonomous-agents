@@ -16,6 +16,9 @@ export type StampedEntry = DmEntry & { at: number };
 export const stamp = (e: DmEntry, at = loadedAt - e.minutesAgo * 60_000): StampedEntry => ({ ...e, at });
 
 const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+// A tool the list doesn't know (yet): write_file -> Write file.
+const plainTool = (id: string) => (id.charAt(0).toUpperCase() + id.slice(1)).replace(/[_-]+/g, ' ');
+
 function dayLabel(t: number) {
   const d = new Date(t);
   const today = new Date();
@@ -42,12 +45,14 @@ export function RunPostView({
   Icon,
   outcomes,
   silent,
+  names,
 }: {
   post: StampedEntry & RunPost;
   agentName: string;
   Icon: typeof CircleCheck;
   outcomes: Record<string, Resolution>;
   silent?: Set<string>; // its Silent tools (Settings > Tools): done without a word, so not listed here
+  names?: Map<string, { name: string; source: string }>; // each tool's plain name and where it acts (Settings > Tools)
 }) {
   const shown = post.tools.filter(t => !silent?.has(`${t.server}.${t.tool}`));
   const ok = post.outcome === 'succeeded';
@@ -82,7 +87,9 @@ export function RunPostView({
             {shown.map((t, i) => (
               <li key={i}>
                 <span className={`dm-tool-dot ${toolState(t, outcomes)}`} title={TOOL_TITLE[toolState(t, outcomes)]} />
-                {t.server} · {t.tool} · <span className="dm-tool-fields">{t.fields.join(', ')}</span>
+                {/* Its plain name, as Settings > Tools and requests say it (not computer_files · write_file · path, content). */}
+                {names?.get(`${t.server}.${t.tool}`)?.name ?? plainTool(t.tool)}
+                <span className="dm-tool-fields"> · {names?.get(`${t.server}.${t.tool}`)?.source ?? plainTool(t.server)}</span>
               </li>
             ))}
           </ul>
@@ -101,7 +108,9 @@ export function AgentDM({
   loading = false,
   stopped = false,
   sendError = null,
+  onOpenDashboard,
 }: {
+  onOpenDashboard?: () => void; // a stopped agent's reply links to where it's resumed
   agentId: string;
   stopped?: boolean; // it or the agency is stopped: it won't answer until it's resumed
   sendError?: string | null; // the message wasn't taken (e.g. it's stopped): why
@@ -118,10 +127,15 @@ export function AgentDM({
   const end = useRef<HTMLDivElement>(null);
   // Its Silent tools, which its posts leave out.
   const [silent, setSilent] = useState<Set<string>>();
+  const [names, setNames] = useState<Map<string, { name: string; source: string }>>();
   useEffect(() => {
     let live = true;
     getTools().then(
-      tools => live && setSilent(new Set(tools.filter(t => t.agents.find(a => a.id === agentId)?.tier === 'T0').map(t => t.id))),
+      tools => {
+        if (!live) return;
+        setSilent(new Set(tools.filter(t => t.agents.find(a => a.id === agentId)?.tier === 'T0').map(t => t.id)));
+        setNames(new Map(tools.map(t => [t.id, { name: t.name, source: t.source }])));
+      },
       () => {},
     );
     return () => {
@@ -201,7 +215,26 @@ export function AgentDM({
             <div key={i}>
               {divider}
               {e.kind === 'run' ? (
-                <RunPostView post={e as StampedEntry & RunPost} agentName={agent.name} Icon={Icon} outcomes={approvalOutcomes} silent={silent} />
+                <RunPostView post={e as StampedEntry & RunPost} agentName={agent.name} Icon={Icon} outcomes={approvalOutcomes} silent={silent} names={names} />
+              ) : e.kind === 'stopped' ? (
+                <div className="dm-post">
+                  <div className="dm-avatar agent">
+                    <Icon size={16} strokeWidth={1.75} />
+                  </div>
+                  <div className="dm-post-main">
+                    <div className="dm-post-head">
+                      <span className="dm-author">{agent.name}</span>
+                      <span className="dm-time">{clock(e.at)}</span>
+                    </div>
+                    <p className="dm-text">
+                      {agent.name} is stopped. Resume it on the{' '}
+                      <a className="text-link" href="#" onClick={ev => (ev.preventDefault(), onOpenDashboard?.())}>
+                        Dashboard
+                      </a>
+                      .
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <div className="dm-post">
                   {/* Who wrote it (a teammate's message showed under the viewer's name). */}
@@ -233,7 +266,8 @@ export function AgentDM({
             </div>
           </div>
         )}
-        {(sendError || stopped) && (
+        {/* Once it has said so itself (a message sent while stopped), no second note. */}
+        {(sendError || (stopped && !entries.some(e => e.kind === 'stopped'))) && (
           <div className="dm-stopped">{sendError ?? `${agent.name} is stopped, so it won't answer until it's resumed.`}</div>
         )}
         <div ref={end} />
