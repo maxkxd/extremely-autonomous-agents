@@ -64,7 +64,8 @@ function MyAvatar({ size }: { size: number }) {
   const photo = usePhoto();
   // The live name, as beside it: ACCOUNT.name kept the last person's initial after signing in as someone else.
   const name = useSyncExternalStore(onMyName, myName);
-  if (!photo) return <Avatar label={name} size={size} />;
+  // Signed out you're just "You": a little person, not a letter Y.
+  if (!photo) return <Avatar label={name} size={size} personal={!state.me} />;
   return <img className="avatar" src={photo} alt="" style={{ width: size, height: size, objectFit: 'cover' }} />;
 }
 

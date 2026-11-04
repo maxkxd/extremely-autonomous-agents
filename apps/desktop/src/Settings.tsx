@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Building2, Check, ChevronDown, ChevronRight, Gauge, LoaderCircle, LogOut, Plug, Plus, Trash2, User, Wrench, X } from 'lucide-react';
+import { Building2, Check, ChevronDown, ChevronRight, Gauge, LoaderCircle, LogIn, LogOut, Plug, Plus, Trash2, User, UserRound, Wrench, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, rangeDays, rangeLabel, type TimeRange } from './data';
 import { RangePicker } from './RangePicker';
 import {
@@ -126,8 +126,8 @@ export function Settings({
           ))}
           <div className="settings-nav-foot">
             <button className="settings-nav-item" onClick={onLogOut}>
-              <LogOut size={16} strokeWidth={1.8} />
-              {state.me ? 'Log out' : 'SIGN IN'}
+              {state.me ? <LogOut size={16} strokeWidth={1.8} /> : <LogIn size={16} strokeWidth={1.8} />}
+              {state.me ? 'Log out' : 'Sign In'}
             </button>
           </div>
         </nav>
@@ -488,8 +488,8 @@ function AccountSection() {
                 title={photo ? 'Change photo' : 'Upload a photo'}
                 aria-label={photo ? 'Change photo' : 'Upload a photo'}
               >
-                {/* The name the sidebar shows, so the two initials agree. */}
-                {photo ? <img src={photo} alt="" /> : myName().charAt(0)}
+                {/* As the sidebar shows you: your initial, or signed out a little person. */}
+                {photo ? <img src={photo} alt="" /> : state.me ? myName().charAt(0) : <UserRound size={22} strokeWidth={2} />}
               </button>
               {photo && (
                 <button className="slink" onClick={removePhoto}>

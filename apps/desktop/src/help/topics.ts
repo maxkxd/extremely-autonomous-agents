@@ -49,7 +49,6 @@ export const HELP_TOPICS = {
         caption: [
           "Now that you have the idea of what we mean by extremely autonomous agents, make your first one in [New agent](page:new-agent):",
           [
-            'First, connect an AI model in Settings > Connectors - nothing runs without one. A plan you already pay for (Claude, ChatGPT) is the best deal.',
             'Choose an existing agent pack, or try the custom agent builder.',
             'Give it real, scalable work it can do.',
             'Tell it what you want human intervention for, and what you want fully autonomous.',
