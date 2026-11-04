@@ -2178,6 +2178,12 @@ textarea:focus-visible, input:focus-visible { outline: none; }
   .header-tools .segmented button { font-size: 0; gap: 0; }
   .header-tools .agent-filter { width: 150px; }
 }
+/* A 640px window (a page about 570px wide): a little tighter again, so it's still one row there. */
+@container main (max-width: 620px) {
+  .header-tools .range-picker { width: 104px; }
+  .main-header { padding: 12px 10px; }
+  .header-title { gap: 8px; }
+}
 .range-btn { white-space: nowrap; overflow: hidden; }
 /* Someone else's request (a member looking at a teammate's agent): greyed, not a dead link. */
 .setup-go:disabled { background: var(--surface-hover); color: #6b6b6b; cursor: default; filter: none; }
