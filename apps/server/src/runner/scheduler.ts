@@ -18,6 +18,8 @@ import { expireApprovals } from './approvals.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, apocalypticWait, backstop, scheduledDue, SHORT_RUNS_TO_RELENTLESS } from './ferocity.js';
 
+import { resumeDue, runsToday as runsOnDay } from './selfsettings.js';
+
 const SHORT_RUNS_WINDOW_MS = 24 * 3_600_000; // Apocalyptic's slow-down looks back a day at most
 import { fileRequest, settleJoined, toolsFor } from './tools.js';
 import { costOf, isFree, spentThisMonth, startOfDay } from './pricing.js';
@@ -149,6 +151,7 @@ export async function tick(deps: RunDeps = liveDeps) {
     capRequest(models.map(m => m.connection), deps.now());
     hookAddressRequest(hooksBase(), liveEvents().filter(e => e.event.webhook).map(e => ({ service: e.integration.name, id: e.event.id })), deps.now());
     const now = deps.now();
+    resumeDue(now); // agents that paused themselves "until Monday"
     expireApprovals(now, book);
     dropStaleRequestRuns();
     // Requests that joined another agent's (one per connection), once it's settled.
@@ -314,6 +317,8 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   // from requests, and failure backoff still stops one that keeps failing.
   if (!BUILT_IN_IDS.includes(agent.id) && runsToday(agent.id, now) >= backstop(st.ferocity)) return null;
   if (due.length) return { trigger: due[0].trigger, task: due[0].task, bookingId: due[0].id };
+  // Its person said which days it works ("only on weekdays"): none of its own on the others.
+  if (!runsOnDay(agent.id, now)) return null;
   // Its level, whatever is or isn't connected yet: a new agent waits for its tools
   // stopped (setup.ts), so one running without them was resumed on purpose.
   const last = one<{ ended_at: number | null }>("SELECT ended_at FROM runs WHERE agent_id = ? AND status != 'running' ORDER BY started_at DESC LIMIT 1", agent.id);

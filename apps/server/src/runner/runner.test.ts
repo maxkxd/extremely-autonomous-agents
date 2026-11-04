@@ -1117,3 +1117,27 @@ test('a rewrite keeps the old Charter; asked in the Engineer chat it needs the r
   exec("DELETE FROM dm WHERE agent_id = 'fleet'");
   await rm(dir, { recursive: true, force: true });
 });
+
+test('asked in its chat, an agent changes its own ferocity, pauses itself until a time, and keeps to its run days', async () => {
+  const { resumeDue, weekday } = await import('./selfsettings.js');
+  stateOf(ID);
+  const ctx = { agent: agent(), runId: 'r_self', level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} };
+  const call = (name: string, args: Record<string, unknown>) => execute(ctx, { id: name, name, args }, new Map());
+  assert.ok(!(await call('ops__set_my_ferocity', { level: 'Steady' })).error);
+  assert.equal(stateOf(ID).ferocity, 1);
+  const until = new Date(Date.now() + 3_600_000).toISOString();
+  const paused = await call('ops__pause_me', { how: 'standby', until });
+  assert.ok(!paused.error, paused.content);
+  assert.equal(stateOf(ID).state, 'draining');
+  assert.deepEqual(resumeDue(Date.now()), []);
+  assert.deepEqual(resumeDue(Date.now() + 2 * 3_600_000), [ID]);
+  assert.equal(stateOf(ID).state, 'active');
+  const today = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][weekday(Date.now())];
+  const other = today === 'mon' ? 'tue' : 'mon';
+  assert.ok(!(await call('ops__set_my_run_days', { days: [other] })).error);
+  exec('UPDATE agent_state SET ferocity = ? WHERE agent_id = ?', RELENTLESS, ID);
+  assert.equal(nextRun(agent(), stateOf(ID), Date.now()), null, 'no scheduled run on a day it was told not to work');
+  book(ID, 'your message', 'hi');
+  assert.equal(nextRun(agent(), stateOf(ID), Date.now())?.trigger, 'your message', 'a message is still answered');
+  assert.ok(!(await call('ops__set_my_run_days', { days: [] })).error);
+});

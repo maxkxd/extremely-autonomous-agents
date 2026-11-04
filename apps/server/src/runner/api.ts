@@ -28,6 +28,7 @@ import { openProfileForSignIn, profileStatus } from './browser.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { BUILT_IN_IDS, HELPER_IDS } from './helpers.js';
+import { clearResume } from './selfsettings.js';
 import { spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
 import { mcpUrlFor, rpcAs } from './agency-mcp.js';
@@ -280,6 +281,7 @@ export const runnerRoutes: Record<string, Route> = {
     if ((b.state === 'active' || b.state === 'draining' || b.state === 'stopped') && !(await readMeta(b.id))?.builtIn) {
       const state = b.state;
       exec('UPDATE agent_state SET state = ?, updated_at = ? WHERE agent_id = ?', state, now, b.id);
+      clearResume(b.id); // a person's choice overrides a pause it set itself
       if (state === 'stopped') abortRun(b.id);
       // Turning it back on also clears any failure backoff.
       if (state === 'active') exec('UPDATE agent_state SET fail_streak = 0, backoff_until = NULL WHERE agent_id = ?', b.id);

@@ -8,6 +8,7 @@ import { readMeta } from '../files.js';
 import { loadPerson } from '../org.js';
 import { APOCALYPTIC } from './ferocity.js';
 import { remember } from './memory.js';
+import { SELF_SETTINGS } from './selfsettings.js';
 import type { Call, ToolSpec } from './providers.js';
 import { DATA_DIR } from '../paths.js';
 import { hasIntegration } from '../integrations/index.js';
@@ -471,6 +472,7 @@ const BUILTIN: ToolDef[] = [
       return delay ? `Booked: your next run starts in about ${delay} minutes.` : 'Booked: your next run starts once this one ends.';
     },
   },
+  ...SELF_SETTINGS,
 ];
 
 export const BUILTIN_IDS = new Set(BUILTIN.map(t => t.id));

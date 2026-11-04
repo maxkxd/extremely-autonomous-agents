@@ -130,6 +130,13 @@ success, decides the tool is broken and complains again. Telling the model
    10); `engineer.read_agent` lists them and `engineer.restore_instructions`
    puts one back when a person asks to undo a change. The Engineer always reads
    the whole Charter, however long.
+6. **A person can change an agent's settings from its chat.** "Slow down", "stop
+   until Monday", "only on weekdays", "use Claude for this": the agent sets them
+   itself (`runner/selfsettings.ts`: `ops.set_my_ferocity`, `ops.pause_me` with an
+   optional time it comes back on by itself, `ops.set_my_run_days`,
+   `ops.set_my_models`). A person resuming or stopping it on the card overrides a
+   pause it set. A note on a rejected action goes into its memory if it's for now,
+   into its instructions if it's for good.
 
 ## Standby and Stop (agreed 2026-10-29)
 

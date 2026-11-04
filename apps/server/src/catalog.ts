@@ -223,6 +223,10 @@ export const BASELINE: { server: string; tool: CatalogTool }[] = [
   ['files', t('read_file', 'T0', 'Read a file from its own workspace')],
   ['files', t('list_files', 'T0', 'List its workspace')],
   ['ops', t('book_next_run', 'T0', 'Book its own next run')],
+  ['ops', t('set_my_ferocity', 'T1', 'Change how hard it works, when a person asks in its chat')],
+  ['ops', t('pause_me', 'T1', 'Go on standby or stop (until a time), when a person asks in its chat')],
+  ['ops', t('set_my_run_days', 'T1', 'Set the days its schedule runs, when a person asks in its chat')],
+  ['ops', t('set_my_models', 'T1', 'Change its AI models, when a person asks in its chat')],
 ].map(([server, tool]) => ({ server: server as string, tool: tool as CatalogTool }));
 
 export const toolId = (server: string, name: string) => `${server}.${name}`;
