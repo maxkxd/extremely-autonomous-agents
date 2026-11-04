@@ -334,6 +334,9 @@ function Agency() {
   // a pack, later the Agency Engineer) joins this list when it's next checked.
   const [realIds, setRealIds] = useState<Set<string>>(new Set());
   // Only the built-in agents so far (once the server has said so, so it never flashes on).
+  // What the Requests badge counts: what's in your Mine. For an owner or admin that includes a
+  // teammate's shared sign-in waiting on them (it says "Waiting on you"); a member's badge counts only theirs.
+  const requestsBadgeCount = requestItems(isAdmin() ? visibleRequests(openRequests, 'mine') : visibleApprovals(openRequests, 'mine'));
   const firstAgent = realIds.size > 0 && AGENTS.every(a => a.builtIn);
   // Until an AI works only "Connect a model" glows; then New agent's yellow pulse (and its tip).
   const hasModels = useHasModels();
@@ -606,7 +609,7 @@ function Agency() {
           width={narrow ? RAIL_WIDTH : sideWidth}
           onResizeStart={startDrag}
           approvalsBadge={approvalsReady ? visibleApprovals(pending, 'mine').length : null}
-          requestsBadge={requestsReady ? requestItems(visibleApprovals(openRequests, 'mine')) : null}
+          requestsBadge={requestsReady ? requestsBadgeCount : null}
           onOpenSettings={setSettings}
           onLogOut={logInOut}
           compact={narrow}
@@ -625,7 +628,7 @@ function Agency() {
             width={DEFAULT_WIDTH}
             onResizeStart={startDrag}
             approvalsBadge={approvalsReady ? visibleApprovals(pending, 'mine').length : null}
-            requestsBadge={requestsReady ? requestItems(visibleApprovals(openRequests, 'mine')) : null}
+            requestsBadge={requestsReady ? requestsBadgeCount : null}
             onOpenSettings={s => {
               setRailOpen(false);
               setSettings(s);
