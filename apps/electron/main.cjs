@@ -4,7 +4,7 @@
 // Updates come from GitHub Releases; before one installs, the agency is put on
 // standby and running agents finish, so no run is cut off.
 
-const { app, BrowserWindow, Menu, Tray, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, powerSaveBlocker, shell } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
@@ -28,6 +28,37 @@ const NODE = app.isPackaged ? process.execPath : 'node';
 const DATA = path.join(app.getPath('userData'), 'data');
 const LOGS = path.join(app.getPath('userData'), 'logs');
 const RESUME_FILE = path.join(app.getPath('userData'), 'resume-after-update.json');
+const PREFS_FILE = path.join(app.getPath('userData'), 'prefs.json');
+
+// --- Keeping the computer awake ---------------------------------------------------------------
+// Agents only work while the computer is on and awake, so by default the app keeps
+// it from going to sleep by itself (the screen can still turn off). A switch in the
+// tray turns it off; closing the lid or shutting down still stops the agents.
+const prefs = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(PREFS_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+})();
+const keepAwakeOn = () => prefs.keepAwake !== false;
+let awakeBlock = null;
+function applyKeepAwake() {
+  if (keepAwakeOn() && awakeBlock == null) awakeBlock = powerSaveBlocker.start('prevent-app-suspension');
+  if (!keepAwakeOn() && awakeBlock != null) {
+    powerSaveBlocker.stop(awakeBlock);
+    awakeBlock = null;
+  }
+}
+function setKeepAwake(on) {
+  prefs.keepAwake = on;
+  try {
+    fs.writeFileSync(PREFS_FILE, JSON.stringify(prefs, null, 2));
+  } catch {
+    // Not saved: it still applies until the app restarts.
+  }
+  applyKeepAwake();
+}
 
 let server = null;
 let quitting = false;
@@ -180,6 +211,15 @@ function trayMenu() {
         tray.setContextMenu(trayMenu());
       },
     },
+    {
+      label: 'Keep this computer awake while agents work',
+      type: 'checkbox',
+      checked: keepAwakeOn(),
+      click: item => {
+        setKeepAwake(item.checked);
+        tray.setContextMenu(trayMenu());
+      },
+    },
     { type: 'separator' },
     { label: 'Quit (stops the agents)', click: () => quit() },
   ]);
@@ -282,6 +322,7 @@ async function start() {
   }
   startServer();
   createTray();
+  applyKeepAwake();
   createWindow();
   if (!(await waitForServer())) {
     dialog.showErrorBox('The agency didn\'t start', `What it said is in:\n${path.join(LOGS, 'agency.log')}`);
