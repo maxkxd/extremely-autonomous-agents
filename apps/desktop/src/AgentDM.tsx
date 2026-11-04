@@ -5,7 +5,7 @@ import { RichText } from './RichText';
 import { ACCOUNT, AGENTS } from './data';
 import { currentOrg, isAdmin, myAccountId } from './account';
 import { DEPARTMENT_ICON } from './Sidebar';
-import type { DmEntry, RunPost, ToolLine } from './dms';
+import type { DmEntry, HandoffLine, RunPost, ToolLine } from './dms';
 import type { Resolution } from './Approvals';
 import { Loading, Skel, SkelLines } from './Skeleton';
 import { getTools } from './builder';
@@ -14,6 +14,10 @@ import { clockTime } from './clock';
 
 // Placeholder history is "minutes ago"; pin it to the page's load time.
 const loadedAt = Date.now();
+// The start of a hand-off line, by which side of it this chat is on.
+const handoffHead = (h: HandoffLine) =>
+  h.step === 'asked' ? (h.side === 'to' ? `Asked ${h.other}:` : `${h.other} asked:`) : h.side === 'to' ? `Done for ${h.other}:` : `${h.other} finished:`;
+
 export type StampedEntry = DmEntry & { at: number };
 export const stamp = (e: DmEntry, at = loadedAt - e.minutesAgo * 60_000): StampedEntry => ({ ...e, at });
 
@@ -244,6 +248,21 @@ export function AgentDM({
               {divider}
               {e.kind === 'run' ? (
                 <RunPostView post={e as StampedEntry & RunPost} agentName={agent.name} Icon={Icon} outcomes={approvalOutcomes} silent={silent} names={names} />
+              ) : e.kind === 'handoff' ? (
+                <div className="dm-post">
+                  <div className="dm-avatar agent">
+                    <Icon size={16} strokeWidth={1.75} />
+                  </div>
+                  <div className="dm-post-main">
+                    <div className="dm-post-head">
+                      <span className="dm-author">{agent.name}</span>
+                      <span className="dm-time">{clock(e.at)}</span>
+                    </div>
+                    <p className="dm-text dm-handoff">
+                      <strong>{handoffHead(e as StampedEntry & HandoffLine)}</strong> {(e as HandoffLine).text}
+                    </p>
+                  </div>
+                </div>
               ) : e.kind === 'stopped' ? (
                 <div className="dm-post">
                   <div className="dm-avatar agent">

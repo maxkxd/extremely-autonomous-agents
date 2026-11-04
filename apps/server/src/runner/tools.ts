@@ -411,7 +411,7 @@ const BUILTIN: ToolDef[] = [
     tier: 'T1',
     description: 'Close a task you owe, with its result. Whoever handed it over is told.',
     schema: obj({ task_id: { type: 'number', description: 'The task number' }, result: str('What you did, and the result') }, ['task_id', 'result']),
-    impl: (a, ctx) => {
+    impl: async (a, ctx) => {
       const r = run(
         "UPDATE tasks SET status = 'done', result = ?, done_at = ? WHERE id = ? AND agent_id = ? AND status = 'open'",
         wholeTask(String(a.result ?? ''), 'result'),
@@ -422,7 +422,10 @@ const BUILTIN: ToolDef[] = [
       if (!r.changes) throw new Error(`You have no open task #${String(a.task_id)}.`);
       // Whoever handed it over hears the result now, not on its next scheduled run.
       const from = one<{ from_agent: string | null }>('SELECT from_agent FROM tasks WHERE id = ?', Number(a.task_id))?.from_agent;
-      if (from && from !== ctx.agent.id) ctx.wake(from, 'task done', `Task #${String(a.task_id)} from ${ctx.agent.name} is done.`);
+      if (from && from !== ctx.agent.id) {
+        ctx.wake(from, 'task done', `Task #${String(a.task_id)} from ${ctx.agent.name} is done.`);
+        await handoffLines(ctx.agent.id, from, 'done', String(a.result ?? ''), ctx.now());
+      }
       return `Task #${String(a.task_id)} closed.`;
     },
   },
@@ -446,6 +449,7 @@ const BUILTIN: ToolDef[] = [
       const task = wholeTask(String(a.task ?? ''), 'task');
       const r = run('INSERT INTO tasks (agent_id, from_agent, task, created_at) VALUES (?, ?, ?, ?)', target, ctx.agent.id, task, ctx.now());
       ctx.wake(target, 'handoff', `Task #${r.lastInsertRowid} from ${ctx.agent.name}: ${task}`);
+      await handoffLines(ctx.agent.id, target, 'asked', task, ctx.now());
       return `Handed to ${who.name} as task #${r.lastInsertRowid}.`;
     },
   },
@@ -616,6 +620,18 @@ export function actsIn(args: Record<string, unknown>): number {
   return 1;
 }
 
+// A hand-off shows in both agents' chats, so a person can see what one asked
+// another and what came back: in the giver's and the doer's, everyone's to read.
+async function handoffLines(fromId: string, toId: string, step: 'asked' | 'done', text: string, at: number) {
+  const name = async (id: string) => (await readMeta(id))?.name ?? id;
+  const [from, to] = [await name(fromId), await name(toId)];
+  const line = (agentId: string, other: string, side: 'from' | 'to') =>
+    run("INSERT INTO dm (agent_id, kind, body, at, person_id) VALUES (?, 'handoff', ?, ?, NULL)", agentId, JSON.stringify({ kind: 'handoff', step, side, other, text: text.slice(0, 600) }), at);
+  // fromId sent it (the task, or its result), toId got it.
+  line(fromId, to, 'to');
+  line(toId, from, 'from');
+}
+
 // Past a natural limit? Counts what it already did (or queued) in the window.
 export function limitHit(agent: AgentDef, id: string, now: number): string | null {
   const limit = agent.limits.find(l => l.tool === id);
@@ -632,7 +648,7 @@ export function limitHit(agent: AgentDef, id: string, now: number): string | nul
   )?.n ?? 0;
   if (done < limit.max) return null;
   const window = limit.per_hours === 24 ? 'a day' : limit.per_hours % 24 === 0 ? `${limit.per_hours / 24} days` : `${limit.per_hours} hours`;
-  return `Not done: ${id} is limited to ${limit.max} per ${window} for this job${limit.why ? ` (${limit.why})` : ''}, and that's been reached. This doesn't count toward your output. Put your effort into the rest of your work: ${agent.ferocity.extra_effort}`;
+  return `Not done: ${id} is limited to ${limit.max} per ${window} for this job${limit.why ? ` (${limit.why})` : ''}, and that's been reached. This doesn't count toward your output. If a person asked you for this, tell them this limit stopped it and that the Agency Engineer can raise or remove it if they ask it to. Otherwise put your effort into the rest of your work: ${agent.ferocity.extra_effort}`;
 }
 
 let approvalSeq = 0;

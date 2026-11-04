@@ -38,10 +38,14 @@ every morning gets the job done on Chill, and at Relentless or Apocalyptic
 must not "produce output" by changing it every few minutes. Setting it that
 high is the person's call; the builder still makes it do something useful:
 
-- **Natural limits on actions.** The builder can cap any action by what the
-  job needs (`set_wallpaper`: at most once a day). The runner enforces it at
-  every ferocity and refuses a call past it with a reason that points the agent
-  at its other work ("Already done today. Put your effort into what's next").
+- **Natural limits on actions - only ones a person asked for.** The builder
+  caps an action only when the person said so in their own words
+  (`set_wallpaper`: "at most once a day"); it and the Agency Engineer never add
+  one because it seems sensible. The runner enforces it at every ferocity and
+  refuses a call past it with a reason that points the agent at its other work.
+  When a person asked for the blocked action, the agent tells them a limit
+  stopped it and that the Engineer can lift it: `engineer.set_limits` changes
+  or removes an agent's limits, on a person's word only.
 - **What extra effort means, per agent.** For each level above Chill, the
   builder writes what more output looks like for this job and which actions
   count toward its floor there. Wallpaper agent at Apocalyptic: stockpile and
@@ -209,6 +213,9 @@ opening says what it already did, so nothing is done twice.
 - **Handing work over**: never to an agent that's stopped or on standby - it
   wouldn't start on it. The Agency Conductor leaves them out (the request goes to
   the Agency Engineer), and `tasks.delegate_task` refuses with why.
+- **Hand-offs are visible**: a hand-off and its result each put a line in both
+  agents' chats ("Asked Price Watch: ...", "Price Watch finished: ..."), for
+  everyone in the organization to read.
 - **Built-ins' models**: when none of a built-in's models is connected any
   more (Claude Code disconnected, say), it gets three from what is.
 - **Deleting an agent** (`runner/forget.ts`): its pending approvals and the

@@ -24,7 +24,7 @@ import { reviewPlugin } from '../integrations/review.js';
 import { defaultModels } from './defaults.js';
 import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { toolTitle, toolsForPeople, type Tier } from '../catalog.js';
-import { FLEET_ENGINEER, loadAgent } from './agent.js';
+import { FLEET_ENGINEER, loadAgent, type NaturalLimit } from './agent.js';
 import { askerMayChange, charterVersions, readCharterVersion, writeCharter } from './charter.js';
 import { all, builtInLevels, one, run as exec } from './db.js';
 import { reportDefault, reportDefaultsForPrompt, setReportDefault } from './reports.js';
@@ -44,6 +44,7 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'engineer.read_agent': 'T0',
   'engineer.rewrite_instructions': 'T1',
   'engineer.restore_instructions': 'T1',
+  'engineer.set_limits': 'T1',
   'engineer.list_integrations': 'T0',
   'engineer.read_integration': 'T0',
   'engineer.write_integration': 'T0',
@@ -115,6 +116,7 @@ It comes two ways: a request "Rewrite my instructions the way my person asked in
 4. engineer.rewrite_instructions with the whole new Charter and, for the agent, what it does differently - with the request_id when it came as a request (that closes it), or the agent_id when the person asked in your chat. Only the agent's maker or an owner or admin may change it from your chat: the tool says if they can't, and you tell them who can.
 5. The change needs a tool it doesn't have ("put all data in PostHog")? That's a missing tool too: handle it as one - in the same run - with the request's agent (engineer.give_tools, or build it), after the rewrite.
 6. A person wants a change undone ("put Price Watch back how it was"): read_agent lists its earlier Charters, newest first; engineer.restore_instructions with the one from before that change.
+7. Job limits ("at most 1 save a week"): an agent has one only because a person asked for it. A person asks to raise or remove one (often after an agent said a limit stopped something they asked for): engineer.set_limits, straight away. Never add or tighten a limit unless a person told you to, even when you think it's a good idea.
 
 ## Where agents' reports go
 Each person has their own default place for their agents' reports (engineer.list_requests says whose, at the top); an agent goes by its owner's. In an organization a teammate can't open a folder on the host's computer, so one teammate's place is never another's. An agent asking where its reports should go:
@@ -412,6 +414,14 @@ export async function giveTools(agentId: string, tools: { id: string; tier: Tier
 }
 
 
+// Replaces an agent's job limits in its TOOLS.yaml (only ever on a person's word).
+export async function setLimits(agentId: string, limits: NaturalLimit[]) {
+  const file = join(DATA, slug(agentId), 'TOOLS.yaml');
+  const doc = parseDocument(await readFile(file, 'utf8'));
+  doc.set('natural_limits', limits);
+  await writeFile(file, doc.toString());
+}
+
 // An MCP server's tools are its own, unknown until someone connects it: the names the
 // builder gave that service - its guesses (sentry.list_issues), or the catalogue's
 // stand-in for the request (analytics.query) - give way to the real ones when it goes
@@ -693,6 +703,43 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
+    id: 'engineer.set_limits',
+    tier: 'T1',
+    description:
+      "Replace an agent's job limits (engineer.read_agent shows them) - only when a person asked: to raise or remove one, or to add one they named. An empty list removes them all. The agent is woken with the change.",
+    schema: obj(
+      {
+        agent_id: str('The agent'),
+        limits: {
+          type: 'array',
+          description: 'The limits it keeps, each a tool id, how many and in how many hours',
+          items: obj({ tool: str('server.tool'), max: int('How many'), per_hours: int('In how many hours'), why: str('Why the person wants it') }, ['tool', 'max', 'per_hours']),
+        },
+        request_id: int('The request it answers, if any'),
+      },
+      ['agent_id', 'limits'],
+    ),
+    impl: async (a, ctx) => {
+      const r = a.request_id != null && a.request_id !== '' ? openRequest(a.request_id) : null;
+      const agentId = String(a.agent_id ?? '');
+      const meta = await changeable(agentId, !r, ctx.person ?? null);
+      const limits = (Array.isArray(a.limits) ? a.limits : [])
+        .map(l => l as Record<string, unknown>)
+        .filter(l => typeof l.tool === 'string' && Number(l.max) > 0 && Number(l.per_hours) > 0)
+        .map(l => ({ tool: String(l.tool), max: Math.round(Number(l.max)), per_hours: Number(l.per_hours), ...(l.why ? { why: String(l.why) } : {}) }));
+      await setLimits(agentId, limits);
+      const said = limits.length
+        ? `Your job limits are now: ${limits.map(l => `${l.tool} at most ${l.max} per ${l.per_hours} hours`).join('; ')}.`
+        : 'Your job limits are removed.';
+      if (r) {
+        exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", said, Date.now(), r.id);
+        postToRequest(r.id, 'engineer', `Changed ${meta.name}'s limits. ${said}`);
+      }
+      ctx.wake(agentId, 'request done', `${said} A person asked for this.`);
+      return `Changed ${meta.name}'s limits.`;
+    },
+  },
+  {
     id: 'engineer.read_agent',
     tier: 'T0',
     description: "An agent's whole Charter and the tools it holds, with their tiers - to judge what it needs, or whether it can take work over - and its earlier Charters kept from rewrites.",
@@ -702,7 +749,8 @@ const TOOLS: ToolDef[] = [
       if (!agent) throw new Error(`No agent "${a.agent_id}".`);
       const versions = await charterVersions(agent.id);
       const kept = versions.length ? `\nEarlier Charters (restore_instructions): ${versions.map(v => `${v.id} (replaced ${new Date(v.at).toISOString().slice(0, 16).replace('T', ' ')})`).join(', ')}` : '';
-      return `${agent.name} (${agent.id})\nTools: ${Object.entries(agent.tiers).map(([t, tier]) => `${t} [${tier}]`).join(', ')}${await missingTools(agent.id)}${kept}\n\n${agent.charter}`;
+      const limits = agent.limits.length ? `\nJob limits (set_limits): ${agent.limits.map(l => `${l.tool} at most ${l.max} per ${l.per_hours} h`).join(', ')}` : '';
+      return `${agent.name} (${agent.id})\nTools: ${Object.entries(agent.tiers).map(([t, tier]) => `${t} [${tier}]`).join(', ')}${limits}${await missingTools(agent.id)}${kept}\n\n${agent.charter}`;
     },
   },
   {

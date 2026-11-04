@@ -250,7 +250,7 @@ function opening(agent: AgentDef, trigger: Trigger, task: string | null, person:
       return `${task}\n\nDo it, then close it with tasks.complete_task.`;
     case 'your message': {
       // The Agency Engineer: only this person's own chat with it.
-      const recent = all<{ kind: string; body: string }>("SELECT kind, body FROM dm WHERE agent_id = ? AND (? IS NULL OR person_id = ?) ORDER BY at DESC, id DESC LIMIT 7", agent.id, person, person)
+      const recent = all<{ kind: string; body: string }>("SELECT kind, body FROM dm WHERE agent_id = ? AND kind != 'handoff' AND (? IS NULL OR person_id = ?) ORDER BY at DESC, id DESC LIMIT 7", agent.id, person, person)
         .reverse()
         .slice(0, -1)
         .map(r => {

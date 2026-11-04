@@ -458,7 +458,7 @@ export const BuildSchema = z.object({
     .describe('How hard it works at each ferocity level, set for this job. The person picks the level on the card.'),
   natural_limits: z
     .array(z.object({ tool: z.string(), max: z.number(), per_hours: z.number(), why: z.string() }))
-    .describe('Actions the job itself caps at every ferocity, e.g. changing the desktop wallpaper at most 1 per 24 hours. Empty when the job has no natural limit.'),
+    .describe('Caps on an action at every ferocity - ONLY ones the person asked for in this conversation, in their own words ("at most one post a day"). Never add one because it seems sensible: the agency is here for as much good output as possible. Empty unless the person asked.'),
   profile_notes: z
     .array(z.string())
     .describe(`New facts about the organization that every agent should know. ${DURABLE}`),

@@ -26,4 +26,8 @@ export type YourMessage = { kind: 'you'; minutesAgo: number; text: string; by?: 
 // stopped and where to resume it (kept on the host; the agent answers once resumed).
 export type StoppedReply = { kind: 'stopped'; minutesAgo: number; agency?: boolean }; // agency: the whole agency was stopped, not the agent
 
-export type DmEntry = RunPost | YourMessage | StoppedReply;
+// One agent handing work to another, shown in both chats. side 'to': this agent
+// sent it to other (asked: the task; done: its result). side 'from': it came from other.
+export type HandoffLine = { kind: 'handoff'; minutesAgo: number; step: 'asked' | 'done'; side: 'from' | 'to'; other: string; text: string };
+
+export type DmEntry = RunPost | YourMessage | StoppedReply | HandoffLine;

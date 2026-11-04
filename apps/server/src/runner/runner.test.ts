@@ -1049,6 +1049,20 @@ test('a task handed over arrives whole, or is refused with why - never cut short
   assert.match(huge.content, /Too long \(40,000 characters; up to 30,000\): split the task/);
 });
 
+test("a hand-off shows in both agents' chats, asked and done", async () => {
+  exec("DELETE FROM dm WHERE agent_id IN ('zz-giver', 'zz-doer')");
+  const fleet = async () => [{ id: 'zz-doer', name: 'zz-doer' }] as never;
+  const giver = { agent: { ...agent(), id: 'zz-giver', name: 'zz-giver' }, runId: 'r_g', level: 0, now: () => Date.now(), fleet, wake: () => {} };
+  await execute(giver, { id: 'g1', name: 'tasks__delegate_task', args: { agent_id: 'zz-doer', task: 'Check the price of X' } }, new Map([['tasks__delegate_task', 'tasks.delegate_task']]));
+  const taskId = one<{ id: number }>("SELECT id FROM tasks WHERE agent_id = 'zz-doer' ORDER BY id DESC LIMIT 1")!.id;
+  const doer = { ...giver, agent: { ...agent(), id: 'zz-doer', name: 'zz-doer' }, runId: 'r_d' };
+  await execute(doer, { id: 'd1', name: 'tasks__complete_task', args: { task_id: taskId, result: 'It is $12' } }, new Map([['tasks__complete_task', 'tasks.complete_task']]));
+  const lines = (id: string) => all<{ body: string }>("SELECT body FROM dm WHERE agent_id = ? AND kind = 'handoff' ORDER BY id", id).map(r => JSON.parse(r.body));
+  assert.deepEqual(lines('zz-giver').map(l => [l.step, l.side, l.other, l.text]), [['asked', 'to', 'zz-doer', 'Check the price of X'], ['done', 'from', 'zz-doer', 'It is $12']]);
+  assert.deepEqual(lines('zz-doer').map(l => [l.step, l.side, l.other]), [['asked', 'from', 'zz-giver'], ['done', 'to', 'zz-giver']]);
+  exec("DELETE FROM dm WHERE agent_id IN ('zz-giver', 'zz-doer')");
+});
+
 test("a person's change in an agent's chat goes to the Engineer, who rewrites the whole Charter and wakes the agent", async () => {
   const { DATA } = await import('../files.js');
   const { mkdir, readFile, writeFile } = await import('node:fs/promises');
@@ -1114,6 +1128,33 @@ test('a rewrite keeps the old Charter; asked in the Engineer chat it needs the r
   assert.ok(!back.error, back.content);
   assert.equal((await readFile(join(dir, 'CHARTER.md'), 'utf8')).trim(), first.trim());
   assert.equal((await charterVersions(id)).length, 2);
+  exec("DELETE FROM dm WHERE agent_id = 'fleet'");
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("a job limit the person wants lifted: the Engineer changes it, and a refusal tells the person it can", async () => {
+  const { DATA } = await import('../files.js');
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const { limitHit } = await import('./tools.js');
+  const id = 'zz-eventscout';
+  const dir = join(DATA, id);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'meta.json'), JSON.stringify({ name: 'Event Scout', ownerId: 'u_sam', owner: 'Sam' }));
+  await writeFile(join(dir, 'CHARTER.md'), `# CHARTER - Event Scout\n${'Finds events. '.repeat(20)}\n`);
+  await writeFile(join(dir, 'TOOLS.yaml'), 'tool_tiers: { files.save: T1 }\ntools_allowed: [files.save]\nnatural_limits:\n  - { tool: files.save, max: 1, per_hours: 168 }\n');
+  await writeFile(join(dir, 'KPI.yaml'), 'output: []\n');
+  const scout = agent({ id, limits: [{ tool: 'files.save', max: 1, per_hours: 168 }] });
+  exec("INSERT INTO actions (agent_id, run_id, tool, fields, tier, outcome, at) VALUES (?, 'r', 'files.save', '[]', 'T1', 'ok', ?)", id, Date.now());
+  assert.match(limitHit(scout, 'files.save', Date.now()) ?? '', /Agency Engineer can raise or remove it/);
+  exec("INSERT INTO dm (agent_id, kind, body, at) VALUES ('fleet', 'you', ?, ?)", JSON.stringify({ kind: 'you', text: 'let it save more', by: 'u_sam', byId: 'u_sam', role: 'member' }), Date.now());
+  const engineer = { agent: agent({ id: 'fleet-engineer', tiers: { 'engineer.set_limits': 'T1', 'engineer.read_agent': 'T0' } }), runId: 'r_lim', level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} };
+  const read = await execute(engineer, { id: 'l0', name: 'engineer__read_agent', args: { agent_id: id } }, new Map());
+  assert.match(read.content, /Job limits \(set_limits\): files\.save at most 1 per 168 h/);
+  const done = await execute(engineer, { id: 'l1', name: 'engineer__set_limits', args: { agent_id: id, limits: [] } }, new Map());
+  assert.ok(!done.error, done.content);
+  const read2 = await execute(engineer, { id: 'l2', name: 'engineer__read_agent', args: { agent_id: id } }, new Map());
+  assert.doesNotMatch(read2.content, /Job limits/);
+  exec("DELETE FROM actions WHERE agent_id = ?", id);
   exec("DELETE FROM dm WHERE agent_id = 'fleet'");
   await rm(dir, { recursive: true, force: true });
 });
