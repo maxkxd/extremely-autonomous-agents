@@ -350,7 +350,7 @@ const updateDocument: CodeTool = {
       // Everything but the final line break, which a Doc always keeps.
       const requests = [...(end > 2 ? [{ deleteContentRange: { range: { startIndex: 1, endIndex: end - 1 } } }] : []), ...(content ? [{ insertText: { location: { index: 1 }, text: content } }] : [])];
       if (requests.length) await api(token, `${DOCS}/${f.id}:batchUpdate`, { method: 'POST', body: { requests } });
-      return `Rewrote "${f.name}" (${content!.length} characters). Earlier versions are in its version history.`;
+      return `Rewrote "${f.name}". Earlier versions are in its version history.`;
     }
     if (isText(f.mimeType)) {
       let text = content ?? '';
@@ -363,7 +363,7 @@ const updateDocument: CodeTool = {
         }
       }
       await call(token, `${UPLOAD}/files/${f.id}?uploadType=media&${ALL}`, { method: 'PATCH', raw: { type: f.mimeType, data: text } });
-      return swaps.length ? `Updated "${f.name}": ${counts.join(', ')}.` : `Rewrote "${f.name}" (${text.length} characters).`;
+      return swaps.length ? `Updated "${f.name}": ${counts.join(', ')}.` : `Rewrote "${f.name}".`;
     }
     if (f.mimeType === SHEET) throw new Error(`"${f.name}" is a Sheet: use docs.update_sheet.`);
     throw new Error(`"${f.name}" is a ${kindOf(f.mimeType)} file, which can't be edited as text.`);

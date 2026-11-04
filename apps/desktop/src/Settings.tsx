@@ -1209,7 +1209,12 @@ function OrganizationProfile({ name }: { name: string }) {
                   ) : (
                     <span className="speople-member" />
                   )}
-                  <input value={person.name} placeholder="Name" onChange={e => editPerson(i, { name: e.target.value })} />
+                  {/* One of the organization's members: their name as Members shows it ("Jo Nguyen", not "Jo"). */}
+                  {person.member ? (
+                    <input value={person.member} readOnly title="Their name in this organization. Remove them and add them again to link someone else" />
+                  ) : (
+                    <input value={person.name} placeholder="Name" onChange={e => editPerson(i, { name: e.target.value })} />
+                  )}
                   <input value={person.role} placeholder="Role" onChange={e => editPerson(i, { role: e.target.value })} />
                   <button aria-label={`Remove ${person.name || 'this person'}`} title={`Remove ${person.name || 'this person'}`} onClick={() => rec.edit({ people: p.people.filter((_, j) => j !== i) })}>
                     <Trash2 size={13} />

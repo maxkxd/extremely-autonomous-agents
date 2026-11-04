@@ -75,6 +75,8 @@ export function RunPostView({
   const shown = post.tools.filter(t => !silent?.has(`${t.server}.${t.tool}`));
   const ok = post.outcome === 'succeeded';
   const stopped = post.outcome === 'stopped'; // a person stopped it: not a failure
+  // Actions that worked: failed, refused and turned-down calls aren't things done.
+  const done = post.tools.filter(t => toolState(t, outcomes) === 'ok').length;
   return (
     <div className="dm-post">
       <div className="dm-avatar agent">
@@ -94,7 +96,7 @@ export function RunPostView({
           onClick={() => navigator.clipboard?.writeText(post.id).catch(() => {})}
         >
           {ok ? <CircleCheck size={13} strokeWidth={2} /> : stopped ? <CircleStop size={13} strokeWidth={2} /> : <CircleAlert size={13} strokeWidth={2} />}
-          {post.trigger} · {post.tools.length} action{post.tools.length === 1 ? '' : 's'} · {post.costKnown === false ? 'cost unknown' : `$${post.cost.toFixed(2)}`} ·{' '}
+          {post.trigger} · {done} action{done === 1 ? '' : 's'} · {post.costKnown === false ? 'cost unknown' : `$${post.cost.toFixed(2)}`} ·{' '}
           {duration(post.seconds)}
         </button>
         <div className="dm-text">

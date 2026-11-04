@@ -106,7 +106,8 @@ export const COMPUTER_TOOLS: ToolDef[] = [
       await mkdir(dirname(full), { recursive: true });
       if (a.append) await appendFile(full, content);
       else await writeFile(full, content);
-      return `${a.append ? 'Added to' : 'Saved'} ${full} (${content.length.toLocaleString()} characters).`;
+      // Its name and folder, as a person would say it: no full path, no size.
+      return `${a.append ? 'Added to' : 'Saved'} "${basename(full)}" in the ${basename(dirname(full))} folder.`;
     },
   },
   {

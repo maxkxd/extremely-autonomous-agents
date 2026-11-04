@@ -295,7 +295,7 @@ const BUILTIN: ToolDef[] = [
       if (content.length > MAX_FILE) throw new Error(`Too large (${content.length} characters); keep files under ${MAX_FILE}.`);
       await mkdir(dirname(full), { recursive: true });
       await writeFile(full, content);
-      return `Saved ${String(a.path)} (${content.length} characters).`;
+      return `Saved ${String(a.path)}.`;
     },
   },
   {

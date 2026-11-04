@@ -456,18 +456,18 @@ function KeyRow({
         </>
       ) : (
         <>
-          {/* One word for it everywhere: Connect. One that signs in (OpenRouter) offers its key too. */}
-          {c.oneClick && (
-            <button className="slink" onClick={() => setOpen(true)}>
-              or add a key
-            </button>
-          )}
+          {/* One word for it everywhere: Connect. One that signs in (OpenRouter) offers its key too, after it. */}
           <SpinButton spinning={c.oneClick ? busy || waiting : checking} onClick={() => (c.oneClick ? act(async () => {
               const { url } = await startSignIn(c.id);
               watch(c.id, openSignIn(url));
             }) : setOpen(true))}>
             Connect
           </SpinButton>
+          {c.oneClick && (
+            <button className="slink" onClick={() => setOpen(true)}>
+              or add a key
+            </button>
+          )}
         </>
       )}
     </RowShell>
