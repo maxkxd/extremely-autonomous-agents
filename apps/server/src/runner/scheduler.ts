@@ -3,7 +3,7 @@ import { liveEvents, loadIntegrations } from '../integrations/index.js';
 import './web.js'; // registers the web tools
 import './browser.js'; // registers the browser tools
 import './computer.js'; // registers the tools for files on this computer
-import { ensureFleetEngineer, startEngineer } from './engineer.js';
+import { ensureBrowserKit, ensureFleetEngineer, startEngineer } from './engineer.js';
 import { ensureDoctor } from './doctor.js';
 import './conductor.js'; // routes new requests
 import { BUILT_IN_IDS, ensureHelpers, fillBuiltInModels, HELPER_IDS } from './helpers.js';
@@ -385,6 +385,7 @@ export function startScheduler() {
   void ensureFleetEngineer()
     .then(() => startEngineer(book))
     .catch(e => console.error('Starting the Agency Engineer failed:', (e as Error).message));
+  void ensureBrowserKit().catch(e => console.error('Giving agents the browser failed:', (e as Error).message));
   void ensureHelpers().catch(e => console.error('Setting up the Agency Conductor and Agency Reviewer failed:', (e as Error).message));
   // The Agency Doctor: a look at the whole fleet every couple of hours (doctor.ts).
   void ensureDoctor().catch(e => console.error('Setting up the Agency Doctor failed:', (e as Error).message));

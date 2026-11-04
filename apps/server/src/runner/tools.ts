@@ -333,7 +333,7 @@ const BUILTIN: ToolDef[] = [
     id: 'requests.request_resource',
     tier: 'T1',
     description:
-      'Ask for something you need and cannot get yourself: a tool, access, an account, data, a decision. It is answered later; carry on without it for now.',
+      'Ask for something you need and cannot get yourself: a tool, access, data, a decision, spend. Not an account you can sign up for in your own browser - do that yourself. It is answered later; carry on without it for now.',
     schema: obj(
       {
         what: str("Its title: what you need, in 10 words or fewer, with what it's for, so it makes sense on its own - \"Sign in to Facebook so I can read the two groups\", not \"A request\". The details go in why."),

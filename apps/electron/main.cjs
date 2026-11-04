@@ -5,7 +5,7 @@
 // standby and running agents finish, so no run is cut off. The Microsoft Store
 // package (process.windowsStore) is updated by the Store instead.
 
-const { app, BrowserWindow, Menu, Tray, dialog, powerSaveBlocker, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, powerSaveBlocker, safeStorage, shell } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
@@ -91,6 +91,27 @@ function log() {
   return fs.createWriteStream(path.join(LOGS, 'agency.log'), { flags: 'a' });
 }
 
+// The agency's vault key (its API keys and the agents' passwords), locked to this
+// Windows account: sealed with the system's own protection, never left on disk as
+// plain text. The server made one beside the vault before: it's sealed and removed.
+// (No system protection here: the server keeps its own key file, as before.)
+const SEALED_KEY = path.join(app.getPath('userData'), 'vault-key.sealed');
+function vaultKey() {
+  if (!safeStorage.isEncryptionAvailable()) return undefined;
+  const plain = path.join(DATA, 'vault.key');
+  if (fs.existsSync(SEALED_KEY)) {
+    try {
+      return safeStorage.decryptString(fs.readFileSync(SEALED_KEY));
+    } catch {
+      return undefined; // can't open it here: the server falls back to its own file
+    }
+  }
+  const key = fs.existsSync(plain) ? fs.readFileSync(plain, 'utf8').trim() : require('node:crypto').randomBytes(32).toString('base64');
+  fs.writeFileSync(SEALED_KEY, safeStorage.encryptString(key));
+  fs.rmSync(plain, { force: true });
+  return key;
+}
+
 function startServer() {
   const out = log();
   out.write(`\n--- started ${new Date().toISOString()} ---\n`);
@@ -102,6 +123,7 @@ function startServer() {
       HOOKS_PORT: String(PORTS.hooks),
       EAA_HOSTED_PORT: String(PORTS.hosted),
       EAA_DATA_DIR: DATA,
+      EAA_VAULT_KEY: vaultKey(),
       EAA_UI_DIR: UI_DIR,
       EAA_APP_PID: String(process.pid), // it stops if the app goes (hosting.ts)
       NODE_ENV: 'production',

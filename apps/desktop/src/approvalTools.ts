@@ -92,6 +92,25 @@ export const APPROVAL_TOOLS = {
     expiresAfterHours: 24,
   },
   // The agents' signed-in browser: acting as the person.
+  // The decisive clicks: what it does, in the agent's words.
+  'signed_in_browser.click_to_pay': {
+    wantsTo: 'pay for something, in its browser',
+    headers: [],
+    body: '{what}',
+    expiresAfterHours: 24,
+  },
+  'signed_in_browser.click_to_post': {
+    wantsTo: 'post publicly as the business, in its browser',
+    headers: [],
+    body: '{what}',
+    expiresAfterHours: 24,
+  },
+  'signed_in_browser.click_to_start_tool': {
+    wantsTo: 'start using a new business tool, in its browser',
+    headers: [],
+    body: '{what}',
+    expiresAfterHours: 24,
+  },
   'signed_in_browser.click': {
     wantsTo: 'click something as you, in the signed-in browser',
     headers: [],

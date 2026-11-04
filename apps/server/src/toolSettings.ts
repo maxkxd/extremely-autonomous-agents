@@ -47,6 +47,13 @@ const NAMES: Record<string, string> = {
   'signed_in_browser.scroll': 'Scroll the page',
   'signed_in_browser.click': 'Click on a page',
   'signed_in_browser.type': 'Type into a page',
+  'signed_in_browser.click_to_pay': 'Click to pay',
+  'signed_in_browser.click_to_post': 'Click to post publicly',
+  'signed_in_browser.click_to_start_tool': 'Click to start a new business tool',
+  'signed_in_browser.make_password': 'Make a password for a new account',
+  'signed_in_browser.type_password': 'Type a saved password',
+  'signed_in_browser.passwords': 'List saved accounts',
+  'signed_in_browser.show_person': 'Open the browser on your screen',
 };
 const service = (s: string) =>
   OWN_AREAS[s] ??

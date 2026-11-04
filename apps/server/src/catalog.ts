@@ -13,6 +13,25 @@ export type CatalogServer = { server: string; what: string; tools: CatalogTool[]
 
 const t = (name: string, tier: Tier, does: string): CatalogTool => ({ name, tier, does });
 
+// The agents' own browser and password store (runner/browser.ts): every agent holds
+// these, whatever its job - signing up, signing in and getting things done on any
+// website is theirs to do, not "only a person can". Paying, posting publicly and
+// starting a new business tool each have their own click, at approval.
+const BROWSER_KIT_TOOLS: CatalogTool[] = [
+  t('open', 'T0', 'Open a page in its own browser profile and read it'),
+  t('scroll', 'T0', 'Scroll the current page'),
+  t('back', 'T0', 'Go back a page'),
+  t('click', 'T1', 'Click a button or link (not paying, posting publicly or starting a new business tool)'),
+  t('type', 'T1', 'Type into a field'),
+  t('click_to_pay', 'T2', 'The click that spends money'),
+  t('click_to_post', 'T2', 'The click that posts publicly as the business'),
+  t('click_to_start_tool', 'T2', 'The click that starts a new business tool (a CRM, a help desk)'),
+  t('make_password', 'T1', "Sign up for an account: a strong password kept in the agency's store"),
+  t('type_password', 'T1', 'Type a password from the store'),
+  t('passwords', 'T0', "List the store's accounts (never the passwords)"),
+  t('show_person', 'T0', "Open a profile on the person's screen for a CAPTCHA or a phone code"),
+];
+
 export const CATALOG: CatalogServer[] = [
   {
     server: 'web',
@@ -25,14 +44,8 @@ export const CATALOG: CatalogServer[] = [
   },
   {
     server: 'signed_in_browser',
-    what: "The agents' own browser profile, signed in to the sites the person chose - acts as the person",
-    tools: [
-      t('open', 'T0', 'Open a page in the signed-in agent profile and read it'),
-      t('scroll', 'T0', 'Scroll the current page'),
-      t('back', 'T0', 'Go back a page'),
-      t('click', 'T2', 'Click a button or link as the person (only lower the tier when the Charter limits what it may click)'),
-      t('type', 'T2', 'Type into a field as the person (only lower the tier when the Charter limits what it may type)'),
-    ],
+    what: "The agents' own browser profiles: signed in to sites by the person or by agents, who sign up for accounts themselves (passwords in the agency's store)",
+    tools: BROWSER_KIT_TOOLS,
   },
   {
     server: 'computer_files',
@@ -215,7 +228,7 @@ export const BASELINE: { server: string; tool: CatalogTool }[] = [
   ['tasks', t('list_my_tasks', 'T0', 'What it owes - step 1 of every run')],
   ['tasks', t('complete_task', 'T1', 'Close a task with its result')],
   ['tasks', t('delegate_task', 'T1', 'Hand work to another agent')],
-  ['requests', t('request_resource', 'T1', 'Ask a person for something only a person can give (a key, an account, spend)')],
+  ['requests', t('request_resource', 'T1', 'Ask a person for something only a person can give (a key, spend, a decision) - not an account it can sign up for itself')],
   ['requests', t('change_my_instructions', 'T1', 'Have its instructions rewritten the way a person asked in its chat')],
   ['requests', t('list_my_requests', 'T0', 'Its open requests')],
   ['memory', t('remember', 'T0', 'Save a note to its own memory for future runs')],
@@ -227,7 +240,11 @@ export const BASELINE: { server: string; tool: CatalogTool }[] = [
   ['ops', t('pause_me', 'T1', 'Go on standby or stop (until a time), when a person asks in its chat')],
   ['ops', t('set_my_run_days', 'T1', 'Set the days its schedule runs, when a person asks in its chat')],
   ['ops', t('set_my_models', 'T1', 'Change its AI models, when a person asks in its chat')],
+  ...BROWSER_KIT_TOOLS.map(tool => ['signed_in_browser', tool] as const),
 ].map(([server, tool]) => ({ server: server as string, tool: tool as CatalogTool }));
+
+// The browser kit by tool id and default level, for agents built before it.
+export const BROWSER_KIT = BROWSER_KIT_TOOLS.map(tool => ({ id: `signed_in_browser.${tool.name}`, tier: tool.tier }));
 
 export const toolId = (server: string, name: string) => `${server}.${name}`;
 

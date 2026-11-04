@@ -17,6 +17,11 @@ import {
   getCodePlugins,
   getIntegrations,
   openAgentBrowser,
+  getPasswords,
+  revealPassword,
+  addPassword,
+  deletePassword,
+  type SavedPassword,
   setCodePlugins,
   removeIntegration,
   setTunnel,
@@ -831,44 +836,143 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
   );
 }
 
-// The agents' signed-in browser: a separate profile the person signs into.
+// The agents' own browser: separate profiles the person signs in to, and agents
+// sign up in themselves. One opens in a real window on this computer.
 function AgentBrowser({ status }: { status: IntegrationsView['profile'] }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const open = async () => {
-    setBusy(true);
+  // Counted from the password list once it's in, so adding or deleting one shows here at once.
+  const [saved, setSaved] = useState<SavedPassword[] | null>(null);
+  const profiles = (status.profiles ?? [{ n: 1, open: status.open, inUse: status.inUse, accounts: 0 }]).map(p => (saved ? { ...p, accounts: saved.filter(r => r.profile === p.n).length } : p));
+  const open = async (n: number) => {
+    setBusy(n);
     setError(null);
     try {
-      await openAgentBrowser();
+      await openAgentBrowser(n);
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
   return (
     <div className="sgroup">
       <h3>Signed-in browser</h3>
-      <p className="slead">
-        A separate Edge or Chrome profile just for agents. Sign it in to the sites you want agents to use as you - your own browser, passwords
-        and history stay out of it. Clicking and typing in it needs your approval unless an agent's job allows otherwise.
-      </p>
+      <p className="slead">Edge or Chrome profiles just for agents, kept signed in. Sign in to your own accounts here; agents sign up for theirs.</p>
       <ul className="sconnectors">
-        <li>
-          <span className="sconn-name">
-            <Globe size={14} /> Agent profile
-          </span>
-          <span className="sconn-what">
-            {status.open ? 'Open on your screen - sign in, then close the window' : status.inUse ? 'In use by an agent right now' : 'Opens in a window on this computer'}
-          </span>
-          <span className="sint-actions">
-            <SpinButton spinning={busy} onClick={open} disabled={status.open || status.inUse}>
-              Open to sign in
-            </SpinButton>
-          </span>
-        </li>
+        {profiles.map(p => (
+          <li key={p.n}>
+            <span className="sconn-name">
+              <Globe size={14} /> Profile {p.n}
+            </span>
+            <span className="sconn-what">
+              {p.open ? "Open on your screen - close the window when you're done" : p.inUse ? 'In use by an agent right now' : `${p.accounts} saved account${p.accounts === 1 ? '' : 's'}`}
+            </span>
+            <span className="sint-actions">
+              <SpinButton spinning={busy === p.n} onClick={() => open(p.n)} disabled={p.inUse} title={p.inUse ? 'An agent is using it - try again in a minute' : undefined}>
+                Open
+              </SpinButton>
+            </span>
+          </li>
+        ))}
       </ul>
       {error && <p className="custom-error">{error}</p>}
+      <Passwords onRows={setSaved} />
     </div>
+  );
+}
+
+// The agents' accounts and passwords: who made each, in which profile. Revealed one at
+// a time; agents never see them (they type them straight into the page).
+function Passwords({ onRows }: { onRows: (rows: SavedPassword[]) => void }) {
+  const [rows, setRowsState] = useState<SavedPassword[] | null>(null);
+  const setRows = (r: SavedPassword[]) => (setRowsState(r), onRows(r));
+  const [shown, setShown] = useState<Record<string, string>>({});
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ site: '', username: '', password: '' });
+  const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const load = () => getPasswords().then(setRows, e => setError((e as Error).message));
+  useEffect(() => void load(), []);
+  const act = async (fn: () => Promise<unknown>) => {
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const reveal = (id: string) =>
+    act(async () => {
+      if (shown[id]) return setShown(({ [id]: _, ...rest }) => rest);
+      const pw = await revealPassword(id);
+      setShown(v => ({ ...v, [id]: pw }));
+    });
+  return (
+    <>
+      <h3 className="ssub">Passwords</h3>
+      <ul className="sconnectors spasswords">
+        {rows?.map(r => (
+          <li key={r.id}>
+            <span className="sconn-name">
+              {r.site} <span className="muted">{r.username}</span>
+            </span>
+            <span className="sconn-what">
+              {shown[r.id] ? <code className="spw">{shown[r.id]}</code> : `Profile ${r.profile} - ${r.agent_id ? `made by ${r.agent_id}` : 'added by a person'}${r.note ? ` - ${r.note}` : ''}`}
+            </span>
+            <span className="sint-actions">
+              <button className="slink" onClick={() => reveal(r.id)}>
+                {shown[r.id] ? 'Hide' : 'Show'}
+              </button>
+              {shown[r.id] && (
+                <button className="slink" onClick={() => void navigator.clipboard?.writeText(shown[r.id]).catch(() => {})}>
+                  Copy
+                </button>
+              )}
+              <button
+                className="slink"
+                onClick={() => (confirm === r.id ? act(async () => (await deletePassword(r.id), setConfirm(null), load())) : setConfirm(r.id))}
+                title={confirm === r.id ? 'Click again to delete it from the store (the account itself stays)' : 'Delete from the store'}
+              >
+                {confirm === r.id ? 'Sure?' : 'Delete'}
+              </button>
+            </span>
+          </li>
+        ))}
+        {rows && !rows.length && !adding && (
+          <li>
+            <span className="sconn-what">No accounts yet.</span>
+          </li>
+        )}
+        {adding && (
+          <li className="with-form">
+            <span className="sconn-name">Add an account agents can use</span>
+            <div className="sint-form">
+              <input className="srow2-input" placeholder="Site (linkedin.com)" value={form.site} onChange={e => setForm({ ...form, site: e.target.value })} />
+              <input className="srow2-input" placeholder="Username or email" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />
+              <input className="srow2-input" type="password" autoComplete="new-password" placeholder="Password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
+              <div className="mform-actions">
+                <button className="sbtn" onClick={() => setAdding(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="sbtn primary"
+                  disabled={!form.site.trim() || !form.username.trim() || !form.password}
+                  onClick={() => act(async () => (await addPassword(form), setForm({ site: '', username: '', password: '' }), setAdding(false), load()))}
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          </li>
+        )}
+      </ul>
+      {!adding && (
+        <button className="sbtn" onClick={() => setAdding(true)}>
+          <Plus size={14} /> Add account
+        </button>
+      )}
+      {error && <p className="custom-error">{error}</p>}
+    </>
   );
 }

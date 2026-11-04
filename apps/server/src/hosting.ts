@@ -83,6 +83,7 @@ async function launch(h: Hosting) {
       PORT: String(HOSTED_PORT),
       HOOKS_PORT: String(HOSTED_HOOKS_PORT),
       EAA_DATA_DIR: hostedDir(h.orgId),
+      EAA_VAULT_KEY: '', // its own vault, with its own key - not this agency's
       EAA_HOSTED_ORG: h.orgId,
       EAA_TOKEN_ISSUER: h.issuer,
       EAA_SELF_HOSTED: h.self ? '1' : '',

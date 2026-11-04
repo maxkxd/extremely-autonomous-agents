@@ -24,7 +24,8 @@ import { answerRemoteMcp, isRemoteMcpUrl, remoteMcpUrl, takeRemoteMcp } from './
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals } from './approvals.js';
-import { openProfileForSignIn, profileStatus } from './browser.js';
+import { listProfiles, openProfileWindow, profileStatus } from './browser.js';
+import { deletePassword, listPasswords, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { BUILT_IN_IDS, HELPER_IDS } from './helpers.js';
@@ -533,7 +534,7 @@ export const runnerRoutes: Record<string, Route> = {
   },
 
   // --- Integrations (docs/integrations.md) ---
-  'GET /api/integrations': async () => (recheckStale(), { integrations: await listIntegrations(), problems: integrationProblems(), profile: profileStatus() }),
+  'GET /api/integrations': async () => (recheckStale(), { integrations: await listIntegrations(), problems: integrationProblems(), profile: await profileStatus() }),
   'POST /api/integrations/connect': async (_req, _q, body) => {
     const { id, key, fields } = await body<{ id: string; key?: string; fields?: Record<string, unknown> }>();
     return connectIntegration(id, key, fields && typeof fields === 'object' ? fields : undefined);
@@ -600,8 +601,31 @@ export const runnerRoutes: Record<string, Route> = {
     await removeIntegration(id);
     return { ok: true };
   },
-  // Opens the agents' signed-in browser profile so the person can sign in.
-  'POST /api/browser/sign-in': async () => openProfileForSignIn(),
+  // Opens one of the agents' browser profiles in a window on this computer, so the
+  // person can sign in (or do what an agent asked: a CAPTCHA, a code), at a page.
+  'POST /api/browser/sign-in': async (_req, _q, body) => {
+    const b = await body<{ profile?: number; url?: string }>().catch(() => ({}) as { profile?: number; url?: string });
+    return openProfileWindow(b.profile ?? 1, b.url || undefined);
+  },
+
+  // --- The agents' password store (Settings > Passwords): owners and admins (access.ts) ---
+  'GET /api/passwords': async () => ({ passwords: listPasswords(), profiles: await listProfiles() }),
+  'POST /api/passwords/reveal': async (_req, _q, body) => {
+    const { id } = await body<{ id: string }>();
+    return { password: await readPassword(id) };
+  },
+  // An account a person already has, for agents to use: in the first profile with room on that site.
+  'POST /api/passwords/add': async (_req, _q, body) => {
+    const b = await body<{ site: string; username: string; password: string; note?: string }>();
+    if (!b.username?.trim() || !b.password) throw new Error('A username and a password, please.');
+    const site = siteOf(b.site);
+    const { profile } = profileFor(site, await listProfiles());
+    return { id: await savePassword({ site, username: b.username, password: b.password, profile, agentId: null, note: b.note ?? null }), profile };
+  },
+  'POST /api/passwords/delete': async (_req, _q, body) => {
+    const { id } = await body<{ id: string }>();
+    return { ok: await deletePassword(id) };
+  },
 
   // --- Spend caps (Settings > Usage) ---
   // Spend and runs: today (for the caps) and this calendar month, per agent.

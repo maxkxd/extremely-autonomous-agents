@@ -338,7 +338,8 @@ export type IntegrationView = {
   events: { id: string; description: string; poll: number | null; webhook: boolean; signed: boolean; secretHelp: string | null; setupHelp: string | null }[];
   webhookSecretSet: boolean;
 };
-export type IntegrationsView = { integrations: IntegrationView[]; problems: { file: string; error: string }[]; profile: { open: boolean; inUse: boolean } };
+export type BrowserProfile = { n: number; open: boolean; inUse: boolean; accounts: number };
+export type IntegrationsView = { integrations: IntegrationView[]; problems: { file: string; error: string }[]; profile: { open: boolean; inUse: boolean; profiles?: BrowserProfile[] } };
 // Events: their webhook addresses, and the tunnel that makes those public.
 export type TunnelState = { status: 'off' | 'starting' | 'on' | 'missing' | 'error'; url: string | null; error: string | null };
 export type EventInfo = { id: string; integration: string; live: boolean; description: string; agents: string[]; webhook: string | null; told: number; poll: { everyMinutes: number; last: number | null; error: string | null } | null };
@@ -360,7 +361,15 @@ export type LiveApproval = { id: string; agentId: string; agentName: string; own
 export const getLiveApprovals = () => request<{ approvals: LiveApproval[] }>('/api/runner/approvals').then(r => r.approvals);
 export const decideApproval = (id: string, decision: 'approved' | 'rejected', note?: string) =>
   post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note });
-export const openAgentBrowser = () => post<{ ok: boolean }>('/api/browser/sign-in', {});
+// One of the agents' browser profiles, in a window on this computer (at a page, if given).
+export const openAgentBrowser = (profile = 1, url?: string) => post<{ ok: boolean }>('/api/browser/sign-in', { profile, url });
+
+// The agents' password store (Settings > Connectors > Passwords): owners and admins.
+export type SavedPassword = { id: string; site: string; username: string; profile: number; agent_id: string | null; note: string | null; created_at: number };
+export const getPasswords = () => request<{ passwords: SavedPassword[] }>('/api/passwords').then(r => r.passwords);
+export const revealPassword = (id: string) => post<{ password: string }>('/api/passwords/reveal', { id }).then(r => r.password);
+export const addPassword = (p: { site: string; username: string; password: string }) => post<{ id: string; profile: number }>('/api/passwords/add', p);
+export const deletePassword = (id: string) => post<{ ok: boolean }>('/api/passwords/delete', { id });
 
 // Daily spend caps (Settings > Usage): the organization's, and each agent's.
 export type Usage = {

@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { openAgentBrowser } from './builder';
 
 // Agents' and the Agency Engineer's text, made easy to follow: numbered steps as a
 // numbered list (also when they're written inline, "1. Do this. 2. Then that."),
@@ -34,6 +35,17 @@ function Inline({ text, refs }: { text: string; refs: Ref }) {
   parts.push(<InlineCore key="end" text={text.slice(last)} refs={refs} />);
   return <>{parts}</>;
 }
+
+// "Open in signed-in browser: https://www.linkedin.com/login (profile 2)": a button that
+// opens the agents' own browser at that page, on this computer (runner/browser.ts).
+const BROWSER_LINE = /^\s*Open in signed-in browser:\s*(https?:\/\/[^\s<>"']+?)[.,]?(?:\s*\(profile\s*(\d+)\))?\.?\s*$/i;
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+};
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 const TRAILING = /[.,;:!?)\]]+$/;
@@ -147,6 +159,19 @@ export function RichText({ text, onRequest, canOpen, onSettings }: { text: strin
     list = null;
   };
   for (const line of lines) {
+    // A page to open in the agents' browser: a button that opens it there.
+    const page = BROWSER_LINE.exec(line);
+    if (page) {
+      flushPara();
+      flushList();
+      const [, url, profile] = page;
+      blocks.push(
+        <button key={blocks.length} className="rt-settings" onClick={() => openAgentBrowser(profile ? Number(profile) : 1, url).catch(e => window.alert((e as Error).message))}>
+          Open {hostOf(url)} in the signed-in browser
+        </button>,
+      );
+      continue;
+    }
     // A line that's only where to connect something: a big button to it.
     const place = onSettings ? SETTINGS_LINE.exec(line) : null;
     if (place) {

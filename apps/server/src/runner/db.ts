@@ -275,6 +275,18 @@ CREATE TABLE IF NOT EXISTS event_items (
   at INTEGER NOT NULL,
   PRIMARY KEY (event_id, item_id)
 );
+
+-- Accounts agents made, or a person added (runner/passwords.ts): which site, which
+-- username, in which browser profile. The password itself is in the vault (pw:<id>).
+CREATE TABLE IF NOT EXISTS passwords (
+  id TEXT PRIMARY KEY,
+  site TEXT NOT NULL,               -- google.com, linkedin.com (no www)
+  username TEXT NOT NULL,
+  profile INTEGER NOT NULL,         -- the browser profile it's signed in to
+  agent_id TEXT,                    -- who made it; NULL: a person added it
+  note TEXT,
+  created_at INTEGER NOT NULL
+);
 `;
 
 // Small helpers so callers don't repeat prepare().

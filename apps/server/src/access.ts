@@ -206,6 +206,8 @@ const NEEDS: Record<string, Level> = {
   'POST /api/integrations/disconnect': 'member',
   'POST /api/integrations/remove': 'member',
   'POST /api/integrations/webhook-secret': 'member',
+  // The password store: who can see the agents' accounts at all (reveal and changes are admin by default).
+  'GET /api/passwords': 'admin',
 };
 
 export function authorize(actor: Actor, method: string, path: string) {

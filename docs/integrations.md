@@ -299,10 +299,34 @@ is forced under `agent/`. Approving a review is for people.
 - `web.web_search` - through whichever search service is connected.
 - **Browsing**, on the Edge or Chrome already installed (`runner/browser.ts`):
   - `browser.*` (what `web.browse` gives) - a blank throwaway browser.
-  - `signed_in_browser.*` - a separate, persistent agent profile the person
-    signs into once (Settings -> Connectors), only to the sites they want
-    agents to use; never their own profile (Chrome blocks automating that
-    anyway). Its click and type are T2 by default: they act as the person.
+  - `signed_in_browser.*` - the agents' own browser, which **every agent
+    holds** (catalog.ts BASELINE; agents built before it get it at start,
+    engineer.ts ensureBrowserKit). Separate, persistent profiles in
+    `browser-profiles/<n>`, never the person's own:
+    - Agents sign up for accounts themselves: `make_password` makes a strong
+      password, keeps it in the password store (runner/passwords.ts: the
+      vault, `pw:<id>`) and says which profile to use; `type_password` types
+      it in. Agents never see a password; owners and admins do, in Settings >
+      Connectors > Signed-in browser > Passwords.
+    - A profile holds up to 10 accounts on one site (Google's limit per
+      browser); the 11th goes in a new profile, made for it.
+    - Only a CAPTCHA and a code sent to a phone need a person: `show_person`
+      opens the profile on their screen, and a request line "Open in
+      signed-in browser: <address>" is a button that opens it there too.
+    - Levels: open, scroll, back, `passwords` and `show_person` silent; click,
+      type, `make_password` and `type_password` logged; the click that pays,
+      posts publicly or starts a new business tool is its own tool
+      (`click_to_pay`, `click_to_post`, `click_to_start_tool`) at approval.
+      The agent's rules make it use those for those clicks.
+    - A person's window is the real browser, not automation (Google and
+      LinkedIn refuse sign-ins in automated windows) - the same profile the
+      agents then use. It's set to quit when its window closes (Edge kept
+      running in the background, holding the profile).
+    - Kept signed in: lasting cookies are the browser's own; session cookies
+      (a sign-in without "remember me") are kept in the vault at the end of a
+      run and put back at the next (checked: both survive a restart).
+    - The vault's key is sealed to the Windows account by the desktop app
+      (Electron safeStorage, `vault-key.sealed`), not left beside the vault.
 
   A page comes back as its text plus numbered buttons, links and fields; the
   agent clicks or types by number. One session per run, closed at its end.
