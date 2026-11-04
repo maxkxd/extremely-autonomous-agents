@@ -2,7 +2,8 @@
 // with Electron's own Node (ELECTRON_RUN_AS_NODE), shows the app it serves, and keeps the agency
 // running in the tray when the window closes - agents work in the background.
 // Updates come from GitHub Releases; before one installs, the agency is put on
-// standby and running agents finish, so no run is cut off.
+// standby and running agents finish, so no run is cut off. The Microsoft Store
+// package (process.windowsStore) is updated by the Store instead.
 
 const { app, BrowserWindow, Menu, Tray, dialog, powerSaveBlocker, shell } = require('electron');
 const { spawn, execFile } = require('node:child_process');
@@ -213,19 +214,25 @@ function show() {
   win.focus();
 }
 
+// The Store package can't use the Run key: Windows starts it through the package's
+// startup task (build/appx-extensions.xml), which only the person can turn on, in Settings.
+const startWithWindows = () =>
+  process.windowsStore
+    ? { label: 'Start with Windows…', click: () => void shell.openExternal('ms-settings:startupapps') }
+    : {
+        label: 'Start with Windows',
+        type: 'checkbox',
+        checked: app.getLoginItemSettings().openAtLogin,
+        click: item => {
+          app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] });
+          tray.setContextMenu(trayMenu());
+        },
+      };
+
 function trayMenu() {
-  const login = app.getLoginItemSettings();
   return Menu.buildFromTemplate([
     { label: 'Open', click: show },
-    {
-      label: 'Start with Windows',
-      type: 'checkbox',
-      checked: login.openAtLogin,
-      click: item => {
-        app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] });
-        tray.setContextMenu(trayMenu());
-      },
-    },
+    startWithWindows(),
     {
       label: 'Keep this computer awake while agents work',
       type: 'checkbox',
@@ -300,7 +307,8 @@ async function resumeAfterUpdate() {
 }
 
 function watchForUpdates() {
-  if (!app.isPackaged) return;
+  // The Store updates its own package.
+  if (!app.isPackaged || process.windowsStore) return;
   const { autoUpdater } = require('electron-updater');
   autoUpdater.autoInstallOnAppQuit = false; // only through drainThenInstall, never mid-run
   autoUpdater.on('update-downloaded', async info => {

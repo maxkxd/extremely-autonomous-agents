@@ -1,7 +1,9 @@
 name: Release
 
 # Builds the Windows installer and publishes it as a draft GitHub Release, which
-# the app's auto-update reads once it's published (docs/packaging.md).
+# the app's auto-update reads once it's published - or, with "store", the
+# Microsoft Store package, kept as this run's artifact to upload to Partner
+# Center by hand (docs/packaging.md).
 #
 # Only ever run by hand (Actions > Release > Run workflow): never on a push, tag
 # or schedule. Signing is metered, and a release is a decision. The job runs in
@@ -14,6 +16,11 @@ on:
       version:
         description: Version to release (e.g. 0.1.0)
         required: true
+      target:
+        description: What to build
+        type: choice
+        options: [installer, store]
+        default: installer
 
 permissions:
   contents: write # the draft release
@@ -50,6 +57,7 @@ jobs:
       # environment; until then the installer is unsigned (Windows warns
       # "unknown publisher").
       - name: Build, sign when set up, publish a draft release
+        if: inputs.target == 'installer'
         working-directory: apps/electron
         shell: bash
         env:
@@ -70,3 +78,30 @@ jobs:
             echo "::warning::No Azure signing set up in the release environment: this build is unsigned."
           fi
           npx electron-builder --win --publish always "${SIGN[@]}"
+
+      # The Store signs the package itself, so no signing here. Its identity comes
+      # from Partner Center (Product identity), kept as variables in `release`.
+      - name: Build the Microsoft Store package
+        if: inputs.target == 'store'
+        working-directory: apps/electron
+        shell: bash
+        run: |
+          if [ -z "${{ vars.MS_STORE_IDENTITY_NAME }}" ] || [ -z "${{ vars.MS_STORE_PUBLISHER }}" ]; then
+            echo "::error::Set MS_STORE_IDENTITY_NAME and MS_STORE_PUBLISHER in the release environment (Partner Center > Product identity)."
+            exit 1
+          fi
+          # The runner's own Windows SDK packs it: electron-builder's bundled makeappx
+          # can fail to start from its cache folder ("side-by-side configuration").
+          KIT=$(ls -d "/c/Program Files (x86)/Windows Kits/10/bin/"10.*/x64 | sort -V | tail -1)
+          export ELECTRON_BUILDER_WINDOWS_KITS_PATH=$(cygpath -w "$KIT")
+          npx electron-builder --win appx --publish never \
+            "-c.appx.identityName=${{ vars.MS_STORE_IDENTITY_NAME }}" \
+            "-c.appx.publisher=${{ vars.MS_STORE_PUBLISHER }}"
+
+      - name: Keep the Store package
+        if: inputs.target == 'store'
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-package-${{ inputs.version }}
+          path: apps/electron/dist/*.appx
+          if-no-files-found: error

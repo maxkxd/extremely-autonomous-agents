@@ -1,0 +1,6 @@
+        <!-- "Start with Windows" for the Store package (docs/packaging.md): a package
+             can't use the Run key, so Windows starts it through this task instead. Off
+             until the person turns it on in Settings > Apps > Startup. -->
+        <desktop:Extension Category="windows.startupTask" Executable="app\ExtremelyAutonomousAgents.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="ExtremelyAutonomousAgentsStartup" Enabled="false" DisplayName="Extremely Autonomous Agents" />
+        </desktop:Extension>

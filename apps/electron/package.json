@@ -54,6 +54,19 @@
       "runAfterFinish": true,
       "artifactName": "Extremely-Autonomous-Agents-Setup.${ext}"
     },
+    "appx": {
+      "identityName": "WorldAssetRegister.ExtremelyAutonomousAgents",
+      "publisher": "CN=00000000-0000-0000-0000-000000000000",
+      "publisherDisplayName": "World Asset Register",
+      "applicationId": "ExtremelyAutonomousAgents",
+      "displayName": "Extremely Autonomous Agents",
+      "backgroundColor": "#141414",
+      "languages": ["en-US"],
+      "minVersion": "10.0.17763.0",
+      "maxVersionTested": "10.0.26100.0",
+      "customExtensionsPath": "build/appx-extensions.xml",
+      "artifactName": "Extremely-Autonomous-Agents-${version}.${ext}"
+    },
     "publish": [
       {
         "provider": "github",

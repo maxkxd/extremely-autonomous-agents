@@ -88,6 +88,38 @@ Without it, Gmail asks for the person's own Google client, as before.
 
 Without the Azure secrets the installer is built unsigned, with a warning.
 
+## Microsoft Store
+
+The same app, packaged as MSIX (electron-builder's `appx` target) instead of
+the installer. The Store signs it, so it needs no certificate of ours, and
+people get no "unknown publisher" warning.
+
+- **Building**: the Release workflow with `target: store`. It leaves the
+  `.appx` as the run's artifact, to upload to Partner Center (Product >
+  Packages) by hand. Locally: `npm run stage`, then
+  `npx electron-builder --win appx --publish never`. If makeappx won't start
+  ("side-by-side configuration is incorrect"), point
+  `ELECTRON_BUILDER_WINDOWS_KITS_PATH` at a Windows SDK `bin\<version>\x64`
+  folder, or a copy of electron-builder's kit outside its cache folder.
+- **Identity**: Partner Center > Product identity gives the package name and
+  publisher. They go in the `release` environment as the variables
+  `MS_STORE_IDENTITY_NAME` and `MS_STORE_PUBLISHER`, which override the
+  placeholders in `package.json` (`build.appx`). The publisher display name is
+  "World Asset Register".
+- **Tiles**: `apps/electron/build/appx`, made from `build/icon.png`.
+- **Updates**: the Store updates the package itself. `electron-updater` stays
+  off (`process.windowsStore`), and there is no standby-and-drain before an
+  update the way the installer has.
+- **Start with Windows**: a package can't use the Run key. The package has a
+  startup task (`build/appx-extensions.xml`), off until turned on, and the
+  tray's "Start with Windows…" opens Settings > Apps > Startup, where the
+  person turns it on. Windows starts it without `--hidden`, so the window
+  shows at sign-in.
+- **Data**: Windows keeps a package's `%APPDATA%` writes in the package's own
+  folder (`%LOCALAPPDATA%\Packages\<package>\LocalCache\Roaming`), and removes
+  it when the app is uninstalled. Not shared with an installer copy on the
+  same computer.
+
 ## Open
 
 - **Signing**: Azure Trusted Signing and Apple Developer applied for.
