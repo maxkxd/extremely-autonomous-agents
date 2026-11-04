@@ -291,10 +291,12 @@ const TOOLS: ToolDef[] = [
     description: "Close an agent's open request that's a repeat or a loop, with why - the agent is told. Not for one that needs doing: those are the Agency Engineer's.",
     schema: obj({ request_id: { type: 'integer', description: 'The request' }, why: str('Why it closes, for the agent: "Already given in #12" or "The Agency Engineer is fixing the cause in #31"') }, ['request_id', 'why']),
     impl: async a => {
-      const r = one<{ id: number; agent_id: string; status: string }>('SELECT id, agent_id, status FROM requests WHERE id = ?', Number(a.request_id));
+      const r = one<{ id: number; agent_id: string; status: string; stage: string | null }>('SELECT id, agent_id, status, stage FROM requests WHERE id = ?', Number(a.request_id));
       if (!r) throw new Error(`No request #${a.request_id}.`);
       if (r.status !== 'open') throw new Error(`Request #${r.id} is already ${r.status}.`);
       if (r.agent_id === FLEET_ENGINEER || r.agent_id === DOCTOR) throw new Error("That's a built-in agent's own request: leave it.");
+      // One waiting on a person is theirs to settle: closing it would take it off their Requests page unseen.
+      if (r.stage && ['waiting_you', 'person', 'approval'].includes(r.stage)) throw new Error(`Request #${r.id} is waiting on a person: leave it to them, and say in your summary that they can reject it.`);
       if (one('SELECT 1 FROM approvals WHERE status = ? AND (CAST(json_extract(args, ?) AS INTEGER) = ?)', 'pending', '$.request_id', r.id))
         throw new Error(`Request #${r.id} has a card waiting for a person's approval: leave it to them.`);
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", `Closed by the Agency Doctor: ${String(a.why)}`, Date.now(), r.id);

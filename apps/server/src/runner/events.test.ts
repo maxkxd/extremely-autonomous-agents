@@ -84,10 +84,14 @@ test("the agent's subscriptions are read from its TOOLS.yaml", async () => {
   assert.deepEqual((await loadAgent(AGENT))?.events, ['zz.new_issue', 'zz.alarm']);
 });
 
-test('polling: the first poll is only noted; new items after it wake the subscribed agent, once', async () => {
+test('polling: the first poll tells the backlog once; new items after it wake the subscribed agent, once', async () => {
   answer = { data: [{ id: 1, title: 'Old bug', level: 'error' }] };
   await pollEvents(book, 0, fetcher, sources);
-  assert.equal(booked.length, 0); // what was there already isn't news
+  // What was there already isn't news, but the agent hears it's waiting.
+  assert.equal(booked.length, 1);
+  assert.match(booked[0].task ?? '', /1 already there when you started listening - a backlog/);
+  booked.length = 0;
+  all('DELETE FROM bookings RETURNING id'); // its run has happened
 
   answer = { data: [{ id: 1, title: 'Old bug' }, { id: 2, title: 'New crash', level: 'fatal' }] };
   await pollEvents(book, 60_000, fetcher, sources); // not due yet (every 5 minutes)

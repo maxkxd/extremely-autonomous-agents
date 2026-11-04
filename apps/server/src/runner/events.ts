@@ -11,7 +11,8 @@ import { agencyStopped, type Trigger } from './run.js';
 // alarm. An integration defines its events; an agent subscribes to them in its
 // TOOLS.yaml (events: [...]), like it holds tools. Each is detected by polling
 // the service's API for new items, or pushed to a webhook address, or both.
-// Every item is told once: the first poll only notes what's already there.
+// Every item is told once: the first poll notes what's already there and tells
+// the agents once, as a backlog.
 // While the agency is stopped nothing is polled (the next poll catches up); a
 // webhook post is still taken, and the run it books waits.
 
@@ -111,9 +112,16 @@ export async function pollEvents(book: Book, now = Date.now(), fetcher?: Fetcher
       try {
         const items = await pollOnce(src, fetcher);
         if (!st.baselined) {
-          // The first poll: what's there already isn't news.
+          // The first poll: what's there already isn't news - but it's a backlog the
+          // agent should know about (open issues, unanswered tickets), told once.
           for (const i of items) exec("INSERT OR IGNORE INTO event_items (event_id, item_id, source, summary, at) VALUES (?, ?, 'baseline', ?, ?)", src.event.id, i.id, line(i.summary), now);
           putPoll(src.event.id, { last: now, baselined: true, error: null, found: 0 });
+          if (items.length) {
+            const shown = items.slice(0, MAX_SHOWN).map(i => `- ${line(i.summary)}`).join('\n');
+            const more = items.length > MAX_SHOWN ? `\n(and ${items.length - MAX_SHOWN} more)` : '';
+            const block = `${src.integration.name} - ${src.event.description} (${src.event.id}): ${items.length} already there when you started listening - a backlog, not new. From now on you're told only about new ones. Handle the ones that still need it.\n${shown}${more}`;
+            for (const agentId of subs.get(src.event.id) ?? []) book(agentId, 'event', block);
+          }
         } else {
           const r = await deliver(src, 'poll', items, book, now, subs);
           putPoll(src.event.id, { last: now, baselined: true, error: null, found: (st.found ?? 0) + r.fresh });

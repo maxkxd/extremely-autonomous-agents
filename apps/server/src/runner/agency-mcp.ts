@@ -369,7 +369,19 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
     description: "Agents' actions waiting on a person in the app (sending, posting, going live...). Read-only: they're decided in the app.",
     schema: obj({}),
     run: async () => {
-      const rows = all<{ id: string; agent_id: string; tool: string; args: string; expires_at: number }>("SELECT id, agent_id, tool, args, expires_at FROM approvals WHERE status = 'pending' AND expires_at > ? ORDER BY created_at", Date.now());
+      const all_ = all<{ id: string; agent_id: string; tool: string; args: string; expires_at: number }>("SELECT id, agent_id, tool, args, expires_at FROM approvals WHERE status = 'pending' AND expires_at > ? ORDER BY created_at", Date.now());
+      // A member sees only what's theirs to decide, as in the app.
+      const rows = [];
+      // Whose each is, as the app decides it (runner/api.ts approvals/decide): an Engineer
+      // card by the request it's for, a Doctor card by the agent it's about.
+      for (const r of all_) {
+        const args = JSON.parse(r.args) as { request_id?: number; agent_id?: string };
+        const mine = await requireMakerOrAdmin(r.agent_id, args.request_id == null ? null : Number(args.request_id), currentActor(), 'decide this', r.agent_id === 'doctor' ? (args.agent_id ?? null) : null).then(
+          () => true,
+          () => false,
+        );
+        if (mine) rows.push(r);
+      }
       return rows.length ? json(rows.map(r => ({ ...r, args: JSON.parse(r.args), expires: new Date(r.expires_at).toISOString() }))) : 'Nothing waiting.';
     },
   },
