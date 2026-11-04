@@ -120,8 +120,10 @@ export function book(agentId: string, trigger: Trigger, task: string | null, due
   // made six runs in a row).
   // Results that come in together, likewise: one run hears them all.
   if (trigger === 'task done' && one<{ id: number }>("SELECT id FROM bookings WHERE agent_id = ? AND trigger = 'task done'", agentId)) return;
-  if (trigger === 'approval' && task) {
-    const waiting = one<{ id: number }>("SELECT id FROM bookings WHERE agent_id = ? AND trigger = 'approval' ORDER BY id LIMIT 1", agentId);
+  // Messages sent while it was stopped (or before it got to them) are answered in
+  // one run, not one run each.
+  if ((trigger === 'approval' || trigger === 'your message') && task) {
+    const waiting = one<{ id: number }>('SELECT id FROM bookings WHERE agent_id = ? AND trigger = ? ORDER BY id LIMIT 1', agentId, trigger);
     if (waiting) {
       exec("UPDATE bookings SET task = COALESCE(task, '') || ? WHERE id = ?", `\n\n${task}`, waiting.id);
       return;

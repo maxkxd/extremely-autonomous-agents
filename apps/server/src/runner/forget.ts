@@ -26,6 +26,8 @@ export async function forgetAgentRuns(id: string, now = Date.now()) {
 
   // Work handed to it: closed, so the agent that handed it over hears it wasn't done.
   exec("UPDATE tasks SET status = 'done', result = 'Not done: the agent it was handed to was deleted.', done_at = ? WHERE agent_id = ? AND status = 'open'", now, id);
+  // Work it handed to others: nobody is left to hear the result, so they stop on it.
+  exec("UPDATE tasks SET status = 'done', result = 'Not needed: the agent that handed it over was deleted.', done_at = ?, delivered_at = ? WHERE from_agent = ? AND status = 'open'", now, now, id);
 
   exec('DELETE FROM dm WHERE agent_id = ?', id);
   exec('DELETE FROM memories WHERE agent_id = ?', id);

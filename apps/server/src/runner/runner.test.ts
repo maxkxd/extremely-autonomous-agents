@@ -8,7 +8,7 @@ import { all, one, resetDbForTests, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, apocalypticWait, APOCALYPTIC_GAP_MS, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './ferocity.js';
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
 import { ModelError, type Adapter, type Call } from './providers.js';
-import { LOOPING, loopGuard, runAgent, SAME_CALL_LIMIT, stateOf, type RunDeps } from './run.js';
+import { LOOPING, loopGuard, OVER_LIMIT, runAgent, SAME_CALL_LIMIT, stateOf, type RunDeps } from './run.js';
 import { book, dropStaleRequestRuns, engineerCanJoin, engineerScope, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
 import { decideApproval } from './approvals.js';
@@ -85,6 +85,17 @@ test('Relentless: nudged until it reaches its floor, then it ends', async () => 
   assert.equal(r.status, 'succeeded');
   assert.equal(r.acts, 10); // 2 + 4 nudges x 2
   assert.equal(r.nudges, 4);
+});
+
+test('a monthly limit crossed mid-run ends the run there, with its spend so far recorded', async () => {
+  setLevel(RELENTLESS);
+  setSetting('spend_cap_org_usd', 0.05);
+  const r = await runAgent(agent(), 'scheduled', null, deps(fake(2), { cost: async () => 0.03 }));
+  assert.equal(r.status, 'failed');
+  assert.equal(r.error, OVER_LIMIT);
+  const run = one<{ cost_usd: number }>('SELECT cost_usd FROM runs WHERE id = ?', r.id)!;
+  assert.ok(run.cost_usd >= 0.05 && run.cost_usd < 0.1, `stopped at the turn that crossed it, not later (${run.cost_usd})`);
+  setSetting('spend_cap_org_usd', null);
 });
 
 test('Relentless: after 4 nudges below the floor the run just ends with what it made', async () => {
@@ -729,6 +740,20 @@ test("a person's no doesn't strand the agent: the Agency Engineer is woken to fo
   assert.match(b!.task, /without saying why/);
   dropStaleRequestRuns();
   assert.equal(one<{ n: number }>("SELECT COUNT(*) AS n FROM bookings WHERE agent_id = 'fleet'")!.n, 1);
+});
+
+test('a person marking a request done wakes its agent now, with what they said; messages waiting make one run', async () => {
+  exec("INSERT INTO requests (agent_id, what, why, created_at, stage) VALUES (?, 'Where are your prices?', 'no site', ?, 'waiting_you')", ID, Date.now());
+  const id = one<{ id: number }>('SELECT MAX(id) AS id FROM requests')!.id;
+  assert.equal(await answerRequest(id, 'done', 'The price list is in Agent reports/prices.csv'), true);
+  const b = one<{ trigger: string; task: string }>('SELECT trigger, task FROM bookings WHERE agent_id = ?', ID);
+  assert.equal(b?.trigger, 'request done');
+  assert.match(b!.task, /prices\.csv/);
+  book(ID, 'your message', 'first');
+  book(ID, 'your message', 'second');
+  const msgs = all<{ task: string }>("SELECT task FROM bookings WHERE agent_id = ? AND trigger = 'your message'", ID);
+  assert.equal(msgs.length, 1);
+  assert.match(msgs[0].task, /first[\s\S]*second/);
 });
 
 test("the Agency Engineer can't queue the same proposal twice while a person hasn't decided the first", () => {

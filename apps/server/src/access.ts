@@ -191,6 +191,7 @@ const NEEDS: Record<string, Level> = {
   'POST /api/agents/models': 'member',
   'POST /api/models/check': 'member',
   'POST /api/runner/agent': 'member', // a spend cap needs an admin (runner/api.ts)
+  'POST /api/tools/tier': 'member', // their own agents only (index.ts)
   'POST /api/runner/run-now': 'member',
   // Their own agents' DMs only, unless an admin (runner/api.ts).
   'POST /api/dm': 'member',

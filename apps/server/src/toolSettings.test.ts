@@ -32,10 +32,15 @@ test('every tool the agents use, by a plain name, with who uses it', async () =>
   assert.ok(search.does.length > 0, 'described from the catalogue');
   assert.deepEqual(search.agents.map(a => a.name).sort(), ['Lead Research', 'Outreach']);
   assert.equal(tools.find(t => t.id === 'gmail.send_message')!.name, 'Send message');
-  // Two "Write file"s: where each one writes tells them apart.
   const where = (id: string) => tools.find(t => t.id === id)?.source;
   assert.equal(where('computer_files.write_file'), 'This computer');
-  assert.equal(where('files.write_file'), "Agent's own files");
+  // Every agent's own basics run at the app's level: not listed, since a level set here would be ignored.
+  assert.equal(where('files.write_file'), undefined);
+});
+
+test("a member sets a level for their own agents only; the basics can't be set", async () => {
+  await assert.rejects(setToolTier('files.write_file', 'T2'), /set by the app/);
+  await assert.rejects(setToolTier('web.web_search', 'T1', 'u_nobody'), /None of your agents/);
 });
 
 test("setting a tool's level sets it for every agent that has it", async () => {

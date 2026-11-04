@@ -20,6 +20,7 @@ import {
   isAdmin,
   joinWithCode,
   myInvites,
+  myAccountId,
   declineInvite,
   checkWaitingInvites,
   onWaitingInvites,
@@ -1340,7 +1341,12 @@ function UsageSection() {
                 {money(spend)}
                 {a.monthUnknownRuns > 0 && '*'}
               </span>
-              <CapInput value={a.capUsd} disabled={!isAdmin()} why={off} onSave={v => setAgentRunner(a.id, { spendCapUsd: parseCap(v) }).catch(() => {})} label={`Monthly limit for ${a.name}`} />
+              {/* A built-in has no limit of its own: the organization's covers it. */}
+              {AGENTS.find(x => x.id === a.id)?.builtIn ? (
+                <CapInput value={null} disabled why="Built-in agents have no limit of their own - the organization's limit covers them" onSave={() => {}} label={`Monthly limit for ${a.name}`} />
+              ) : (
+                <CapInput value={a.capUsd} disabled={!isAdmin()} why={off} onSave={v => setAgentRunner(a.id, { spendCapUsd: parseCap(v) }).catch(() => {})} label={`Monthly limit for ${a.name}`} />
+              )}
             </li>
           );
         })}
@@ -1423,9 +1429,19 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
       window.setTimeout(() => row.classList.remove('spotlit'), 2600);
     }, 60);
   }, [focus, !!tools]);
+  // A member sets a tool's level for their own agents; an owner or admin for every agent.
+  const me = myAccountId();
+  const mine = (a: ToolView['agents'][number]) => isAdmin() || (!!me && a.ownerId === me);
   const set = async (t: ToolView, tier: ToolTier) => {
     setError(null);
-    setTools(list => list?.map(x => (x.id === t.id ? { ...x, tier, agents: x.agents.map(a => ({ ...a, tier })) } : x)) ?? list);
+    setTools(
+      list =>
+        list?.map(x => {
+          if (x.id !== t.id) return x;
+          const agents = x.agents.map(a => (mine(a) ? { ...a, tier } : a));
+          return { ...x, agents, tier: agents.every(a => a.tier === tier) ? tier : 'mixed' };
+        }) ?? list,
+    );
     try {
       await setToolTier(t.id, tier);
     } catch (e) {
@@ -1437,7 +1453,7 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
     <section className="ssection">
       <h2>Tools</h2>
       <p className="slead">How much you're involved when an agent uses each one.</p>
-      {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change these.</p>}
+      {!isAdmin() && <p className="slocked-note">You can change these for your own agents.</p>}
       {error && <p className="custom-error">{error}</p>}
       {!tools ? (
         !error && <SkelRows n={6} h={46} what="tools" />
@@ -1462,7 +1478,11 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
                   <div className="stool-body">
                     {t.does && <p className="stool-does">{t.does}</p>}
                     <p className="stool-used">Used by {t.agents.map(a => a.name).join(', ')}</p>
-                    <fieldset className="stool-slider" disabled={!isAdmin() || !!off} title={off ?? undefined}>
+                    <fieldset
+                      className="stool-slider"
+                      disabled={!t.agents.some(mine) || !!off}
+                      title={off ?? (t.agents.some(mine) ? undefined : 'None of your agents uses this - only the owner or an admin can change it')}
+                    >
                       <input
                         type="range"
                         min={0}

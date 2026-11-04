@@ -5,7 +5,7 @@ import { CATALOG_INDEX, type Tier } from './catalog.js';
 import { DATA, listIds, readMeta } from './files.js';
 import { setBuiltInLevel } from './runner/db.js';
 import { integrationToolInfo } from './integrations/index.js';
-import { ACRONYMS } from './runner/tools.js';
+import { ACRONYMS, BUILTIN_IDS } from './runner/tools.js';
 
 // Settings > Tools: every tool the agency's agents use, by a plain name, and how
 // much a person is involved when one is used (catalog.ts):
@@ -62,20 +62,20 @@ export type ToolView = {
   source: string; // the service or area it's part of
   does: string; // a sentence, no ids
   tier: Tier | 'mixed';
-  agents: { id: string; name: string; tier: Tier }[];
+  agents: { id: string; name: string; tier: Tier; ownerId?: string | null }[];
 };
 
 const toolsFile = (id: string) => join(DATA, id, 'TOOLS.yaml');
 
 async function agentTiers() {
-  const out: { id: string; name: string; builtIn: boolean; tiers: Record<string, Tier> }[] = [];
+  const out: { id: string; name: string; builtIn: boolean; ownerId: string | null; tiers: Record<string, Tier> }[] = [];
   for (const id of await listIds()) {
     const meta = await readMeta(id);
     if (!meta || meta.service) continue;
     const doc = parseDocument(await readFile(toolsFile(id), 'utf8').catch(() => ''));
     const tiers = (doc.toJSON() as { tool_tiers?: Record<string, Tier> } | null)?.tool_tiers ?? {};
     // A built-in: only its actions on the fleet.
-    out.push({ id, name: meta.name, builtIn: !!meta.builtIn, tiers: meta.builtIn ? Object.fromEntries(Object.entries(tiers).filter(([t]) => t in BUILT_IN_ACTIONS)) : tiers });
+    out.push({ id, name: meta.name, builtIn: !!meta.builtIn, ownerId: meta.ownerId ?? null, tiers: meta.builtIn ? Object.fromEntries(Object.entries(tiers).filter(([t]) => t in BUILT_IN_ACTIONS)) : tiers });
   }
   return out;
 }
@@ -85,7 +85,9 @@ export async function listTools(): Promise<ToolView[]> {
   const byTool = new Map<string, ToolView>();
   for (const agent of await agentTiers()) {
     for (const [id, tier] of Object.entries(agent.tiers)) {
-      if (!TIERS.includes(tier)) continue;
+      // Every agent's own basics (hand work off, remember, book its next run) run at
+      // the level the app gives them: a level set here would be ignored, so they aren't listed.
+      if (!TIERS.includes(tier) || BUILTIN_IDS.has(id)) continue;
       let t = byTool.get(id);
       if (!t) {
         const [server, ...rest] = id.split('.');
@@ -103,7 +105,7 @@ export async function listTools(): Promise<ToolView[]> {
         };
         byTool.set(id, t);
       }
-      t.agents.push({ id: agent.id, name: agent.name, tier });
+      t.agents.push({ id: agent.id, name: agent.name, tier, ownerId: agent.builtIn ? null : agent.ownerId });
       if (t.tier !== tier) t.tier = 'mixed';
     }
   }
@@ -112,11 +114,15 @@ export async function listTools(): Promise<ToolView[]> {
 
 // One tool's tier, for every agent that has it. To T2, an agent with no
 // approval window for it gets one (how long it waits for a person).
-export async function setToolTier(toolId: string, tier: unknown) {
+// onlyFor: a member's account - only their own agents change (an owner or admin's
+// change is every agent's).
+export async function setToolTier(toolId: string, tier: unknown, onlyFor: string | null = null) {
   if (typeof tier !== 'string' || !TIERS.includes(tier as Tier)) throw new Error('The level is T0, T1 or T2.');
+  if (BUILTIN_IDS.has(toolId)) throw new Error("That one's level is set by the app.");
   let changed = 0;
   for (const agent of await agentTiers()) {
     if (!(toolId in agent.tiers)) continue;
+    if (onlyFor && (agent.builtIn || agent.ownerId !== onlyFor)) continue;
     // A built-in's files are rewritten on every start: the choice is kept apart too.
     if (agent.builtIn) setBuiltInLevel(agent.id, toolId, tier as Tier);
     const file = toolsFile(agent.id);
@@ -131,6 +137,6 @@ export async function setToolTier(toolId: string, tier: unknown) {
     await writeFile(file, out);
     changed++;
   }
-  if (!changed) throw new Error('No agent uses that tool.');
+  if (!changed) throw new Error(onlyFor ? 'None of your agents uses that tool.' : 'No agent uses that tool.');
   return { changed };
 }

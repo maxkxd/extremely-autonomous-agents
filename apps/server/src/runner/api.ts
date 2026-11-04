@@ -144,6 +144,13 @@ export async function answerRequest(id: number, status: 'done' | 'rejected', ans
     id,
   ).changes;
   if (!changed) return false;
+  // Its agent hears now, as when the Agency Engineer settles one - not at its next
+  // scheduled run (a weekly agent waited a week for the price list it asked for).
+  const asker = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', id)?.agent_id;
+  if (asker && asker !== FLEET_ENGINEER) {
+    const note = answer?.trim() ? `: "${answer.trim().slice(0, 600)}"` : '';
+    book(asker, 'request done', status === 'done' ? `A person marked your request #${id} done${note}` : `A person turned down your request #${id}${note}`);
+  }
   if (status === 'rejected') {
     turnedDown(id, answer);
     for (const d of draftsForRequest(id)) await discardDraft(d).catch(() => {});
@@ -262,6 +269,7 @@ export const runnerRoutes: Record<string, Route> = {
     if (b.ferocity !== undefined || b.state !== undefined || b.autoModels !== undefined)
       await requireMakerOrAdmin(b.id, null, currentActor(), b.state === 'stopped' ? 'stop it' : b.state === 'draining' ? 'put it on standby' : b.state === 'active' ? 'resume it' : b.autoModels !== undefined ? 'change how its models are picked' : 'change its ferocity');
     if (b.spendCapUsd !== undefined) requireAdmin(currentActor(), 'A spend limit');
+    if (b.spendCapUsd !== undefined && BUILT_IN_IDS.includes(b.id)) throw new Error("A built-in agent has no limit of its own: the organization's limit covers it.");
     const cap = b.spendCapUsd !== undefined ? capUsd(b.spendCapUsd) : undefined;
     stateOf(b.id);
     const now = Date.now();

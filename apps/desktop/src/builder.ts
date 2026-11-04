@@ -180,7 +180,7 @@ export const agentStatuses = () => request<Record<string, AgentStatus>>('/api/ag
 
 // Settings > Tools (server/src/toolSettings.ts): every tool the agents use, and its level.
 export type ToolTier = 'T0' | 'T1' | 'T2';
-export type ToolView = { id: string; name: string; source: string; does: string; tier: ToolTier | 'mixed'; agents: { id: string; name: string; tier: ToolTier }[] };
+export type ToolView = { id: string; name: string; source: string; does: string; tier: ToolTier | 'mixed'; agents: { id: string; name: string; tier: ToolTier; ownerId?: string | null }[] };
 export const getTools = () => request<ToolView[]>('/api/tools');
 export const setToolTier = (id: string, tier: ToolTier) => post<{ changed: number }>('/api/tools/tier', { id, tier });
 

@@ -102,9 +102,13 @@ export function eligibleModels(agent: AgentDef, deps: RunDeps): ModelChoice[] {
 }
 
 // This month's spending limit reached - the agency's, or this agent's own.
+export const OVER_LIMIT = "This month's spending limit was reached during the run, so it was ended there.";
+
+// A built-in has no limit of its own (one set before is ignored): only the agency's.
+const ownCap = (agentId: string, now: number) => (BUILT_IN_IDS.includes(agentId) ? null : stateOf(agentId, now).spend_cap_usd);
 export function overSpend(agentId: string, now: number): boolean {
   const orgCap = getSetting<number | null>('spend_cap_org_usd', null);
-  const cap = stateOf(agentId, now).spend_cap_usd;
+  const cap = ownCap(agentId, now);
   return (orgCap != null && spentThisMonth(now) >= orgCap) || (cap != null && spentThisMonth(now, agentId) >= cap);
 }
 
@@ -112,7 +116,7 @@ export function overSpend(agentId: string, now: number): boolean {
 export function noModelReason(agent: AgentDef, deps: RunDeps): string {
   const now = deps.now();
   const orgCap = getSetting<number | null>('spend_cap_org_usd', null);
-  const cap = stateOf(agent.id, now).spend_cap_usd;
+  const cap = ownCap(agent.id, now);
   const usable = agent.models.filter(c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)));
   if (!agent.models.length) return 'It has no models. Pick some on its card.';
   if (!usable.length) return "None of its models can run right now. Check them on its card.";
@@ -442,6 +446,12 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
       output += turn.usage.output;
       const c = await deps.cost(used!.connection, used!.model, turn.usage.input, turn.usage.output);
       cost = cost == null || c == null ? null : cost + c;
+      // Spend so far is on the run as it goes - Usage shows it, and a monthly limit
+      // crossed mid-run ends the run there, not at its end (no run limits any more).
+      if (cost != null && !isFree(used!.connection)) {
+        exec('UPDATE runs SET cost_usd = ? WHERE id = ?', cost, id);
+        if (overSpend(agent.id, deps.now())) throw new Error(OVER_LIMIT);
+      }
       messages.push({ role: 'assistant', text: turn.text, calls: turn.calls, raw: turn.raw });
       if (turn.text.trim()) summary = turn.text.trim();
 

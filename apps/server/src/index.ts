@@ -249,7 +249,10 @@ const routes: Record<string, Route> = {
   'GET /api/tools': async () => listTools(),
   'POST /api/tools/tier': async req => {
     const { id, tier } = await body<{ id: string; tier: string }>(req);
-    return setToolTier(String(id ?? ''), tier).catch(e => {
+    // A member sets it for their own agents; an owner or admin for every agent.
+    const actor = currentActor();
+    const onlyFor = actor.role === 'member' ? actor.id : null;
+    return setToolTier(String(id ?? ''), tier, onlyFor).catch(e => {
       throw new ConnectError((e as Error).message);
     });
   },
