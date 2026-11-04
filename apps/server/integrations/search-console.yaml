@@ -1,0 +1,58 @@
+# Google Search Console - the person's sites and how they do in Google search
+# (queries, pages, clicks, impressions, position). Read only. Built in: signs in
+# with our Google client.
+# Docs: https://developers.google.com/webmaster-tools/v1/api_reference_index
+kind: http
+id: search-console
+name: Google Search Console
+what: Your sites' Google search results - the searches that find them, clicks, impressions and position
+auth:
+  type: oauth2
+  authorize_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  revoke_url: https://oauth2.googleapis.com/revoke
+  # webmasters.readonly: read only. Registered on our Google client: a scope
+  # added here must be added to it first.
+  scopes: [https://www.googleapis.com/auth/webmasters.readonly]
+  params: { access_type: offline, prompt: consent }
+  shared: google
+  client_url: https://console.cloud.google.com/auth/clients
+  client_help: |
+    1. In Google Cloud (console.cloud.google.com), pick the project your Gmail sign-in uses, or create one.
+    2. APIs & Services -> Library: enable the Google Search Console API.
+    3. Google Auth Platform -> Branding: set up the consent screen if it isn't yet (External is fine; your email as the contact).
+    4. Audience: press Publish app. In Testing, Google ends the sign-in every 7 days.
+    5. Clients -> Create client. Application type: Desktop app. Copy its client ID and secret here.
+    6. Signing in will warn that Google hasn't verified the app - it's yours, so Continue.
+base_url: https://www.googleapis.com/webmasters/v3
+test: { tool: search_console.sites, args: {} }
+tools:
+  - id: search_console.sites
+    tier: T0
+    description: The sites in Search Console, exactly as the other tools take them (sc-domain:example.com, or https://www.example.com/).
+    input: { type: object, properties: {} }
+    request:
+      method: GET
+      path: /sites
+    response:
+      items: siteEntry
+      fields: { site: siteUrl, access: permissionLevel }
+  - id: search_console.performance
+    tier: T0
+    description: "Google search performance for a site between two dates (YYYY-MM-DD): clicks, impressions, CTR and position, by query, page, country or date."
+    input:
+      type: object
+      properties:
+        site: { type: string, description: The site exactly as sites lists it }
+        from: { type: string, description: Start date, YYYY-MM-DD }
+        to: { type: string, description: End date, YYYY-MM-DD }
+        by: { type: array, items: { type: string, enum: [query, page, country, device, date] }, description: 'What to break it down by, e.g. ["query"]' }
+        max: { type: number, description: How many rows, up to 1000 (default 50) }
+      required: [site, from, to]
+    request:
+      method: POST
+      path: /sites/{{site|url}}/searchAnalytics/query
+      body: { startDate: "{{from}}", endDate: "{{to}}", dimensions: "{{by}}", rowLimit: "{{max:50}}" }
+    response:
+      items: rows
+      fields: { keys: keys, clicks: clicks, impressions: impressions, ctr: ctr, position: position }

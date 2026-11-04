@@ -1,0 +1,106 @@
+# Google Calendar - see events and free time, and (with a person's approval)
+# create or change events that invite people. Built in, like Gmail and Drive,
+# so it signs in with our Google client: nothing for the person to make.
+# Docs: https://developers.google.com/workspace/calendar/api/v3/reference
+kind: http
+id: calendar
+name: Google Calendar
+what: See your events and when you're free; creating or changing events needs your approval
+auth:
+  type: oauth2
+  authorize_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  revoke_url: https://oauth2.googleapis.com/revoke
+  # calendar.events: read and write events, never calendars' settings or sharing.
+  # calendar.freebusy: when they're busy, on any calendar they can see.
+  # Registered on our Google client: a scope added here must be added to it first.
+  scopes: [https://www.googleapis.com/auth/calendar.events, https://www.googleapis.com/auth/calendar.freebusy]
+  # offline + consent: Google only returns a refresh token that way.
+  params: { access_type: offline, prompt: consent }
+  # Signs in with our Google client where the app has one: nothing to make.
+  # The steps below are for an organization using its own Google project.
+  shared: google
+  client_url: https://console.cloud.google.com/auth/clients
+  client_help: |
+    1. In Google Cloud (console.cloud.google.com), pick the project your Gmail sign-in uses, or create one.
+    2. APIs & Services -> Library: enable the Google Calendar API.
+    3. Google Auth Platform -> Branding: set up the consent screen if it isn't yet (External is fine; your email as the contact).
+    4. Audience: press Publish app. In Testing, Google ends the sign-in every 7 days.
+    5. Clients -> Create client. Application type: Desktop app (not Web application - Google refuses this app's sign-in for those). Copy its client ID and secret here.
+    6. Signing in will warn that Google hasn't verified the app - it's yours, so Continue.
+base_url: https://www.googleapis.com/calendar/v3
+test: { tool: calendar.list_events, args: { max: 1 } }
+tools:
+  - id: calendar.list_events
+    tier: T0
+    description: Events on their main calendar between two times (default from now), soonest first. Times as RFC 3339, e.g. 2026-11-06T09:00:00+11:00.
+    input:
+      type: object
+      properties:
+        from: { type: string, description: Start of the range (RFC 3339); default now }
+        to: { type: string, description: End of the range (RFC 3339) }
+        search: { type: string, description: Only events matching these words }
+        max: { type: number, description: How many, 1-100 (default 25) }
+    request:
+      method: GET
+      path: /calendars/primary/events
+      query: { timeMin: "{{from}}", timeMax: "{{to}}", q: "{{search}}", maxResults: "{{max:25}}", singleEvents: "true", orderBy: startTime }
+    response:
+      items: items
+      fields: { id: id, title: summary, start: start.dateTime, end: end.dateTime, all_day_date: start.date, where: location, attendees: attendees, link: htmlLink }
+  - id: calendar.find_free_time
+    tier: T0
+    description: When they're busy between two times (RFC 3339) - the gaps are their free time.
+    input:
+      type: object
+      properties:
+        from: { type: string, description: Start of the range (RFC 3339) }
+        to: { type: string, description: End of the range (RFC 3339) }
+      required: [from, to]
+    request:
+      method: POST
+      path: /freeBusy
+      body: { timeMin: "{{from}}", timeMax: "{{to}}", items: [{ id: primary }] }
+    response:
+      items: calendars.primary.busy
+      fields: { busy_from: start, busy_to: end }
+  - id: calendar.create_event
+    tier: T2
+    description: Create an event on their main calendar and email invitations to the attendees. Times as RFC 3339 with the offset.
+    input:
+      type: object
+      properties:
+        title: { type: string }
+        start: { type: string, description: RFC 3339, e.g. 2026-11-06T09:00:00+11:00 }
+        end: { type: string, description: RFC 3339 }
+        description: { type: string }
+        location: { type: string }
+        attendees: { type: array, items: { type: object, properties: { email: { type: string } }, required: [email] }, description: 'People to invite, e.g. [{"email": "sam@example.com"}]' }
+      required: [title, start, end]
+    request:
+      method: POST
+      path: /calendars/primary/events
+      query: { sendUpdates: all }
+      body: { summary: "{{title}}", description: "{{description}}", location: "{{location}}", start: { dateTime: "{{start}}" }, end: { dateTime: "{{end}}" }, attendees: "{{attendees}}" }
+    response:
+      fields: { id: id, link: htmlLink }
+  - id: calendar.update_event
+    tier: T2
+    description: Move or change an event on their main calendar; attendees are emailed the change. Give only what changes.
+    input:
+      type: object
+      properties:
+        event_id: { type: string, description: The event's id, from list_events }
+        title: { type: string }
+        start: { type: string, description: RFC 3339 }
+        end: { type: string, description: RFC 3339 }
+        description: { type: string }
+        location: { type: string }
+      required: [event_id]
+    request:
+      method: PATCH
+      path: /calendars/primary/events/{{event_id}}
+      query: { sendUpdates: all }
+      body: { summary: "{{title}}", description: "{{description}}", location: "{{location}}", start: { dateTime: "{{start}}" }, end: { dateTime: "{{end}}" } }
+    response:
+      fields: { id: id, link: htmlLink }

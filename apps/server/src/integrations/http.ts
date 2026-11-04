@@ -8,8 +8,11 @@ import type { AuthDef, HttpIntegration, HttpToolDef, RequestDef } from './schema
 const MAX_CHARS = 20_000;
 
 // "{{query}}" -> the input's value, keeping its type when it's the whole
-// string; "{{count:10}}" -> a default. A missing input with no default makes
-// the whole value undefined, so optional fields are simply left out.
+// string; "{{count:10}}" -> a default; "{{site|url}}" -> URL-encoded, for a value
+// inside a path (Search Console's "sc-domain:example.com"). A missing input with no
+// default makes the whole value undefined, so optional fields are simply left out -
+// and an object whose fields were all left out goes too (a change to an event's
+// title alone sent an empty start and end).
 export function fill(template: unknown, args: Record<string, unknown>): unknown {
   if (typeof template === 'string') {
     const whole = template.match(/^\{\{(\w+)(?::([^}]*))?\}\}$/);
@@ -21,9 +24,9 @@ export function fill(template: unknown, args: Record<string, unknown>): unknown 
       return whole[2] !== '' && Number.isFinite(n) ? n : whole[2];
     }
     let missing = false;
-    const out = template.replace(/\{\{(\w+)(?::([^}]*))?\}\}/g, (_m, name: string, def?: string) => {
+    const out = template.replace(/\{\{(\w+)(\|url)?(?::([^}]*))?\}\}/g, (_m, name: string, url?: string, def?: string) => {
       const v = args[name];
-      if (v !== undefined && v !== null && v !== '') return String(v);
+      if (v !== undefined && v !== null && v !== '') return url ? encodeURIComponent(String(v)) : String(v);
       if (def !== undefined) return def;
       missing = true;
       return '';
@@ -37,7 +40,7 @@ export function fill(template: unknown, args: Record<string, unknown>): unknown 
       const f = fill(v, args);
       if (f !== undefined) out[k] = f;
     }
-    return out;
+    return Object.keys(template).length && !Object.keys(out).length ? undefined : out;
   }
   return template;
 }
@@ -180,7 +183,9 @@ export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, 
   if (required.length) throw new Error(`Missing ${required.join(', ')}: give ${required.length === 1 ? 'it' : 'them'} and call again.`);
   const { headers: authHeaders, query: authQuery } = authParts(integration.auth, key);
   const path = String(fill(tool.request.path, args) ?? tool.request.path);
-  const url = new URL(baseFor(integration.base_url, integration.auth, key).replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`));
+  // A full address for a tool on another of the service's hosts (Google Analytics lists
+  // properties at analyticsadmin, reports at analyticsdata); otherwise under base_url.
+  const url = new URL(/^https:\/\//.test(path) ? path : baseFor(integration.base_url, integration.auth, key).replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`));
   const query = (fill(tool.request.query ?? {}, args) ?? {}) as Record<string, unknown>;
   for (const [k, v] of Object.entries({ ...query, ...authQuery })) url.searchParams.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   const body = tool.request.body === undefined ? undefined : JSON.stringify(fill(tool.request.body, args));

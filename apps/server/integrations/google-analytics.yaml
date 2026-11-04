@@ -1,0 +1,58 @@
+# Google Analytics (GA4) - reports on a property's traffic and conversions.
+# Read only. Built in: signs in with our Google client.
+# Docs: https://developers.google.com/analytics/devguides/reporting/data/v1
+kind: http
+id: google-analytics
+name: Google Analytics
+what: Reports on your site's visitors, traffic sources and conversions (GA4), read only
+auth:
+  type: oauth2
+  authorize_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  revoke_url: https://oauth2.googleapis.com/revoke
+  # analytics.readonly: reports only. Registered on our Google client: a scope
+  # added here must be added to it first.
+  scopes: [https://www.googleapis.com/auth/analytics.readonly]
+  params: { access_type: offline, prompt: consent }
+  shared: google
+  client_url: https://console.cloud.google.com/auth/clients
+  client_help: |
+    1. In Google Cloud (console.cloud.google.com), pick the project your Gmail sign-in uses, or create one.
+    2. APIs & Services -> Library: enable the Google Analytics Data API and the Google Analytics Admin API.
+    3. Google Auth Platform -> Branding: set up the consent screen if it isn't yet (External is fine; your email as the contact).
+    4. Audience: press Publish app. In Testing, Google ends the sign-in every 7 days.
+    5. Clients -> Create client. Application type: Desktop app. Copy its client ID and secret here.
+    6. Signing in will warn that Google hasn't verified the app - it's yours, so Continue.
+base_url: https://analyticsdata.googleapis.com/v1beta
+test: { tool: google_analytics.properties, args: {} }
+tools:
+  - id: google_analytics.properties
+    tier: T0
+    description: The Google Analytics accounts and their GA4 properties - each property's id is what report takes.
+    input: { type: object, properties: {} }
+    request:
+      method: GET
+      path: https://analyticsadmin.googleapis.com/v1beta/accountSummaries
+    response:
+      items: accountSummaries
+      fields: { account: displayName, properties: propertySummaries }
+  - id: google_analytics.report
+    tier: T0
+    description: "A GA4 report: metrics (activeUsers, sessions, screenPageViews, conversions, totalRevenue...) by dimensions (date, sessionSource, pagePath, country...) between two dates (YYYY-MM-DD, or 7daysAgo / today). The property id: from google_analytics.properties (\"properties/123456\" -> 123456)."
+    input:
+      type: object
+      properties:
+        property_id: { type: string, description: The GA4 property id, a number }
+        from: { type: string }
+        to: { type: string }
+        metrics: { type: array, items: { type: object, properties: { name: { type: string } }, required: [name] }, description: 'e.g. [{"name": "activeUsers"}, {"name": "sessions"}]' }
+        dimensions: { type: array, items: { type: object, properties: { name: { type: string } }, required: [name] }, description: 'e.g. [{"name": "date"}] (optional)' }
+        max: { type: number, description: How many rows (default 100) }
+      required: [property_id, from, to, metrics]
+    request:
+      method: POST
+      path: /properties/{{property_id|url}}:runReport
+      body: { dateRanges: [{ startDate: "{{from}}", endDate: "{{to}}" }], metrics: "{{metrics}}", dimensions: "{{dimensions}}", limit: "{{max:100}}" }
+    response:
+      items: rows
+      fields: { dimensions: dimensionValues, metrics: metricValues }

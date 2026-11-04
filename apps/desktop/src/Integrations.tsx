@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Globe, Plug, Plus } from 'lucide-react';
-import { siBrave, siGithub, siGmail, siGoogledrive, siGooglecalendar, siHubspot, siNotion, siPosthog, siSentry, siShopify, siSquare, siStripe, siZoho, type SimpleIcon } from 'simple-icons';
+import { siBrave, siGithub, siGmail, siGoogleanalytics, siGoogledrive, siGooglecalendar, siGooglesearchconsole, siHubspot, siNotion, siPosthog, siSentry, siShopify, siSquare, siStripe, siYoutube, siZoho, type SimpleIcon } from 'simple-icons';
 import { SpinButton } from './ModelConnectors';
 import { SkelRows } from './Skeleton';
 import { connectAssistantTo, currentOrg, isAdmin, remoteAssistantUrl } from './account';
@@ -115,7 +115,7 @@ function spotlight(id: string) {
 
 // Each service's mark, as the AI connections above have theirs (a plug for the rest).
 const MARKS: [RegExp, SimpleIcon][] = [
-  [/^brave/, siBrave], [/^github/, siGithub], [/^gmail/, siGmail], [/^drive/, siGoogledrive], [/calendar/, siGooglecalendar],
+  [/^brave/, siBrave], [/^github/, siGithub], [/^gmail/, siGmail], [/^drive/, siGoogledrive], [/calendar/, siGooglecalendar], [/^youtube/, siYoutube], [/^search-console/, siGooglesearchconsole], [/^google-analytics/, siGoogleanalytics],
   [/^hubspot/, siHubspot], [/^notion/, siNotion], [/^posthog/, siPosthog], [/^sentry/, siSentry], [/^shopify/, siShopify],
   [/^square/, siSquare], [/^stripe/, siStripe], [/^zoho/, siZoho],
 ];

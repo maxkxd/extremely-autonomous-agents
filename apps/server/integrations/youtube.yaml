@@ -1,0 +1,102 @@
+# YouTube - the person's channel and videos, search, and (with a person's
+# approval) public comments. Built in: signs in with our Google client.
+# Uploading a video isn't a request template (it's a resumable upload): a code
+# plugin extends this when an agent needs it.
+# Docs: https://developers.google.com/youtube/v3/docs
+kind: http
+id: youtube
+name: YouTube
+what: Your channel, its videos and how they're doing, and search; commenting needs your approval
+auth:
+  type: oauth2
+  authorize_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  revoke_url: https://oauth2.googleapis.com/revoke
+  # youtube.force-ssl: read the channel and comment as it. Registered on our
+  # Google client: a scope added here must be added to it first.
+  scopes: [https://www.googleapis.com/auth/youtube.force-ssl]
+  params: { access_type: offline, prompt: consent }
+  shared: google
+  client_url: https://console.cloud.google.com/auth/clients
+  client_help: |
+    1. In Google Cloud (console.cloud.google.com), pick the project your Gmail sign-in uses, or create one.
+    2. APIs & Services -> Library: enable the YouTube Data API v3.
+    3. Google Auth Platform -> Branding: set up the consent screen if it isn't yet (External is fine; your email as the contact).
+    4. Audience: press Publish app. In Testing, Google ends the sign-in every 7 days.
+    5. Clients -> Create client. Application type: Desktop app. Copy its client ID and secret here.
+    6. Signing in will warn that Google hasn't verified the app - it's yours, so Continue.
+base_url: https://www.googleapis.com/youtube/v3
+test: { tool: youtube.my_channel, args: {} }
+tools:
+  - id: youtube.my_channel
+    tier: T0
+    description: The signed-in account's channel(s) - name, subscribers, views and video count.
+    input: { type: object, properties: {} }
+    request:
+      method: GET
+      path: /channels
+      query: { part: "snippet,statistics", mine: "true" }
+    response:
+      items: items
+      fields: { channel_id: id, name: snippet.title, subscribers: statistics.subscriberCount, views: statistics.viewCount, videos: statistics.videoCount }
+  - id: youtube.my_videos
+    tier: T0
+    description: The channel's own videos, newest first.
+    input:
+      type: object
+      properties:
+        max: { type: number, description: How many, 1-50 (default 25) }
+    request:
+      method: GET
+      path: /search
+      query: { part: snippet, forMine: "true", type: video, order: date, maxResults: "{{max:25}}" }
+    response:
+      items: items
+      fields: { video_id: id.videoId, title: snippet.title, published: snippet.publishedAt }
+  - id: youtube.video_stats
+    tier: T0
+    description: Views, likes and comments for videos, by id (comma-separated, up to 50).
+    input:
+      type: object
+      properties:
+        video_ids: { type: string, description: Video ids, comma-separated }
+      required: [video_ids]
+    request:
+      method: GET
+      path: /videos
+      query: { part: "snippet,statistics", id: "{{video_ids}}" }
+    response:
+      items: items
+      fields: { video_id: id, title: snippet.title, views: statistics.viewCount, likes: statistics.likeCount, comments: statistics.commentCount }
+  - id: youtube.search
+    tier: T0
+    description: Search YouTube for videos.
+    input:
+      type: object
+      properties:
+        query: { type: string }
+        max: { type: number, description: How many, 1-50 (default 10) }
+      required: [query]
+    request:
+      method: GET
+      path: /search
+      query: { part: snippet, q: "{{query}}", type: video, maxResults: "{{max:10}}" }
+    response:
+      items: items
+      fields: { video_id: id.videoId, title: snippet.title, channel: snippet.channelTitle, published: snippet.publishedAt }
+  - id: youtube.comment
+    tier: T2
+    description: Post a public comment on a video, as the channel.
+    input:
+      type: object
+      properties:
+        video_id: { type: string }
+        text: { type: string }
+      required: [video_id, text]
+    request:
+      method: POST
+      path: /commentThreads
+      query: { part: snippet }
+      body: { snippet: { videoId: "{{video_id}}", topLevelComment: { snippet: { textOriginal: "{{text}}" } } } }
+    response:
+      fields: { comment_id: id }
