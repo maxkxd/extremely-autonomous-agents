@@ -26,7 +26,7 @@ import { RunPostView, type StampedEntry } from '../AgentDM';
 import type { RunPost as RunPostType } from '../dms';
 import { AgentCard as RealAgentCard, Donut as RealDonut } from '../Dashboard';
 import { ModelPanel } from '../ModelPicker';
-import type { AvailableModels, ModelChoice } from '../builder';
+import type { AgentSetup, AvailableModels, ModelChoice } from '../builder';
 
 // ---- Pieces ----------------------------------------------------------------
 
@@ -124,19 +124,31 @@ const OUTREACH: Agent = {
   decisions: { approved: 41, rejected: 6, expired: 1 },
   ferocity: 2,
 };
-// The same agent a few minutes into its very first run.
-const OUTREACH_FIRST_RUN: Agent = {
+// The same agent just added: nothing run yet, its setup on the card - one
+// connected, one to go to, one the Agency Engineer is still getting ready.
+const OUTREACH_NEW: Agent = {
   ...OUTREACH,
-  id: 'help-outreach-first',
-  output: [
-    { label: 'LinkedIn DMs sent', value: 7 },
-    { label: 'Cold emails sent', value: 4 },
-  ],
-  cost: [{ label: 'Model usage', value: 0.38 }],
-  runs: 1,
-  lastRun: { minutesAgo: 0, outcome: 'running' },
+  id: 'help-outreach-new',
+  // As a real new agent shows it: its level's schedule and a first guess at output, not placeholders.
+  live: true,
+  runsPerDay: FEROCITY.map(f => f.runsPerDay),
+  perRunGuess: FEROCITY.map(() => 15),
+  output: [{ label: 'LinkedIn DMs sent', value: 0 }],
+  cost: [{ label: 'Model usage', value: 0 }],
+  runs: 0,
+  lastRun: null,
   decisions: { approved: 0, rejected: 0, expired: 0 },
   ferocity: 0,
+};
+const NEW_SETUP: AgentSetup = {
+  items: [
+    { name: 'LinkedIn', requestId: 1, stars: 5, connected: true, building: false },
+    { name: 'Email', requestId: 2, stars: 4, connected: false, building: false },
+    { name: 'CRM', requestId: 3, stars: 3, connected: false, building: true },
+  ],
+  building: 1,
+  progress: 0.42,
+  ready: false,
 };
 const count = (n: number) => n.toLocaleString();
 const dollars = (n: number) => `$${n.toFixed(2)}`;
@@ -144,7 +156,7 @@ const dollars = (n: number) => `$${n.toFixed(2)}`;
 // The real dashboard card at its usual width, scaled to fill the help
 // window's column, and not clickable.
 const CARD_WIDTH = 1160;
-function AgentCard({ agent = OUTREACH, openApprovals = 2 }: { agent?: Agent; openApprovals?: number }) {
+function AgentCard({ agent = OUTREACH, openApprovals = 2, setup }: { agent?: Agent; openApprovals?: number; setup?: AgentSetup }) {
   const box = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(0.6);
   useLayoutEffect(() => {
@@ -161,10 +173,12 @@ function AgentCard({ agent = OUTREACH, openApprovals = 2 }: { agent?: Agent; ope
         <RealAgentCard
           agent={agent}
           range="month"
-          state="active"
+          state={setup ? 'stopped' : 'active'}
           setState={() => {}}
           onNavigate={() => {}}
           openApprovals={openApprovals}
+          setup={setup}
+          pictureSetup={!!setup}
           openRequests={0}
           decisions={agent.decisions}
           dragging={false}
@@ -711,7 +725,7 @@ function FirstAgent() {
   );
 }
 
-const FirstRun = () => <AgentCard agent={OUTREACH_FIRST_RUN} openApprovals={0} />;
+const FirstRun = () => <AgentCard agent={OUTREACH_NEW} openApprovals={0} setup={NEW_SETUP} />;
 
 export const DIAGRAMS = {
   'think-bigger': ThinkBigger,

@@ -307,6 +307,7 @@ export function AgentCard({
   countsLoading = false,
   modelsLoading = false,
   setup,
+  pictureSetup = false,
   onOpenRequest,
   viewOnly = false,
   noAi = false,
@@ -315,6 +316,7 @@ export function AgentCard({
   viewOnly?: boolean;
   noAi?: boolean; // no AI model is connected: nothing can run
   setup?: AgentSetup; // a new agent still in setup: its connectors (AgentSetup.tsx)
+  pictureSetup?: boolean; // the help's picture of a new agent: its setup shown on a preview card
   onOpenRequest?: (id: number, reply?: boolean) => void;
   agent: Agent;
   range: TimeRange;
@@ -386,7 +388,7 @@ export function AgentCard({
     return () => clearTimeout(t);
   }, [kick, level]);
   // In setup until first resumed; resuming before everything's connected warns first.
-  const inSetup = !!setup && !preview && !agent.builtIn;
+  const inSetup = !!setup && (!preview || pictureSetup) && !agent.builtIn;
   // Everything it needs is connected: it waits for a Start (it never starts by itself).
   const ready = inSetup && setup!.ready && state === 'stopped';
   const startable = ready && !agencyHeld && !viewOnly && !off;

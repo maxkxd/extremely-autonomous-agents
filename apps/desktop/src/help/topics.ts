@@ -59,13 +59,8 @@ export const HELP_TOPICS = {
         heading: 'Its first run',
         diagram: 'first-run',
         caption: [
-          "Once you've added your first agent, connect what its card asks for. When everything's ticked off, its button turns into a glowing yellow START - press it and it does its first run. It never starts by itself.",
-          'Meanwhile, in the background:',
-          [
-            'The Agency Engineer is hard at work building the tools your agents need.',
-            '[Requests](requests) will start to pop up for you to answer. Each one gives your agents a tool to work with and makes them more capable forever.',
-          ],
-          "We're super excited to hear what kind of insane agents you can build to push agentic AI to its limits!",
+          'Its card lists what to connect:',
+          ['Stars: how much each one helps.', 'Go to request: how to connect it.', 'All ticked off: press START.'],
         ],
       },
     ],
@@ -165,39 +160,15 @@ export const HELP_TOPICS = {
     version: 1,
     sections: [
       {
-        heading: 'Your agency, in the AI app you already use',
+        heading: 'Run the agency from your AI app',
         caption: [
-          'Connect your AI assistant and you can run the whole agency from a chat there: ask what your agents are up to, work through [requests](requests), build or change agents, and check what’s waiting on your [approval](approvals).',
-          'It acts as you, so anything it changes changes straight away - the same as doing it in this app.',
-        ],
-      },
-      {
-        heading: 'Connecting it: one click',
-        caption: [
-          'Open Settings > Connectors, find "Your AI assistant", and click the button for yours:',
-          [
-            'Connect Claude Desktop: quit Claude Desktop first (right-click its icon by the clock, then Quit) - while it’s open it would undo the change. Then click the button: your agency is added and Claude Desktop opens with it among its connectors.',
-            'Connect Cursor: Cursor asks to install the agency. Click Install.',
-          ],
-          'Using another AI app that can add an MCP server by its address? Click Copy address and paste it into that app’s connector or MCP settings.',
-        ],
-      },
-      {
-        heading: 'Send a request to it',
-        caption: [
-          'Pick your AI assistant in Settings > Account. Every request then has a Send to button for it: Claude Desktop opens a new chat with the request typed in, ready to send.',
-          'Keys and passwords still go in Settings > Connectors, never in a chat.',
+          'Connect it in Settings > Connectors > Your AI assistant, then ask it to:',
+          ['Check on your agents.', 'Answer [requests](requests) and [approvals](approvals).', 'Build or change agents.'],
         ],
       },
       {
         heading: 'Good to know',
-        caption: [
-          [
-            'It works while this app is open, on this computer. Close the app and your AI assistant can’t reach the agency until you open it again.',
-            'In an organization, everyone can connect their own. It acts as them, with what they’re allowed to do - and on a teammate’s own computer it works while their app is open and the organization’s host is online.',
-            'ChatGPT, claude.ai in a browser and Microsoft Copilot can’t connect yet: they can only reach addresses on the internet, and your agency stays on your computer.',
-          ],
-        ],
+        caption: [['It acts as you.', 'It works while this app is open.']],
       },
     ],
   },

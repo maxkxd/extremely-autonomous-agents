@@ -2057,7 +2057,7 @@ a.sbtn { text-decoration: none; color: inherit; }
 .setup-list { margin: 14px 0 0 28px; }
 .setup-list ul { list-style: none; margin: 0; padding: 0; }
 .setup-list li {
-  display: grid; grid-template-columns: minmax(0, 1fr) 80px auto; align-items: center; gap: 12px;
+  display: grid; grid-template-columns: minmax(max-content, 1fr) 80px auto; align-items: center; gap: 12px; /* the name keeps its width when the card sizes the list to its content */
   min-height: 38px; border-top: 1px solid var(--hairline); font-size: 13px;
 }
 .setup-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2065,6 +2065,7 @@ a.sbtn { text-decoration: none; color: inherit; }
 .setup-stars .on { color: #e8b931; fill: #e8b931; }
 .setup-stars .off { color: var(--border-strong); }
 .setup-act { display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
+.setup-act .state-pill { white-space: nowrap; }
 .setup-alt { display: inline-grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: 7px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
 .setup-alt:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); }
 .setup-alt:disabled { opacity: 0.45; cursor: default; }
