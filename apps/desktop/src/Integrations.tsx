@@ -136,6 +136,8 @@ const IntegrationRow = (p: RowProps) => (p.i.signIn ? <SignInRow {...p} /> : <Ke
 
 function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps) {
   const [key, setKey] = useState('');
+  // Disconnect and Remove take it away from every agent using it: a second click says so first.
+  const [sure, setSure] = useState<'disconnect' | 'remove' | null>(null);
   // A fields sign-in: what's typed, by field (saved secrets start blank and are kept if left so).
   const [vals, setVals] = useState<Record<string, string>>({});
   const fieldsReady = !!i.fields?.every(f => f.optional || f.saved || (vals[f.name] ?? f.value ?? '').trim());
@@ -192,7 +194,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
       ? i.approvalId ? 'Tested · waiting for your approval' : 'The Agency Engineer is testing it'
       : [i.test?.message, tools].filter(Boolean).join(' · ')
     : i.free
-      ? 'Working now - free, no key needed · add a key for more searches'
+      ? 'Free, no key needed, up to an hourly limit · add a key for more searches'
       : i.test && !i.test.ok
         ? i.test.message
         : i.what;
@@ -210,9 +212,11 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
         ) : i.connected ? (
           <>
             <ApproveButton i={i} onOpenApproval={onOpenApproval} />
-            <SpinButton spinning={false} onClick={() => run(() => disconnectIntegration(i.id))}>
-              Disconnect
-            </SpinButton>
+            <span onBlur={() => setSure(null)}>
+              <SpinButton spinning={false} onClick={() => (sure === 'disconnect' ? (setSure(null), run(() => disconnectIntegration(i.id))) : setSure('disconnect'))}>
+                {sure === 'disconnect' ? 'Disconnect for every agent?' : 'Disconnect'}
+              </SpinButton>
+            </span>
           </>
         ) : open ? null : i.needsKey || i.fields ? (
           <button className="sbtn" onClick={() => setOpen(true)}>
@@ -224,8 +228,13 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
           </SpinButton>
         )}
         {!i.shipped && !open && (
-          <button className="sbtn danger" onClick={() => run(() => removeIntegration(i.id))} disabled={busy}>
-            Remove
+          <button
+            className="sbtn danger"
+            onClick={() => (sure === 'remove' ? (setSure(null), run(() => removeIntegration(i.id))) : setSure('remove'))}
+            onBlur={() => setSure(null)}
+            disabled={busy}
+          >
+            {sure === 'remove' ? 'Remove for everyone?' : 'Remove'}
           </button>
         )}
       </span>
@@ -335,6 +344,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
 // window. The server tests it the moment it lands; this waits for that.
 function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps) {
   const signIn = i.signIn!;
+  const [sure, setSure] = useState(false); // Disconnect asks once more: every agent using it loses it
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [busy, setBusy] = useState(false);
@@ -417,9 +427,11 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
         {i.connected ? (
           <>
             <ApproveButton i={i} onOpenApproval={onOpenApproval} />
-            <SpinButton spinning={false} onClick={() => act(() => disconnectIntegration(i.id))}>
-              Disconnect
-            </SpinButton>
+            <span onBlur={() => setSure(false)}>
+              <SpinButton spinning={false} onClick={() => (sure ? (setSure(false), act(() => disconnectIntegration(i.id))) : setSure(true))}>
+                {sure ? 'Disconnect for every agent?' : 'Disconnect'}
+              </SpinButton>
+            </span>
           </>
         ) : open ? null : (
           <>
@@ -670,21 +682,37 @@ function EventHooks({ i, events, refresh }: { i: IntegrationView; events: EventI
 // webhook server only (never the app itself), while it's on.
 function WebhookTunnel({ tunnel, onChange }: { tunnel: TunnelState; onChange: (t: TunnelState) => void }) {
   const on = tunnel.status !== 'off';
-  const flip = () => setTunnel(!on).then(r => onChange(r.tunnel), () => {});
-  const what =
+  // A failure that never reached a status still says why, here, instead of the switch just not moving.
+  const [failed, setFailed] = useState<string | null>(null);
+  const flip = () => {
+    setFailed(null);
+    setTunnel(!on).then(
+      r => onChange(r.tunnel),
+      e => setFailed((e as Error).message),
+    );
+  };
+  const what = failed ? failed :
     tunnel.status === 'on'
       ? tunnel.url
       : tunnel.status === 'starting'
         ? 'Starting...'
         : tunnel.status === 'missing'
-          ? "Needs Cloudflare's cloudflared: winget install Cloudflare.cloudflared"
+          ? (
+              <>
+                Needs Cloudflare's free tunnel program on this computer:{' '}
+                <a className="text-link" href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank" rel="noreferrer">
+                  download it
+                </a>
+                , install it, then turn this on again
+              </>
+            )
           : tunnel.status === 'error'
             ? tunnel.error
             : 'Lets services post events to this computer';
   return (
     <li>
       <span className="sconn-name">Public webhook address</span>
-      <span className={`sconn-what${tunnel.status === 'error' || tunnel.status === 'missing' ? ' sint-bad' : ''}`}>{what}</span>
+      <span className={`sconn-what${failed || tunnel.status === 'error' || tunnel.status === 'missing' ? ' sint-bad' : ''}`}>{what}</span>
       <span className="sint-actions">
         <button className={`switch${on ? ' on' : ''}`} role="switch" aria-checked={on} aria-label="Public webhook address" onClick={flip} />
       </span>

@@ -209,6 +209,7 @@ export function Sidebar({
               key={v}
               className={`nav-square${view === v ? ' active' : ''}`}
               title={compact ? label : undefined}
+              aria-label={badge ? `${label}, ${badge} waiting` : label}
               onClick={() => {
                 if (view === v) setReplay(r => ({ ...r, [v]: (r[v] ?? 0) + 1 }));
                 onSelect(v);
@@ -251,6 +252,7 @@ export function Sidebar({
                   <button
                     className={`dm-item${view === v ? ' active' : ''}`}
                     title={compact ? a.name : undefined}
+                    aria-label={a.name}
                     onClick={() => onSelect(v)}
                   >
                     <DeptIcon size={15} strokeWidth={1.75} className="dept-icon" aria-label={a.department} />

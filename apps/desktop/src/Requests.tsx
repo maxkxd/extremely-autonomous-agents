@@ -507,7 +507,15 @@ export function Requests({
       </div>
     );
   if (shown.length === 0) {
-    return <div className="main-empty">{scope === 'all' ? 'No requests are waiting.' : 'No requests are waiting on you.'}</div>;
+    return (
+      <div className="main-empty">
+        <div>
+          {scope === 'all' ? 'No requests are waiting.' : 'No requests are waiting on you.'}
+          {/* A first visit: what this page is for. */}
+          <p className="main-empty-sub">When an agent needs something only you can give - a sign-in, a key, a decision - the Agency Engineer asks for it here.</p>
+        </div>
+      </div>
+    );
   }
 
   const row = (r: ResourceRequest) => (

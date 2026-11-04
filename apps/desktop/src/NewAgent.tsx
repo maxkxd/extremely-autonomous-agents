@@ -10,7 +10,7 @@ import { ConnectModel, useHasModels } from './NoModels';
 import { Skel } from './Skeleton';
 import { useOffline } from './offline';
 
-// "Customize your own agent" always takes the last slot of the top row (the
+// "Build your own agent" always takes the last slot of the top row (the
 // 4th card), or follows the packs straight away if there are fewer than three.
 const CUSTOM_SLOT = 3;
 
@@ -142,7 +142,7 @@ function CustomCard({
         <div className="custom-mark">
           <Sparkles size={22} strokeWidth={1.6} />
         </div>
-        <h2 className="pack-name">Customize your own agent</h2>
+        <h2 className="pack-name">Build your own agent</h2>
         {phase === 'recommended' ? (
           <p className="pack-tagline">Not quite it? Say what's different and we'll build your own.</p>
         ) : (
@@ -154,7 +154,7 @@ function CustomCard({
         {stopped ? (
           <div className="custom-input custom-stopped">
             <TriangleAlert size={16} strokeWidth={2} />
-            The whole agency is stopped
+            The whole agency is stopped - resume it at the top of the Dashboard to build
           </div>
         ) : started ? (
           <>

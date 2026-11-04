@@ -47,8 +47,9 @@ export const HELP_TOPICS = {
         heading: 'Make your first agent',
         diagram: 'first-agent',
         caption: [
-          "Now that you have the idea of what we mean by extremely autonomous agents, make your first one in [New Agent](page:new-agent):",
+          "Now that you have the idea of what we mean by extremely autonomous agents, make your first one in [New agent](page:new-agent):",
           [
+            'First, connect an AI model in Settings > Connectors - nothing runs without one. A plan you already pay for (Claude, ChatGPT) is the best deal.',
             'Choose an existing agent pack, or try the custom agent builder.',
             'Give it real, scalable work it can do.',
             'Tell it what you want human intervention for, and what you want fully autonomous.',
@@ -87,7 +88,7 @@ export const HELP_TOPICS = {
       {
         heading: 'Ferocity',
         diagram: 'ferocity',
-        caption: 'How hard an agent maximizes its output, use this to balance output, cost and frequency of [resource requests](requests).',
+        caption: 'How hard an agent works, from Chill (the slowest) to Apocalyptic (run after run). Higher means more output, more cost and more [resource requests](requests).',
       },
       {
         heading: 'The right-hand column',
@@ -108,7 +109,7 @@ export const HELP_TOPICS = {
         heading: 'Silent, Logged or Approval',
         diagram: 'tiers',
         caption:
-          "Every tool an agent can use is set to Silent, Logged or Approval. Silent tools just run. Logged tools run and show up in the agent's [DMs](dm). Approval tools require a human's approval.",
+          "Every tool an agent can use is set to Silent, Logged or Approval. Silent tools just run. Logged tools run and show up in the agent's [DMs](dm). Approval tools require a human's approval. Change a tool's level in Settings > Tools.",
       },
       {
         heading: 'Approval card',
@@ -137,6 +138,8 @@ export const HELP_TOPICS = {
       {
         heading: 'Answering a request',
         diagram: 'request-answer',
+        caption:
+          "Reply with what it asks for. DIY: you did it yourself - say what you did. Reject: it shouldn't happen. Send to: opens it in your AI assistant to work on it there. Keys and passwords go in Settings > Connectors, never in a reply.",
       },
     ],
   },

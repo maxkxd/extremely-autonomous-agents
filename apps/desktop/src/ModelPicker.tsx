@@ -80,7 +80,7 @@ export function ModelRow({
         {first ? (
           <>
             <span className="model-row-name">{modelLabel(first)}</span>
-            {firstEfforts.length > 0 && <span className="model-row-effort">{EFFORT_LABEL[fitEffort(first.effort, firstEfforts)]}</span>}
+            {firstEfforts.length > 0 && <span className="model-row-effort" title="How hard the model thinks before it answers">{EFFORT_LABEL[fitEffort(first.effort, firstEfforts)]}</span>}
           </>
         ) : (
           problem

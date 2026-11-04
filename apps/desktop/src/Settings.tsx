@@ -552,7 +552,7 @@ function AccountSection() {
       {/* Signed out there's no account to delete. */}
       {state.me && (
         <div className="sgroup sgroup-delete">
-          <button className="sbtn danger" disabled title="Comes with sign-in">
+          <button className="sbtn danger" disabled title="Deleting an account isn't available yet">
             Delete account
           </button>
         </div>
@@ -749,6 +749,7 @@ function SelfHosted() {
           <button
             className="sbtn primary"
             disabled={busy || !f.orgName.trim() || !f.email.trim() || f.password.length < 10}
+            title={busy ? undefined : !f.orgName.trim() ? 'Give it a name first' : !f.email.trim() ? 'Enter your email first' : f.password.length < 10 ? 'The password needs 10 characters or more' : undefined}
             onClick={() =>
               run(async () => {
                 const made = await selfHost(f.orgName.trim(), { email: f.email, name: f.name, password: f.password });
@@ -775,6 +776,7 @@ function SelfHosted() {
           <button
             className="sbtn primary"
             disabled={busy || !f.address.trim() || (!haveAccount && !f.code.trim())}
+            title={busy ? undefined : !f.address.trim() ? 'Enter its address first' : !haveAccount && !f.code.trim() ? 'Enter your invite code first' : undefined}
             onClick={() =>
               run(async () => {
                 if (haveAccount) return switchAgency((await signInSelf(f.address, f.email, f.password)).id);
@@ -968,6 +970,7 @@ function OrgPeople() {
             <button
               className={`sbtn${inviting ? ' busy' : ''}`}
               disabled={inviting || (!org.self && !email.trim())}
+              title={!inviting && !org.self && !email.trim() ? 'Enter their email first' : undefined}
               aria-busy={inviting}
               onClick={async () => {
                 setInviting(true);
@@ -1035,7 +1038,7 @@ function OrgPeople() {
       {error && <p className="custom-error">{error}</p>}
       <div className="sorg-leave">
         <button className="sbtn" onClick={() => switchAgency('personal')}>
-          Back to your agency
+          Switch to my personal agency
         </button>
         {org.role === 'owner' ? (
           <button className="sbtn danger" onClick={() => setConfirming(true)}>
@@ -1094,7 +1097,7 @@ function DeleteOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel
   );
 }
 
-// Leaving asks first: it looked as harmless as "Back to your agency" beside it.
+// Leaving asks first: it looked as harmless as "Switch to my personal agency" beside it.
 function LeaveOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1200,7 +1203,7 @@ function OrganizationProfile({ name }: { name: string }) {
                 // Leaving the row (not moving between its own fields) finishes the person.
                 <li key={i} onBlur={e => !e.currentTarget.contains(e.relatedTarget as Node | null) && relink()}>
                   {person.member ? (
-                    <span className="speople-member" title={`${person.member}${person.member === ACCOUNT.name ? ' (you)' : ''} - a member here`}>
+                    <span className="speople-member" title={`${person.member}${person.member === ACCOUNT.name ? ' (you)' : ''} - in this organization`}>
                       <MemberAvatar member={person.member} size={26} />
                     </span>
                   ) : (
@@ -1208,7 +1211,7 @@ function OrganizationProfile({ name }: { name: string }) {
                   )}
                   <input value={person.name} placeholder="Name" onChange={e => editPerson(i, { name: e.target.value })} />
                   <input value={person.role} placeholder="Role" onChange={e => editPerson(i, { role: e.target.value })} />
-                  <button aria-label="Remove" onClick={() => rec.edit({ people: p.people.filter((_, j) => j !== i) })}>
+                  <button aria-label={`Remove ${person.name || 'this person'}`} title={`Remove ${person.name || 'this person'}`} onClick={() => rec.edit({ people: p.people.filter((_, j) => j !== i) })}>
                     <Trash2 size={13} />
                   </button>
                 </li>
@@ -1280,7 +1283,8 @@ function UsageSection() {
           <span className="stile-label">Runs</span>
           <span className="stile-value">{usage ? runs.toLocaleString() : <Skel w={40} h={24} />}</span>
         </div>
-        <div className="stile">
+        {/* The built-ins spend too, so they're counted here though the Dashboard hides them. */}
+        <div className="stile" title={usage ? `${rows.filter(r => !AGENTS.find(x => x.id === r.a.id)?.builtIn).length} of yours, plus the built-in agents` : undefined}>
           <span className="stile-label">Agents</span>
           <span className="stile-value">{usage ? rows.length : <Skel w={24} h={24} />}</span>
         </div>
@@ -1403,7 +1407,7 @@ function CapInput({ value, onSave, label, disabled, why }: { value: number | nul
 
 // How much a person is involved when an agent uses a tool (catalog.ts T0-T2).
 const LEVELS: { tier: ToolTier; label: string; says: string }[] = [
-  { tier: 'T0', label: 'Silent', says: 'The agent just does it. Nothing is logged.' },
+  { tier: 'T0', label: 'Silent', says: 'The agent just does it, without a line in its DMs.' },
   { tier: 'T1', label: 'Logged', says: 'The agent does it, and says so in its DMs.' },
   { tier: 'T2', label: 'Approval', says: 'The agent asks a person to approve it first.' },
 ];

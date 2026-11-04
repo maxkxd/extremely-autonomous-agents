@@ -40,7 +40,7 @@ export function Elsewhere({ org }: { org: OrgView }) {
             </button>
           )}
           <button className={`sbtn${canHost ? '' : ' primary'}`} onClick={() => switchAgency('personal')}>
-            Back to your agency
+            Switch to my personal agency
           </button>
           {others.map(o => (
             <button key={o.id} className="sbtn" onClick={() => switchAgency(o.id)}>

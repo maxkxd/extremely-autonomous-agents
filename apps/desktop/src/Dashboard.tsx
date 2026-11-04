@@ -236,6 +236,7 @@ function Tuning({
           value={level}
           disabled={disabled || !!why}
           onChange={e => setLevel(Number(e.target.value))}
+          title={why ?? 'How hard it works: Chill is the slowest, Apocalyptic runs back to back'}
           aria-label="Ferocity"
           aria-valuetext={FEROCITY[level].name}
           style={{ '--fill': `${(level / (FEROCITY.length - 1)) * 100}%` } as React.CSSProperties}
@@ -477,9 +478,10 @@ export function AgentCard({
               <Skel w={84} h={12} />
             ) : (
               <span className="decision-counts">
-                <FlashCount key={`a-${range}`} outcome="approved" count={decisions.approved} />
-                <FlashCount key={`r-${range}`} outcome="rejected" count={decisions.rejected} />
-                <FlashCount key={`e-${range}`} outcome="expired" count={decisions.expired} />
+                {/* Over the card's period, which the Approvals page's "today" counts aren't: said on hover. */}
+                <FlashCount key={`a-${range}`} outcome="approved" count={decisions.approved} title={`Its actions approved ${rangeLabel(range).toLowerCase()}`} />
+                <FlashCount key={`r-${range}`} outcome="rejected" count={decisions.rejected} title={`Its actions rejected ${rangeLabel(range).toLowerCase()}`} />
+                <FlashCount key={`e-${range}`} outcome="expired" count={decisions.expired} title={`Its approvals that ran out ${rangeLabel(range).toLowerCase()}`} />
               </span>
             )}
           </div>

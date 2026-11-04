@@ -228,7 +228,11 @@ export function AgentDM({
             ))}
           </div>
         )}
-        {!loading && entries.length === 0 && !thinking && <div className="dm-empty">No agent activity yet</div>}
+        {!loading && entries.length === 0 && !thinking && (
+          <div className="dm-empty">
+            {agent.id === 'fleet' ? 'Ask the Agency Engineer to connect a tool, fix something that broke, or change how an agent works.' : 'No agent activity yet'}
+          </div>
+        )}
         {entries.map((e, i) => {
           // A "stopped" note it has since answered past is history, not news: gone.
           if (e.kind === 'stopped' && entries.slice(i + 1).some(x => x.kind === 'run')) return null;

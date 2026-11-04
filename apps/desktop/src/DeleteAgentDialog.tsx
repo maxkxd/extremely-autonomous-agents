@@ -44,8 +44,8 @@ export function DeleteAgentDialog({
       <div className="confirm" role="alertdialog" aria-labelledby="del-title" aria-describedby="del-body">
         <h2 id="del-title">Delete {agent.name}?</h2>
         <p id="del-body">
-          This can't be undone. Its instructions, tools and history are deleted for good, and anything it was in the
-          middle of stops.
+          This can't be undone. Its instructions, memory and chat are deleted for good, and anything it was in the
+          middle of stops. What it spent stays in Usage, and files it saved stay where they are.
         </p>
         <label className="confirm-label">
           <span>

@@ -60,7 +60,12 @@ export function SetupList({
             <span className="setup-name">Start the agent</span>
             <span />
             <span className="setup-act">
-              <button className="setup-go start" disabled={!!someoneElse || !onStart} title={someoneElse ? `Only ${someoneElse} or an admin can start it` : undefined} onClick={onStart}>
+              <button
+                className="setup-go start"
+                disabled={!!someoneElse || !onStart}
+                title={someoneElse ? `Only ${someoneElse} or an admin can start it` : !onStart ? "It can't be started right now - the agency is stopped or on standby, or the host is offline" : undefined}
+                onClick={onStart}
+              >
                 Start
               </button>
             </span>

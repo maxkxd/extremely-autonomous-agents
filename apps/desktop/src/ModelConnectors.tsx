@@ -508,7 +508,7 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
           : !cc?.installed
             ? 'Use your Claude plan through Claude Code, Anthropic\'s own app.'
             : cc.loggedIn
-              ? 'Claude Code is signed in. Your agents can run on your plan.'
+              ? 'Signed in on this computer - Connect to use your Claude plan here.'
               : 'Sign in to Claude Code with your Claude account.';
     const start = (fn: () => Promise<unknown>) =>
       act(async () => {
