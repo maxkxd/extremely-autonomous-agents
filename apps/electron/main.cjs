@@ -169,7 +169,7 @@ function createWindow() {
   });
   win.loadURL(ORIGIN);
   win.once('ready-to-show', () => {
-    if (!process.argv.includes('--hidden')) win.show();
+    if (!process.argv.includes('--hidden')) show();
   });
   // Anything that isn't the app (a service's sign-in, a docs link) opens in the person's browser.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -201,9 +201,14 @@ function createWindow() {
   });
 }
 
+// The first time it's shown it fills the screen (maximized, not full screen): the
+// default size was small. After that it's however the person left it.
+let shownOnce = false;
 function show() {
   if (!win) return;
   if (win.isMinimized()) win.restore();
+  if (!shownOnce) win.maximize();
+  shownOnce = true;
   win.show();
   win.focus();
 }
