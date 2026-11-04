@@ -107,8 +107,10 @@ export const HELP_TOPICS = {
       {
         heading: 'Silent, Logged or Approval',
         diagram: 'tiers',
-        caption:
-          "Every tool an agent can use is set to Silent, Logged or Approval. Silent tools just run. Logged tools run and show up in the agent's [DMs](dm). Approval tools require a human's approval.",
+        caption: [
+          'Every tool an agent can use is set to Silent, Logged or Approval.',
+          ['Silent tools just run.', "Logged tools run and show up in the agent's [DMs](dm).", "Approval tools require a human's approval."],
+        ],
       },
       {
         heading: 'Approval card',
@@ -120,7 +122,7 @@ export const HELP_TOPICS = {
       {
         heading: 'Approve or reject',
         diagram: 'approve-reject',
-        caption: 'Approve and the agent goes ahead or Reject with a reason and the agent sees it. Shift-click Reject to skip adding a reason.',
+        caption: 'Approve and the agent goes ahead or reject with a reason and the agent sees it. Shift-click Reject to skip adding a reason.',
       },
     ],
   },
