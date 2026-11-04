@@ -222,7 +222,7 @@ function RequestRow({
             </span>
           )}
           {waitingOnYou && theirs && <span className="request-status">Waiting on {ownerOf(request)}</span>}
-          {waitingOnYou && !theirs && <span className="request-status waiting">{request.stage === 'person' ? 'Needs you' : 'Waiting on you'}</span>}
+          {waitingOnYou && !theirs && <span className="request-status waiting">Waiting on you</span>}
           {waitingOnApproval && <span className="request-status approval">Waiting on approval</span>}
           {/* A teammate's shared one already names them ("Waiting on Sam Rivera"). */}
           {(showOwner || (theirs && !waitingOnYou)) && (
@@ -294,7 +294,7 @@ function RequestRow({
                     />
                     <div className="reject-actions">
                       <span className="drawer-hint">Don't paste API keys or passwords here - they go in Settings &gt; Connectors.</span>
-                      <button className="ap-btn confirm-engineer" onClick={() => send(draft)} disabled={!draft.trim() || !!off} title={off ?? undefined}>
+                      <button className="ap-btn confirm-engineer" onClick={() => send(draft)} disabled={!draft.trim() || !!off} title={off ?? (!draft.trim() ? 'Type your reply first' : undefined)}>
                         <SendHorizontal size={14} strokeWidth={1.9} />
                         Send
                       </button>

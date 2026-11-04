@@ -187,6 +187,16 @@ function createWindow() {
     if (!quitting) {
       e.preventDefault();
       win.hide();
+      // The first time, say so: closing looked like quitting, and the agents kept working.
+      if (!prefs.toldTray && tray) {
+        tray.displayBalloon?.({ title: 'Your agents are still working', content: 'The app is in the tray. Right-click its icon and choose Quit to stop the agents.' });
+        prefs.toldTray = true;
+        try {
+          fs.writeFileSync(PREFS_FILE, JSON.stringify(prefs, null, 2));
+        } catch {
+          // Said again next time, then.
+        }
+      }
     }
   });
 }

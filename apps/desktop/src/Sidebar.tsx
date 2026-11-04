@@ -130,7 +130,8 @@ function OrgPicker({ onNew }: { onNew: () => void }) {
             >
               <span className="option-with-avatar">
                 <Plus size={15} className="option-icon" />
-                {ownOrg() ? 'Join an organization' : 'New organization'}
+                {/* Both happen on the page it opens; one owned organization each, so an owner only joins. */}
+                {ownOrg() ? 'Join an organization' : 'Create or join an organization'}
               </span>
             </button>
           </li>
