@@ -312,7 +312,15 @@ export const runnerRoutes: Record<string, Route> = {
     if (!isId(id)) return [];
     // Everyone in the organization can read an agent's DMs; writing in them is its
     // maker's and the admins' (POST below). The Agency Engineer's anyone may write to.
-    return all<{ kind: string; body: string; at: number }>('SELECT kind, body, at FROM dm WHERE agent_id = ? ORDER BY at, id', id).map(r => {
+    // The Agency Engineer keeps one chat per person: your messages and its answers to
+    // them, with its own work (requests, its daily look) that's everyone's.
+    const me = id === FLEET_ENGINEER ? currentActor().id : null;
+    return all<{ kind: string; body: string; at: number }>(
+      'SELECT kind, body, at FROM dm WHERE agent_id = ? AND (? IS NULL OR person_id IS NULL OR person_id = ?) ORDER BY at, id',
+      id,
+      me,
+      me,
+    ).map(r => {
       const b = JSON.parse(r.body) as { by?: string; byId?: string; tools?: { approvalId?: string }[] };
       // A tool that waited on approval: how it was decided, so its dot says so after a reload too.
       const tools = b.tools?.map(t => (t.approvalId ? { ...t, decided: one<{ status: string }>('SELECT status FROM approvals WHERE id = ?', t.approvalId)?.status ?? 'pending' } : t));
@@ -331,12 +339,13 @@ export const runnerRoutes: Record<string, Route> = {
     // Who wrote it (by, byId), so everyone sees the right name on it - not whoever's looking.
     const by = currentActor();
     const now = Date.now();
-    exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", id, JSON.stringify({ kind: 'you', text: text.trim(), by: by.name, byId: by.id, role: by.role }), now);
+    const person = id === FLEET_ENGINEER ? by.id : null; // the Engineer's chat is per person
+    exec("INSERT INTO dm (agent_id, kind, body, at, person_id) VALUES (?, 'you', ?, ?, ?)", id, JSON.stringify({ kind: 'you', text: text.trim(), by: by.name, byId: by.id, role: by.role }), now, person);
     // Stopped (it, or the whole agency): kept, with the app's reply that it's stopped and
     // where to resume it (AgentDM.tsx). The booking waits, so it answers once resumed.
     const stopped = agencyState() === 'stopped' || stateOf(id).state === 'stopped';
-    if (stopped) exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'stopped', ?, ?)", id, JSON.stringify({ kind: 'stopped', agency: agencyState() === 'stopped' }), now + 1);
-    book(id, 'your message', text.trim());
+    if (stopped) exec("INSERT INTO dm (agent_id, kind, body, at, person_id) VALUES (?, 'stopped', ?, ?, ?)", id, JSON.stringify({ kind: 'stopped', agency: agencyState() === 'stopped' }), now + 1, person);
+    book(id, 'your message', text.trim(), Date.now(), person);
     return { ok: true, stopped };
   },
 

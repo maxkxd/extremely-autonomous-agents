@@ -235,7 +235,7 @@ async function fleetOf(exceptId: string) {
   return out;
 }
 
-function opening(agent: AgentDef, trigger: Trigger, task: string | null): string {
+function opening(agent: AgentDef, trigger: Trigger, task: string | null, person: string | null = null): string {
   switch (trigger) {
     case 'scheduled':
       return 'Scheduled run. Start with what you owe (tasks.list_my_tasks), then do your job as your Charter says.';
@@ -249,14 +249,17 @@ function opening(agent: AgentDef, trigger: Trigger, task: string | null): string
     case 'handoff':
       return `${task}\n\nDo it, then close it with tasks.complete_task.`;
     case 'your message': {
-      const recent = all<{ kind: string; body: string }>("SELECT kind, body FROM dm WHERE agent_id = ? ORDER BY at DESC, id DESC LIMIT 7", agent.id)
+      // The Agency Engineer: only this person's own chat with it.
+      const recent = all<{ kind: string; body: string }>("SELECT kind, body FROM dm WHERE agent_id = ? AND (? IS NULL OR person_id = ?) ORDER BY at DESC, id DESC LIMIT 7", agent.id, person, person)
         .reverse()
         .slice(0, -1)
         .map(r => {
           const b = JSON.parse(r.body) as { text?: string };
           return `${r.kind === 'you' ? 'Them' : 'You (a run)'}: ${(b.text ?? '').slice(0, 600)}`;
         });
-      return `${agent.owner || 'A person'} wrote to you in your DM channel:\n\n"${task}"\n\nAnswer them: your final message is posted there as your reply. Do what they ask if it's part of your job.${recent.length ? `\n\nRecent messages in the channel, oldest first:\n${recent.join('\n')}` : ''}`;
+      // Who wrote, by name: the Agency Engineer has no owner, and its chat is per person.
+      const writer = person ? (JSON.parse(one<{ body: string }>("SELECT body FROM dm WHERE agent_id = ? AND kind = 'you' AND person_id = ? ORDER BY at DESC, id DESC LIMIT 1", agent.id, person)?.body ?? '{}') as { by?: string }).by : null;
+      return `${writer || agent.owner || 'A person'} wrote to you in your DM channel:\n\n"${task}"\n\nAnswer them: your final message is posted there as your reply. Do what they ask if it's part of your job.${recent.length ? `\n\nRecent messages in the channel, oldest first:\n${recent.join('\n')}` : ''}`;
     }
     case 'approval':
       return task ?? 'An approval you were waiting on was decided. Carry on.';
@@ -310,7 +313,7 @@ export function nowLine(at: number): string {
 // --- The run ----------------------------------------------------------------------
 
 // resumeFrom: a run of the same job a restart cut short, carried on from where it got to.
-export async function runAgent(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, signal?: AbortSignal, resumeFrom: string | null = null): Promise<RunResult> {
+export async function runAgent(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, signal?: AbortSignal, resumeFrom: string | null = null, person: string | null = null): Promise<RunResult> {
   const id = newRunId();
   const startedAt = deps.now();
   const level = stateOf(agent.id, startedAt).ferocity;
@@ -336,9 +339,9 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   const { specs, ids, notReady } = toolsFor(agent);
   // What it holds that isn't connected is asked for (or closed, now it is).
   if (!BUILT_IN_IDS.includes(agent.id)) requestConnections(agent.id, agent.name, agent.tiers, startedAt, (a, t, k) => deps.wake(a, t as Trigger, k));
-  const ctx: RunCtx = { agent, runId: id, level, now: deps.now, fleet: () => fleetOf(agent.id), wake: (a, t, k) => deps.wake(a, t as Trigger, k) };
+  const ctx: RunCtx = { agent, runId: id, level, now: deps.now, fleet: () => fleetOf(agent.id), wake: (a, t, k) => deps.wake(a, t as Trigger, k), person };
   const resume = resumeFrom ? `\n\n${resumeText(resumeFrom)}` : '';
-  const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task)}${resume}` }];
+  const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task, person)}${resume}` }];
   let acts = 0;
   let nudges = 0;
   // Output when it was last nudged: a nudge that brought nothing new (a limit reached,
@@ -511,6 +514,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
     cost,
     endedAt - startedAt,
     stopped ? 'Stopped by a person part-way through this run.' : error ? `Run failed: ${error}` : summary || '(No summary.)',
+    person,
   );
 
   // Backoff after failures in a row; a success clears it.
@@ -623,7 +627,7 @@ function harnessOpening(runId: string, messages: Msg[]): string {
 
 // The run's post in the agent's DM channel (docs/agent-dms.md): the shape the
 // app's RunPost draws. Tool lines carry argument NAMES only, never values.
-export function postRun(agentId: string, runId: string, trigger: Trigger, outcome: string, cost: number | null, ms: number, text: string) {
+export function postRun(agentId: string, runId: string, trigger: Trigger, outcome: string, cost: number | null, ms: number, text: string, person: string | null = null) {
   const tools = all<{ tool: string; fields: string; outcome: string; approval_id: string | null }>(
     'SELECT tool, fields, outcome, approval_id FROM actions WHERE run_id = ? ORDER BY id',
     runId,
@@ -638,7 +642,7 @@ export function postRun(agentId: string, runId: string, trigger: Trigger, outcom
     };
   });
   const body = { kind: 'run', id: runId, trigger, outcome, cost: cost ?? 0, costKnown: cost != null, seconds: Math.round(ms / 1000), text, tools };
-  exec("INSERT INTO dm (agent_id, kind, run_id, body, at) VALUES (?, 'run', ?, ?, ?)", agentId, runId, JSON.stringify(body), Date.now());
+  exec("INSERT INTO dm (agent_id, kind, run_id, body, at, person_id) VALUES (?, 'run', ?, ?, ?, ?)", agentId, runId, JSON.stringify(body), Date.now(), person);
 }
 
 // Compacts its memory with its own model, once it's past the cap.

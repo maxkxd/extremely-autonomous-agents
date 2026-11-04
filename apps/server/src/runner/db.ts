@@ -48,6 +48,12 @@ export function openDb(path = FILE): DatabaseSync {
     // One request per connection (tools.ts): another agent's ask for a service that
     // already has an open request joins it - the request it joined (its stage 'joined').
     'ALTER TABLE requests ADD COLUMN joined_to INTEGER',
+    // Each person's own chat with the Agency Engineer: who a message, and the run
+    // answering it, belong to (null: the Engineer's own work, everyone's).
+    'ALTER TABLE dm ADD COLUMN person_id TEXT',
+    'ALTER TABLE bookings ADD COLUMN person_id TEXT',
+    // Messages to the Engineer from before: whoever wrote them.
+    "UPDATE dm SET person_id = json_extract(body, '$.byId') WHERE agent_id = 'fleet' AND kind = 'you' AND person_id IS NULL",
   ])
     try {
       db.exec(sql);

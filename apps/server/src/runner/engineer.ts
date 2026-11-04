@@ -64,12 +64,12 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
 
 // An ordinary agent whose instructions may be changed - with no request, only
 // for a person in the Engineer's chat who may (charter.ts askerMayChange).
-async function changeable(agentId: string, fromChat: boolean) {
+async function changeable(agentId: string, fromChat: boolean, person: string | null = null) {
   const meta = await readMeta(agentId);
   if (!meta) throw new Error(`No agent "${agentId}".`);
   if (meta.builtIn || meta.service || agentId === FLEET_ENGINEER) throw new Error("A built-in agent's instructions can't be rewritten.");
   if (fromChat) {
-    const may = await askerMayChange(agentId);
+    const may = await askerMayChange(agentId, person);
     if (!may.ok) throw new Error(may.why);
   }
   return meta;
@@ -648,7 +648,7 @@ const TOOLS: ToolDef[] = [
     impl: async (a, ctx) => {
       const r = a.request_id != null && a.request_id !== '' ? openRequest(a.request_id) : null;
       const agentId = r ? r.agent_id : String(a.agent_id ?? '');
-      const meta = await changeable(agentId, !r);
+      const meta = await changeable(agentId, !r, ctx.person ?? null);
       const charter = String(a.charter ?? '').trim();
       if (!/^# CHARTER\b/.test(charter) || charter.length < 200) throw new Error('charter is the whole new CHARTER.md, starting "# CHARTER - <name>" - not just the change.');
       await writeCharter(agentId, charter);
@@ -678,7 +678,7 @@ const TOOLS: ToolDef[] = [
     impl: async (a, ctx) => {
       const r = a.request_id != null && a.request_id !== '' ? openRequest(a.request_id) : null;
       const agentId = String(a.agent_id ?? '');
-      const meta = await changeable(agentId, !r);
+      const meta = await changeable(agentId, !r, ctx.person ?? null);
       const old = await readCharterVersion(agentId, String(a.version ?? ''));
       await writeCharter(agentId, old);
       const said = `Your instructions are back to how they were before ${new Date(Number(a.version)).toLocaleString('en-AU')}.`;

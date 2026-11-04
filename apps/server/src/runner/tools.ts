@@ -33,6 +33,8 @@ export type RunCtx = {
   fleet: () => Promise<{ id: string; name: string }[]>;
   // Books another agent's run (a handoff); set by the runner.
   wake: (agentId: string, trigger: string, task: string) => void;
+  // The person whose message this run answers (the Agency Engineer acts for them).
+  person?: string | null;
 };
 
 type Impl = (args: Record<string, unknown>, ctx: RunCtx) => Promise<string> | string;

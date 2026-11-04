@@ -15,6 +15,12 @@ per-agent Slack channels.
 It's two things at once: technical logs for debugging, and a place to message
 an agent directly and get an answer back in the same channel.
 
+In an organization everyone can read an agent's channel; only its maker or an
+admin can write in it (the box is greyed for others, saying who can). The
+**Agency Engineer** is everyone's to write to, and keeps **one chat per person**:
+you see your own messages and its answers to them, plus its own work (requests,
+its daily look), never a teammate's conversation with it (`dm.person_id`).
+
 ## The rule: nobody is expected to read it
 
 **An agent must never expect a person to check its DM channel.** If anything

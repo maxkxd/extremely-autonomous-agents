@@ -43,8 +43,14 @@ export async function readCharterVersion(agentId: string, id: string): Promise<s
 // Whoever wrote last in the Agency Engineer's chat, and whether they may change
 // this agent's instructions: its maker, or an owner or admin. A person asks in
 // the chat; the Engineer acts for them, so the check is on them.
-export async function askerMayChange(agentId: string): Promise<{ ok: true; by: string } | { ok: false; why: string }> {
-  const last = all<{ body: string }>("SELECT body FROM dm WHERE agent_id = ? AND kind = 'you' ORDER BY at DESC, id DESC LIMIT 1", FLEET_ENGINEER)[0];
+// person: whose message the run answers (the Engineer keeps one chat per person).
+export async function askerMayChange(agentId: string, person: string | null = null): Promise<{ ok: true; by: string } | { ok: false; why: string }> {
+  const last = all<{ body: string }>(
+    "SELECT body FROM dm WHERE agent_id = ? AND kind = 'you' AND (? IS NULL OR person_id = ?) ORDER BY at DESC, id DESC LIMIT 1",
+    FLEET_ENGINEER,
+    person,
+    person,
+  )[0];
   if (!last) return { ok: false, why: 'Only a person asking in your chat (or a request) can change an agent\'s instructions.' };
   const b = JSON.parse(last.body) as { by?: string; byId?: string; role?: Role };
   const meta = await readMeta(agentId);

@@ -8,7 +8,7 @@ import { all, one, resetDbForTests, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, apocalypticWait, APOCALYPTIC_GAP_MS, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './ferocity.js';
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
 import { ModelError, type Adapter, type Call } from './providers.js';
-import { LOOPING, loopGuard, OVER_LIMIT, runAgent, SAME_CALL_LIMIT, stateOf, type RunDeps } from './run.js';
+import { LOOPING, loopGuard, OVER_LIMIT, postRun, runAgent, SAME_CALL_LIMIT, stateOf, type RunDeps } from './run.js';
 import { book, dropStaleRequestRuns, engineerCanJoin, engineerScope, nextRun } from './scheduler.js';
 import { forgetAgentRuns } from './forget.js';
 import { decideApproval } from './approvals.js';
@@ -1140,4 +1140,25 @@ test('asked in its chat, an agent changes its own ferocity, pauses itself until 
   book(ID, 'your message', 'hi');
   assert.equal(nextRun(agent(), stateOf(ID), Date.now())?.trigger, 'your message', 'a message is still answered');
   assert.ok(!(await call('ops__set_my_run_days', { days: [] })).error);
+});
+
+test("each person has their own chat with the Agency Engineer; its own work is everyone's", async () => {
+  const { runnerRoutes } = await import('./api.js');
+  const { asActor } = await import('../access.js');
+  const jo = { id: 'u_jo', name: 'Jo', role: 'member' as const, via: 'token' as const };
+  const alex = { id: 'u_alex', name: 'Alex', role: 'member' as const, via: 'token' as const };
+  const send = (who: typeof jo, text: string) => asActor(who, () => runnerRoutes['POST /api/dm'](null as never, new URLSearchParams(), async <T,>() => ({ id: 'fleet', text }) as T));
+  const read = (who: typeof jo) => asActor(who, () => runnerRoutes['GET /api/dm'](null as never, new URLSearchParams({ id: 'fleet' }), async <T,>() => ({}) as T)) as Promise<{ kind: string; text?: string }[]>;
+  await send(jo, 'Jo asks something private');
+  await send(alex, 'Alex asks something else');
+  postRun('fleet', 'r_jo', 'your message', 'succeeded', 0, 1000, 'Answer for Jo', 'u_jo');
+  postRun('fleet', 'r_req', 'request', 'succeeded', 0, 1000, 'Built a Gmail connection', null);
+  const jos = (await read(jo)).map(e => e.text);
+  assert.ok(jos.includes('Jo asks something private') && jos.includes('Answer for Jo') && jos.includes('Built a Gmail connection'));
+  assert.ok(!jos.includes('Alex asks something else'));
+  const alexs = (await read(alex)).map(e => e.text);
+  assert.ok(alexs.includes('Alex asks something else') && alexs.includes('Built a Gmail connection'));
+  assert.ok(!alexs.includes('Answer for Jo') && !alexs.includes('Jo asks something private'));
+  // Two people's messages are two runs, each answering its own person.
+  assert.deepEqual(all<{ person_id: string }>("SELECT person_id FROM bookings WHERE agent_id = 'fleet' AND trigger = 'your message' ORDER BY id").map(b => b.person_id), ['u_jo', 'u_alex']);
 });

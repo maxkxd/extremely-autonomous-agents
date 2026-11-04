@@ -119,7 +119,8 @@ export function dropStaleRequestRuns() {
 }
 
 // A run to start as soon as it can (handoffs, your messages, Run now).
-export function book(agentId: string, trigger: Trigger, task: string | null, dueAt = Date.now()) {
+// person: whose message it answers - the Agency Engineer keeps one chat per person.
+export function book(agentId: string, trigger: Trigger, task: string | null, dueAt = Date.now(), person: string | null = null) {
   // Decisions made together wake it once, with all of them (six approvals had
   // made six runs in a row).
   // Results that come in together, likewise: one run hears them all.
@@ -127,13 +128,13 @@ export function book(agentId: string, trigger: Trigger, task: string | null, due
   // Messages sent while it was stopped (or before it got to them) are answered in
   // one run, not one run each.
   if ((trigger === 'approval' || trigger === 'your message') && task) {
-    const waiting = one<{ id: number }>('SELECT id FROM bookings WHERE agent_id = ? AND trigger = ? ORDER BY id LIMIT 1', agentId, trigger);
+    const waiting = one<{ id: number }>('SELECT id FROM bookings WHERE agent_id = ? AND trigger = ? AND person_id IS ? ORDER BY id LIMIT 1', agentId, trigger, person);
     if (waiting) {
       exec("UPDATE bookings SET task = COALESCE(task, '') || ? WHERE id = ?", `\n\n${task}`, waiting.id);
       return;
     }
   }
-  exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, ?, ?, ?, ?)', agentId, trigger, task, dueAt, Date.now());
+  exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at, person_id) VALUES (?, ?, ?, ?, ?, ?)', agentId, trigger, task, dueAt, Date.now(), person);
 }
 
 const runsToday = (agentId: string, now: number) =>
@@ -187,13 +188,14 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (!eligible.length && next.trigger !== 'your message') continue;
       const local = eligible[0]?.connection === 'ollama';
       if (local && [...running.values()].some(r => r.connection === 'ollama')) continue;
-      const resumeFrom = next.bookingId ? (one<{ r: string | null }>('SELECT resume_from AS r FROM bookings WHERE id = ?', next.bookingId)?.r ?? null) : null;
+      const booked = next.bookingId ? one<{ r: string | null; p: string | null }>('SELECT resume_from AS r, person_id AS p FROM bookings WHERE id = ?', next.bookingId) : null;
+      const resumeFrom = booked?.r ?? null;
       if (next.bookingId) exec('DELETE FROM bookings WHERE id = ?', next.bookingId);
       // A run it booked itself counts as its scheduled run: the schedule's clock
       // restarts, so booking a run never adds one on top of the level's pace.
       if (next.trigger === 'scheduled' || next.trigger === 'self-booked' || next.trigger === 'request done' || next.trigger === 'run now')
         exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now, id);
-      start(agent, next.trigger, next.task, deps, eligible[0]?.connection ?? null, resumeFrom);
+      start(agent, next.trigger, next.task, deps, eligible[0]?.connection ?? null, resumeFrom, booked?.p ?? null);
     }
   } finally {
     ticking = false;
@@ -353,13 +355,13 @@ export function blockedOnConnections(agent: AgentDef) {
   return !real.some(c => callable.has(c));
 }
 
-function start(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, connection: string | null, resumeFrom: string | null = null) {
+function start(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, connection: string | null, resumeFrom: string | null = null, person: string | null = null) {
   const now = deps.now();
   const controller = new AbortController();
   const engineer = agent.id === FLEET_ENGINEER;
   const key = engineer ? `${agent.id}#${++slot}` : agent.id;
   running.set(key, { agentId: agent.id, controller, connection, startedAt: now, ...(engineer ? engineerScope(task) : { requests: [], services: [] }) });
-  void runAgent(agent, trigger, task, deps, controller.signal, resumeFrom)
+  void runAgent(agent, trigger, task, deps, controller.signal, resumeFrom, person)
     .catch(e => console.error(`Run of ${agent.id} crashed:`, (e as Error).message))
     .finally(() => {
       running.delete(key);

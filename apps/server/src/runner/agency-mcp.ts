@@ -353,8 +353,9 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
         if (meta.service) throw new Error(`${meta.name} only records what it decides; it takes no messages.`);
         if (agentId !== FLEET_ENGINEER) await requireMakerOrAdmin(agentId, null, currentActor(), 'message it');
         const by = currentActor();
-        exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", agentId, JSON.stringify({ kind: 'you', text, by: by.name, byId: by.id, role: by.role }), Date.now());
-        book(agentId, 'your message', text);
+        const person = agentId === FLEET_ENGINEER ? by.id : null; // the Engineer's chat is per person
+        exec("INSERT INTO dm (agent_id, kind, body, at, person_id) VALUES (?, 'you', ?, ?, ?)", agentId, JSON.stringify({ kind: 'you', text, by: by.name, byId: by.id, role: by.role }), Date.now(), person);
+        book(agentId, 'your message', text, Date.now(), person);
         return `Sent to ${meta.name}; its answer goes in its DM channel in the app (read_agent shows its last runs).`;
       }
       if (meta.service) throw new Error(`${meta.name} runs only when the agency calls it.`);
