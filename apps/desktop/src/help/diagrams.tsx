@@ -168,7 +168,7 @@ function AgentCard({ agent = OUTREACH, openApprovals = 2, setup }: { agent?: Age
     return () => ro.disconnect();
   }, []);
   return (
-    <div className="hd-real" ref={box}>
+    <div className={`hd-real${setup ? ' with-setup' : ''}`} ref={box}>
       <div className="hd-real-card" style={{ width: CARD_WIDTH, zoom }} {...{ inert: '' }}>
         <RealAgentCard
           agent={agent}

@@ -139,6 +139,12 @@
    one, since "Outreach" is a short name; the pies take what's left. */
 .hd-real-card .card-head { width: 215px; zoom: 1.35; }
 .hd-real-card .agent-card { margin: 0; }
+/* Drawn at the card's full width, so laid out as a full-width card: the name column
+   beside the pies. (The card's own container rule saw the help window's width and stacked them.) */
+.hd-real-card .card-main { flex-direction: row; gap: 20px; }
+/* A new agent (Its first run): as on the Dashboard, its setup list beside the pies -
+   its column as wide as the list needs, not the narrow one above. */
+.hd-real.with-setup .card-head { width: 330px; zoom: 1.25; }
 
 /* The real charts, big. They take the card's blue (Driven) colours. */
 .hd-charts {
