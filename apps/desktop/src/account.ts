@@ -421,12 +421,19 @@ export const scoped = (key: string) => (state.agency === 'personal' ? key : `${k
 
 // Org access tokens (15 minutes), fetched as needed.
 const tokens = new Map<string, { token: string; expiresAt: number }>();
+// One fetch at a time per organization: a page load's twenty requests each fetched their own.
+const fetching = new Map<string, Promise<string>>();
 async function orgToken(orgId: string) {
   const had = tokens.get(orgId);
   if (had && had.expiresAt - Date.now() > 60_000) return had.token;
-  const t = await backend<{ token: string; expiresAt: number }>(`/orgs/${orgId}/token`, { method: 'POST' });
-  tokens.set(orgId, t);
-  return t.token;
+  let pending = fetching.get(orgId);
+  if (!pending) {
+    pending = backend<{ token: string; expiresAt: number }>(`/orgs/${orgId}/token`, { method: 'POST' })
+      .then(t => (tokens.set(orgId, t), t.token))
+      .finally(() => fetching.delete(orgId));
+    fetching.set(orgId, pending);
+  }
+  return pending;
 }
 
 // Testing the relay on one computer: go through it even to the organization this

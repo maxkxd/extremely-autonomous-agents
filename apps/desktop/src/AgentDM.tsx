@@ -3,6 +3,7 @@ import { CircleAlert, CircleCheck, CircleStop, Loader2, SendHorizontal } from 'l
 import { Linkify } from './Linkify';
 import { RichText } from './RichText';
 import { ACCOUNT, AGENTS } from './data';
+import { currentOrg, isAdmin, myAccountId } from './account';
 import { DEPARTMENT_ICON } from './Sidebar';
 import type { DmEntry, RunPost, ToolLine } from './dms';
 import type { Resolution } from './Approvals';
@@ -120,6 +121,7 @@ export function AgentDM({
   approvalOutcomes,
   loading = false,
   stopped = false,
+  agencyStopped = false,
   sendError = null,
   onOpenDashboard,
   since = null,
@@ -128,6 +130,7 @@ export function AgentDM({
   since?: number | null; // when the message it's answering was sent: "running... 2m"
   agentId: string;
   stopped?: boolean; // it or the agency is stopped: it won't answer until it's resumed
+  agencyStopped?: boolean; // ...and it's the whole agency
   sendError?: string | null; // the message wasn't taken (e.g. it's stopped): why
   loading?: boolean; // its history isn't in yet: placeholders, not "No agent activity yet"
   entries: StampedEntry[];
@@ -137,6 +140,10 @@ export function AgentDM({
 }) {
   const agent = AGENTS.find(a => a.id === agentId)!;
   const Icon = DEPARTMENT_ICON[agent.department];
+  // A teammate's agent: its chat is there to read; only its maker or an admin writes in it.
+  // Everyone may write to the Agency Engineer.
+  const readOnly = !!currentOrg() && !isAdmin() && agent.id !== 'fleet' && (agent.builtIn || agent.ownerId !== myAccountId());
+  const readOnlyWhy = readOnly ? `Only ${agent.builtIn ? 'the owner' : agent.owner || 'its owner'} or an admin can message ${agent.name}` : null;
   const [draft, setDraft] = useState('');
   const off = useOffline(); // the host is offline: nothing can be sent until it's back
   const end = useRef<HTMLDivElement>(null);
@@ -223,6 +230,8 @@ export function AgentDM({
         )}
         {!loading && entries.length === 0 && !thinking && <div className="dm-empty">No agent activity yet</div>}
         {entries.map((e, i) => {
+          // A "stopped" note it has since answered past is history, not news: gone.
+          if (e.kind === 'stopped' && entries.slice(i + 1).some(x => x.kind === 'run')) return null;
           const day = dayLabel(e.at);
           const divider = day !== lastDay ? <div className="dm-day" key={`d-${i}`}><span>{day}</span></div> : null;
           lastDay = day;
@@ -242,7 +251,7 @@ export function AgentDM({
                       <span className="dm-time">{clock(e.at)}</span>
                     </div>
                     <p className="dm-text">
-                      {agent.name} is stopped. Resume it on the{' '}
+                      {(e as { agency?: boolean }).agency ? 'The agency is stopped. Resume it at the top of the' : `${agent.name} is stopped. Resume it on the`}{' '}
                       <a className="text-link" href="#" onClick={ev => (ev.preventDefault(), onOpenDashboard?.())}>
                         Dashboard
                       </a>
@@ -287,7 +296,7 @@ export function AgentDM({
           <div className="dm-stopped">{agent.name} works only when an agent needs it.</div>
         ) : (
           (sendError || (stopped && !entries.some(e => e.kind === 'stopped'))) && (
-            <div className="dm-stopped">{sendError ?? `${agent.name} is stopped, so it won't answer until it's resumed.`}</div>
+            <div className="dm-stopped">{sendError ?? (agencyStopped ? `The agency is stopped, so ${agent.name} won't answer until it's resumed.` : `${agent.name} is stopped, so it won't answer until it's resumed.`)}</div>
           )
         )}
         <div ref={end} />
@@ -298,19 +307,19 @@ export function AgentDM({
         <textarea
           rows={1}
           placeholder={`Message ${agent.name}`}
-          disabled={!!off}
-          title={off ?? undefined}
+          disabled={!!off || readOnly}
+          title={off ?? readOnlyWhy ?? undefined}
           value={draft}
           onChange={e => setDraft(e.target.value)}
           onKeyDown={e => {
             // Enter sends, Shift+Enter is a new line.
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
-              if (!off) send();
+              if (!off && !readOnly) send();
             }
           }}
         />
-        <button className="dm-send" onClick={send} disabled={!draft.trim() || thinking || !!off} title={off ?? undefined} aria-label="Send">
+        <button className="dm-send" onClick={send} disabled={!draft.trim() || thinking || !!off || readOnly} title={off ?? readOnlyWhy ?? (!draft.trim() ? 'Type a message first' : undefined)} aria-label="Send">
           <SendHorizontal size={16} strokeWidth={1.9} />
         </button>
       </div>}

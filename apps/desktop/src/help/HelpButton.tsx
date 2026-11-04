@@ -12,7 +12,8 @@ const GROW_MS = 420; // matches the CSS transition
 // a yellow sonar pulse. It opens the help window on its own page's tab - or,
 // until Getting started has been read, glows on every page and opens on that.
 // `onNavigate` follows a caption's link to a page (see withLinks).
-export function HelpButton({ topic: pageTopic, onNavigate }: { topic: HelpTopicId; onNavigate?: (view: View) => void }) {
+// quiet: nothing else should glow yet (no AI connected: only "Connect a model" does).
+export function HelpButton({ topic: pageTopic, onNavigate, quiet = false }: { topic: HelpTopicId; onNavigate?: (view: View) => void; quiet?: boolean }) {
   const newHere = useHelpUnread('start');
   const topic = newHere ? 'start' : pageTopic;
   const unread = useHelpUnread(pageTopic) || newHere;
@@ -24,7 +25,7 @@ export function HelpButton({ topic: pageTopic, onNavigate }: { topic: HelpTopicI
     <>
       <button
         ref={button}
-        className={`help-btn${unread ? ' unread' : ''}${origin ? ' open' : ''}${caught ? ' caught' : ''}`}
+        className={`help-btn${unread && !quiet ? ' unread' : ''}${origin ? ' open' : ''}${caught ? ' caught' : ''}`}
         onAnimationEnd={() => setCaught(false)}
         onClick={() => setOrigin(button.current!.getBoundingClientRect())}
         aria-label={unread ? `${HELP_TOPICS[topic].title} help - new` : `${HELP_TOPICS[topic].title} help`}

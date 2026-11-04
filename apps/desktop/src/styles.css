@@ -1948,6 +1948,11 @@ a.sbtn { text-decoration: none; color: inherit; }
 .onboarding-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 28px; border-top: 1px solid var(--hairline); }
 .onboarding-foot .sbtn { align-self: center; min-width: 88px; justify-content: center; }
 .onboarding-skip { color: var(--muted); border-color: var(--border); }
+/* The crayon note pointing at Skip, for someone joining a team. The arrow is the first-agent one, turned to point right. */
+.onboarding-team-tip { display: inline-flex; align-items: center; gap: 2px; margin-right: -6px; color: #9a9a9a; pointer-events: none; }
+.onboarding-team-tip .mtip-text { max-width: none; white-space: nowrap; font-size: 13.5px; }
+.onboarding-team-arrow { width: 52px; height: 44px; flex-shrink: 0; transform: scaleX(-1); }
+@media (max-width: 640px) { .onboarding-team-tip .mtip-text { display: none; } }
 .onboarding-failed { margin: 0 auto 0 0; align-self: center; font-size: 12.5px; color: #e5484d; max-width: 60%; }
 /* Signed out: Sign up beside your name, where the account menu's arrows would be. */
 .account-signup { position: absolute; right: 10px; bottom: 15px; height: 30px; padding: 0 12px; font-size: 13px; }
@@ -2134,6 +2139,9 @@ a.sbtn { text-decoration: none; color: inherit; }
 /* A stopped agent's channel says so where its reply would appear. */
 .dm-stopped { margin: 6px 0 0 48px; padding: 9px 12px; border-radius: 8px; font-size: 13px; color: var(--muted); background: var(--surface-hover); }
 .dash-no-ai { margin-bottom: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--sidebar); }
+/* An empty page (no agents, or only the hidden built-ins): what's missing and where to start. */
+.dash-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 48px 8px; text-align: center; }
+.dash-empty-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--text); }
 /* Keyboard focus in the app's own accent, not the browser's orange outline. */
 :focus-visible { outline: 2px solid var(--attention); outline-offset: 2px; }
 textarea:focus-visible, input:focus-visible { outline: none; }

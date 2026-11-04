@@ -310,9 +310,8 @@ export const runnerRoutes: Record<string, Route> = {
   'GET /api/dm': async (_req, q) => {
     const id = q.get('id');
     if (!isId(id)) return [];
-    // In an organization, an agent's DMs are its maker's and the admins' (access.ts);
-    // the Agency Engineer's are everyone's, as anyone may write to it.
-    if (id !== FLEET_ENGINEER) await requireMakerOrAdmin(id, null, currentActor(), 'see its DMs');
+    // Everyone in the organization can read an agent's DMs; writing in them is its
+    // maker's and the admins' (POST below). The Agency Engineer's anyone may write to.
     return all<{ kind: string; body: string; at: number }>('SELECT kind, body, at FROM dm WHERE agent_id = ? ORDER BY at, id', id).map(r => {
       const b = JSON.parse(r.body) as { by?: string; byId?: string; tools?: { approvalId?: string }[] };
       // A tool that waited on approval: how it was decided, so its dot says so after a reload too.
@@ -336,7 +335,7 @@ export const runnerRoutes: Record<string, Route> = {
     // Stopped (it, or the whole agency): kept, with the app's reply that it's stopped and
     // where to resume it (AgentDM.tsx). The booking waits, so it answers once resumed.
     const stopped = agencyState() === 'stopped' || stateOf(id).state === 'stopped';
-    if (stopped) exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'stopped', ?, ?)", id, JSON.stringify({ kind: 'stopped' }), now + 1);
+    if (stopped) exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'stopped', ?, ?)", id, JSON.stringify({ kind: 'stopped', agency: agencyState() === 'stopped' }), now + 1);
     book(id, 'your message', text.trim());
     return { ok: true, stopped };
   },

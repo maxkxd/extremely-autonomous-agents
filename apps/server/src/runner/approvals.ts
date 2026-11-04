@@ -41,7 +41,7 @@ export async function pendingApprovals(now = Date.now()) {
     const args = JSON.parse(r.args) as Record<string, unknown>;
     return Array.isArray(args.tools) && typeof args.tools_list === 'string' ? { ...args, tools_list: toolsForPeople(args.tools as { id: string; tier: string }[]) } : args;
   };
-  return rows.map((r, i) => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, owner: owners[i], agentStopped: stateOf(r.agent_id, now).state === 'stopped', tool: r.tool, args: argsOf(r), createdAt: r.created_at, expiresAt: r.expires_at }));
+  return rows.map((r, i) => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, owner: owners[i], agentStopped: stateOf(r.agent_id, now).state === 'stopped', agencyStopped: agencyStopped(), tool: r.tool, args: argsOf(r), createdAt: r.created_at, expiresAt: r.expires_at }));
 }
 
 const argsLine = (args: Record<string, unknown>) =>

@@ -337,7 +337,7 @@ function ApprovalCard({
               </button>
             </div>
             {approval.paused && (
-              <span className="state-pill approval-paused" title={`${agent.name} is stopped. Resume it to decide; the clock keeps running.`}>
+              <span className="state-pill approval-paused" title={approval.pausedByAgency ? 'The agency is stopped. Resume it at the top of the Dashboard to decide; the clock keeps running.' : `${agent.name} is stopped. Resume it to decide; the clock keeps running.`}>
                 Stopped
               </span>
             )}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMoreBelow } from './moreBelow';
 import { checkModel, getAvailableModels, type AvailableModels } from './builder';
-import { ModelConnectors } from './ModelConnectors';
+import { Crayon, ModelConnectors } from './ModelConnectors';
 
 // The first thing a new install shows: who we are, then the one step nothing
 // works without - an AI model (a plan you already pay for, or an API key). Next
@@ -75,7 +75,7 @@ function SkipDialog({ onCancel, onSkip }: { onCancel: () => void; onSkip: () => 
         <h2 id="skip-title">Skip without an AI model?</h2>
         <p id="skip-body">
           Nothing runs without one: you can't build agents, and the built-in agents can't start. You can connect one any time in Settings, under
-          Connectors.
+          Connectors. Joining an existing team? Skip anyway - your team's AI does the work there.
         </p>
         <div className="confirm-actions">
           <button className="confirm-cancel" onClick={onCancel}>
@@ -129,6 +129,13 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           </p>
         )}
         {/* With one working there's nothing to skip: Skip and Next did the same thing. */}
+        {/* Someone joining a teammate's organization needs no AI of their own: Skip is their way in. */}
+        {!ok && (
+          <span className="onboarding-team-tip">
+            <span className="mtip-text">Joining an existing team? Skip this and sign in</span>
+            <Crayon className="onboarding-team-arrow" viewBox="0 0 60 50" shaft="M57 30 C 44 21, 26 20, 8 28" head="M17 19 C 14 22, 11 25, 6 29 C 11 32, 14 34, 18 38" />
+          </span>
+        )}
         {!ok && (
           <button className="sbtn onboarding-skip" onClick={() => setSkipping(true)}>
             Skip

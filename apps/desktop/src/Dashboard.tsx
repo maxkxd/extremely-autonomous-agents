@@ -1,6 +1,6 @@
 import { ResumeSetupDialog, SetupBar, SetupList } from './AgentSetup';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { CircleCheckBig, Ellipsis, GripVertical, LoaderCircle, Pause, Play, Square, Trash2, User, Wrench } from 'lucide-react';
+import { CircleCheckBig, Ellipsis, GripVertical, LoaderCircle, Pause, Play, Plus, Square, Trash2, User, Wrench } from 'lucide-react';
 import { DeleteAgentDialog } from './DeleteAgentDialog';
 import { ModelPanel, ModelRow, useModelChecks, useModelSlide, type Checks } from './ModelPicker';
 import { getAgentModels, getAvailableModels, getLiveAgents, getSetups, runNow, setAgentModels, setAgentRunner, type AgencyState, type AgentSetup, type AvailableModels, type LiveAgent, type ModelChoice } from './builder';
@@ -704,6 +704,8 @@ export function Dashboard({
   agencyReady,
   countsReady,
   onOpenRequest,
+  agentsKnown = true,
+  newAgentGlow = false,
 }: {
   onOpenRequest: (id: number) => void; // a setup connector's "Go to request"
   range: TimeRange;
@@ -717,6 +719,8 @@ export function Dashboard({
   newDecisions: Record<string, Decisions>; // since the app opened (yours + live), so in every time frame
   arrivingIds: string[]; // just-created agents: their cards smash in at the top together
   onDeleteAgent: (id: string) => Promise<void>; // removes its files and the agent everywhere
+  agentsKnown?: boolean; // the server has said which agents there are (no empty-page flash before)
+  newAgentGlow?: boolean; // only the built-ins so far, and an AI works: its New agent pulses yellow
 }) {
   // Standby/Stop/Resume you just pressed, shown at once. A real agent follows the
   // runner again a few seconds later, so a change made elsewhere (someone else,
@@ -1001,6 +1005,16 @@ export function Dashboard({
           <ConnectModel title="No AI model is connected, so no agent can run." />
         </div>
       )}
+      {/* Nothing on the page (no agents, or only the hidden built-ins): say so, and where to start. */}
+      {agentsKnown && !order.some(id => { const f = AGENTS.find(x => x.id === id); return f && !(hideBuiltIns && f.builtIn); }) && (
+        <div className="dash-empty">
+          <p className="dash-empty-title">No agents here yet</p>
+          <button className={`new-agent-btn${newAgentGlow ? ' first' : ''}`} onClick={() => onNavigate('new-agent')}>
+            <Plus size={14} strokeWidth={2} />
+            New agent
+          </button>
+        </div>
+      )}
       {order.map(id => {
         // Gone from AGENTS already: its slot just plays its exit.
         const found = AGENTS.find(x => x.id === id) ?? (removing === id ? deletedCard.current : undefined);
@@ -1029,7 +1043,14 @@ export function Dashboard({
               agencyStopped={agency === 'stopped'}
               setState={s => {
                 setStates(prev => ({ ...prev, [a.id]: { state: s, at: Date.now() } }));
-                if (l) setAgentRunner(a.id, { state: s }).catch(() => {});
+                // Refused (or the host didn't take it): back to what the runner says, not shown as done.
+                if (l)
+                  setAgentRunner(a.id, { state: s }).catch(() =>
+                    setStates(prev => {
+                      const { [a.id]: _gone, ...rest } = prev;
+                      return rest;
+                    }),
+                  );
               }}
               onNavigate={onNavigate}
               openApprovals={approvalCounts[a.id] ?? 0}

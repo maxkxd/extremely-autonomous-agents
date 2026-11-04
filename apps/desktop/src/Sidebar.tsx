@@ -18,6 +18,7 @@ import {
   Settings,
   Plug,
   Gauge,
+  LogIn,
   LogOut,
   UserRound,
 } from 'lucide-react';
@@ -327,8 +328,8 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
               }}
             >
               <span className="option-with-avatar">
-                <LogOut size={15} className="option-icon" />
-                {state.me ? 'Log out' : 'SIGN IN'}
+                {state.me ? <LogOut size={15} className="option-icon" /> : <LogIn size={15} className="option-icon" />}
+                {state.me ? 'Log out' : 'Sign In'}
               </span>
             </button>
           </li>

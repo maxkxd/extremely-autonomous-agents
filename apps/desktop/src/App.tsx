@@ -1,4 +1,5 @@
 import { HelpButton } from './help/HelpButton';
+import { useHasModels } from './NoModels';
 import { helpTopicFor } from './help/topics';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ChevronRight, Plus } from 'lucide-react';
@@ -195,6 +196,7 @@ function Agency() {
               createdAt: a.createdAt,
               expiresAt: a.expiresAt,
               paused: a.agentStopped,
+              pausedByAgency: !!a.agencyStopped,
               owner: a.owner,
               // The Agency Engineer is owned by no one: its approvals belong to
               // the owner of the agent they're for.
@@ -333,6 +335,9 @@ function Agency() {
   const [realIds, setRealIds] = useState<Set<string>>(new Set());
   // Only the built-in agents so far (once the server has said so, so it never flashes on).
   const firstAgent = realIds.size > 0 && AGENTS.every(a => a.builtIn);
+  // Until an AI works only "Connect a model" glows; then New agent's yellow pulse (and its tip).
+  const hasModels = useHasModels();
+  const firstGlow = firstAgent && hasModels === true;
   // The crayon tip only where it fits: in a narrower window it ran under Stop agency
   // and Built-ins. Its width is kept from when it was last shown.
   const headerRef = useRef<HTMLElement>(null);
@@ -341,7 +346,7 @@ function Agency() {
   const [tipFits, setTipFits] = useState(true);
   useEffect(() => {
     const h = headerRef.current;
-    if (!firstAgent || !h) return;
+    if (!firstGlow || !h) return;
     const check = () => {
       if (tipRef.current) tipWidth.current = tipRef.current.offsetWidth;
       const title = h.querySelector<HTMLElement>('.header-title');
@@ -354,7 +359,7 @@ function Agency() {
     const ro = new ResizeObserver(check);
     ro.observe(h);
     return () => ro.disconnect();
-  }, [firstAgent, view]);
+  }, [firstGlow, view]);
   useEffect(() => {
     const sync = () =>
       agentStatuses().then(s => {
@@ -644,12 +649,12 @@ function Agency() {
             {view === 'approvals' && <DecisionTally approved={decidedToday.approved} rejected={decidedToday.rejected} />}
             {view === 'dashboard' && (
               <>
-                <button className={`new-agent-btn${firstAgent ? ' first' : ''}`} onClick={() => setView('new-agent')} disabled={!!offlineSince} title={offlineSince ? OFFLINE_WHY : undefined}>
+                <button className={`new-agent-btn${firstGlow ? ' first' : ''}`} onClick={() => setView('new-agent')} disabled={!!offlineSince} title={offlineSince ? OFFLINE_WHY : undefined}>
                   <Plus size={14} strokeWidth={2} />
                   New agent
                 </button>
                 {/* Nothing but the built-ins yet: where to begin, in crayon like the tip in Settings. */}
-                {firstAgent && tipFits && (
+                {firstGlow && tipFits && (
                   <span className="first-agent-tip" ref={tipRef}>
                     <Crayon className="first-agent-arrow" viewBox="0 0 60 50" shaft="M57 30 C 44 21, 26 20, 8 28" head="M17 19 C 14 22, 11 25, 6 29 C 11 32, 14 34, 18 38" />
                     <span className="mtip-text">Start here to build your first agent</span>
@@ -689,7 +694,7 @@ function Agency() {
             />
           )}
           {/* The page's help (help/): glows until read; Getting started first. */}
-          {helpTopicFor(view) && <HelpButton key={helpTopicFor(view)} topic={helpTopicFor(view)!} onNavigate={setView} />}
+          {helpTopicFor(view) && <HelpButton key={helpTopicFor(view)} topic={helpTopicFor(view)!} onNavigate={setView} quiet={hasModels === false} />}
           </div>
         </header>
         <div className="main-body" ref={mainBody}>
@@ -705,6 +710,8 @@ function Agency() {
               newDecisions={newDecisions}
               arrivingIds={arrivingIds}
               agencyReady={agencyReady}
+              agentsKnown={realIds.size > 0}
+              newAgentGlow={firstGlow}
               countsReady={approvalsReady && requestsReady}
               onDeleteAgent={async id => {
                 await deleteAgentFiles(id);

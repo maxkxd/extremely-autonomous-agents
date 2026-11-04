@@ -24,6 +24,6 @@ export type YourMessage = { kind: 'you'; minutesAgo: number; text: string; by?: 
 
 // After a message sent while the agent is stopped: the app's reply that it's
 // stopped and where to resume it (kept on the host; the agent answers once resumed).
-export type StoppedReply = { kind: 'stopped'; minutesAgo: number };
+export type StoppedReply = { kind: 'stopped'; minutesAgo: number; agency?: boolean }; // agency: the whole agency was stopped, not the agent
 
 export type DmEntry = RunPost | YourMessage | StoppedReply;

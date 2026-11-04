@@ -26,6 +26,7 @@ export function LiveDM({
   // Stopped (it, or the whole agency): a message waits, so the channel says so
   // instead of showing it running (it showed "running…" for ten minutes).
   const [stopped, setStopped] = useState(false);
+  const [agencyHeld, setAgencyHeld] = useState(false); // stopped because the whole agency is
   const [sendError, setSendError] = useState<string | null>(null);
   const waiting = useRef<number | null>(null);
   waiting.current = waitingSince;
@@ -43,6 +44,7 @@ export function LiveDM({
             if (stop) return;
             const now = agency.state === 'stopped' || agents[agentId]?.state === 'stopped';
             setStopped(now);
+            setAgencyHeld(agency.state === 'stopped');
             onStopped(now);
           },
           () => {},
@@ -73,7 +75,7 @@ export function LiveDM({
     setEntries(prev => [...prev, mine]);
     // Stopped, it's still kept (on the host), with the reply that it's stopped and where
     // to resume it; it answers once resumed (api.ts).
-    if (stopped) setEntries(prev => [...prev, { kind: 'stopped', minutesAgo: 0, at: at + 1 }]);
+    if (stopped) setEntries(prev => [...prev, { kind: 'stopped', minutesAgo: 0, at: at + 1, agency: agencyHeld }]);
     else setWaitingSince(at);
     sendDm(agentId, text).then(
       r => r.stopped && setWaitingSince(null),
@@ -95,6 +97,7 @@ export function LiveDM({
       loading={!loaded}
       thinking={waitingSince != null && !stopped}
       stopped={stopped}
+      agencyStopped={agencyHeld}
       sendError={sendError}
       onSend={send}
       approvalOutcomes={approvalOutcomes}
