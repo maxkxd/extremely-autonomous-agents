@@ -17,6 +17,8 @@ import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals } from './approvals.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, apocalypticWait, backstop, scheduledDue, SHORT_RUNS_TO_RELENTLESS } from './ferocity.js';
+
+const SHORT_RUNS_WINDOW_MS = 24 * 3_600_000; // Apocalyptic's slow-down looks back a day at most
 import { fileRequest, settleJoined, toolsFor } from './tools.js';
 import { costOf, isFree, spentThisMonth, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
@@ -319,10 +321,14 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   // instructions, or little work left) make it wait a little longer each time, up to
   // Relentless's pace (ferocity.ts) - rather than starting again every 20 seconds to
   // say the same thing.
+  // Only its own finished runs of the last day count: a failed run has its own
+  // backoff, one a person stopped was cut short on purpose, and a bad week long ago
+  // says nothing about now - it slows down only when something is really wrong.
   if (st.ferocity === APOCALYPTIC) {
     const recent = all<{ ended_at: number | null; acts: number | null; floor: number | null }>(
-      "SELECT ended_at, acts, floor FROM runs WHERE agent_id = ? AND trigger = 'apocalyptic' AND status != 'running' ORDER BY started_at DESC LIMIT ?",
+      "SELECT ended_at, acts, floor FROM runs WHERE agent_id = ? AND trigger = 'apocalyptic' AND status = 'succeeded' AND started_at >= ? ORDER BY started_at DESC LIMIT ?",
       agent.id,
+      now - SHORT_RUNS_WINDOW_MS,
       SHORT_RUNS_TO_RELENTLESS,
     );
     const met = recent.findIndex(r => r.floor == null || (r.acts ?? 0) >= r.floor);

@@ -680,7 +680,8 @@ function reportFailing(ctx: RunCtx, id: string, message: string): boolean {
 const failuresLastHour = (id: string, now: number) => {
   const since = Math.max(now - 3_600_000, one<{ t: number | null }>('SELECT MAX(last_ok) AS t FROM tool_health WHERE tool = ?', id)?.t ?? 0);
   return (
-    (one<{ n: number }>("SELECT COUNT(*) AS n FROM actions WHERE tool = ? AND outcome = 'failed' AND at > ?", id, since)?.n ?? 0) +
+    // One that waited on approval is counted once, by its approval, below.
+    (one<{ n: number }>("SELECT COUNT(*) AS n FROM actions WHERE tool = ? AND outcome = 'failed' AND approval_id IS NULL AND at > ?", id, since)?.n ?? 0) +
     (one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE tool = ? AND result LIKE 'Approved, but it failed%' AND decided_at > ?", id, since)?.n ?? 0)
   );
 };

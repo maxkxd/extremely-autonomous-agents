@@ -23,6 +23,7 @@ export function isToolFailureNote(text: string, tools: string[]): boolean {
   return /\btool\b/.test(t) || tools.some(id => t.includes(id.toLowerCase()) || t.includes(id.split('.').pop()!.toLowerCase()));
 }
 
+const MAX_NOTE = 2000;
 export function remember(agentId: string, text: string, tools: string[], now = Date.now()): { ok: boolean; message: string } {
   const note = text.trim();
   if (!note) return { ok: false, message: 'Nothing to remember.' };
@@ -32,7 +33,9 @@ export function remember(agentId: string, text: string, tools: string[], now = D
       message:
         "Not saved: don't record whether a tool works. The runner tracks every tool's real status and gives it to you at the start of each run, so a note like this would only go stale once the tool is fixed. If a tool is blocking you, file a request (requests.request_resource) instead.",
     };
-  run('INSERT INTO memories (agent_id, text, kind, created_at) VALUES (?, ?, ?, ?)', agentId, note.slice(0, 2000), 'note', now);
+  run('INSERT INTO memories (agent_id, text, kind, created_at) VALUES (?, ?, ?, ?)', agentId, note.slice(0, MAX_NOTE), 'note', now);
+  // Cut, it says so: the agent thought the whole of a long note was kept.
+  if (note.length > MAX_NOTE) return { ok: true, message: `Remembered the first ${MAX_NOTE.toLocaleString('en-US')} characters (of ${note.length.toLocaleString('en-US')}). Put what matters from the rest in another note.` };
   return { ok: true, message: 'Remembered.' };
 }
 

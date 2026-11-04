@@ -76,6 +76,7 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
   const what = `${a.tool} (${argsLine(args)})`;
   const why = note?.trim() ? ` Their note: "${note.trim()}"` : '';
   if (decision === 'rejected') {
+    settleAction(id, 'refused');
     // A go-live turned down: its draft goes too.
     const gone = a.tool === 'engineer.publish_integration' && (await discardDraft(String(args.integration_id)).catch(() => false));
     wake(a.agent_id, 'approval', `A person REJECTED your queued ${what}. It did not happen.${gone ? ' Its draft was discarded (if a version of it was live before, that one is back).' : ''}${why} Take that into account - don't queue the same thing again unchanged.`);
@@ -92,6 +93,7 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
     result = `Approved, but it failed: ${(e as Error).message}`;
   }
   exec('UPDATE approvals SET result = ? WHERE id = ?', result.slice(0, 2000), id);
+  settleAction(id, ok ? 'ok' : 'failed');
   wake(
     a.agent_id,
     'approval',
@@ -102,11 +104,17 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
   return { ok, ran: true, result };
 }
 
+// The action that waited on it says how it ended, not "queued" for good: the tool
+// history (and the Agency Engineer reading it) sees an approved one succeed.
+const settleAction = (approvalId: string, outcome: 'ok' | 'failed' | 'refused') =>
+  exec("UPDATE actions SET outcome = ? WHERE approval_id = ? AND outcome = 'queued'", outcome, approvalId);
+
 // Anything nobody decided in time doesn't happen; its agent hears so.
 export function expireApprovals(now: number, wake: Wake) {
   const due = all<ApprovalRow>("SELECT * FROM approvals WHERE status = 'pending' AND expires_at <= ?", now);
   for (const a of due) {
     exec("UPDATE approvals SET status = 'expired', decided_at = ? WHERE id = ? AND status = 'pending'", now, a.id);
+    settleAction(a.id, 'refused');
     wake(a.agent_id, 'approval', `Your queued ${a.tool} (${argsLine(JSON.parse(a.args))}) EXPIRED: nobody decided in time, so it did not happen. Queue it again only if it still matters.`);
   }
   return due.length;

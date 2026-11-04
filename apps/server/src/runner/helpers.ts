@@ -88,6 +88,7 @@ export function rescued(
 // failed 3 times in a row other than busy; one that recovers is kept behind the new ones while
 // there's room. While any of an agent's models works, they're left alone.
 export const ALLOWANCE_WHAT = 'Your AI has run out of its allowance';
+const MOVED_OFF = 'models_moved_off';
 export async function fillBuiltInModels() {
   const avail = await availableModels().catch(() => []);
   if (!avail.length) return;
@@ -100,7 +101,7 @@ export async function fillBuiltInModels() {
   // has reset by then), it closes, saying so; a monthly one asks again when it next fails.
   exec(
     "UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE what LIKE ? AND status = 'open' AND service IS NOT NULL AND created_at < ?",
-    'Agents moved to another working AI meanwhile. To move one back, pick this AI on its card.',
+    "A day on, a daily allowance has reset. Agents with Auto-switch on moved to another working AI meanwhile and go back once this one works; if it runs out again, you'll hear.",
     Date.now(),
     `${ALLOWANCE_WHAT}%`,
     Date.now() - 24 * 3_600_000,
@@ -115,19 +116,35 @@ export async function fillBuiltInModels() {
   if (!working.length) return;
   const chosen = await allChoices();
   const moved = new Map<string, Set<string>>(); // a connection that went -> where its agents went
+  // Agents moved off their own models, with what they had and what they were moved to.
+  const movedOff = getSetting<Record<string, { had: ModelChoice[]; to: string }>>(MOVED_OFF, {});
+  const sig = (cs: ModelChoice[]) => cs.map(choiceKey).join('|');
   for (const id of await listIds()) {
     const mine = chosen[id] ?? [];
     // Its person turned moving off (its card's switch): its own models stay, working or not.
     if (mine.length && one<{ auto: number | null }>('SELECT auto_models AS auto FROM agent_state WHERE agent_id = ?', id)?.auto === 0) continue;
+    // Moved, and its own models work again: back to them - unless a person has
+    // picked others for it since.
+    const was = movedOff[id];
+    if (was && (sig(mine) !== was.to || was.had.some(works))) {
+      delete movedOff[id];
+      if (sig(mine) === was.to) {
+        await setChoices(id, was.had);
+        console.log(`${id}: its own models work again; back on ${was.had.map(choiceKey).join(', ')}`);
+        continue;
+      }
+    }
     const next = rescued(mine, working, works, WANTS[id] ?? 'strong');
     if (!next) continue;
     const meta = await readMeta(id);
     if (!meta || meta.status === 'setting-up') continue;
     await setChoices(id, next);
+    if (mine.length) movedOff[id] = { had: movedOff[id]?.had ?? mine, to: sig(next) };
     if (mine.length) console.log(`${id}: none of its models worked (${mine.map(choiceKey).join(', ')}); now ${next.map(choiceKey).join(', ')}`);
     const to = next.map(n => avail.find(a => a.connection === n.connection)?.name ?? n.connection);
     for (const c of mine) if (!avail.some(a => a.connection === c.connection)) moved.set(c.connection, new Set([...(moved.get(c.connection) ?? []), ...to]));
   }
+  setSetting(MOVED_OFF, movedOff);
   // Moved off a connection that went (Claude Code signed out): said, since its
   // agents may now be on a pay-per-use key instead of a plan.
   const byPerson = getSetting<string[]>(DISCONNECTED, []);

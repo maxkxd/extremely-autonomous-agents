@@ -529,7 +529,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
     exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at, resume_from) VALUES (?, ?, ?, ?, ?, ?)', agent.id, trigger, task, due, endedAt, id);
   }
 
-  if (deps.compact && used) void compactMemory(agent, used, deps).catch(() => {});
+  if (deps.compact && used) void compactMemory(agent, used, deps, id).catch(() => {});
   return { id, status, acts, nudges, summary, error };
 }
 
@@ -641,15 +641,28 @@ export function postRun(agentId: string, runId: string, trigger: Trigger, outcom
 
 // Compacts its memory with its own model, once it's past the cap.
 // With the model the run used - an API model directly, or a plan's own loop
-// (Claude Code, Copilot) given no tools.
-export async function compactMemory(agent: AgentDef, model: ModelChoice, deps: RunDeps) {
+// (Claude Code, Copilot) given no tools. What it spends goes on the run it
+// followed (runId), so Usage and the monthly limits count it.
+export async function compactMemory(agent: AgentDef, model: ModelChoice, deps: RunDeps, runId?: string) {
   const adapter = deps.adapter(model.connection);
   const harness = adapter ? null : deps.harness(model.connection);
   if (!adapter && !harness) return;
   await compactIfNeeded(agent.id, async (old, newer) => {
     const text = `NEWER notes (true; for context only):\n${newer.join('\n')}\n\nOLDEST notes to compact:\n${old.join('\n')}`;
-    if (adapter)
-      return (await adapter({ connection: model.connection, model: model.model, system: COMPACT_PROMPT, messages: [{ role: 'user', text }], tools: [], maxTokens: 1500 })).text;
+    if (adapter) {
+      const out = await adapter({ connection: model.connection, model: model.model, system: COMPACT_PROMPT, messages: [{ role: 'user', text }], tools: [], maxTokens: 1500 });
+      const usd = await deps.cost(model.connection, model.model, out.usage.input, out.usage.output);
+      if (runId)
+        exec(
+          'UPDATE runs SET input_tokens = COALESCE(input_tokens, 0) + ?, output_tokens = COALESCE(output_tokens, 0) + ?, cost_usd = CASE WHEN cost_usd IS NULL OR ? IS NULL THEN NULL ELSE cost_usd + ? END WHERE id = ?',
+          out.usage.input,
+          out.usage.output,
+          usd,
+          usd,
+          runId,
+        );
+      return out.text;
+    }
     return (await harness!({ model: model.model, system: COMPACT_PROMPT, opening: text, tools: [], call: async () => ({ content: '', error: true }), next: () => null })).text;
   });
 }

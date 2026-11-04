@@ -134,8 +134,12 @@ export async function fleetReport(now = Date.now(), since = windowStart(now), id
     const counted = all<{ tool: string; n: number }>('SELECT tool, SUM(output) AS n FROM actions WHERE agent_id = ? AND at >= ? AND output > 0 GROUP BY tool ORDER BY n DESC', id, since);
     const total = counted.reduce((s, c) => s + c.n, 0);
     if (total) lines.push(`counted output ${total}: ${counted.map(c => `${c.tool} ${c.n} (${Math.round((100 * c.n) / total)}%)`).join(', ')}`);
-    // Tools failing or refused, with the last error.
-    const bad = all<{ tool: string; outcome: string; n: number }>("SELECT tool, outcome, COUNT(*) AS n FROM actions WHERE agent_id = ? AND at >= ? AND outcome IN ('failed', 'refused') GROUP BY tool, outcome ORDER BY n DESC", id, since);
+    // Tools failing or refused, with the last error. One a person rejected isn't a tool problem.
+    const bad = all<{ tool: string; outcome: string; n: number }>(
+      "SELECT tool, outcome, COUNT(*) AS n FROM actions WHERE agent_id = ? AND at >= ? AND (outcome = 'failed' OR (outcome = 'refused' AND approval_id IS NULL)) GROUP BY tool, outcome ORDER BY n DESC",
+      id,
+      since,
+    );
     for (const b of bad) {
       const last = one<{ last_error: string | null }>('SELECT last_error FROM tool_health WHERE agent_id = ? AND tool = ?', id, b.tool)?.last_error;
       lines.push(`${b.tool} ${b.outcome} ${b.n}x${b.outcome === 'failed' && last ? `: ${short(last, 160)}` : ''}`);
