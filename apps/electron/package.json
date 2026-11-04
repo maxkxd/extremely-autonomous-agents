@@ -55,9 +55,9 @@
       "artifactName": "Extremely-Autonomous-Agents-Setup.${ext}"
     },
     "appx": {
-      "identityName": "WorldAssetRegister.ExtremelyAutonomousAgents",
-      "publisher": "CN=00000000-0000-0000-0000-000000000000",
-      "publisherDisplayName": "World Asset Register",
+      "identityName": "10399WorldAssetRegister.ExtremelyAutonomousAgents",
+      "publisher": "CN=5C0EAB61-D000-441D-86C7-C50C5D95CAA9",
+      "publisherDisplayName": "World AssetRegister",
       "applicationId": "ExtremelyAutonomousAgents",
       "displayName": "Extremely Autonomous Agents",
       "backgroundColor": "#141414",
