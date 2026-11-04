@@ -1007,15 +1007,9 @@ export function Dashboard({
           <ConnectModel title="No AI model is connected, so no agent can run." />
         </div>
       )}
-      {/* Nothing on the page (no agents, or only the hidden built-ins): say so, and where to start. */}
+      {/* Nothing on the page (no agents, or only the hidden built-ins): say so, centred like the other pages' empty states (New agent is in the header). */}
       {agentsKnown && !order.some(id => { const f = AGENTS.find(x => x.id === id); return f && !(hideBuiltIns && f.builtIn); }) && (
-        <div className="dash-empty">
-          <p className="dash-empty-title">No agents here yet</p>
-          <button className={`new-agent-btn${newAgentGlow ? ' first' : ''}`} onClick={() => onNavigate('new-agent')}>
-            <Plus size={14} strokeWidth={2} />
-            New agent
-          </button>
-        </div>
+        <div className="dash-empty">No agents here yet</div>
       )}
       {order.map(id => {
         // Gone from AGENTS already: its slot just plays its exit.

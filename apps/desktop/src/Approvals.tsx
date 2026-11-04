@@ -425,8 +425,6 @@ export function Approvals({
       <div className="main-empty">
         <div>
           {scope === 'all' ? 'No approvals are waiting.' : 'No approvals are waiting on you.'}
-          {/* A first visit: what this page is for. */}
-          <p className="main-empty-sub">When an agent wants to do something you've asked to approve first - send, post, spend - it waits for you here.</p>
         </div>
       </div>
     );

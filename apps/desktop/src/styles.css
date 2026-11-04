@@ -133,7 +133,6 @@ ul { list-style: none; margin: 0; padding: 0; }
 .main-header h1 { margin: 0; font-size: 20px; font-weight: 600; }
 .main-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
 .main-empty { height: 100%; display: grid; place-items: center; color: var(--muted); text-align: center; }
-.main-empty-sub { max-width: 420px; margin: 8px auto 0; font-size: 13px; color: var(--muted); opacity: 0.8; }
 
 /* Resize handle on the sidebar's right edge */
 .resize-handle {
@@ -2144,8 +2143,9 @@ a.sbtn { text-decoration: none; color: inherit; }
 .dm-stopped { margin: 6px 0 0 48px; padding: 9px 12px; border-radius: 8px; font-size: 13px; color: var(--muted); background: var(--surface-hover); }
 .dash-no-ai { margin-bottom: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--sidebar); }
 /* An empty page (no agents, or only the hidden built-ins): what's missing and where to start. */
-.dash-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 48px 8px; text-align: center; }
-.dash-empty-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--text); }
+/* Centred on the page, as Approvals' and Requests' empty states are - whatever sits above it. */
+.dashboard:has(> .dash-empty) { min-height: 100%; position: relative; }
+.dash-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); text-align: center; pointer-events: none; }
 /* Keyboard focus in the app's own accent, not the browser's orange outline. */
 :focus-visible { outline: 2px solid var(--attention); outline-offset: 2px; }
 textarea:focus-visible, input:focus-visible { outline: none; }
