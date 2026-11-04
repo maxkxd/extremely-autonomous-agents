@@ -194,6 +194,9 @@ const dollars = (n: number) =>
 // dashboard's selected time frame, matching the rest of the card - and half as
 // much again: it's meant to come out high (the server's numbers lean high too).
 const OVERESTIMATE = 1.5;
+// Before an agent has any output (or any plan to say): per run at each level, as the
+// server guesses for a plan with no floors (runner/api.ts perRunGuess).
+const START_GUESS = [2, 2, 3, 10, 30];
 function Tuning({
   agent,
   range,
@@ -214,11 +217,11 @@ function Tuning({
   // A real agent: its recent output per run times the runs its own plan gives
   // this level. Placeholder agents use the placeholder schedules.
   // Before any output, a starting guess from the level (the server's), until real runs replace it.
-  const perRun = agent.live ? (agent.perRun ?? agent.perRunGuess?.[level] ?? null) : agent.output.reduce((n, s) => n + s.value, 0) / Math.max(agent.runs, 1);
+  const done = agent.output.reduce((n, s) => n + s.value, 0);
+  const guess = agent.perRunGuess?.[level] ?? START_GUESS[level];
+  const perRun = agent.live ? (agent.perRun ?? guess) : agent.runs > 0 && done > 0 ? done / agent.runs : guess;
   const perDay = agent.live && agent.runsPerDay ? agent.runsPerDay[level] : FEROCITY[level].runsPerDay;
-  const estimate = perRun == null ? null : Math.round(perRun * perDay * rangeDays(range) * OVERESTIMATE);
-  // It runs at its level whatever is connected (it used to say "... until its tools are connected").
-  const cadence = agent.live ? runsLabel(perDay) : FEROCITY[level].cadence;
+  const estimate = Math.round(perRun * perDay * rangeDays(range) * OVERESTIMATE);
 
   return (
     <div className="tuning" title={why ?? undefined}>
@@ -241,12 +244,11 @@ function Tuning({
           aria-valuetext={FEROCITY[level].name}
           style={{ '--fill': `${(level / (FEROCITY.length - 1)) * 100}%` } as React.CSSProperties}
         />
-        <div className="ferocity-est" title={cadence}>
+        <div className="ferocity-est">
           <span className="stat-label">Est. Output:</span>
-          {/* Before it's produced anything there's no output to go by: how often it will run, then.
-              (After runs with nothing to show yet it read "0", as if it would never do anything.)
+          {/* Always a number: before it's produced anything, from its level's starting guess.
               Stopped, it isn't going to run at all. */}
-          <span className="est-value">{stopped ? 'None while stopped' : estimate == null || estimate === 0 ? cadence : count(estimate)}</span>
+          <span className="est-value">{stopped ? 'None while stopped' : count(estimate)}</span>
         </div>
       </div>
     </div>
@@ -270,14 +272,6 @@ function TuningSkeleton() {
       </div>
     </div>
   );
-}
-
-// "About 3 runs a day", "About 1 run a week", "Non-stop: about 400 runs a day".
-function runsLabel(perDay: number): string {
-  if (perDay >= 48) return `Non-stop: about ${Math.round(perDay)} runs a day`;
-  if (perDay >= 1) return `About ${Math.round(perDay * 10) / 10} run${perDay >= 1.05 ? 's' : ''} a day`;
-  const perWeek = perDay * 7;
-  return `About ${Math.round(perWeek * 10) / 10} run${perWeek >= 1.05 ? 's' : ''} a week`;
 }
 
 export function AgentCard({
