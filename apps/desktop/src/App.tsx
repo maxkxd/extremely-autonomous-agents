@@ -694,7 +694,7 @@ function Agency() {
             />
           )}
           {/* The page's help (help/): glows until read; Getting started first. */}
-          {helpTopicFor(view) && <HelpButton key={helpTopicFor(view)} topic={helpTopicFor(view)!} onNavigate={setView} quiet={hasModels === false} />}
+          {helpTopicFor(view) && <HelpButton key={helpTopicFor(view)} topic={helpTopicFor(view)!} onNavigate={setView} quiet={hasModels !== true} />}
           </div>
         </header>
         <div className="main-body" ref={mainBody}>
