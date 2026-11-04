@@ -407,9 +407,10 @@ ul { list-style: none; margin: 0; padding: 0; }
    (sidebar width and window size both change it). */
 .card-slot { position: relative; container-type: inline-size; }
 
-/* Medium: not enough room for name column + two pies + side panel in one row,
-   so the name goes back above the pies. */
-@container (max-width: 1080px) {
+/* Medium: not enough room for name column + two pies + side panel in one row
+   (about 1,370px: 420 + two 284px pies + the side panel), so the name goes back
+   above the pies - at 1080 the pies shrank to half size beside an empty name column. */
+@container (max-width: 1360px) {
   .card-main { flex-direction: column; gap: 14px; }
   .card-head { width: auto; }
   .card-head .card-title { flex-wrap: nowrap; }
@@ -1339,10 +1340,11 @@ ul { list-style: none; margin: 0; padding: 0; }
 .reveal-cancel:hover { background: #1c1c1c; color: var(--text); }
 .reveal-stage { display: flex; flex-direction: column; align-items: center; gap: 34px; width: min(1100px, 100vw - 64px); }
 .reveal-cards { width: 100%; display: flex; flex-direction: column; gap: 22px; }
-.reveal-card { width: 100%; transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); animation: reveal-float 4s ease-in-out 0.6s infinite; }
+.reveal-card { container-type: inline-size; width: 100%; transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); animation: reveal-float 4s ease-in-out 0.6s infinite; }
 .reveal:not(.in) .reveal-card { transform: scale(0.96); }
 .reveal-card .agent-card { box-shadow: 0 0 0 1px #2a2a2a, 0 40px 90px rgba(0, 0, 0, 0.8), 0 0 60px rgba(63, 123, 214, 0.12); }
 @keyframes reveal-float { 50% { transform: translateY(-8px); } }
+/* (A container of its own, so the card lays itself out by its own width, as on the Dashboard - not the window's.) */
 /* Nothing on the preview card is live yet. */
 .agent-card.preview .controls, .agent-card.preview .tuning, .agent-card.preview .head-counts { pointer-events: none; }
 

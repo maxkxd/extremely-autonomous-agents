@@ -218,7 +218,7 @@ function Tuning({
   const perDay = agent.live && agent.runsPerDay ? agent.runsPerDay[level] : FEROCITY[level].runsPerDay;
   const estimate = perRun == null ? null : Math.round(perRun * perDay * rangeDays(range) * OVERESTIMATE);
   // It runs at its level whatever is connected (it used to say "... until its tools are connected").
-  const cadence = agent.live ? runsLabel(perDay) : `${FEROCITY[level].cadence} (placeholder schedule)`;
+  const cadence = agent.live ? runsLabel(perDay) : FEROCITY[level].cadence;
 
   return (
     <div className="tuning" title={why ?? undefined}>
