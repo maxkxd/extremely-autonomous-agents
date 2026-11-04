@@ -124,6 +124,12 @@ success, decides the tool is broken and complains again. Telling the model
    asked for it. `engineer.rewrite_instructions` writes it, closes the request
    and wakes the agent. A tool the change needs is handled as a missing tool.
    The agent works the new way at once, without waiting for the rewrite.
+   A person can also ask the Agency Engineer in its chat to change an agent
+   (its maker, or an owner or admin: `runner/charter.ts` `askerMayChange`).
+   Every rewrite keeps the Charter it replaces (`charter-versions/`, the last
+   10); `engineer.read_agent` lists them and `engineer.restore_instructions`
+   puts one back when a person asks to undo a change. The Engineer always reads
+   the whole Charter, however long.
 
 ## Standby and Stop (agreed 2026-10-29)
 

@@ -9,7 +9,8 @@ import { all, builtInLevels, one, run as exec } from './db.js';
 import { defaultModels } from './defaults.js';
 import { LEVELS } from './ferocity.js';
 import { remember } from './memory.js';
-import { registerTools, type ToolDef } from './tools.js';
+import { fileRequest, INSTRUCTIONS_CHANGE, registerTools, type ToolDef } from './tools.js';
+import { writeCharter } from './charter.js';
 import { DATA_DIR } from '../paths.js';
 
 // The Agency Doctor: the fleet's own check-up. The Agency Engineer answers what
@@ -18,8 +19,8 @@ import { DATA_DIR } from '../paths.js';
 // hitting the same error again and again, asking what it was already told. The
 // Doctor looks for those every couple of hours, from the agency's own records,
 // and gets each one fixed through the channels that already exist: it tells
-// the agent, closes the loop, asks the Agency Engineer (a request), or proposes
-// a rule for the agent's instructions (a person approves). It builds nothing
+// the agent, closes the loop, asks the Agency Engineer (a request), or rewrites
+// the agent's instructions whole, as the Agency Engineer does. It builds nothing
 // and changes no setting itself.
 
 export const DOCTOR = 'doctor';
@@ -29,7 +30,7 @@ const DOCTOR_TOOLS: Record<string, Tier> = {
   'doctor.read_agent': 'T0',
   'doctor.tell_agent': 'T1',
   'doctor.close_request': 'T1',
-  'doctor.propose_rule': 'T2',
+  'doctor.rewrite_instructions': 'T1',
   'doctor.read_memories': 'T0',
   'doctor.tidy_memories': 'T1',
   'requests.request_resource': 'T1',
@@ -39,6 +40,7 @@ const DOCTOR_TOOLS: Record<string, Tier> = {
 const CHARTER = `# CHARTER - Agency Doctor (built in)
 
 You keep the fleet healthy. The Agency Engineer builds and fixes what agents ask for; you find what goes wrong that nobody asks about, and get it fixed. You never build anything or change a setting yourself.
+The agency exists for output: every agent doing as much good, real work as it can. A healthy fleet is one that produces - find what holds output back, and fix it.
 
 ## Every run
 1. doctor.fleet_report. It shows, since your last look: each agent's runs and failures, what its counted output actually was, tools failing again and again, requests filed more than once, requests stuck, and approvals that failed.
@@ -46,7 +48,7 @@ You keep the fleet healthy. The Agency Engineer builds and fixes what agents ask
    - An agent asked for something it was already given or told: doctor.tell_agent with the answer and where it came from, and doctor.close_request on the repeat.
    - An agent keeps filing the same request: find why it's never satisfied. Most often the connection provides differently named tools than the ones the agent holds (it holds docs.read_document; the connection gives drive.read_doc) - read_agent shows both. File a request (requests.request_resource) for the Agency Engineer to rename the connection's tools to the ones the agent expects - say exactly which ids to which - and tell the agent it's being fixed. Close the repeats you can; one with a card waiting for a person isn't yours to close, so say in your summary that the person can reject it.
    - A tool keeps failing the same way: if it's the connection (a required input it calls optional, a wrong address), file a request for the Agency Engineer with the error and what the definition should say - the description, the required inputs, the address. If it's how the agent calls it, doctor.tell_agent how to call it. Often it's both: do both.
-   - An agent meets its target with busywork (most of its counted output is files in its own workspace, notes, or the same small update), or its real job is blocked and it's padding: doctor.propose_rule for it - a short rule, like "Workspace files don't count as outreach: when sending is blocked, say so and stop early."
+   - An agent meets its target with busywork (most of its counted output is files in its own workspace, notes, or the same small update), or its real job is blocked and it's padding, or its instructions keep leading it wrong: rewrite its instructions (doctor.rewrite_instructions) - the whole Charter, changing every line that leads it there, so it works the right way throughout ("workspace files don't count as outreach: when sending is blocked, say so and stop early"). Never just add a rule at the end that the rest contradicts. Keep everything else it says and its voice, and keep it set up for the most good output.
    - Something stuck for hours with nobody acting: say so to whoever holds it - doctor.tell_agent, or a request.
    - An agent says the same thing differently from one run to the next (a venue, a date, a price - doctor.read_agent shows its last five runs): doctor.tell_agent which is right, if its runs or sources show it; otherwise to check before saying it again.
 3. Memories (doctor.read_memories): what agents have learned about the organization and each person, which every agent reads. Tidy them with doctor.tidy_memories:
@@ -70,8 +72,8 @@ output:
     label: agents told
   - action: doctor.close_request
     label: loops closed
-  - action: doctor.propose_rule
-    label: rules proposed
+  - action: doctor.rewrite_instructions
+    label: instructions fixed
 `;
 
 // Its files, rewritten on every start so its rules stay current; models and state left alone.
@@ -86,14 +88,14 @@ export async function ensureDoctor() {
     models,
     tools_allowed: Object.keys(DOCTOR_TOOLS),
     tool_tiers: { ...DOCTOR_TOOLS, ...builtInLevels(DOCTOR) },
-    approval_windows: { 'doctor.propose_rule': { window_seconds: 7 * 86400 } },
+    approval_windows: {},
     new_tools: [],
     // A look every two hours, at every level: it has no target of its own to chase.
     ferocity: { every_hours: [2, 2, 2, 2], soft_floor: 0, floor: 0, apocalyptic_floor: 0, counts: [], hint: '', extra_effort: '' },
   });
   await save(
     { id: DOCTOR, name: 'Agency Doctor', department: 'agency', charter: CHARTER, tools: `# TOOLS - Agency Doctor (built in)\n${tools}`, kpi: KPI, models },
-    { name: 'Agency Doctor', department: 'agency', output: ['agents told', 'loops closed', 'rules proposed'], status: 'ready', builtIn: true },
+    { name: 'Agency Doctor', department: 'agency', output: ['agents told', 'loops closed', 'instructions fixed'], status: 'ready', builtIn: true },
   );
 }
 
@@ -179,21 +181,13 @@ async function readAgent(id: string): Promise<string> {
     `# ${agent.name} (${id}) - ${LEVELS[level] ?? level}`,
     `Counts as output: ${agent.ferocity.counts.join(', ') || agent.output.map(o => o.action).join(', ') || 'nothing set'}`,
     `Tools (level): ${Object.entries(agent.tiers).map(([t, tier]) => `${t} ${tier}`).join(', ')}`,
-    `## Instructions\n${agent.charter.slice(0, 6000)}`,
+    `## Instructions\n${agent.charter}`,
     `## Last runs\n${runs.map(r => `- ${r.trigger}, ${r.status}, ${r.acts}${r.floor != null ? `/${r.floor}` : ''}: ${short(r.summary, 400)}`).join('\n') || '- none'}`,
   ].join('\n\n');
 }
 
 // --- What it does -------------------------------------------------------------------------
 
-const RULES_HEADING = '## Rules from the Agency Doctor';
-export async function addRule(agentId: string, rule: string) {
-  const file = join(DATA, slug(agentId), 'CHARTER.md');
-  const charter = await readFile(file, 'utf8');
-  const line = `- ${rule.trim().replace(/\s+/g, ' ')}`;
-  const next = charter.includes(RULES_HEADING) ? charter.replace(RULES_HEADING, `${RULES_HEADING}\n${line}`) : `${charter.trimEnd()}\n\n${RULES_HEADING}\n${line}\n`;
-  await writeFile(file, next);
-}
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required });
 const str = (description: string) => ({ type: 'string', description });
@@ -304,19 +298,39 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
-    id: 'doctor.propose_rule',
-    tier: 'T2',
-    description: "Propose a short rule for an agent's instructions, for a pattern that keeps going wrong (padding its target, asking what it was told). A person approves; then it's added under \"Rules from the Agency Doctor\".",
-    schema: obj({ agent_id: str('The agent'), rule: str('The rule, one or two plain sentences'), why: str('What you saw that calls for it - the person reads this') }, ['agent_id', 'rule', 'why']),
-    preview: async a => {
-      await ordinaryAgent(String(a.agent_id));
-      return { agent_name: await nameOf(String(a.agent_id)) };
-    },
+    id: 'doctor.rewrite_instructions',
+    tier: 'T1',
+    description: "Replace an agent's whole Charter (doctor.read_agent first), for a pattern that keeps going wrong. The old one is kept, so the Agency Engineer can restore it. The agent is told what changed.",
+    schema: obj(
+      {
+        agent_id: str('The agent'),
+        charter: str('The full new CHARTER.md, # CHARTER - <name> first'),
+        changed: str('For the agent and the person, in a sentence or two: what it does differently now, and what you saw that called for it'),
+      },
+      ['agent_id', 'charter', 'changed'],
+    ),
     impl: async a => {
       const id = String(a.agent_id);
       await ordinaryAgent(id);
-      await addRule(id, String(a.rule));
-      return `Added to ${await nameOf(id)}'s instructions.`;
+      const charter = String(a.charter ?? '').trim();
+      if (!/^# CHARTER\b/.test(charter) || charter.length < 200) throw new Error('charter is the whole new CHARTER.md, starting "# CHARTER - <name>" - not just the change.');
+      await writeCharter(id, charter);
+      remember(id, `From the Agency Doctor: your instructions were rewritten - ${String(a.changed ?? '').slice(0, 1000)}`, []);
+      return `Rewrote ${await nameOf(id)}'s instructions.`;
+    },
+  },
+  // Before its rules went into the whole Charter: an approval still waiting for
+  // one becomes a rewrite by the Agency Engineer, as a person approved it.
+  {
+    id: 'doctor.propose_rule',
+    tier: 'T2',
+    description: 'Replaced by doctor.rewrite_instructions.',
+    schema: obj({ agent_id: str('The agent'), rule: str('The rule'), why: str('Why') }, ['agent_id', 'rule']),
+    impl: async (a, ctx) => {
+      const id = String(a.agent_id);
+      await ordinaryAgent(id);
+      fileRequest(id, null, { what: INSTRUCTIONS_CHANGE, why: `The Agency Doctor saw "${String(a.why ?? '')}" and a person approved this change: "${String(a.rule)}"` }, Date.now(), ctx.wake, true);
+      return `The Agency Engineer will work it into ${await nameOf(id)}'s instructions.`;
     },
   },
 ];

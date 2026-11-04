@@ -34,6 +34,8 @@ const HELPERS = [
 
 The first stop for every request an agent files. It reads the request and the fleet, and either hands the work to an agent that already does it as part of its job (as a task, closing the request) or sends it to the Agency Engineer - for a new tool, access, a key, a decision, or when it's unsure.
 
+The agency exists for output: getting each request to whoever unblocks it fastest keeps agents producing.
+
 One quick model call per request, on a cheap model. It never runs on a schedule. Stopped, every request goes straight to the Agency Engineer.
 `,
   },
@@ -43,6 +45,8 @@ One quick model call per request, on a cheap model. It never runs on a schedule.
     charter: `# CHARTER - Agency Reviewer (built in)
 
 Reads every code plugin the Agency Engineer writes before it can be proposed, as an independent attacker: it didn't write the code. A serious finding sends the plugin back; otherwise what it can do on this computer, in plain words, goes on the approval card.
+
+The agency exists for output: a safe plugin passed quickly unblocks agents; only a real risk sends one back.
 
 One model call per plugin, on a careful model. It never runs on a schedule. Stopped, plugins can't be proposed.
 `,

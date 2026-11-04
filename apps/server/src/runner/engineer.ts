@@ -25,6 +25,7 @@ import { defaultModels } from './defaults.js';
 import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { toolTitle, toolsForPeople, type Tier } from '../catalog.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
+import { askerMayChange, charterVersions, readCharterVersion, writeCharter } from './charter.js';
 import { all, builtInLevels, one, run as exec } from './db.js';
 import { reportDefault, reportDefaultsForPrompt, setReportDefault } from './reports.js';
 import { fileRequest, heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
@@ -42,6 +43,7 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'engineer.close_request': 'T0',
   'engineer.read_agent': 'T0',
   'engineer.rewrite_instructions': 'T1',
+  'engineer.restore_instructions': 'T1',
   'engineer.list_integrations': 'T0',
   'engineer.read_integration': 'T0',
   'engineer.write_integration': 'T0',
@@ -60,10 +62,25 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'web.fetch_page': 'T0',
 };
 
+// An ordinary agent whose instructions may be changed - with no request, only
+// for a person in the Engineer's chat who may (charter.ts askerMayChange).
+async function changeable(agentId: string, fromChat: boolean) {
+  const meta = await readMeta(agentId);
+  if (!meta) throw new Error(`No agent "${agentId}".`);
+  if (meta.builtIn || meta.service || agentId === FLEET_ENGINEER) throw new Error("A built-in agent's instructions can't be rewritten.");
+  if (fromChat) {
+    const may = await askerMayChange(agentId);
+    if (!may.ok) throw new Error(may.why);
+  }
+  return meta;
+}
+
 const CHARTER = `# CHARTER - Agency Engineer
 
 ## Mission
 You are the agency's engineer. Every request an agent files comes to you first. You make sure each one ends well: handed to an agent that can already do it, answered by a tool you build, or put to a person with exactly what only they can do. You are owned by no one; what you build is for the agent that asked, and its owner approves it.
+The agency exists for output: every agent doing as much good work as it can. Everything you do serves that - unblock agents fast, and never leave them waiting on something you could do.
+A request goes to a person only when it truly needs one (a sign-in, a key, a decision only they can make). Everything else you handle yourself, with every tool you have.
 
 ## Two kinds of request
 - Something is missing: the agent needs a tool, an event or an answer it doesn't have. Handle it as below.
@@ -91,12 +108,13 @@ What the person says on one request is true for all of them: one waiting on a qu
 4. Something only a person can do (buy a plan, make an account, decide)? engineer.reply_to_request with the steps, and what you'll do once they're done. Not a tool problem at all, or beyond you? engineer.hand_to_person with why and what they should do.
 
 ## When a person changes how an agent works
-"Rewrite my instructions the way my person asked in my chat": a person told that agent, in its chat, to work differently from now on. They asked for it, so don't ask them to approve the wording or show it to them.
-1. engineer.read_agent for its Charter now.
+It comes two ways: a request "Rewrite my instructions the way my person asked in my chat" (a person told that agent, in its chat, to work differently from now on), or a person asking you, in your chat, to change an agent ("make Outreach lead with premium"). Either way they asked for it, so don't ask them to approve the wording or show it to them - and never hand it to a person: it's yours to do.
+1. engineer.read_agent for its whole Charter now.
 2. Rewrite the whole Charter so what they asked is how it works throughout: change or remove every line that says otherwise (an offer it leads with, a step it skips, an order of work) - never just add a rule at the end that the rest contradicts. Where what they asked and the old Charter disagree, what they asked wins.
 3. Keep everything else it says, its headings and its voice, and keep it set up for the most good output: the change shapes how it works, not how much.
-4. engineer.rewrite_instructions with the whole new Charter and, for the agent, what it does differently. That closes the request.
+4. engineer.rewrite_instructions with the whole new Charter and, for the agent, what it does differently - with the request_id when it came as a request (that closes it), or the agent_id when the person asked in your chat. Only the agent's maker or an owner or admin may change it from your chat: the tool says if they can't, and you tell them who can.
 5. The change needs a tool it doesn't have ("put all data in PostHog")? That's a missing tool too: handle it as one - in the same run - with the request's agent (engineer.give_tools, or build it), after the rewrite.
+6. A person wants a change undone ("put Price Watch back how it was"): read_agent lists its earlier Charters, newest first; engineer.restore_instructions with the one from before that change.
 
 ## Where agents' reports go
 Each person has their own default place for their agents' reports (engineer.list_requests says whose, at the top); an agent goes by its owner's. In an organization a teammate can't open a folder on the host's computer, so one teammate's place is never another's. An agent asking where its reports should go:
@@ -617,38 +635,72 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.rewrite_instructions',
     tier: 'T1',
     description:
-      "Replace an agent's whole Charter, answering a request to change how it works (engineer.read_agent first). The request closes and the agent is woken with what changed. Its next run uses the new Charter.",
+      "Replace an agent's whole Charter (engineer.read_agent first): answering a request to change how it works, or a person asking in your chat. The old one is kept (read_agent lists it, restore_instructions puts it back). The agent is woken with what changed; its next run uses the new Charter.",
     schema: obj(
       {
-        request_id: int('The request it answers'),
+        request_id: int('The request it answers - leave out when a person asked in your chat'),
+        agent_id: str('The agent - needed when there is no request'),
         charter: str('The full new CHARTER.md in Markdown, # CHARTER - <name> first'),
         changed: str('For the agent, in a sentence or two: what it does differently now'),
       },
-      ['request_id', 'charter', 'changed'],
+      ['charter', 'changed'],
     ),
     impl: async (a, ctx) => {
-      const r = openRequest(a.request_id);
-      const meta = await readMeta(r.agent_id);
-      if (!meta || meta.builtIn || meta.service || r.agent_id === FLEET_ENGINEER) throw new Error("A built-in agent's instructions can't be rewritten.");
+      const r = a.request_id != null && a.request_id !== '' ? openRequest(a.request_id) : null;
+      const agentId = r ? r.agent_id : String(a.agent_id ?? '');
+      const meta = await changeable(agentId, !r);
       const charter = String(a.charter ?? '').trim();
       if (!/^# CHARTER\b/.test(charter) || charter.length < 200) throw new Error('charter is the whole new CHARTER.md, starting "# CHARTER - <name>" - not just the change.');
-      await writeFile(join(DATA, slug(r.agent_id), 'CHARTER.md'), `${charter}\n`);
+      await writeCharter(agentId, charter);
       const changed = String(a.changed ?? '').slice(0, 2000);
-      exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", changed, Date.now(), r.id);
-      postToRequest(r.id, 'engineer', `Rewrote ${meta.name}'s instructions: ${changed}`);
-      ctx.wake(r.agent_id, 'request done', `Request #${r.id} is done - your instructions are rewritten: ${changed}`);
-      return `Rewrote ${meta.name}'s instructions; #${r.id} closed.`;
+      if (r) {
+        exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", changed, Date.now(), r.id);
+        postToRequest(r.id, 'engineer', `Rewrote ${meta.name}'s instructions: ${changed}`);
+        ctx.wake(agentId, 'request done', `Request #${r.id} is done - your instructions are rewritten: ${changed}`);
+        return `Rewrote ${meta.name}'s instructions; #${r.id} closed.`;
+      }
+      ctx.wake(agentId, 'request done', `Your instructions were rewritten, as a person asked: ${changed}`);
+      return `Rewrote ${meta.name}'s instructions.`;
+    },
+  },
+  {
+    id: 'engineer.restore_instructions',
+    tier: 'T1',
+    description: "Put back one of an agent's earlier Charters (engineer.read_agent lists them, newest first), when a person asks to undo a change. The one it replaces is kept too.",
+    schema: obj(
+      {
+        agent_id: str('The agent'),
+        version: str('The saved version id from read_agent'),
+        request_id: int('The request it answers, if any'),
+      },
+      ['agent_id', 'version'],
+    ),
+    impl: async (a, ctx) => {
+      const r = a.request_id != null && a.request_id !== '' ? openRequest(a.request_id) : null;
+      const agentId = String(a.agent_id ?? '');
+      const meta = await changeable(agentId, !r);
+      const old = await readCharterVersion(agentId, String(a.version ?? ''));
+      await writeCharter(agentId, old);
+      const said = `Your instructions are back to how they were before ${new Date(Number(a.version)).toLocaleString('en-AU')}.`;
+      if (r) {
+        exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", said, Date.now(), r.id);
+        postToRequest(r.id, 'engineer', `Restored ${meta.name}'s earlier instructions.`);
+      }
+      ctx.wake(agentId, 'request done', said);
+      return `Restored ${meta.name}'s instructions.`;
     },
   },
   {
     id: 'engineer.read_agent',
     tier: 'T0',
-    description: "An agent's Charter and the tools it holds, with their tiers - to judge what it needs, or whether it can take work over.",
+    description: "An agent's whole Charter and the tools it holds, with their tiers - to judge what it needs, or whether it can take work over - and its earlier Charters kept from rewrites.",
     schema: obj({ agent_id: str('The agent id') }, ['agent_id']),
     impl: async a => {
       const agent = await loadAgent(String(a.agent_id));
       if (!agent) throw new Error(`No agent "${a.agent_id}".`);
-      return `${agent.name} (${agent.id})\nTools: ${Object.entries(agent.tiers).map(([t, tier]) => `${t} [${tier}]`).join(', ')}${await missingTools(agent.id)}\n\n${agent.charter.slice(0, 6000)}`;
+      const versions = await charterVersions(agent.id);
+      const kept = versions.length ? `\nEarlier Charters (restore_instructions): ${versions.map(v => `${v.id} (replaced ${new Date(v.at).toISOString().slice(0, 16).replace('T', ' ')})`).join(', ')}` : '';
+      return `${agent.name} (${agent.id})\nTools: ${Object.entries(agent.tiers).map(([t, tier]) => `${t} [${tier}]`).join(', ')}${await missingTools(agent.id)}${kept}\n\n${agent.charter}`;
     },
   },
   {

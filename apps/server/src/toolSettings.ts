@@ -23,7 +23,7 @@ const BUILT_IN_ACTIONS: Record<string, { name: string; does: string }> = {
   'engineer.publish_integration': { name: 'Give agents a new connection', does: 'Turn on a connection the person connected, and give it to the agents waiting for it.' },
   'engineer.give_tools': { name: 'Give an agent tools', does: 'Give an agent tools from a connection that is already on.' },
   'engineer.give_events': { name: 'Wake an agent on events', does: 'Have an agent woken when something happens at a service.' },
-  'doctor.propose_rule': { name: "Add a rule to an agent's instructions", does: 'A short rule for a pattern that keeps going wrong.' },
+  'doctor.rewrite_instructions': { name: "Fix an agent's instructions", does: 'Rewrites them whole, for a pattern that keeps going wrong.' },
   'doctor.tell_agent': { name: 'Tell an agent something', does: 'Put a note in an agent\'s memory.' },
   'doctor.close_request': { name: 'Close a repeated request', does: "Close an agent's request that is a repeat or a loop." },
   'doctor.tidy_memories': { name: 'Tidy what agents have learned', does: 'Merge memories that repeat each other, and remove or correct one that has turned out wrong - about the organization or a person.' },

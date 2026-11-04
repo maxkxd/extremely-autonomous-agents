@@ -130,7 +130,8 @@ export const personFor = (claimed: string) => {
 // --- What each route needs ---
 
 type Level = 'member' | 'admin' | 'local';
-const isAdmin = (a: Actor) => a.role === 'owner' || a.role === 'admin';
+export const isAdminRole = (role: Role | null | undefined) => role === 'owner' || role === 'admin';
+const isAdmin = (a: Actor) => isAdminRole(a.role);
 
 // Reads are for everyone in the organization; writes need an admin unless they're
 // listed as a member's. "local": only from this computer (where it lands, or what it sets, is the machine itself).

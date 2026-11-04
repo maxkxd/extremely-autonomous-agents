@@ -322,7 +322,7 @@ export const runnerRoutes: Record<string, Route> = {
     // Who wrote it (by, byId), so everyone sees the right name on it - not whoever's looking.
     const by = currentActor();
     const now = Date.now();
-    exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", id, JSON.stringify({ kind: 'you', text: text.trim(), by: by.name, byId: by.id }), now);
+    exec("INSERT INTO dm (agent_id, kind, body, at) VALUES (?, 'you', ?, ?)", id, JSON.stringify({ kind: 'you', text: text.trim(), by: by.name, byId: by.id, role: by.role }), now);
     // Stopped (it, or the whole agency): kept, with the app's reply that it's stopped and
     // where to resume it (AgentDM.tsx). The booking waits, so it answers once resumed.
     const stopped = agencyState() === 'stopped' || stateOf(id).state === 'stopped';

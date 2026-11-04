@@ -1053,3 +1053,42 @@ test("a person's change in an agent's chat goes to the Engineer, who rewrites th
   assert.ok(woken.some(w => w.agent === id && w.trigger === 'request done'));
   await rm(dir, { recursive: true, force: true });
 });
+
+test('a rewrite keeps the old Charter; asked in the Engineer chat it needs the right person, and restore puts it back', async () => {
+  const { DATA } = await import('../files.js');
+  const { mkdir, readFile, writeFile } = await import('node:fs/promises');
+  const { charterVersions } = await import('./charter.js');
+  const id = 'zz-pricewatch';
+  const dir = join(DATA, id);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'meta.json'), JSON.stringify({ name: 'Price Watch', ownerId: 'u_sam', owner: 'Sam' }));
+  const first = `# CHARTER - Price Watch\n${'Compares e-bike prices every Monday, step by step. '.repeat(200)}\n`; // well past 6,000 characters
+  await writeFile(join(dir, 'CHARTER.md'), first);
+  await writeFile(join(dir, 'TOOLS.yaml'), 'tool_tiers: {}\n');
+  await writeFile(join(dir, 'KPI.yaml'), 'output: []\n');
+  const woken: string[] = [];
+  const tiers = { 'engineer.read_agent': 'T0', 'engineer.rewrite_instructions': 'T1', 'engineer.restore_instructions': 'T1' } as const;
+  const engineer = { agent: agent({ id: 'fleet-engineer', tiers }), runId: 'r_eng2', level: 0, now: () => Date.now(), fleet: async () => [], wake: (a: string) => void woken.push(a) };
+  const read = await execute(engineer, { id: 'r1', name: 'engineer__read_agent', args: { agent_id: id } }, new Map());
+  assert.ok(read.content.includes(first.trim().slice(-60)), 'read_agent gives the whole Charter');
+  const say = (byId: string, role: string) =>
+    exec("INSERT INTO dm (agent_id, kind, body, at) VALUES ('fleet', 'you', ?, ?)", JSON.stringify({ kind: 'you', text: 'change it', by: byId, byId, role }), Date.now());
+  const charter = `# CHARTER - Price Watch\n${'Full prices only, never club prices. '.repeat(10)}\n`;
+  say('u_jo', 'member');
+  const refused = await execute(engineer, { id: 'w1', name: 'engineer__rewrite_instructions', args: { agent_id: id, charter, changed: 'Full prices only.' } }, new Map());
+  assert.ok(refused.error);
+  assert.match(refused.content, /isn't an admin/);
+  say('u_sam', 'member');
+  const done = await execute(engineer, { id: 'w2', name: 'engineer__rewrite_instructions', args: { agent_id: id, charter, changed: 'Full prices only.' } }, new Map());
+  assert.ok(!done.error, done.content);
+  assert.equal(await readFile(join(dir, 'CHARTER.md'), 'utf8'), `${charter.trim()}\n`);
+  assert.ok(woken.includes(id));
+  const kept = await charterVersions(id);
+  assert.equal(kept.length, 1);
+  const back = await execute(engineer, { id: 'w3', name: 'engineer__restore_instructions', args: { agent_id: id, version: kept[0].id } }, new Map());
+  assert.ok(!back.error, back.content);
+  assert.equal((await readFile(join(dir, 'CHARTER.md'), 'utf8')).trim(), first.trim());
+  assert.equal((await charterVersions(id)).length, 2);
+  exec("DELETE FROM dm WHERE agent_id = 'fleet'");
+  await rm(dir, { recursive: true, force: true });
+});

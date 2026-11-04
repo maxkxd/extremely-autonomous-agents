@@ -73,7 +73,9 @@ decisions don't spend a full engineering run. The Agency Doctor looks at the
 whole fleet every two hours for what nobody files a request about - loops,
 busywork, the same error again and again, asking what was already answered -
 and gets each fixed through a note to the agent, closing the loop, a request
-for the Agency Engineer, or a rule a person approves. Built-ins take no tasks
+for the Agency Engineer, or rewriting the agent's whole Charter the way the
+Agency Engineer does (no appended rules: the rest of a Charter would contradict
+them). Every built-in knows the agency exists for output. Built-ins take no tasks
 from other agents, and their actions on the fleet have levels in Settings >
 Tools like any tool.
 
