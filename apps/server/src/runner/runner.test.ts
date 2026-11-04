@@ -989,6 +989,22 @@ test("a new agent whose every connector was turned down isn't ready", async () =
   assert.equal(one<{ state: string }>("SELECT state FROM agent_state WHERE agent_id = 'zz-refused'")?.state, 'stopped');
 });
 
+test("a setup item turned down with an alternative: the Engineer picks it back up and renames it on the card", async () => {
+  const { setups } = await import('./setup.js');
+  exec("INSERT INTO agent_state (agent_id, state, setup, updated_at) VALUES ('zz-alt', 'stopped', 1, 0)");
+  const id = Number(exec("INSERT INTO requests (agent_id, what, why, status, created_at, setup, service, stars) VALUES ('zz-alt', 'Set up a CRM', 'x', 'rejected', 0, 1, 'crm', 4)").lastInsertRowid);
+  assert.equal((await setups())['zz-alt']?.items.length ?? 0, 0);
+  const engineer = { agent: agent({ id: 'fleet-engineer', tiers: { 'engineer.reply_to_request': 'T0' } }), runId: 'r_alt', level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} };
+  const r = await execute(engineer, { id: 'a1', name: 'engineer__reply_to_request', args: { request_id: id, message: 'A Google Sheet it is. 1. Share the sheet.', setup_name: 'Spreadsheet' } }, new Map());
+  assert.ok(!r.error, r.content);
+  const item = (await setups())['zz-alt'].items[0];
+  assert.equal(item.name, 'Spreadsheet');
+  assert.equal(item.requestId, id);
+  assert.equal(one<{ status: string }>('SELECT status FROM requests WHERE id = ?', id)!.status, 'open');
+  exec("DELETE FROM requests WHERE agent_id = 'zz-alt'");
+  exec("DELETE FROM agent_state WHERE agent_id = 'zz-alt'");
+});
+
 test("a spending limit that stops everything is said once; a plan connected (or the limit raised) closes it", async () => {
   const { capRequest } = await import('./scheduler.js');
   const { setSetting } = await import('./db.js');

@@ -315,7 +315,7 @@ export function AgentCard({
   viewOnly?: boolean;
   noAi?: boolean; // no AI model is connected: nothing can run
   setup?: AgentSetup; // a new agent still in setup: its connectors (AgentSetup.tsx)
-  onOpenRequest?: (id: number) => void;
+  onOpenRequest?: (id: number, reply?: boolean) => void;
   agent: Agent;
   range: TimeRange;
   state: RunState;
@@ -486,7 +486,7 @@ export function AgentCard({
             )}
           </div>
           {/* Under the name: what's left to connect (each gone once it's connected). */}
-          {inSetup && <SetupList setup={setup!} onOpenRequest={id => onOpenRequest?.(id)} onStart={startable ? () => setState('active') : undefined} someoneElse={viewOnly ? agent.owner || 'Its owner' : null} />}
+          {inSetup && <SetupList setup={setup!} onOpenRequest={id => onOpenRequest?.(id)} onSuggest={id => onOpenRequest?.(id, true)} onStart={startable ? () => setState('active') : undefined} someoneElse={viewOnly ? agent.owner || 'Its owner' : null} />}
         </header>
         <div className="card-charts">
           {/* Their time frame, as "Runs · this week" says it beside them. */}
@@ -709,7 +709,7 @@ export function Dashboard({
   agentsKnown = true,
   newAgentGlow = false,
 }: {
-  onOpenRequest: (id: number) => void; // a setup connector's "Go to request"
+  onOpenRequest: (id: number, reply?: boolean) => void; // a setup connector's "Go to request" (reply: Suggest alternative, its reply box ready)
   range: TimeRange;
   hideBuiltIns?: boolean; // the built-ins' cards, off this page only
   agency: AgencyState;

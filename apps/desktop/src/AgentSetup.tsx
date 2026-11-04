@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Play, Star } from 'lucide-react';
+import { ArrowLeftRight, Check, Play, Star } from 'lucide-react';
 import type { AgentSetup } from './builder';
 
 // A new agent's setup, on its card until it's first resumed: the connectors its
@@ -29,11 +29,13 @@ const Stars = ({ n }: { n: number }) => (
 export function SetupList({
   setup,
   onOpenRequest,
+  onSuggest,
   onStart,
   someoneElse = null,
 }: {
   setup: AgentSetup;
   onOpenRequest: (id: number) => void;
+  onSuggest?: (id: number) => void; // Suggest alternative: the request, with its reply box ready
   onStart?: () => void; // ready: what the last item's Start does (the card's Start)
   someoneElse?: string | null;
 }) {
@@ -91,6 +93,17 @@ export function SetupList({
                   Setting up
                 </span>
               ) : (
+                <>
+                  {/* Not one you use? Say what instead: it goes to the Agency Engineer, which changes this item. */}
+                  <button
+                    className="setup-alt"
+                    aria-label="Suggest alternative"
+                    disabled={!!someoneElse || !onSuggest}
+                    title={someoneElse ? `${someoneElse}'s request - only they or an admin can answer it` : 'Suggest alternative: tell the Agency Engineer what you use instead'}
+                    onClick={() => onSuggest?.(i.requestId)}
+                  >
+                    <ArrowLeftRight size={13} strokeWidth={2} />
+                  </button>
                 <button
                   className="setup-go"
                   disabled={!!someoneElse}
@@ -99,6 +112,7 @@ export function SetupList({
                 >
                   Go to request
                 </button>
+                </>
               )}
             </span>
           </li>

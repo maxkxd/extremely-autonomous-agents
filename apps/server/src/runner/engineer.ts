@@ -148,6 +148,7 @@ Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't d
 A no to the way you picked (HubSpot) is rarely a no to what the agent needs (somewhere to keep its leads). Never let one leave an agent stuck with nothing to do.
 1. They said why: act on it. They use something else (Zoho, not HubSpot)? Build or connect that instead. They don't want it at all? Tell the agent with tasks.delegate_task to carry on without it, and how (keep leads in a file in its workspace, say).
 2. They didn't say why: ask them once, with requests.request_resource. In a sentence what the agent needs it for, then 2 to 4 options as a list: the usual alternatives to what you picked, and a simple fallback (a Google Sheet, or keeping it in the agent's own files). They can answer in a word.
+One of a new agent's setup connectors (on its card), turned down or replied to with what they use instead: work on that same request - engineer.ask_for_connection or engineer.reply_to_request with it picks a turned-down one back up - and give setup_name when what it is changed ("Spreadsheet" for a CRM they don't use), so the card shows what they'll really connect. Not using it at all: engineer.close_request with the fallback, and the card ticks it off.
 3. They turn your own ask down, or say it isn't needed: tell the agent with tasks.delegate_task to carry on with the fallback, and leave it there - don't ask again.
 
 ## Talking to the person
@@ -371,6 +372,24 @@ const int = (description: string) => ({ type: 'number', description });
 const starsArg = int(
   "How much this connection helps the asking agent, 1-5 (read its instructions): 5 = it can't do its main job without it, 3 = a real part of its work, 1 = a nice extra. Shown on the agent's setup list, highest first. Needed on a setup request (\"Set up ...\") not yet rated.",
 );
+// A setup item the person answered with something else ("we don't use Gmail, we use
+// Outlook"): its new name on the agent's card - what it is, not a product.
+const setupNameArg = str("Only for one of an agent's setup connectors (on its card), when the person's answer changed what it is: what the card calls it now - what it is (\"Spreadsheet\", \"Email\"), not a product");
+function rename(r: RequestRow, name: unknown) {
+  const n = String(name ?? '').trim().slice(0, 40);
+  if (n && r.setup) exec('UPDATE requests SET setup_name = ? WHERE id = ?', n, r.id);
+}
+// One of an agent's setup connectors the person turned down, saying what they use
+// instead: picked back up with that, on the same card - not left as a gap.
+const reworkable = (raw: unknown): RequestRow => {
+  const r = one<RequestRow>('SELECT * FROM requests WHERE id = ?', Number(raw));
+  if (r?.status === 'rejected' && r.setup && one<{ setup: number | null }>('SELECT setup FROM agent_state WHERE agent_id = ?', r.agent_id)?.setup) {
+    exec("UPDATE requests SET status = 'open', answered_at = NULL, stage = 'engineer' WHERE id = ?", r.id);
+    return { ...r, status: 'open' };
+  }
+  return openRequest(raw);
+};
+
 export function rate(r: RequestRow, stars: unknown) {
   if (stars != null && stars !== '') {
     exec('UPDATE requests SET stars = ? WHERE id = ?', Math.max(1, Math.min(5, Math.round(Number(stars) || 3))), r.id);
@@ -603,10 +622,11 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.reply_to_request',
     tier: 'T0',
     description: 'Write to the person on a request: a question, or the steps only they can do and what you will do once they are done. It then waits on them.',
-    schema: obj({ request_id: int('The request number'), message: str('Plain text, about 5 sentences: what you did and why, then numbered steps. No research story.'), stars: starsArg }, ['request_id', 'message']),
+    schema: obj({ request_id: int('The request number'), message: str('Plain text, about 5 sentences: what you did and why, then numbered steps. No research story.'), stars: starsArg, setup_name: setupNameArg }, ['request_id', 'message']),
     impl: async a => {
-      const r = openRequest(a.request_id);
+      const r = reworkable(a.request_id);
       rate(r, a.stars);
+      rename(r, a.setup_name);
       postToRequest(r.id, 'engineer', String(a.message));
       setStage(r.id, 'waiting_you');
       return `Posted on request #${r.id}; it now waits on the person. You'll be woken when they reply.`;
@@ -629,10 +649,11 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.close_request',
     tier: 'T0',
     description: 'Close a request that is settled (handed to another agent, or answered). The asking agent is woken with your answer.',
-    schema: obj({ request_id: int('The request number'), answer: str('For the asking agent: what happened and what it can do now'), stars: starsArg }, ['request_id', 'answer']),
+    schema: obj({ request_id: int('The request number'), answer: str('For the asking agent: what happened and what it can do now'), stars: starsArg, setup_name: setupNameArg }, ['request_id', 'answer']),
     impl: async (a, ctx) => {
       const r = openRequest(a.request_id);
       rate(r, a.stars);
+      rename(r, a.setup_name);
       const answer = String(a.answer).slice(0, 4000);
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
       postToRequest(r.id, 'engineer', answer);
@@ -834,12 +855,14 @@ const TOOLS: ToolDef[] = [
         request_id: int('The request it answers'),
         message: str('One or two sentences on what it is and why it is the best way, then the steps, numbered'),
         stars: starsArg,
+        setup_name: setupNameArg,
       },
       ['integration_id', 'request_id', 'message', 'stars'],
     ),
     impl: async a => {
-      const r = openRequest(a.request_id);
+      const r = reworkable(a.request_id);
       rate(r, a.stars ?? 3);
+      rename(r, a.setup_name);
       const i = (await listIntegrations()).find(x => x.id === String(a.integration_id));
       if (!i) throw new Error(`No integration "${a.integration_id}".`);
       // Asked already: the person has the steps - saying them again is noise.

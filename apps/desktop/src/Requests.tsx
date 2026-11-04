@@ -98,6 +98,7 @@ function RequestRow({
   onOpenApprovals,
   refs,
   spotlight,
+  replyFirst = false,
   onFocused,
 }: {
   request: ResourceRequest;
@@ -107,6 +108,7 @@ function RequestRow({
   onOpenApprovals: (approvalId?: string | null) => void; // takes you to that approval
   refs: RequestRefs; // other requests named in its text, as links
   spotlight: boolean; // you came here for this one - open it, centre it and glow
+  replyFirst?: boolean; // and to suggest something else: the reply box focused
   onFocused: () => void;
 }) {
   const agent = agentOf(request);
@@ -117,6 +119,8 @@ function RequestRow({
   const [open, setOpen] = useState(!theirs && (request.stage === 'waiting_you' || request.stage === 'person'));
   // Arriving for this one (a link from another request): open, centred, a blue glow.
   const wrapRef = useRef<HTMLDivElement>(null);
+  const replyRef = useRef<HTMLTextAreaElement>(null);
+  const [suggesting, setSuggesting] = useState(false);
   const [spotlit, setSpotlit] = useState(false);
   useEffect(() => {
     if (!spotlight) return;
@@ -124,6 +128,7 @@ function RequestRow({
     // Once it's open (0.28s), its top into view: an open request can be taller than the window.
     window.setTimeout(() => wrapRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 320);
     setSpotlit(true);
+    if (replyFirst) (setSuggesting(true), window.setTimeout(() => replyRef.current?.focus({ preventScroll: true }), 360));
     onFocused();
     window.setTimeout(() => setSpotlit(false), 2600);
   }, [spotlight]);
@@ -277,9 +282,10 @@ function RequestRow({
                 {open && !leaving && (
                   <div className="eng-composer">
                     <textarea
+                      ref={replyRef}
                       className="reject-reason"
                       rows={2}
-                      placeholder="Reply to the Agency Engineer"
+                      placeholder={suggesting ? 'What do you use instead? The Agency Engineer sets that up' : 'Reply to the Agency Engineer'}
                       disabled={!!off}
                       title={off ?? undefined}
                       value={draft}
@@ -463,6 +469,7 @@ export function Requests({
   onOpenApprovals,
   refs,
   focus,
+  focusReply = false,
   onFocused,
   loading = false,
 }: {
@@ -474,6 +481,7 @@ export function Requests({
   onOpenApprovals: (approvalId?: string | null) => void;
   refs: RequestRefs;
   focus: number | null; // the request to bring into view (its number)
+  focusReply?: boolean; // and its reply box ready to type in (Suggest alternative on a setup item)
   onFocused: () => void;
   loading?: boolean; // the list isn't in yet: placeholders, not "nothing waiting"
 }) {
@@ -528,6 +536,7 @@ export function Requests({
       onOpenApprovals={onOpenApprovals}
       refs={refs}
       spotlight={r.live === focus}
+      replyFirst={r.live === focus && focusReply}
       onFocused={onFocused}
     />
   );

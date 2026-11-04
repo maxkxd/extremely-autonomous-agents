@@ -60,9 +60,9 @@ export async function setups(): Promise<Record<string, AgentSetup>> {
   const connected = new Set((await listIntegrations()).filter(i => i.connected).map(i => i.id));
   const out: Record<string, AgentSetup> = {};
   for (const id of agents) {
-    const rows = all<{ id: number; what: string; status: string; stage: string | null; waiting_on: string | null; service: string | null; stars: number | null }>(
+    const rows = all<{ id: number; what: string; status: string; stage: string | null; waiting_on: string | null; service: string | null; stars: number | null; setup_name: string | null }>(
       // One joined to another agent's (one request per connection) stands as that one does.
-      `SELECT r.id, r.what, r.status, CASE WHEN r.stage = 'joined' THEN p.stage ELSE r.stage END AS stage, COALESCE(r.waiting_on, p.waiting_on) AS waiting_on, r.service, COALESCE(r.stars, p.stars) AS stars
+      `SELECT r.id, r.what, r.status, CASE WHEN r.stage = 'joined' THEN p.stage ELSE r.stage END AS stage, COALESCE(r.waiting_on, p.waiting_on) AS waiting_on, r.service, COALESCE(r.stars, p.stars) AS stars, r.setup_name
        FROM requests r LEFT JOIN requests p ON p.id = r.joined_to WHERE r.agent_id = ? AND r.setup = 1 AND r.status IN ('open', 'done') ORDER BY r.id`,
       id,
     );
@@ -70,7 +70,8 @@ export async function setups(): Promise<Record<string, AgentSetup>> {
     // No stars until the Agency Engineer has rated it (ask_for_connection).
     const items = new Map<string, SetupItem>();
     for (const r of rows) {
-      const name = generic(r.service, r.what);
+      // The Agency Engineer's name for it, once the person's answer changed what it is.
+      const name = r.setup_name || generic(r.service, r.what);
       const done = r.status === 'done' || (!!r.waiting_on && connected.has(r.waiting_on));
       const had = items.get(name);
       const item: SetupItem = had

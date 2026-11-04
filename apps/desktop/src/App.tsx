@@ -447,12 +447,15 @@ function Agency() {
   };
   // Another request named in a request's text: there, open, glowing.
   const [focusRequest, setFocusRequest] = useState<number | null>(null);
-  const openRequest = (live: number) => {
+  // Suggest alternative (a setup item): the reply box ready to type in, too.
+  const [focusReply, setFocusReply] = useState(false);
+  const openRequest = (live: number, reply = false) => {
     const r = openRequests.find(x => x.live === live);
     if (!r) return;
     if (!visibleRequests([r], requestScope).length && isAdmin()) setRequestScope('all');
     setRequestFilter(null);
     setFocusRequest(live);
+    setFocusReply(reply);
     setView('requests');
   };
   // Signing in (for organizations) from anywhere: Settings, the account menu.
@@ -770,7 +773,8 @@ function Agency() {
                 onSettings: openIntegration,
               }}
               focus={focusRequest}
-              onFocused={() => setFocusRequest(null)}
+              focusReply={focusReply}
+              onFocused={() => (setFocusRequest(null), setFocusReply(false))}
             />
           ) : view === 'new-agent' ? (
             <NewAgent

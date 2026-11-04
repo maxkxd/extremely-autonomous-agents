@@ -40,6 +40,9 @@ export function openDb(path = FILE): DatabaseSync {
     // added, the kind of service each is for (crm), and how much each helps it (1-5,
     // the Agency Engineer's call). The agent stays stopped, in setup, until first resumed.
     'ALTER TABLE requests ADD COLUMN setup INTEGER',
+    // What a setup item is called on its agent's card, when the Agency Engineer changed it
+    // from the person's answer ("Spreadsheet" for a "CRM" they don't use).
+    'ALTER TABLE requests ADD COLUMN setup_name TEXT',
     'ALTER TABLE requests ADD COLUMN service TEXT',
     'ALTER TABLE requests ADD COLUMN stars INTEGER',
     'ALTER TABLE agent_state ADD COLUMN setup INTEGER',

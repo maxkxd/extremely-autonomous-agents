@@ -213,6 +213,11 @@ opening says what it already did, so nothing is done twice.
 - **Handing work over**: never to an agent that's stopped or on standby - it
   wouldn't start on it. The Agency Conductor leaves them out (the request goes to
   the Agency Engineer), and `tasks.delegate_task` refuses with why.
+- **A setup item the person doesn't use**: its Suggest alternative button opens
+  the request with the reply box ready. A reply - or a reject with a reason - goes
+  to the Agency Engineer, which works on that same request (a turned-down one is
+  picked back up) and can rename the card's item (`setup_name`) to what the
+  person will really connect. No separate flow: the card follows the requests.
 - **Hand-offs are visible**: a hand-off and its result each put a line in both
   agents' chats ("Asked Price Watch: ...", "Price Watch finished: ..."), for
   everyone in the organization to read.
