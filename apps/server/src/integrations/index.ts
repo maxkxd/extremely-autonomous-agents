@@ -150,8 +150,9 @@ async function renewToken(id: string, auth: FieldsAuth, creds: Record<string, st
 // With the definition doing the calling: a live version while its redraft waits
 // reads its own fields (the draft may have dropped one, like a region).
 // A call refused for its token (401) by a signed-in service, though the token looked
-// current: renewed once and tried again, instead of failing until it expires.
-export const REFUSED_TOKEN = /answered 401\b|invalid[_ ]token|token (has )?expired|unauthenticated/i;
+// current: renewed once and tried again, instead of failing until it expires. The
+// built-in modules say it their own way ("Gmail sign-in has expired..."): those too.
+export const REFUSED_TOKEN = /answered 401\b|invalid[_ ]token|token (has )?expired|sign-in has expired|unauthenticated/i;
 // getKey: keyOf, or a test's stand-in (renewing goes over the network).
 export async function withKey(
   integration: Integration,

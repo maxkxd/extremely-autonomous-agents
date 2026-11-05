@@ -362,3 +362,14 @@ test("after an update, a connection that failed before failures went to the Engi
   assert.equal((await listIntegrations()).find(i => i.id === 'zz-old')?.repairing, true);
   await discardDraft('zz-old');
 });
+
+test("the built-in signed-in modules' refused-token messages are ones the renew-and-retry recognises", async () => {
+  const { REFUSED_TOKEN } = await import('./index.js');
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const mod of ['gmail', 'drive']) {
+    const src = await readFile(join(here, 'modules', `${mod}.ts`), 'utf8');
+    const said = /status === 401\) throw new Error\('([^']+)'\)/.exec(src)?.[1];
+    assert.ok(said, `${mod}: no 401 message found`);
+    assert.match(said!, REFUSED_TOKEN, `${mod}'s 401 message isn't recognised`);
+  }
+});
