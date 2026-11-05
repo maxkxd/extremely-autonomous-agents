@@ -20,7 +20,13 @@ process.stdin.on('data', d => {
   while ((i = buf.indexOf('\n')) >= 0) {
     const line = buf.slice(0, i).trim();
     buf = buf.slice(i + 1);
-    if (line) void serve(line).then(out => out && process.stdout.write(out + '\n'));
+    if (line) track(serve(line).then(out => out && process.stdout.write(out + '\n')));
   }
 });
-process.stdin.on('end', () => process.exit(0));
+// Input closed (the AI app quit): finish the answers still on their way, then stop.
+const pending = new Set();
+const track = p => (pending.add(p), p.finally(() => pending.delete(p)));
+process.stdin.on('end', async () => {
+  while (pending.size) await Promise.allSettled([...pending]);
+  process.exit(0);
+});

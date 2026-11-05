@@ -1,0 +1,2 @@
+# The package runs as a program on macOS and Linux too: its #! line must end in LF.
+* text eol=lf

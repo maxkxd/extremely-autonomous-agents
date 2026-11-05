@@ -205,7 +205,7 @@ end-to-end promise. Those people use the local package.
 Built and tested:
 
 - **The package** (`packages/agency-mcp`: `index.js` the program, `lib.js`
-  what it does, `tools.json` the bundled list). 9 tests (`npm test` there):
+  what it does, `tools.json` the bundled list). 10 tests (`npm test` there):
   finding the file, picking an agency, the version, live and bundled tool
   lists, routing with `agency`, refusals, the app closed, a replaced address,
   and a real stdio run.
@@ -219,6 +219,20 @@ Built and tested:
   `list_approvals` and `list_agents` over stdio. An organisation the app had
   reported answered "open the app", as it should with no app window to
   carry it.
+- **In real AI apps** (a throwaway agency with test data, never the real one):
+  - **Claude Code**: answered "what did my sales agent do today and what's
+    waiting on me"; rejected an approval with a note, replied on a request
+    and gave an agent a job, all landing in the agency and in
+    `person_actions`. It also ran through `npx` from a packed copy of the
+    package.
+  - **Cursor**: found the tools, called `list_agencies`, `agency_today`,
+    `list_approvals`, `list_agents` and `list_requests`, and answered
+    correctly.
+  - **VS Code**: started it from `.vscode/mcp.json` and found all 31 tools
+    ("Running | 31 tools"). Its chat needs a Copilot sign-in, so no question
+    was asked there.
+  - That testing found one bug, now fixed: with input closed straight after a
+    call, the program quit before answering.
 
 Not yet:
 
@@ -226,8 +240,13 @@ Not yet:
   repo's workflow as its trusted publisher; add the DNS TXT record for
   `agency.extremely`; run **Publish agency-mcp**; then
   `mcp-publisher publish` with `server.json`, and the submission list above.
-- **Not tried live**: Claude Desktop, Cursor, VS Code and Claude Code
-  themselves, and an organisation through the relay from a second computer.
+- **Not tried live**: Claude Desktop (it can't be restarted while it's in
+  use, and the package is what its one-click connect already does), VS Code's
+  chat (needs Copilot), and an organisation through the relay from a second
+  computer.
+- `npx` with a full Windows path to a local `.tgz` (`npx -y C:/.../x.tgz`)
+  silently does nothing: npm's quirk, not ours. The published name and
+  relative paths work.
 
 The hosted HTTPS endpoint is separate: about 2 to 3 weeks (OAuth, per-org
 routing, rate limits, connector-directory review).

@@ -166,3 +166,14 @@ test('as a program: stdio in and out, as an AI app runs it', async () => {
   assert.equal(replies[0].result.protocolVersion, '2025-06-18');
   assert.equal(replies[2].result.content[0].text, 'own:list_agents:{}');
 });
+
+test('input closed right after a call: the answer still comes before it stops', async () => {
+  both();
+  const bin = fileURLToPath(new URL('../index.js', import.meta.url));
+  const child = spawn(process.execPath, [bin], { env: { ...process.env, EAA_MCP_DISCOVERY: file }, stdio: ['pipe', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.on('data', d => (out += d));
+  child.stdin.end(JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'list_agents', arguments: {} } }) + '\n');
+  await new Promise(r => child.on('exit', r));
+  assert.equal(JSON.parse(out.trim()).result.content[0].text, 'own:list_agents:{}');
+});
