@@ -100,11 +100,11 @@ means:
 - **Silent**: read-only (`readOnlyHint: true`), nothing recorded.
 - **Logged**: recorded in `person_actions`, with a notice in the agent's DM
   channel where it's about an agent.
-- **Approval**: a person confirms it in person. The AI app's own
-  "allow this tool call?" prompt isn't enough: auto-approve settings and YOLO
-  modes skip it. So the host asks through MCP **elicitation**, which goes to
-  the human and not to the model. Where the app doesn't support elicitation,
-  the call is refused and the answer points to the app. (See open question 1.)
+There's no Approval tier for these calls (decided 2026-11-05). The person
+controls which tools their AI app may call, and whether it asks first, in
+that app's own settings, so the host adds no extra confirmation step. That
+includes deciding approvals. Hard-to-undo tools are marked
+`destructiveHint: true`, so AI apps ask before them by default.
 
 Every tool also gets `title`, `readOnlyHint`, `destructiveHint` and
 `idempotentHint` annotations, which Anthropic's directory requires and other
@@ -120,7 +120,7 @@ apps use to decide what to auto-allow. Today `runner/mcp.ts` sends none.
 | `latest_report` | Silent | Its last report: summary, and where it went (file or link, per `reports.ts` destinations) | new |
 | `list_agents`, `read_agent` | Silent | as today | exists |
 | `list_approvals` | Silent | Pending, only the ones that are yours to decide | exists |
-| `decide_approval` | **Approval** | Approve or reject one, with a note. Shows exactly what will run, confirmed by elicitation | new: wraps `decideApproval`, same `requireMakerOrAdmin` check as `POST /api/runner/approvals/decide` |
+| `decide_approval` | Logged (destructive) | Approve or reject one, with a note. The person who decided is recorded as on the Approvals screen | new: wraps `decideApproval`, same `requireMakerOrAdmin` check as `POST /api/runner/approvals/decide` |
 | `list_requests` | Silent | as today | exists |
 | `reply_to_request` | Logged | Write in a request's thread with the Agency Engineer (it wakes) | new: wraps the thread reply in `engineer.ts` |
 | `answer_request` | Logged | Close as done or rejected | exists |
@@ -132,8 +132,7 @@ apps use to decide what to auto-allow. Today `runner/mcp.ts` sends none.
 
 `write_agent_file`, `list_models`, `set_agent_models`, `builder_guide`,
 `check_build`, `create_agent` and the integration tools are **Logged**.
-`delete_agent` and `discard_integration` with `remove_live` are
-**Approval**: they're hard to undo, so they get elicitation as well.
+`delete_agent` and `discard_integration` are Logged and marked destructive.
 Integration-building stays owner and admin only, as now.
 
 That makes about 30 tools, under the point (around 40) where Cursor starts
@@ -198,33 +197,28 @@ end-to-end promise. Those people use the local package.
 | Package: stdio, discovery file, `agency` routing, bundled tool list, offline answers | 2 |
 | App writes and refreshes the discovery file | 0.5 |
 | New tools (`agency_today`, `agent_activity`, `latest_report`, `decide_approval`, `reply_to_request`, `give_task`, `list_agencies`) and annotations | 2.5 |
-| Elicitation for Approval-tier calls, version negotiation | 1 |
+| Version negotiation | 0.5 |
 | Tests: unit, plus live in Claude Desktop, Cursor, VS Code and Claude Code as owner and as a member through the relay | 1.5 |
 | npm, `server.json`, `smithery.yaml`, `.mcpb`, README, release workflow | 1 |
 | Submissions | 0.5 (plus each registry's review wait) |
-| **Total** | **about 9 days** |
+| **Total** | **about 8.5 days** |
 
 The hosted HTTPS endpoint is separate: about 2 to 3 weeks (OAuth, per-org
 routing, rate limits, connector-directory review).
 
 ## Open questions (for the owner)
 
-1. **May an AI app decide approvals at all?** Approvals are the human gate on
-   agents' outside-world actions. Proposal: yes, but only through elicitation
-   (the person confirms in the AI app's own dialog, and the model can't
-   answer it), refused where an app doesn't support elicitation. The
-   alternatives are read-only (today's behaviour) or a Settings switch.
-2. **Package and registry names**: `@extremely/agency-mcp` (is the npm scope
+1. **Package and registry names**: `@extremely/agency-mcp` (is the npm scope
    free or held?), and the registry namespace `agency.extremely/*`, which
    needs a DNS TXT record on extremely.agency that only the owner can add.
-3. **Builder tools in the public package**, or a smaller "talk to your
+2. **Builder tools in the public package**, or a smaller "talk to your
    agency" set by default with the builder set behind a flag?
-4. **Settings UI**: should Connectors show the `npx` command and the
+3. **Settings UI**: should Connectors show the `npx` command and the
    registries' install buttons? That's a UI change, so it's not in the
    estimate until approved.
-5. **Members need their app open** for an org hosted elsewhere (the relay
+4. **Members need their app open** for an org hosted elsewhere (the relay
    session lives in the app). Is that acceptable for v1? The alternative is
    a relay client inside the package, which would mean the package holding
    the org token: more work, and a second place that holds a sign-in.
-6. **macOS and Linux**: the package runs anywhere, but the app is
+5. **macOS and Linux**: the package runs anywhere, but the app is
    Windows-first. Should the registry listings say Windows only for now?
