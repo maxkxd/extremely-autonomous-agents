@@ -79,6 +79,22 @@ CREATE TABLE IF NOT EXISTS connection_failures (
   how TEXT NOT NULL,
   error TEXT NOT NULL
 );
+
+-- Gaps in the app itself, from anyone's agency (app-gaps.ts): general terms and
+-- counts only, each filed as an issue on the product's repository (issue).
+CREATE TABLE IF NOT EXISTS app_gaps (
+  id TEXT PRIMARY KEY,
+  area TEXT NOT NULL,
+  title TEXT NOT NULL,
+  failed TEXT NOT NULL,
+  fix TEXT NOT NULL,
+  tools TEXT NOT NULL,
+  fixed_here TEXT,
+  reports INTEGER NOT NULL,
+  issue INTEGER,
+  first_at BIGINT NOT NULL,
+  last_at BIGINT NOT NULL
+);
 `;
 
 export async function migrate(db: Db) {

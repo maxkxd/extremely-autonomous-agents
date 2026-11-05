@@ -9,7 +9,8 @@ import { all, builtInLevels, one, run as exec } from './db.js';
 import { defaultModels } from './defaults.js';
 import { LEVELS } from './ferocity.js';
 import { remember } from './memory.js';
-import { fileRequest, INSTRUCTIONS_CHANGE, registerTools, type ToolDef } from './tools.js';
+import { fileRequest, INSTRUCTIONS_CHANGE, registerTools, servedHere, type ToolDef } from './tools.js';
+import { appGapTool, gapsForPrompt } from './app-gaps.js';
 import { writeCharter } from './charter.js';
 import { DATA_DIR } from '../paths.js';
 
@@ -33,6 +34,7 @@ const DOCTOR_TOOLS: Record<string, Tier> = {
   'doctor.rewrite_instructions': 'T1',
   'doctor.read_memories': 'T0',
   'doctor.tidy_memories': 'T1',
+  'doctor.report_app_gap': 'T1',
   'requests.request_resource': 'T1',
   'memory.remember': 'T0',
 };
@@ -49,6 +51,7 @@ The agency exists for output: every agent doing as much good, real work as it ca
    - An agent keeps filing the same request: find why it's never satisfied. Most often the connection provides differently named tools than the ones the agent holds (it holds docs.read_document; the connection gives drive.read_doc) - read_agent shows both. File a request (requests.request_resource) for the Agency Engineer to rename the connection's tools to the ones the agent expects - say exactly which ids to which - and tell the agent it's being fixed. Close the repeats you can; one with a card waiting for a person isn't yours to close, so say in your summary that the person can reject it.
    - A tool keeps failing the same way: if it's the connection (a required input it calls optional, a wrong address), file a request for the Agency Engineer with the error and what the definition should say - the description, the required inputs, the address. If it's how the agent calls it, doctor.tell_agent how to call it. Often it's both: do both.
    - An agent meets its target with busywork (most of its counted output is files in its own workspace, notes, or the same small update), or its real job is blocked and it's padding, or its instructions keep leading it wrong: rewrite its instructions (doctor.rewrite_instructions) - the whole Charter, changing every line that leads it there, so it works the right way throughout ("workspace files don't count as outreach: when sending is blocked, say so and stop early"). Never just add a rule at the end that the rest contradicts. Keep everything else it says and its voice, and keep it set up for the most good output.
+   - The app itself falls short - one of its own tools (the report marks them "the app's own") fails the same way across runs or agents, a limit built into the runner stops real work, or runs are scheduled or woken wrong: doctor.report_app_gap, so the app's makers fix it in the official build. General terms only, never whose (no names, sites, emails, accounts). Then get the agents working meanwhile: doctor.tell_agent the way round it, or a request for the Agency Engineer to build one. Already filed (the report lists them): only again with something new.
    - Something stuck for hours with nobody acting: say so to whoever holds it - doctor.tell_agent, or a request.
    - An agent says the same thing differently from one run to the next (a venue, a date, a price - doctor.read_agent shows its last five runs): doctor.tell_agent which is right, if its runs or sources show it; otherwise to check before saying it again.
 3. Memories (doctor.read_memories): what agents have learned about the organization and each person, which every agent reads. Tidy them with doctor.tidy_memories:
@@ -142,7 +145,8 @@ export async function fleetReport(now = Date.now(), since = windowStart(now), id
     );
     for (const b of bad) {
       const last = one<{ last_error: string | null }>('SELECT last_error FROM tool_health WHERE agent_id = ? AND tool = ?', id, b.tool)?.last_error;
-      lines.push(`${b.tool} ${b.outcome} ${b.n}x${b.outcome === 'failed' && last ? `: ${short(last, 160)}` : ''}`);
+      // The app's own tools (not a connection's): a gap there is for its makers (report_app_gap).
+      lines.push(`${b.tool}${servedHere(b.tool) ? " (the app's own)" : ''} ${b.outcome} ${b.n}x${b.outcome === 'failed' && last ? `: ${short(last, 160)}` : ''}`);
     }
     // The same request filed more than once in the last week.
     const repeats = all<{ what: string; n: number; ids: string }>(
@@ -169,6 +173,9 @@ export async function fleetReport(now = Date.now(), since = windowStart(now), id
   );
   if (failedApprovals.length) out.push(`## Approvals that failed when approved\n${failedApprovals.map(a => `- ${a.agent_id}: ${a.tool} - ${short(a.result, 160)}`).join('\n')}`);
   const waiting = all<{ agent_id: string; tool: string; created_at: number }>("SELECT agent_id, tool, created_at FROM approvals WHERE status = 'pending' ORDER BY created_at");
+  const gaps = gapsForPrompt();
+  if (gaps) out.push(`## Gaps in the app already reported (doctor.report_app_gap)
+${gaps}`);
   if (waiting.length) out.push(`## Waiting for a person\n${waiting.map(a => `- ${a.agent_id}: ${a.tool} (${ago(a.created_at, now)})`).join('\n')}`);
   return out.length > 1 ? out.join('\n\n') : `${out[0]} Nothing happened in the fleet.`;
 }
@@ -325,6 +332,7 @@ const TOOLS: ToolDef[] = [
       return `Rewrote ${await nameOf(id)}'s instructions.`;
     },
   },
+  appGapTool('doctor.report_app_gap'),
   // Before its rules went into the whole Charter: an approval still waiting for
   // one becomes a rewrite by the Agency Engineer, as a person approved it.
   {

@@ -287,6 +287,29 @@ CREATE TABLE IF NOT EXISTS passwords (
   note TEXT,
   created_at INTEGER NOT NULL
 );
+
+-- Gaps in the app itself (runner/app-gaps.ts): a built-in tool or the runner
+-- falling short, found by the Agency Engineer or Doctor. Kept here in full; only
+-- the public fields (area, title, failed, fix, tools, fixed_here) leave the computer.
+CREATE TABLE IF NOT EXISTS app_gaps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL UNIQUE,
+  area TEXT NOT NULL,
+  title TEXT NOT NULL,
+  failed TEXT NOT NULL,
+  fix TEXT NOT NULL,
+  tools TEXT NOT NULL,              -- JSON: the app's own tool ids involved
+  fixed_here TEXT,                  -- what was built here to get round it, once it was
+  evidence TEXT,                    -- private: run summaries, errors (never sent)
+  agents TEXT NOT NULL,             -- JSON: agents it hit (never sent)
+  runs TEXT NOT NULL,               -- JSON: run ids (never sent)
+  request_id INTEGER,               -- the request it came from, if any
+  by_agent TEXT NOT NULL,           -- who filed it: the Engineer or the Doctor
+  seen INTEGER NOT NULL DEFAULT 1,
+  sent_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `;
 
 // Small helpers so callers don't repeat prepare().

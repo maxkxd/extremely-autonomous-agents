@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { after, before, test } from 'node:test';
 import { createLocalJWKSet, exportJWK, generateKeyPair, jwtVerify, SignJWT, type CryptoKey } from 'jose';
 import { createApp } from './app.js';
+import { setGitHubForTests } from './app-gaps.js';
 import { connect, migrate, type Db } from './db.js';
 import { ORG_TOKEN_AUDIENCE, createAuth } from './tokens.js';
 
@@ -286,4 +287,29 @@ test('a connection failure report keeps only its five short fields, from anyone'
   assert.equal((await call(null, 'POST', '/reports/connection-failure', { ...report, kind: 'ftp' })).status, 400);
   const rows = (await db.query<{ service: string; error: string }>('SELECT service, error FROM connection_failures')).rows;
   assert.deepEqual(rows, [{ service: 'zoho', error: 'ENOTFOUND reach getaddrinfo' }]);
+});
+
+test('a gap in the app is kept and filed as one issue; repeats and a fix found in an agency are comments on it', async () => {
+  const sent: { method: string; url: string; body: Record<string, unknown> }[] = [];
+  setGitHubForTests({
+    token: 'test-token',
+    repo: 'owner/product',
+    fetch: (async (url: string, init: RequestInit) => {
+      sent.push({ method: String(init.method), url, body: JSON.parse(String(init.body)) });
+      return new Response(JSON.stringify({ number: 7 }), { status: 201 });
+    }) as typeof fetch,
+  });
+  const gap = { id: '0123456789abcdef', area: 'browser', title: "The browser can't pick from a native dropdown", failed: 'Clicks on options do nothing.', fix: 'A tool that picks an option by label.', tools: ['signed_in_browser.click'], fixed_here: null, seen: 3, agents: 1, runs: 3 };
+  assert.equal((await call(null, 'POST', '/reports/app-gap', gap)).status, 200);
+  assert.equal((await call(null, 'POST', '/reports/app-gap', gap)).status, 200);
+  assert.equal((await call(null, 'POST', '/reports/app-gap', { ...gap, fixed_here: 'A plugin that sets the value and fires change.' })).status, 200);
+  assert.deepEqual(sent.map(s => [s.method, s.url.replace('https://api.github.com/repos/owner/product', '')]), [['POST', '/issues'], ['POST', '/issues/7/comments'], ['POST', '/issues/7/comments']]);
+  assert.match(String(sent[0].body.title), /^App gap: /);
+  assert.match(String(sent[2].body.body), /Fixed in an agency.*A plugin that sets the value/s);
+  // Anything that could identify someone, or mention them on GitHub, is refused.
+  for (const bad of [{ title: 'Ask @someone' }, { failed: 'on https://example.com' }, { fix: 'a path, C:\\Users' }, { area: 'mail' }, { tools: ['Not A Tool'] }, { id: 'x' }])
+    assert.equal((await call(null, 'POST', '/reports/app-gap', { ...gap, ...bad })).status, 400, JSON.stringify(bad));
+  const row = (await db.query<{ reports: number; issue: number; fixed_here: string }>('SELECT reports, issue, fixed_here FROM app_gaps')).rows[0];
+  assert.deepEqual({ ...row }, { reports: 3, issue: 7, fixed_here: 'A plugin that sets the value and fires change.' });
+  setGitHubForTests(null);
 });

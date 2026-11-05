@@ -47,13 +47,19 @@ export function errorKind(message: string): string {
 const clean = (s: string, max: number) => s.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, max);
 
 export function reportFailure(f: { service: string; kind: string; auth: string; how: string; message: string }) {
-  const url = backendUrl();
-  if (!url) return;
   const body = { service: clean(f.service, 40), kind: clean(f.kind, 10), auth: clean(f.auth, 12), how: clean(f.how, 10), error: errorKind(f.message) };
-  void fetch(`${url}/reports/connection-failure`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10_000),
-  }).catch(() => {});
+  void sendReport('/reports/connection-failure', body);
+}
+
+// One report to our backend; false when this copy has none (a development copy)
+// or it didn't arrive. Callers send only what they've already made safe.
+// to: a test's stand-in for the backend.
+export async function sendReport(path: string, body: Record<string, unknown>, to: string | null = backendUrl()): Promise<boolean> {
+  if (!to) return false;
+  try {
+    const r = await fetch(`${to}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+    return r.ok;
+  } catch {
+    return false;
+  }
 }
