@@ -46,6 +46,7 @@ export const clientParams = (s: OAuthSecret): Record<string, string> => {
 };
 
 const pending = new Map<string, { id: string; auth: OAuthDef; verifier: string; at: number }>();
+export const SIGN_IN_LIFE_MS = 30 * 60_000;
 
 // Saves the person's OAuth client and returns the address to sign in at.
 export async function oauthStart(id: string, auth: OAuthDef, client?: { clientId?: string; clientSecret?: string }, keep?: Partial<OAuthSecret>): Promise<string> {
@@ -55,7 +56,9 @@ export async function oauthStart(id: string, auth: OAuthDef, client?: { clientId
   const clientSecret = client?.clientSecret?.trim() || (client?.clientId?.trim() ? undefined : prev?.clientSecret);
   // A new client starts a clean sign-in; the same one keeps its tokens until replaced.
   await setSecret(secretKey(id), { ...(clientId === prev?.clientId ? { ...prev, clientSecret: clientSecret ?? prev.clientSecret } : { clientId, clientSecret }), ...keep });
-  for (const [k, p] of pending) if (Date.now() - p.at > 10 * 60_000) pending.delete(k);
+  // Kept 30 minutes: picking an account, a code on the phone or making an account can
+  // take longer than 10, and the person then came back to "That sign-in has expired".
+  for (const [k, p] of pending) if (Date.now() - p.at > SIGN_IN_LIFE_MS) pending.delete(k);
   const verifier = randomBytes(32).toString('base64url');
   const state = randomBytes(16).toString('base64url');
   pending.set(state, { id, auth, verifier, at: Date.now() });

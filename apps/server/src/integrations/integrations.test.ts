@@ -273,3 +273,11 @@ test('every "Settings > ..." place the app tells people or agents about is a rea
     for (const m of (await readFile(f, "utf8")).matchAll(/(-> )?Settings > ([A-Z][A-Za-z]+)/g)) if (!m[1] && !sections.has(m[2])) wrong.push(`${f.slice(src.length)}: Settings > ${m[2]}`);
   assert.deepEqual(wrong, []);
 });
+
+test("a sign-in stays open long enough for a person (30 minutes), and isn't reported as lost while it is", async () => {
+  const { SIGN_IN_LIFE_MS } = await import('./oauth.js');
+  const src = await readFile(join(dirname(fileURLToPath(import.meta.url)), 'index.ts'), 'utf8');
+  assert.ok(SIGN_IN_LIFE_MS >= 30 * 60_000);
+  // The "never came back" report waits for the sign-in itself to have lapsed.
+  assert.match(src, /const SIGN_IN_WAIT_MS = SIGN_IN_LIFE_MS \+/);
+});

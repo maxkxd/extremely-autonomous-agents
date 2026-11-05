@@ -20,7 +20,7 @@ import { discoverMcpSignIn } from './mcp-auth.js';
 import { stopStdioServer } from './mcp-stdio.js';
 import { preflight } from './preflight.js';
 import { reportFailure } from './report.js';
-import { oauthAccessToken, oauthCallback, oauthSecret, pendingSignIn, whenSignInEnded, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
+import { oauthAccessToken, oauthCallback, oauthSecret, pendingSignIn, SIGN_IN_LIFE_MS, whenSignInEnded, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
 import { Integration, type EventDefT, type HttpIntegration, type McpIntegration, type AuthDef } from './schema.js';
 import { sharedClient } from './shared-clients.js';
 import { DATA_DIR } from '../paths.js';
@@ -548,14 +548,15 @@ function ourClient(id: string) {
 // Signing in (OAuth): the person's OAuth client in, the service's sign-in page out.
 // A sign-in that can't start, or that never comes back (the service showed an error on
 // its own page, as Zoho's does), goes to the Agency Engineer.
-const SIGN_IN_WAIT_MS = 15 * 60_000;
+// After the sign-in itself has lapsed (oauth.ts), not while the person may still be on it.
+const SIGN_IN_WAIT_MS = SIGN_IN_LIFE_MS + 5 * 60_000;
 export async function startIntegrationSignIn(id: string, client: { clientId?: string; clientSecret?: string }) {
   try {
     const r = await signInUrl(id, client);
     const startedAt = Date.now();
     setTimeout(() => {
       if (!isConnected(id) && (states()[id]?.test?.at ?? 0) < startedAt)
-        failed(id, 'sign-in', "The person opened the sign-in 15 minutes ago and it never came back to the app - the service may have shown an error on its own page, or they gave up on it.");
+        failed(id, 'sign-in', "The person opened the sign-in over half an hour ago and it never came back to the app - the service may have shown an error on its own page, or they gave up on it.");
     }, SIGN_IN_WAIT_MS).unref?.();
     return r;
   } catch (e) {
