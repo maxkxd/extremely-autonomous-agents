@@ -908,6 +908,16 @@ export async function writeDraftIntegration(definition: string, by: string, requ
       }
     }
   }
+  // Every field the person pastes must go somewhere: one in no address, header, query,
+  // sign-in or token step is never sent, and every call fails with a key nobody can see
+  // is missing. (A code plugin gets all of them, so it's not checked.)
+  if ((integration.kind === 'http' || integration.kind === 'mcp') && integration.auth.type === 'fields') {
+    const auth = integration.auth;
+    const used = JSON.stringify([integration.kind === 'http' ? integration.base_url : integration.url, auth.headers, auth.query, auth.basic, auth.token]);
+    const unused = auth.fields.filter(f => !f.optional && !used.includes(`{{${f.name}}}`)).map(f => f.name);
+    if (unused.length)
+      throw new Error(`${unused.map(n => `"${n}"`).join(', ')} ${unused.length > 1 ? "aren't" : "isn't"} used anywhere: put {{${unused[0]}}} where the service wants it (the address, headers, query, basic, or the token step) - otherwise the person pastes it and it's never sent.`);
+  }
   // Programs on this computer, or local addresses, are a person's call alone.
   if (integration.kind === 'mcp' && (integration.command || integration.local))
     throw new Error("MCP servers on this computer (a command, or a local address) can only be added by a person, in Settings > Connectors. Tell them which one and how, with engineer.reply_to_request.");

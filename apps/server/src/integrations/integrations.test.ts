@@ -243,7 +243,7 @@ test("a field in an MCP address's host: under a fixed domain it may be any name 
   const region = 'https://mcp.example.{{region}}/mcp';
   assert.equal(filledUrl(region, 'https://mcp.example.com.au/mcp').host, 'mcp.example.com.au');
   assert.throws(() => filledUrl(server, 'https://evil.com/x?.mcp.example.com/mcp/k/message'), /valid address/);
-  const fields = (extra: object = {}) => ({ type: 'fields', fields: [{ name: 'server', label: 'Server' }, { name: 'key', label: 'Key' }, { name: 'region', label: 'Region', secret: false, ...extra }] });
+  const fields = (extra: object = {}) => ({ type: 'fields', fields: [{ name: 'server', label: 'Server', optional: true }, { name: 'key', label: 'Key', optional: true }, { name: 'region', label: 'Region', secret: false, optional: true, ...extra }] });
   const write = (id: string, auth: object, url: string) => writeDraftIntegration(JSON.stringify({ kind: 'mcp', id, name: id, what: 'x', auth, url }), 'fleet');
   // Under a fixed domain: fine as it is (the Engineer writes these).
   await write('zz-under', fields(), server);
@@ -333,4 +333,14 @@ test("a token step refusing what's saved is told apart from the service being do
   assert.equal(tokenRefused(200, { access_token: 't' }), false);
   assert.equal(tokenRefused(503, null), false);
   assert.equal(tokenRefused(200, null), false);
+});
+
+test("the Engineer can't save a connection with a field that's never sent (the person would paste a key that goes nowhere)", async () => {
+  const { discardDraft, loadIntegrations, writeDraftIntegration } = await import('./index.js');
+  await loadIntegrations();
+  const def = (headers: string) =>
+    `kind: mcp\nid: zz-unused\nname: Unused\nwhat: x\nurl: https://mcp.example.com/mcp\nauth:\n  type: fields\n  fields: [{ name: account, label: Account, secret: false }, { name: api_key, label: Key }]\n${headers}`;
+  await assert.rejects(writeDraftIntegration(def('  headers: { x-account: "{{account}}" }\n'), 'fleet'), /"api_key" isn't used anywhere/);
+  await writeDraftIntegration(def('  headers: { x-account: "{{account}}", authorization: "Bearer {{api_key}}" }\n'), 'fleet');
+  await discardDraft('zz-unused');
 });
