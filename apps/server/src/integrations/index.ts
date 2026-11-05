@@ -852,6 +852,7 @@ export function keyTargets(integration: Integration, code = '', baseUrl?: string
 
 async function targetsOf(integration: Integration): Promise<KeyTargets> {
   if (integration.kind === 'http') return keyTargets(integration, '', baseFor(integration.base_url, integration.auth, await keyOf(integration.id, integration)));
+  if (integration.kind === 'mcp' && integration.url) return keyTargets({ ...integration, url: baseFor(integration.url, integration.auth, await keyOf(integration.id, integration)) });
   if (integration.kind !== 'code') return keyTargets(integration);
   const code = MODULES[integration.module]
     ? await readFile(join(HERE, 'modules', `${integration.module}.ts`), 'utf8').catch(() => '')

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
-import { listMcpTools } from './mcp-client.js';
+import { filledUrl, listMcpTools } from './mcp-client.js';
 import { Integration, type McpIntegration } from './schema.js';
 
 // A streamable-HTTP MCP server at /mcp that answers its old /sse address with
@@ -13,7 +13,8 @@ before(async () => {
   server = createServer((req, res) => {
     let body = '';
     req.on('data', c => (body += c)).on('end', () => {
-      if (req.url !== '/mcp') return res.writeHead(req.url === '/sse' ? 405 : 404).end('Method Not Allowed');
+      // /k-123/mcp: a server whose address carries the person's key (Zoho's).
+      if (req.url !== '/mcp' && req.url !== '/k-123/mcp') return res.writeHead(req.url === '/sse' ? 405 : 404).end('Method Not Allowed');
       const m = JSON.parse(body);
       if (m.id === undefined) return res.writeHead(202).end();
       const result = m.method === 'initialize' ? { protocolVersion: '2025-06-18', capabilities: { tools: {} } } : { tools: [{ name: 'ask', inputSchema: { type: 'object' } }] };
@@ -33,4 +34,20 @@ test('an old .../sse MCP address is tried at .../mcp beside it', async () => {
 
 test('an .../sse address with nothing at .../mcp says what it is', async () => {
   await assert.rejects(listMcpTools(at('/old/sse'), undefined), /old SSE kind of MCP server.*ends in \/mcp/);
+});
+
+test("a sign-in by fields fills the address (Zoho's server name and key), and a field can't move the host", async () => {
+  const zoho = Integration.parse({
+    kind: 'mcp',
+    id: 'zz-fields',
+    name: 'Zoho',
+    what: 'x',
+    auth: { type: 'fields', fields: [{ name: 'token', label: 'Key' }] },
+    url: `${base}/{{token}}/mcp`,
+    local: true,
+  }) as McpIntegration;
+  assert.deepEqual((await listMcpTools(zoho, JSON.stringify({ token: 'k-123' }))).map(t => t.name), ['ask']);
+  const host = 'https://{{server}}.zohomcp.com/mcp/{{api_key}}/message';
+  assert.equal(filledUrl(host, 'https://agency-1234567890.zohomcp.com/mcp/k/message').host, 'agency-1234567890.zohomcp.com');
+  assert.throws(() => filledUrl(host, 'https://evil.com/x?.zohomcp.com/mcp/k/message'), /valid address/);
 });

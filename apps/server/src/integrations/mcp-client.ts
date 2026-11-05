@@ -1,7 +1,7 @@
 import { safeFetch } from '../runner/net.js';
 import { stdioServer } from './mcp-stdio.js';
 import type { McpIntegration } from './schema.js';
-import { authParts } from './http.js';
+import { authParts, baseFor, redact } from './http.js';
 
 // A remote MCP server as an integration (docs/integrations.md): the
 // streamable HTTP transport - JSON-RPC posts, answered as JSON or as an
@@ -17,6 +17,19 @@ async function localFetch(url: string, init: { method?: string; headers?: Record
   return { res, url };
 }
 
+// The address with the person's fields in it, kept on the host the definition names:
+// a field in the host (Zoho's server name) is one plain name, never a way to send
+// the key to another site ("evil.com/x?" as a server name).
+export function filledUrl(template: string, filled: string): URL {
+  const url = new URL(filled);
+  const host = new URL(template).host;
+  if (!host.includes('{{')) return url;
+  const escape = (p: string) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^${host.split(/\{\{\w+\}\}/).map(escape).join('[a-z0-9-]+')}$`, 'i');
+  if (!pattern.test(url.host)) throw new Error(`That doesn't make a valid address for this server (${host}): check the name you pasted - just the name, no dots or slashes.`);
+  return url;
+}
+
 class Session {
   private sessionId: string | null = null;
   private seq = 1;
@@ -27,7 +40,8 @@ class Session {
 
   private async post(body: object, expectReply: boolean): Promise<unknown> {
     const { headers: auth, query } = authParts(this.integration.auth, this.key);
-    const url = new URL(this.integration.url!);
+    // A sign-in by fields can be part of the address (Zoho: https://{{server}}.zohomcp.com/mcp/{{api_key}}/message).
+    const url = filledUrl(this.integration.url!, baseFor(this.integration.url!, this.integration.auth, this.key));
     for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
     // A server the person added on this computer: reached directly (the one
     // exception to agents never reaching local addresses - they chose it).
@@ -47,7 +61,7 @@ class Session {
     this.sessionId = res.headers.get('mcp-session-id') ?? this.sessionId;
     const text = await res.text();
     if (!res.ok) {
-      const safe = this.key ? text.split(this.key).join('[key]') : text;
+      const safe = redact(text, this.integration.auth, this.key);
       throw new Error(`${this.integration.name} answered ${res.status}: ${safe.replace(/\s+/g, ' ').slice(0, 300)}`);
     }
     if (!expectReply) return null;
