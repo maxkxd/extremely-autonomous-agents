@@ -4,7 +4,7 @@ An AI agency that runs on your own computer: a fleet of agents, each with a job,
 its own tools and a schedule, that do real work for a business - and fix,
 extend and look after themselves.
 
-[extremely.agency](https://extremely.agency)
+Not released yet: [join the waitlist at extremely.agency](https://extremely.agency/#waitlist).
 
 ## What it does
 
