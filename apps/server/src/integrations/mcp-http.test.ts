@@ -98,7 +98,7 @@ test('a streamed answer split over several data lines is read whole', async () =
 
 test('a working connection that breaks is noticed by the background check and goes to the Engineer; working again, the flag clears', async () => {
   const { resetDbForTests } = await import('../runner/db.js');
-  const { addIntegration, connectIntegration, listIntegrations, loadIntegrations, recheckStale, removeIntegration, whenConnectFailed } = await import('./index.js');
+  const { addIntegration, connectIntegration, listIntegrations, loadIntegrations, recheckStale, removeIntegration, repairingConnectionOf, whenConnectFailed } = await import('./index.js');
   resetDbForTests();
   await loadIntegrations();
   const told: string[] = [];
@@ -111,8 +111,11 @@ test('a working connection that breaks is noticed by the background check and go
   await recheckStale(Date.now() + day);
   assert.deepEqual(told, ['zz-flaky recheck']);
   assert.equal(await repairing(), true);
+  // Its tools' failures go to that job, not a request per tool on top.
+  assert.equal(repairingConnectionOf('zz-flaky.ask'), 'Flaky');
   up = true;
   await recheckStale(Date.now() + 2 * day);
   assert.equal(await repairing(), false);
+  assert.equal(repairingConnectionOf('zz-flaky.ask'), null);
   await removeIntegration('zz-flaky');
 });

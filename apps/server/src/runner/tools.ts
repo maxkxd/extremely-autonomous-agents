@@ -11,7 +11,7 @@ import { remember } from './memory.js';
 import { SELF_SETTINGS } from './selfsettings.js';
 import type { Call, ToolSpec } from './providers.js';
 import { DATA_DIR } from '../paths.js';
-import { hasIntegration } from '../integrations/index.js';
+import { hasIntegration, repairingConnectionOf } from '../integrations/index.js';
 
 // The tools a run can call (docs/runner.md). Built-in agency tools work for
 // every agent; integration tools (web, email, GitHub...) are added one area
@@ -691,6 +691,9 @@ function reportFailing(ctx: RunCtx, id: string, message: string): boolean {
   if (ctx.agent.id === FLEET_ENGINEER || /^(files|tasks|requests|memory|ops|web|browser|engineer|doctor)\./.test(id)) return false;
   const what = `Fix the tool ${id}: it keeps failing`;
   if (one("SELECT 1 FROM requests WHERE what = ? AND status = 'open'", what)) return true;
+  // Its connection is failing and already with the Engineer: that one job, not a
+  // request per tool on top of it.
+  if (repairingConnectionOf(id)) return true;
   fileRequest(ctx.agent.id, ctx.runId, { what, why: `${id} has failed ${FAILS_PER_RUN} or more times in the last hour (most recently for ${ctx.agent.name}).`, evidence: `Last error: ${message.slice(0, 1500)}` }, ctx.now(), ctx.wake, true);
   return true;
 }

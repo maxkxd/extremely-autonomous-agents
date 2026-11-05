@@ -549,6 +549,12 @@ export const whenDraftConnected = (fn: (id: string, request?: number) => void) =
 let onConnected: ((id: string) => void) | null = null;
 export const whenConnected = (fn: (id: string) => void) => void (onConnected = fn);
 export const toolIdsOf = (id: string) => toolsOf(id).map(([t]) => t);
+// The connection a tool belongs to, when it's failing and the Agency Engineer already
+// has it (whenConnectFailed): its name, else null.
+export function repairingConnectionOf(toolId: string): string | null {
+  for (const { integration } of loaded) if (states()[integration.id]?.repair && toolsOf(integration.id).some(([t]) => t === toolId)) return integration.name;
+  return null;
+}
 // A free no-key mode's limit reached (Tavily's, per hour): the person is asked for a key.
 let onFreeLimit: ((id: string) => void) | null = null;
 export const whenFreeLimit = (fn: (id: string) => void) => void (onFreeLimit = fn);
