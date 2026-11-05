@@ -192,3 +192,23 @@ test("an MCP tool that only reads goes silent by its name however it's written; 
   for (const n of ['create_issue', 'search_and_replace', 'send_email', 'update-page', 'delete_record', 'run_query', 'post_message', 'enrich', 'do_thing', 'checkout'])
     assert.equal(readsByName(n), false, n);
 });
+
+test("a Google sign-in with a permission unticked is caught at sign-in, by name; other services and full grants pass", async () => {
+  const { missingGoogleScopes } = await import('./oauth.js');
+  const google = { type: 'oauth2', authorize_url: 'https://accounts.google.com/o/oauth2/v2/auth', token_url: 'https://oauth2.googleapis.com/token', scopes: ['https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/gmail.settings.basic'] } as never;
+  assert.deepEqual(missingGoogleScopes(google, 'https://www.googleapis.com/auth/gmail.settings.basic'), ['gmail.modify']);
+  assert.deepEqual(missingGoogleScopes(google, 'https://www.googleapis.com/auth/gmail.settings.basic https://www.googleapis.com/auth/gmail.modify openid'), []);
+  assert.deepEqual(missingGoogleScopes(google, undefined), []);
+  // An MCP server's own sign-in may grant less than everything it lists: not Google, not checked.
+  const other = { type: 'oauth2', authorize_url: 'https://auth.example.com/a', token_url: 'https://auth.example.com/t', scopes: ['a', 'b'] } as never;
+  assert.deepEqual(missingGoogleScopes(other, 'a'), []);
+});
+
+test("an address a person pastes themselves may carry their account's code; a wrong path is still caught", async () => {
+  const { preflight } = await import('./preflight.js');
+  const net = { resolve: async () => true, status: async (url: string) => (url.endsWith('/message') ? 401 : 404), own: true };
+  const mine = Integration.parse({ kind: 'mcp', id: 'zz-own', name: 'Own', what: 'x', auth: { type: 'none' }, url: 'https://agency-1234567890.zohomcp.com/mcp/0123456789abcdef0123456789abcdef/message' });
+  assert.equal(await preflight(mine, net), null);
+  const wrong = Integration.parse({ kind: 'mcp', id: 'zz-own', name: 'Own', what: 'x', auth: { type: 'none' }, url: 'https://agency-1234567890.zohomcp.com/mcp/0123456789abcdef0123456789abcdef/wrong' });
+  assert.match((await preflight(wrong, net)) ?? '', /Nothing answers/);
+});

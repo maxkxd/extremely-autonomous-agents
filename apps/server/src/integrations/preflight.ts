@@ -52,7 +52,8 @@ async function resolves(host: string): Promise<boolean> {
 }
 
 // net: how a host resolves and an address answers - the network, or a test's stand-ins.
-export async function preflight(integration: Integration, net: { status?: Status; resolve?: (host: string) => Promise<boolean> } = {}): Promise<string | null> {
+// own: an address a person pasted themselves - theirs, so an account code in it is fine.
+export async function preflight(integration: Integration, net: { status?: Status; resolve?: (host: string) => Promise<boolean>; own?: boolean } = {}): Promise<string | null> {
   const status = net.status ?? initialize;
   const resolve = net.resolve ?? resolves;
   if (integration.kind === 'code') return null;
@@ -61,7 +62,7 @@ export async function preflight(integration: Integration, net: { status?: Status
   if (!address || (integration.kind === 'mcp' && integration.local)) return null;
   const host = new URL(address.replace(/\{\{\w+\}\}/g, 'x')).hostname;
   const hostTemplated = PLACEHOLDER.test(/^https?:\/\/([^/?#]+)/i.exec(address)?.[1] ?? '');
-  if (integration.kind === 'mcp' && integration.auth.type !== 'fields') {
+  if (integration.kind === 'mcp' && integration.auth.type !== 'fields' && !net.own) {
     const code = accountCode(address);
     if (code)
       return `${address.replace(code, '<code>')} has an account's own code in it, so it's one account's own server - not the person's, unless they gave you it themselves. Where every account makes its own server, the person copies their own address in: auth: { type: fields } with the address built from what they paste (as for Zoho Mail). If they did give you this address, keep it but make it a field they paste, so it's theirs.`;

@@ -85,10 +85,20 @@ async function tokenRequest(auth: OAuthDef, body: Record<string, string>) {
     const why = String(json.error_description ?? json.error ?? res.status);
     throw new ConnectError(json.error === 'invalid_grant' ? 'The sign-in has expired or was revoked. Sign in again.' : `Sign-in failed: ${why}`);
   }
-  return json as { access_token: string; refresh_token?: string; expires_in?: number };
+  return json as { access_token: string; refresh_token?: string; expires_in?: number; scope?: string };
 }
 
 // The browser lands here. Returns the integration's id, signed in.
+// Google's consent page lets a person untick a permission, and the sign-in still
+// works - then every call it needed fails ("insufficient authentication scopes"),
+// long after, with nothing saying why. What was asked for and not granted, by name
+// (gmail.modify); only for Google, where granting part is a choice on the page.
+export function missingGoogleScopes(auth: OAuthDef, granted: string | undefined): string[] {
+  if (granted === undefined || !/(^|\.)(googleapis|google)\.com$/.test(new URL(auth.token_url).hostname)) return [];
+  const have = new Set(granted.split(/\s+/).filter(Boolean));
+  return auth.scopes.filter(sc => !have.has(sc)).map(sc => sc.replace(/^https:\/\/www\.googleapis\.com\/auth\//, ''));
+}
+
 // Which connection a sign-in coming back is for, before it's handled (so a failed
 // one can still be told to the Agency Engineer).
 export const pendingSignIn = (state: string | null) => pending.get(state ?? '')?.id ?? null;
@@ -109,6 +119,9 @@ export async function oauthCallback(q: URLSearchParams): Promise<string> {
     code_verifier: p.verifier,
     ...clientParams(s),
   });
+  const missing = missingGoogleScopes(p.auth, t.scope);
+  if (missing.length)
+    throw new ConnectError(`Google wasn't given everything this needs: ${missing.join(', ')}. Sign in again and tick every box on Google's page.`);
   await setSecret(secretKey(p.id), {
     ...s,
     accessToken: t.access_token,

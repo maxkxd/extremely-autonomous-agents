@@ -41,6 +41,8 @@ import { agencyState, stateOf, type AgencyState, type Trigger } from './run.js';
 import { abortAll, abortRun, blockedOnConnections, book, isRunning } from './scheduler.js';
 import { AccessError, currentActor, nameNow, requireAdmin, requireMakerOrAdmin } from '../access.js';
 import { scrub } from '../secrets.js';
+import { preflight } from '../integrations/preflight.js';
+import { Integration } from '../integrations/schema.js';
 
 // The runner's routes for the app: each agent's card (ferocity, Drain/Stop,
 // real stats), its DM channel, requests, and spend caps (Settings > Usage).
@@ -589,6 +591,18 @@ export const runnerRoutes: Record<string, Route> = {
                 ? { type: 'api_key', header: b.header || 'x-api-key' }
                 : { type: 'none' },
       } as const);
+    // A wrong address is said now, not after the person has signed in to it.
+    if (!b.definition && isUrl && !local) {
+      const problem = await preflight(Integration.parse(def), { own: true });
+      if (problem)
+        throw new Error(
+          /Nothing answers/.test(problem)
+            ? "Nothing answers at that address - check it's the MCP address the service gives (it often ends in /mcp)."
+            : /doesn't exist/.test(problem)
+              ? "That address doesn't exist - check it for typos."
+              : problem,
+        );
+    }
     const integration = await addIntegration(def);
     // One that signs in: the app opens its sign-in next (it connects when that lands).
     if (integration.auth.type === 'mcp_oauth') return { id: integration.id, ok: true, signIn: (await startIntegrationSignIn(integration.id, {})).url };
