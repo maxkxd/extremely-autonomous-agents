@@ -220,7 +220,22 @@ async function browserHandoff(comingBack: string | null) {
   if (!pendingCode) return;
   try {
     const c = await loadClerk();
-    if (!c?.session) throw new SignInError('Signing in didn’t finish. Try again from the app.');
+    if (!c?.client) throw new SignInError("Can't reach sign-in right now.");
+    // Back from the provider, finished here rather than by handleRedirectCallback,
+    // which leaves for the app (/) once signed in. Someone new to us comes back
+    // "transferable": the same sign-in makes their account.
+    if (comingBack && !c.session) {
+      const { signIn, signUp } = c.client;
+      if (signIn.status === 'complete' && signIn.createdSessionId) await c.setActive({ session: signIn.createdSessionId });
+      else if (signIn.firstFactorVerification.status === 'transferable') {
+        const made = await signUp.create({ transfer: true }).catch(err => {
+          throw new SignInError(clerkMessage(err));
+        });
+        if (made.status !== 'complete' || !made.createdSessionId) throw new SignInError(`Making your account needs more: ${made.missingFields.join(', ') || made.status}. Try email instead.`);
+        await c.setActive({ session: made.createdSessionId });
+      } else if (signUp.status === 'complete' && signUp.createdSessionId) await c.setActive({ session: signUp.createdSessionId });
+    }
+    if (!c.session) throw new SignInError('Signing in didn’t finish. Try again from the app.');
     const { ticket } = await backend<{ ticket: string }>('/me/sign-in-ticket', { method: 'POST' });
     await local('/api/auth/handoff/ticket', { state: pendingCode, ticket });
     // Signing out leaves the page (to / by default, the whole app): to the end of this one instead.
@@ -388,7 +403,10 @@ export async function initAccount() {
   const comingBack = location.pathname === '/sso-callback' ? new URLSearchParams(location.search).get('handoff_state') : null;
   if (location.pathname === '/sso-callback') {
     const c = await loadClerk().catch(() => null);
-    await c?.handleRedirectCallback({ signInUrl: '/', signUpUrl: '/' }, async to => history.replaceState(null, '', to)).catch(() => {});
+    // Loaded before the address is cleared (loadClerk reads its nonce from it).
+    // The desktop app's sign-in in the browser finishes in browserHandoff instead.
+    if (!comingBack)
+      await c?.handleRedirectCallback({ signInUrl: '/', signUpUrl: '/' }, async to => history.replaceState(null, '', to)).catch(() => {});
     history.replaceState(null, '', '/');
   }
   // The browser half of the desktop app's sign-in: nothing else on this page.
