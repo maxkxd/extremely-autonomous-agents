@@ -23,6 +23,7 @@ const BROWSER_KIT_TOOLS: CatalogTool[] = [
   t('back', 'T0', 'Go back a page'),
   t('click', 'T1', 'Click a button or link (not paying, posting publicly or starting a new business tool)'),
   t('type', 'T1', 'Type into a field'),
+  t('choose', 'T1', 'Pick an option in a dropdown'),
   t('click_to_pay', 'T2', 'The click that spends money'),
   t('click_to_post', 'T2', 'The click that posts publicly as the business'),
   t('click_to_start_tool', 'T2', 'The click that starts a new business tool (a CRM, a help desk)'),

@@ -384,7 +384,8 @@ const SNAPSHOT_SCRIPT = `(() => {
     return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
   };
   const tickable = e => e && e.tagName === 'INPUT' && (e.type === 'radio' || e.type === 'checkbox');
-  const label = e => (e.getAttribute('aria-label') || e.placeholder || e.getAttribute('title') || (tickable(e) && e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.innerText || (e.type === 'password' || tickable(e) ? '' : e.value) || e.getAttribute('name') || '')
+  const isSelect = e => e.tagName === 'SELECT';
+  const label = e => (e.getAttribute('aria-label') || e.placeholder || e.getAttribute('title') || ((tickable(e) || isSelect(e)) && e.labels && e.labels[0] ? e.labels[0].innerText : '') || (isSelect(e) ? '' : e.innerText) || (e.type === 'password' || tickable(e) || isSelect(e) ? '' : e.value) || e.getAttribute('name') || '')
     .replace(/\\s+/g, ' ').trim().slice(0, 80);
   const items = [];
   let n = 0;
@@ -406,7 +407,11 @@ const SNAPSHOT_SCRIPT = `(() => {
       : tag === 'textarea' || e.getAttribute('contenteditable') === 'true' ? 'text box'
       : tag === 'select' ? 'dropdown' : 'button';
     const href = tag === 'a' ? ' -> ' + e.href : '';
-    items.push('[' + n + '] ' + kind + ' "' + label(e) + '"' + href);
+    // A dropdown shows what's picked and what it offers (choose picks one).
+    const opts = tag === 'select' ? [...e.options].map(o => o.text.replace(/\\s+/g, ' ').trim()).filter(Boolean) : [];
+    const picked = tag === 'select' && e.selectedOptions[0] ? e.selectedOptions[0].text.replace(/\\s+/g, ' ').trim() : '';
+    const choices = tag === 'select' ? ' = "' + picked + '"; options: ' + opts.slice(0, 15).map(o => '"' + o.slice(0, 40) + '"').join(', ') + (opts.length > 15 ? ' (+' + (opts.length - 15) + ' more)' : '') : '';
+    items.push('[' + n + '] ' + kind + ' "' + label(e) + '"' + href + choices);
   }
   const text = ((document.body && document.body.innerText) || '').replace(/\\n{3,}/g, '\\n\\n').trim();
   return { title: document.title, text: text.length > chars ? text.slice(0, chars) + '\\n[page text cut off - scroll to see more]' : text, items };
@@ -468,6 +473,24 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
         await field.fill(String(a.text ?? ''), { timeout: 10_000 });
         if (a.submit) await field.press('Enter');
         await s.page.waitForTimeout(a.submit ? 1200 : 200);
+        return snapshot(s.page);
+      },
+    },
+    {
+      id: `${prefix}.choose`,
+      tier: actTier,
+      description: `Pick an option in a numbered dropdown on the current page in ${where}: the option as the page lists it (an exact match, or the one that contains what you give).`,
+      schema: obj(withProfile({ ref: { type: 'number' }, option: { type: 'string', description: 'The option to pick, as listed' } }), ['ref', 'option']),
+      impl: async (a, ctx) => {
+        const s = await open(ctx, a);
+        const want = String(a.option ?? '').trim().toLowerCase();
+        const field = el(s.page, a.ref);
+        const options = await field.evaluate(e => (e instanceof HTMLSelectElement ? [...e.options].map(o => o.text.replace(/\s+/g, ' ').trim()) : null), null, { timeout: 10_000 });
+        if (!options) throw new Error(`[${String(a.ref)}] isn't a dropdown. Click it instead, then click the option.`);
+        const index = [options.findIndex(o => o.toLowerCase() === want), options.findIndex(o => o.toLowerCase().includes(want))].find(i => i >= 0);
+        if (index == null) throw new Error(`No option like "${String(a.option)}". It has: ${options.slice(0, 30).map(o => `"${o}"`).join(', ')}`);
+        await field.selectOption({ index }, { timeout: 10_000 });
+        await s.page.waitForTimeout(500);
         return snapshot(s.page);
       },
     },
