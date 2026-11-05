@@ -20,3 +20,9 @@ test('a public name that resolves to a private address is refused at connect tim
   // localtest.me and its subdomains resolve to 127.0.0.1.
   await assert.rejects(() => safeFetch('http://localtest.me:5175/api/connections', { timeoutMs: 10_000 }), BlockedAddress);
 });
+
+test('only 192.0.0.x and 192.0.2.x of 192.0 are private: the rest is public (iana.org is 192.0.43.8)', () => {
+  assert.equal(isPrivateIp('192.0.0.8'), true);
+  assert.equal(isPrivateIp('192.0.2.10'), true);
+  assert.equal(isPrivateIp('192.0.43.8'), false);
+});
