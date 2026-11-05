@@ -888,35 +888,38 @@ const TOOLS: ToolDef[] = [
       // Checked first, so the person is never sent to connect something that can't work.
       const problem = await preflightOf(i.id);
       if (problem) throw new Error(`Not asked - fix this first: ${problem}`);
+      // One that uses another connection's key (key_from: "Serper (more tools)" on
+      // "Serper (Google)"): what the person connects is that one, so the request waits on
+      // it - waiting on the extension, connecting the parent settled nothing and it sat at
+      // "Waiting on you" for good. Already connected: there's nothing to ask for.
+      const place = (i.keyFrom && (await listIntegrations()).find(x => x.id === i.keyFrom!.id)) || i;
+      if (place !== i && place.connected) throw new Error(`Nothing to ask for: ${i.name} uses ${place.name}'s connection, which is connected - it works already. Test it (engineer.test_integration) and carry the request on.`);
       // Asked already: the person has the steps - saying them again is noise.
       const was = one<{ waiting_on: string | null; stage: string | null }>('SELECT waiting_on, stage FROM requests WHERE id = ?', r.id);
-      if (was?.waiting_on === i.id && was.stage === 'waiting_you') return `Request #${r.id} is already waiting on the person to connect ${i.name}, with the steps. Nothing more to say on it; you'll be woken when it's connected.`;
+      if (was?.waiting_on === place.id && was.stage === 'waiting_you') return `Request #${r.id} is already waiting on the person to connect ${place.name}, with the steps. Nothing more to say on it; you'll be woken when it's connected.`;
       // Another agent's request already asks for this connection: one card for both (tools.ts).
       const lead = one<{ id: number }>(
         "SELECT id FROM requests WHERE status = 'open' AND stage = 'waiting_you' AND waiting_on = ? AND joined_to IS NULL AND id <> ? AND agent_id <> ? ORDER BY id LIMIT 1",
-        i.id,
+        place.id,
         r.id,
         r.agent_id,
       );
       if (lead) {
-        joinRequest(r.id, lead.id, i.id);
-        return `Request #${r.id} joined request #${lead.id}, which already asks the person to connect ${i.name}: one card, listing every agent waiting on it. Nothing to post on #${r.id}; both settle when ${i.name} is connected.`;
+        joinRequest(r.id, lead.id, place.id);
+        return `Request #${r.id} joined request #${lead.id}, which already asks the person to connect ${place.name}: one card, listing every agent waiting on it. Nothing to post on #${r.id}; both settle when ${place.name} is connected.`;
       }
       // Added here, not left to the message: the real key page, and the place in
-      // Settings (the app shows it as a button that opens it, glowing).
-      // One that uses another connection's key (key_from: "Serper (more tools)" on
-      // "Serper (Google)"): the place is that one - where the key or sign-in goes -
-      // not the extension, or the app's button opens a connector with nothing to fill in.
+      // Settings (the app shows it as a button that opens it, glowing) - the parent's
+      // for an extension, or the button opens a connector with nothing to fill in.
       const said = String(a.message).trim();
-      const place = (i.keyFrom && (await listIntegrations()).find(x => x.id === i.keyFrom!.id)) || i;
       const keyUrl = place.keyUrl ?? i.keyUrl;
       postToRequest(r.id, 'engineer', `${said}\n\n${keyUrl && !said.includes(keyUrl) ? `Get the key here: ${keyUrl}\n` : ''}Settings > Connectors > Integrations > ${place.name}`);
       setStage(r.id, 'waiting_you');
-      exec('UPDATE requests SET waiting_on = ? WHERE id = ?', i.id, r.id);
-      const old = was?.waiting_on && was.waiting_on !== i.id ? was.waiting_on : null;
+      exec('UPDATE requests SET waiting_on = ? WHERE id = ?', place.id, r.id);
+      const old = was?.waiting_on && was.waiting_on !== place.id ? was.waiting_on : null;
       const oldName = old ? ((await listIntegrations()).find(x => x.id === old)?.name ?? old) : '';
-      const moved = old ? await moveSharedWaits(r.id, { id: old, name: oldName }, { id: i.id, name: i.name }) : [];
-      return `Asked. Request #${r.id} waits on the person; you'll be woken when ${i.name} is connected.${moved.length ? ` Requests ${moved.map(m => `#${m}`).join(', ')} waited on ${oldName} too and now wait on ${i.name}, with a note saying so.` : ''}`;
+      const moved = old ? await moveSharedWaits(r.id, { id: old, name: oldName }, { id: place.id, name: place.name }) : [];
+      return `Asked. Request #${r.id} waits on the person; you'll be woken when ${place.name} is connected.${moved.length ? ` Requests ${moved.map(m => `#${m}`).join(', ')} waited on ${oldName} too and now wait on ${place.name}, with a note saying so.` : ''}`;
     },
   },
   {

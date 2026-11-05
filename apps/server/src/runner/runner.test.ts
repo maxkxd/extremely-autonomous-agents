@@ -1219,3 +1219,21 @@ test("each person has their own chat with the Agency Engineer; its own work is e
   // Two people's messages are two runs, each answering its own person.
   assert.deepEqual(all<{ person_id: string }>("SELECT person_id FROM bookings WHERE agent_id = 'fleet' AND trigger = 'your message' ORDER BY id").map(b => b.person_id), ['u_jo', 'u_alex']);
 });
+
+test("asking a person to connect an extension waits on the connection they connect: its parent", async () => {
+  const { discardDraft, loadIntegrations, writeDraftIntegration } = await import('../integrations/index.js');
+  await loadIntegrations();
+  const tool = (id: string) => `  - { id: ${id}.list, tier: T0, description: x, input: { type: object }, request: { method: GET, path: /items } }\n`;
+  // localhost resolves on any computer, so the check before asking passes with no network.
+  await writeDraftIntegration(`kind: http\nid: zz-parent\nname: ZZ Parent\nwhat: x\nauth: { type: bearer }\nbase_url: https://localhost/api\ntest: { tool: zz-parent.list, args: {} }\ntools:\n${tool('zz-parent')}`, 'fleet');
+  await writeDraftIntegration(`kind: http\nid: zz-ext\nname: ZZ Parent (more tools)\nwhat: x\nkey_from: zz-parent\nauth: { type: bearer }\nbase_url: https://localhost/api\ntest: { tool: zz-ext.list, args: {} }\ntools:\n${tool('zz-ext')}`, 'fleet');
+  const req = Number(exec("INSERT INTO requests (agent_id, what, why, status, created_at, stage) VALUES ('zz-asker', 'More tools', 'x', 'open', 0, 'engineer')").lastInsertRowid);
+  const engineer = { agent: agent({ id: 'fleet-engineer', tiers: { 'engineer.ask_for_connection': 'T0' } }), runId: 'r_ext', level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} };
+  const r = await execute(engineer, { id: 'x1', name: 'engineer__ask_for_connection', args: { integration_id: 'zz-ext', request_id: req, message: 'Connect it. 1. Paste the key.', stars: 3 } }, new Map());
+  assert.ok(!r.error, r.content);
+  assert.equal(one<{ waiting_on: string }>('SELECT waiting_on FROM requests WHERE id = ?', req)!.waiting_on, 'zz-parent');
+  assert.match(r.content, /when ZZ Parent is connected/);
+  exec("DELETE FROM requests WHERE agent_id = 'zz-asker'");
+  await discardDraft('zz-ext');
+  await discardDraft('zz-parent');
+});
