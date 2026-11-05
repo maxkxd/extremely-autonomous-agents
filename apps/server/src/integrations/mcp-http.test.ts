@@ -1,3 +1,4 @@
+import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -50,4 +51,19 @@ test("a sign-in by fields fills the address (Zoho's server name and key), and a 
   const host = 'https://{{server}}.zohomcp.com/mcp/{{api_key}}/message';
   assert.equal(filledUrl(host, 'https://agency-1234567890.zohomcp.com/mcp/k/message').host, 'agency-1234567890.zohomcp.com');
   assert.throws(() => filledUrl(host, 'https://evil.com/x?.zohomcp.com/mcp/k/message'), /valid address/);
+});
+
+test("a wrong new key that leaves the working one in place isn't sent to the Agency Engineer as broken", async () => {
+  const { resetDbForTests } = await import('../runner/db.js');
+  const { addIntegration, connectIntegration, listIntegrations, loadIntegrations, removeIntegration, whenConnectFailed } = await import('./index.js');
+  resetDbForTests();
+  await loadIntegrations();
+  const told: string[] = [];
+  whenConnectFailed(id => void told.push(id));
+  await addIntegration({ kind: 'mcp', id: 'zz-replace', name: 'Replace', what: 'x', auth: { type: 'fields', fields: [{ name: 'token', label: 'Key' }] }, url: `${base}/{{token}}/mcp`, local: true });
+  await connectIntegration('zz-replace', undefined, { token: 'k-123' });
+  await assert.rejects(connectIntegration('zz-replace', undefined, { token: 'k-typo' }), /still in use/);
+  assert.deepEqual(told, []);
+  assert.equal((await listIntegrations()).find(i => i.id === 'zz-replace')?.repairing, false);
+  await removeIntegration('zz-replace');
 });

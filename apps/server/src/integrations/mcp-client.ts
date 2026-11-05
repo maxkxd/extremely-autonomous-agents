@@ -25,8 +25,11 @@ export function filledUrl(template: string, filled: string): URL {
   const host = new URL(template).host;
   if (!host.includes('{{')) return url;
   const escape = (p: string) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`^${host.split(/\{\{\w+\}\}/).map(escape).join('[a-z0-9-]+')}$`, 'i');
-  if (!pattern.test(url.host)) throw new Error(`That doesn't make a valid address for this server (${host}): check the name you pasted - just the name, no dots or slashes.`);
+  // Each field is host-name characters only (a region may have dots: com.au), around the
+  // definition's fixed parts. A field followed by a fixed domain can't leave it; one that
+  // ends the host must have a fixed list of values (index.ts refuses the definition otherwise).
+  const pattern = new RegExp(`^${host.split(/\{\{\w+\}\}/).map(escape).join('[a-z0-9.-]+')}$`, 'i');
+  if (!pattern.test(url.host) || url.host.includes('..')) throw new Error(`That doesn't make a valid address for this server (${host}): check what you pasted - a name only, no slashes.`);
   return url;
 }
 

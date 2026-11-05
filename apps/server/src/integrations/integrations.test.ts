@@ -231,3 +231,25 @@ test('a sign-in renewed by several agents at once is renewed once, and they all 
   await assert.rejects(once(going, 'zz-fail', async () => { throw new Error('nope'); }));
   assert.equal(await once(going, 'zz-fail', async () => 'ok'), 'ok');
 });
+
+test("a field in an MCP address's host: under a fixed domain it may be any name (a region with dots too); ending the host it needs a fixed list", async () => {
+  const { filledUrl } = await import('./mcp-client.js');
+  const { discardDraft, loadIntegrations, writeDraftIntegration } = await import('./index.js');
+  const { resetDbForTests } = await import('../runner/db.js');
+  resetDbForTests();
+  await loadIntegrations();
+  const server = 'https://{{server}}.mcp.example.com/mcp/{{key}}/message';
+  assert.equal(filledUrl(server, 'https://agency-1.mcp.example.com/mcp/k/message').host, 'agency-1.mcp.example.com');
+  const region = 'https://mcp.example.{{region}}/mcp';
+  assert.equal(filledUrl(region, 'https://mcp.example.com.au/mcp').host, 'mcp.example.com.au');
+  assert.throws(() => filledUrl(server, 'https://evil.com/x?.mcp.example.com/mcp/k/message'), /valid address/);
+  const fields = (extra: object = {}) => ({ type: 'fields', fields: [{ name: 'server', label: 'Server' }, { name: 'key', label: 'Key' }, { name: 'region', label: 'Region', secret: false, ...extra }] });
+  const write = (id: string, auth: object, url: string) => writeDraftIntegration(JSON.stringify({ kind: 'mcp', id, name: id, what: 'x', auth, url }), 'fleet');
+  // Under a fixed domain: fine as it is (the Engineer writes these).
+  await write('zz-under', fields(), server);
+  // Ending the host with no list of values: refused - "evil.com" would take the key there.
+  await assert.rejects(write('zz-end', fields(), region), /give it options/);
+  await write('zz-end', fields({ options: ['com', 'com.au', 'eu'] }), region);
+  await discardDraft('zz-under');
+  await discardDraft('zz-end');
+});

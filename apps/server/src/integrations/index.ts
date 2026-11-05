@@ -121,7 +121,16 @@ async function renewToken(id: string, auth: FieldsAuth, creds: Record<string, st
     // not JSON
   }
   const token = at(answer, auth.token.pick);
-  if (!res.ok || typeof token !== 'string' || !token) throw new Error(`Getting a token from ${new URL(url).host} failed (${res.status}): ${errorText(text).slice(0, 200)}`);
+  if (!res.ok || typeof token !== 'string' || !token) {
+    const message = `Getting a token from ${new URL(url).host} failed (${res.status}): ${errorText(text).slice(0, 200)}`;
+    // A connection that worked, refused now (a refresh token revoked or expired): said
+    // the moment a call finds out, like a sign-in the service ended.
+    if ((res.status === 400 || res.status === 401) && isConnected(id)) {
+      putState(id, { ...states()[id], test: { ok: false, at: Date.now(), message } });
+      failed(id, 'recheck', message);
+    }
+    throw new Error(message);
+  }
   const life = Number(auth.token.expires_in ? at(answer, auth.token.expires_in) : NaN);
   const kept = { token, until: Date.now() + (Number.isFinite(life) && life > 120 ? life - 60 : 3000) * 1000 };
   await keepToken(id, cacheKey, kept);
@@ -334,7 +343,7 @@ async function test(integration: Integration): Promise<{ ok: boolean; message: s
 
 // The fields a definition puts in the host of an address it calls.
 function hostFields(integration: Integration): Set<string> {
-  const urls = integration.kind === 'http' ? [integration.base_url] : [];
+  const urls = integration.kind === 'http' ? [integration.base_url] : integration.kind === 'mcp' && integration.url ? [integration.url] : [];
   if (integration.auth.type === 'fields' && integration.auth.token) urls.push(integration.auth.token.url);
   const out = new Set<string>();
   for (const url of urls) for (const [, name] of (/^https?:\/\/([^/?#]*)/.exec(url)?.[1] ?? '').matchAll(/\{\{(\w+)\}\}/g)) out.add(name);
@@ -393,7 +402,9 @@ async function connectChecked(id: string, key?: string, fields?: Record<string, 
     } else if (!(await keyOf(id))) throw new Error('Paste the key first.');
   }
   const result = await test(integration);
-  if (!result.ok) failed(id, 'connect', result.message);
+  // A new key or fields that fail while the saved ones keep working (put back below) is
+  // a typo the person sees, not a broken connection to send the Agency Engineer after.
+  if (!result.ok && !(replaced && before && wasConnected)) failed(id, 'connect', result.message);
   // A typo in "Replace key" leaves the key that works (and the agents using it) alone.
   if (!result.ok && replaced) {
     if (before) {
@@ -792,12 +803,16 @@ export async function writeDraftIntegration(definition: string, by: string, requ
   }
   // A field that picks the server (accounts.zoho.{{region}}) could send the keys anywhere
   // ("attacker.com"): it must be one of a fixed list.
-  if (integration.kind === 'http' && integration.auth.type === 'fields') {
+  if ((integration.kind === 'http' || integration.kind === 'mcp') && integration.auth.type === 'fields') {
     const auth = integration.auth;
-    for (const url of [integration.base_url, auth.token?.url ?? '']) {
+    for (const url of [integration.kind === 'http' ? integration.base_url : (integration.url ?? ''), auth.token?.url ?? '']) {
       const host = /^https?:\/\/([^/?#]*)/.exec(url)?.[1] ?? '';
-      for (const [, name] of host.matchAll(/\{\{(\w+)\}\}/g)) {
+      for (const [whole, name] of host.matchAll(/\{\{(\w+)\}\}/g)) {
         const f = auth.fields.find(x => x.name === name);
+        // An MCP server whose own name is part of a fixed domain ({{server}}.zohomcp.com: the
+        // person's server, made in the service's console) stays under that domain whatever's typed.
+        const fixedDomainAfter = /^\.[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(host.slice(host.indexOf(whole) + whole.length).replace(/\{\{\w+\}\}/g, 'x'));
+        if (integration.kind === 'mcp' && fixedDomainAfter) continue;
         if (f && !f.options) throw new Error(`The field "${name}" is part of the address's host (${url}): give it options, the exact values it may take (a region: [com, eu, in, com.au, jp, ca]), so it can't point the keys at another server.`);
       }
     }
