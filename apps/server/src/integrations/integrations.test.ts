@@ -172,3 +172,15 @@ test('a failure reported to us is its kind only: no key, address, email or name 
   const leaky = errorKind('Zoho answered 401: user Max Smith (max@example.com) not found for key sk-abc123 abcdefghijklmnopqrstuvwx at https://x.example.com/a');
   for (const bit of ['max', 'smith', 'example', 'sk-', 'abcdefghijklmnop', 'https']) assert.ok(!leaky.includes(bit), `${bit} got through: ${leaky}`);
 });
+
+test("before a person is asked: an MCP address with nothing at it (a wrong path) is caught, an old /sse one with /mcp beside it isn't", async () => {
+  const { preflight } = await import('./preflight.js');
+  const mcp = (url: string) => Integration.parse({ kind: 'mcp', id: 'zz-pre', name: 'Pre', what: 'x', auth: { type: 'bearer' }, url });
+  // A made-up service: /mcp answers (asks for a sign-in), anything else is not found.
+  const net = { resolve: async () => true, status: async (url: string) => (url.endsWith('/mcp') ? 401 : 404) };
+  assert.equal(await preflight(mcp('https://mcp.example.com/mcp'), net), null);
+  assert.match((await preflight(mcp('https://mcp.example.com/wrong'), net)) ?? '', /Nothing answers at .*the path is wrong/);
+  assert.equal(await preflight(mcp('https://mcp.example.com/sse'), net), null);
+  // Can't be reached right now isn't proof it's wrong: not refused.
+  assert.equal(await preflight(mcp('https://mcp.example.com/other'), { resolve: async () => true, status: async () => { throw new Error('timeout'); } }), null);
+});

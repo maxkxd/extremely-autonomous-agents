@@ -1,4 +1,5 @@
 import { lookup } from 'node:dns/promises';
+import { safeFetch } from '../runner/net.js';
 import { resourceMetadata, serverMetadata } from './mcp-auth.js';
 import type { Integration } from './schema.js';
 
@@ -20,6 +21,27 @@ export function accountCode(url: string): string | null {
   return part ?? null;
 }
 
+// Whether an MCP server is at that address: its answer to "initialize" (a sign-in
+// asked for is an answer too). "gone": not found there; unknown when it can't be reached.
+export type Status = (url: string) => Promise<number>;
+const initialize: Status = async url => {
+  const { res } = await safeFetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'Extremely Autonomous Agents', version: '1.0.0' } } }),
+    timeoutMs: 15_000,
+  });
+  await res.body?.cancel().catch(() => {});
+  return res.status;
+};
+async function answers(url: string, status: Status): Promise<'yes' | 'gone' | 'unknown'> {
+  try {
+    return [404, 405, 410].includes(await status(url)) ? 'gone' : 'yes';
+  } catch {
+    return 'unknown';
+  }
+}
+
 async function resolves(host: string): Promise<boolean> {
   try {
     await lookup(host);
@@ -29,7 +51,10 @@ async function resolves(host: string): Promise<boolean> {
   }
 }
 
-export async function preflight(integration: Integration): Promise<string | null> {
+// net: how a host resolves and an address answers - the network, or a test's stand-ins.
+export async function preflight(integration: Integration, net: { status?: Status; resolve?: (host: string) => Promise<boolean> } = {}): Promise<string | null> {
+  const status = net.status ?? initialize;
+  const resolve = net.resolve ?? resolves;
   if (integration.kind === 'code') return null;
   const address = integration.kind === 'http' ? integration.base_url : integration.url;
   // A server on this computer the person added, or one that runs as a command: nothing to check here.
@@ -42,8 +67,17 @@ export async function preflight(integration: Integration): Promise<string | null
       return `${address.replace(code, '<code>')} has an account's own code in it, so it's one account's own server - not the person's, unless they gave you it themselves. Where every account makes its own server, the person copies their own address in: auth: { type: fields } with the address built from what they paste (as for Zoho Mail). If they did give you this address, keep it but make it a field they paste, so it's theirs.`;
   }
   if (hostTemplated) return null; // the host is part of what they paste (Zoho's server name)
-  if (!(await resolves(host))) return `${host} doesn't exist (no such address), so connecting can only fail. Check the service's docs for the right address.`;
+  if (!(await resolve(host))) return `${host} doesn't exist (no such address), so connecting can only fail. Check the service's docs for the right address.`;
   if (integration.kind !== 'mcp' || PLACEHOLDER.test(address)) return null;
+  // Something must be there: a wrong path still finds the server's sign-in at its
+  // root (Notion's at /wrong did), so the person signs in and every tool then fails.
+  // An old .../sse address is fine when .../mcp beside it answers (the client moves there).
+  const answer = await answers(address, status);
+  if (answer === 'gone') {
+    const moved = /\/sse\/?$/.test(new URL(address).pathname) ? address.replace(/\/sse\/?$/, '/mcp') : null;
+    if (!moved || (await answers(moved, status)) === 'gone')
+      return `Nothing answers at ${address} (not found) - the path is wrong. A remote MCP server's address is usually the one its docs give, often ending in /mcp.`;
+  }
   if (integration.auth.type === 'mcp_oauth') {
     try {
       const rm = await resourceMetadata(address);
