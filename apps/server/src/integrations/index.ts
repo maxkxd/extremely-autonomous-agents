@@ -556,6 +556,8 @@ export async function startIntegrationSignIn(id: string, client: { clientId?: st
     const startedAt = Date.now();
     setTimeout(() => {
       if (!isConnected(id) && (states()[id]?.test?.at ?? 0) < startedAt)
+        void forgetRegistration(id, 'never came back');
+      if (!isConnected(id) && (states()[id]?.test?.at ?? 0) < startedAt)
         failed(id, 'sign-in', "The person opened the sign-in over half an hour ago and it never came back to the app - the service may have shown an error on its own page, or they gave up on it.");
     }, SIGN_IN_WAIT_MS).unref?.();
     return r;
@@ -565,13 +567,29 @@ export async function startIntegrationSignIn(id: string, client: { clientId?: st
   }
 }
 
+// An MCP server that refused this app's registration (it was dropped, or no longer
+// matches) - or whose sign-in never came back: the next sign-in registers afresh,
+// instead of failing the same way every time. Nothing signed in is lost: only an
+// MCP sign-in with no token yet.
+async function forgetRegistration(id: string, message: string) {
+  const i = find(id);
+  if (i?.kind !== 'mcp' || i.auth.type !== 'mcp_oauth') return;
+  const s = await oauthSecret(id);
+  if (!s || s.accessToken) return;
+  if (/invalid_client|unauthorized_client|redirect|client|registration|never came back|metadata|invalid_request/i.test(message)) await deleteSecret(secretKey(id));
+}
+
 async function signInUrl(id: string, client: { clientId?: string; clientSecret?: string }) {
   const integration = find(id);
   // An MCP server's own sign-in: found and registered with here (mcp-auth.ts).
   if (integration?.kind === 'mcp' && integration.auth.type === 'mcp_oauth' && integration.url) {
     const prev = await oauthSecret(id);
-    const found = prev?.discovered && prev.clientId ? { auth: prev.discovered, clientId: prev.clientId, clientSecret: prev.clientSecret } : await discoverMcpSignIn(integration.url, integration.name);
-    return { url: await oauthStart(id, found.auth, { clientId: found.clientId, clientSecret: found.clientSecret }, { discovered: found.auth }) };
+    // The registration is reused only for the address it was made for: the Engineer
+    // changing the address (another account's server -> the person's own) sent the
+    // sign-in to the old server's page for good.
+    const same = prev?.discovered && prev.clientId && prev.registeredFor === integration.url;
+    const found = same ? { auth: prev.discovered!, clientId: prev.clientId, clientSecret: prev.clientSecret } : await discoverMcpSignIn(integration.url, integration.name);
+    return { url: await oauthStart(id, found.auth, { clientId: found.clientId, clientSecret: found.clientSecret }, { discovered: found.auth, registeredFor: integration.url }) };
   }
   if (integration?.auth.type !== 'oauth2') throw new Error("That integration doesn't sign in.");
   const prev = await oauthSecret(id);
@@ -592,7 +610,10 @@ export async function finishIntegrationSignIn(q: URLSearchParams) {
     id = await oauthCallback(q);
   } catch (e) {
     // Cancelled by the person isn't a fault; anything else the service said is.
-    if (pendingId && q.get('error') !== 'access_denied') failed(pendingId, 'sign-in', (e as Error).message);
+    if (pendingId && q.get('error') !== 'access_denied') {
+      await forgetRegistration(pendingId, (e as Error).message);
+      failed(pendingId, 'sign-in', (e as Error).message);
+    }
     throw e;
   }
   return connectIntegration(id);

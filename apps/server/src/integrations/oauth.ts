@@ -29,6 +29,7 @@ export type OAuthSecret = {
   expiresAt?: number;
   account?: string; // who signed in, when the service says
   discovered?: OAuthDef; // an MCP server's sign-in, as found when it was set up (mcp-auth.ts)
+  registeredFor?: string; // the MCP server address that sign-in was found and registered for
   // Signed in with our client: its secret isn't kept here but read from the app,
   // and the client is never handed on to a connection that isn't built in.
   shared?: SharedProvider;
