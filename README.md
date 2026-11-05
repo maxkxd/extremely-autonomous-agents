@@ -4,6 +4,8 @@ An AI agency that runs on your own computer: a fleet of agents, each with a job,
 its own tools and a schedule, that do real work for a business - and fix,
 extend and look after themselves.
 
+Not released yet: [join the waitlist at extremely.agency](https://extremely.agency/#waitlist).
+
 **Try it in your browser:** the [live demo](https://extremely.agency/demo/) runs
 the whole app with sample agents, nothing to install.
 
