@@ -7,7 +7,7 @@ if (process.argv.includes('--version')) {
   process.exit(0);
 }
 if (process.argv.includes('--help')) {
-  process.stdout.write(`agency-mcp ${VERSION}: your EXTREMELY agency for AI apps, over MCP (stdio).\nAdd it to your AI app as the command: npx -y @extremely/agency-mcp\nNeeds the ${APP} app running on this computer: https://extremely.agency\n`);
+  process.stdout.write(`agency-mcp ${VERSION}: your EXTREMELY agency for AI apps, over MCP (stdio).\nAdd it to your AI app as the command: npx -y @extremely-agency/mcp\nNeeds the ${APP} app running on this computer: https://extremely.agency\n`);
   process.exit(0);
 }
 

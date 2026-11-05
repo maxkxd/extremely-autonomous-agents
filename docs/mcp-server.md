@@ -35,7 +35,7 @@ npm.
 
 ## Shape
 
-**A local stdio package, `npx -y @extremely/agency-mcp`** (the name is an open
+**A local stdio package, `npx -y @extremely-agency/mcp`** (the name is an open
 question). It does not change and needs no settings: it finds the running app
 by itself and passes JSON-RPC to the addresses above. It holds no keys, no
 sign-ins and no agency data. The agency stays on the host, as it does today.
@@ -161,7 +161,7 @@ warning.
 
 ## Packaging and registries
 
-- **npm**: `@extremely/agency-mcp`, built from `packages/agency-mcp/` in this
+- **npm**: `@extremely-agency/mcp`, built from `packages/agency-mcp/` in this
   repo (AGPL-3.0), with `mcpName` in `package.json` for the official
   registry. Published by hand with the approval-gated **Publish
   agency-mcp** workflow (`.github/workflows/agency-mcp.yml`): npm trusted
@@ -236,7 +236,7 @@ Built and tested:
 
 Not yet:
 
-- **Publishing** (owner): claim the `@extremely` npm scope and add this
+- **Publishing** (owner): claim the `@extremely-agency` npm scope (`@extremely` was taken) and add this
   repo's workflow as its trusted publisher; add the DNS TXT record for
   `agency.extremely`; run **Publish agency-mcp**; then
   `mcp-publisher publish` with `server.json`, and the submission list above.
@@ -253,7 +253,7 @@ routing, rate limits, connector-directory review).
 
 ## Open questions (for the owner)
 
-1. **Package and registry names**: `@extremely/agency-mcp` (is the npm scope
+1. **Package and registry names**: `@extremely-agency/mcp` (is the npm scope
    free or held?), and the registry namespace `agency.extremely/*`, which
    needs a DNS TXT record on extremely.agency that only the owner can add.
 2. **Builder tools in the public package**, or a smaller "talk to your

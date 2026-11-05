@@ -21,13 +21,13 @@ assistant** connects Claude Desktop or Cursor in one click.
 Any other app, or by hand: add an MCP server that runs
 
 ```
-npx -y @extremely/agency-mcp
+npx -y @extremely-agency/mcp
 ```
 
 Claude Code:
 
 ```bash
-claude mcp add extremely -- npx -y @extremely/agency-mcp
+claude mcp add extremely -- npx -y @extremely-agency/mcp
 ```
 
 Cursor, VS Code and Claude Desktop (`mcpServers` in their MCP settings):
@@ -35,7 +35,7 @@ Cursor, VS Code and Claude Desktop (`mcpServers` in their MCP settings):
 ```json
 {
   "mcpServers": {
-    "extremely": { "command": "npx", "args": ["-y", "@extremely/agency-mcp"] }
+    "extremely": { "command": "npx", "args": ["-y", "@extremely-agency/mcp"] }
   }
 }
 ```
