@@ -757,13 +757,23 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     // The argument that says which record (an id, a company, an email) - not a type
     // every call shares (object_type: "Leads" let only one Lead wait at a time).
     const key = ((impl.schema as { required?: string[] }).required ?? []).find(k => /(^|_)(id|company|email|name|title|to|lead|record|issue|number)$/i.test(k) && !/type|module|kind/i.test(k));
-    if (key && call.args[key] !== undefined) {
-      const same = all<{ args: string }>("SELECT args FROM approvals WHERE agent_id = ? AND tool = ? AND status = 'pending'", ctx.agent.id, id).some(
+    const waiting = () =>
+      key !== undefined &&
+      call.args[key] !== undefined &&
+      all<{ args: string }>("SELECT args FROM approvals WHERE agent_id = ? AND tool = ? AND status = 'pending'", ctx.agent.id, id).some(
         q => JSON.stringify((JSON.parse(q.args) as Record<string, unknown>)[key]) === JSON.stringify(call.args[key]),
       );
-      if (same)
-        return record({ content: `${id} for that ${key.replace(/_/g, ' ')} is already waiting for a person's approval - don't queue it again. Carry on with other work.`, error: true, outcome: 'refused', counted: 0 });
-    }
+    const already = () =>
+      record({
+        content:
+          `${id} for that ${key!.replace(/_/g, ' ')} is already waiting for a person's approval - don't queue it again. Carry on with other work.` +
+          // Two agents waiting on one connection: one card for both.
+          (id === 'engineer.publish_integration' ? ' To give it to another agent too, withdraw that card (engineer.withdraw_proposal) and propose it once with the other agent in also.' : ''),
+        error: true,
+        outcome: 'refused',
+        counted: 0,
+      });
+    if (waiting()) return already();
     const approvalId = `apv_${ctx.now().toString(36)}${(approvalSeq++).toString(36)}`;
     const hours = ctx.agent.approvalHours[id] ?? 24;
     let stored: Record<string, unknown> = typeof why === 'string' && why.trim() ? { ...call.args, _why: why.trim().slice(0, 600) } : call.args;
@@ -773,6 +783,9 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
       } catch (e) {
         return record({ content: (e as Error).message, error: true, outcome: 'refused', counted: 0 });
       }
+    // Again, now: two calls in one turn both pass the check above while their
+    // previews run, and a person got the same card twice.
+    if (waiting()) return already();
     run(
       'INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       approvalId,

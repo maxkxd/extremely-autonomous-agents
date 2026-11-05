@@ -133,3 +133,27 @@ test("a stopped agent's approval waits: it can't be decided until the agent is b
   await decideApproval(id, 'approved', null, wake, Date.now(), async () => agent);
   assert.equal(sent.length, 1);
 });
+
+test('the same proposal twice in one turn makes one card, not two (its preview takes a while)', async () => {
+  registerTools([
+    {
+      id: 'zz.publish',
+      tier: 'T2',
+      description: 'publish',
+      schema: { type: 'object', properties: { integration_id: { type: 'string' }, for_agent: { type: 'string' } }, required: ['integration_id', 'for_agent'] },
+      preview: async () => (await new Promise(r => setTimeout(r, 30)), { checked: true }),
+      impl: async () => 'Published.',
+    },
+  ]);
+  const slow = { ...agent, tiers: { ...agent.tiers, 'zz.publish': 'T2' as const } };
+  const now = Date.now();
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES ('r2', ?, 'scheduled', 0, 'running', ?)", agent.id, now);
+  const ctx = { agent: slow, runId: 'r2', level: 0, now: () => now, fleet: async () => [], wake: () => {} };
+  const names = new Map([['zz__publish', 'zz.publish']]);
+  const outs = await Promise.all([
+    execute(ctx, { id: 'c1', name: 'zz__publish', args: { integration_id: 'drive-more', for_agent: 'agent-one' } }, names),
+    execute(ctx, { id: 'c2', name: 'zz__publish', args: { integration_id: 'drive-more', for_agent: 'agent-two' } }, names),
+  ]);
+  assert.deepEqual(outs.map(o => o.outcome).sort(), ['queued', 'refused']);
+  assert.equal(one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE tool = 'zz.publish'")!.n, 1);
+});
