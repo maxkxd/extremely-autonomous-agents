@@ -494,6 +494,13 @@ async function connectChecked(id: string, key?: string, fields?: Record<string, 
   const st = states()[id];
   if (st?.draft) onDraftConnected?.(id, st.request);
   else onConnected?.(id);
+  // Drafts that use this one's key (key_from) are connected now too: each is woken
+  // for, as its own connection would be - connecting Google Drive left "Google Drive
+  // (more tools)" untested until the Engineer's next routine run.
+  for (const { integration } of loaded) {
+    const ext = states()[integration.id];
+    if (integration.id !== id && keyFrom(integration) === id && ext?.draft) onDraftConnected?.(integration.id, ext.request);
+  }
   return result;
 }
 
@@ -871,6 +878,9 @@ export function integrationToolInfo(): Map<string, { description: string; via: s
   for (const [id, { def, by }] of providers(true)) out.set(id, { description: def.description, via: by.map(p => p.integration.name).join(', ') });
   return out;
 }
+
+// A tool some connection provides (draft or live) - not one of the app's own.
+export const providedByIntegration = (toolId: string) => providers(true).has(toolId);
 
 export function integrationToolIds(): string[] {
   return [...providers(true)].filter(([, { by }]) => by.some(p => canServe(p.integration))).map(([id]) => id);

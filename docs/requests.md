@@ -95,6 +95,56 @@ engineer, cheap for the Agency Conductor, careful for the reviewer), then anythi
 else connected - DeepSeek, Mistral, Ollama, a custom provider - free ones
 first. Models a person picked are left alone.
 
+## When the app itself falls short
+
+Some requests aren't about a missing connection: one of the app's own tools
+(the agents' browser, computer files, web search) or the runner can't do the
+work - a dropdown the browser can't pick from, a step cap that cuts real work
+short, a run scheduled wrong. Nobody watches a customer's agency, so these
+never end at "ask a person". The Agency Engineer (while working a request) and
+the Agency Doctor (in its fleet check, which marks failures of the app's own
+tools) handle them the same way:
+
+```
+agent hits a limit of the app itself
+        |
+        v
+Engineer / Doctor tells it apart (an app tool, failing the same way across runs)
+        |-- gets the agent working today: a way round it (an extension or plugin,
+        |   another tool, or telling the agent how)
+        |-- report_app_gap: area, what failed, the app's tools involved, the fix
+        |   the app needs, and fixed_here once a way round it is built
+        v
+app_gaps (this computer)  -- everything, incl. which agents and runs, errors
+        |
+        |  public part only: area, title, what failed, fix, tool ids, fixed_here,
+        |  and counts (how many agents and runs, never which)
+        v
+our backend /reports/app-gap  -- checked again, kept
+        |
+        v
+an issue on the product's repository (label app-gap), one per gap:
+        later reports are counted; a fix built in an agency is a comment on it,
+        to take into the official build
+```
+
+- **Public, so general terms only.** The text is refused (not cleaned up) when it
+  has an email, an @, a web address or domain, a file path, a long code, a long
+  number, or a name this agency uses (its agents, organization, people) - the
+  Engineer rewrites it as what kind of page or job, never whose. The backend
+  checks again, since anyone may post to it.
+- **Once per gap.** The same area and tools (or title) is counted, not filed
+  again; the backend comments on an issue only at 2, 5, 10, 25 and every 50
+  reports, and when an agency reports a fix.
+- **Fixed here closes the loop.** A gap filed with a request_id is updated to
+  "fixed here" by itself when the way round it the Engineer built for that
+  request goes live (publish_integration), so the official build takes it up and
+  no other agency needs it built again.
+- A development copy (no backend.json) sends nothing; reports wait in app_gaps
+  and go out hourly once the app can reach the backend. The backend files
+  issues only with `GITHUB_ISSUES_TOKEN` set (and `GITHUB_ISSUES_REPO`, default
+  the product's repository); without it they're kept there only.
+
 ## The Requests page
 
 A request shows here only once it needs you: the Agency Engineer asked you

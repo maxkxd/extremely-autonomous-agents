@@ -4,6 +4,7 @@ import { parseDocument, stringify } from 'yaml';
 import { DATA, listIds, readMeta, save, slug } from '../files.js';
 import {
   checkKey,
+  draftsForRequest,
   integrationSource,
   savedSettings,
   listIntegrations,
@@ -32,6 +33,7 @@ import { FLEET_ENGINEER, loadAgent, type NaturalLimit } from './agent.js';
 import { askerMayChange, charterVersions, readCharterVersion, writeCharter } from './charter.js';
 import { all, builtInLevels, getSetting, one, run as exec, setSetting } from './db.js';
 import { reportDefault, reportDefaultsForPrompt, setReportDefault } from './reports.js';
+import { appGapTool, fixedHereFor, resendUnsent } from './app-gaps.js';
 import { fileRequest, heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
 
 // The Agency Engineer (docs/requests.md, docs/integrations.md): the built-in
@@ -63,6 +65,7 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'engineer.withdraw_proposal': 'T1',
   'engineer.give_events': 'T2',
   'engineer.set_report_default': 'T0',
+  'engineer.report_app_gap': 'T1',
   'web.web_search': 'T0',
   'web.fetch_page': 'T0',
 };
@@ -145,6 +148,14 @@ Find the cause before you tell anyone what to do. The agent's report is where yo
 3. The fault is in a tool you built: fix it yourself - the definition, or the plugin - and propose it again (engineer.publish_integration). The person only approves; they have nothing to change. Tell the agent with engineer.close_request once it's live.
 4. The fault is the key or the account: engineer.reply_to_request with what you checked and what it showed (the key works for reading issues, and is refused at the comment endpoint with 403), then exactly what to change. They can't see your checks, so say what they were.
 5. They did what you asked and it still fails the same way: your diagnosis was most likely wrong. Check again from step 1 before asking for anything else, and say what you found.
+
+## When the app itself falls short
+Sometimes the fault isn't a connection or the agent: it's this app - one of its own tools (the agents' browser, computer files, web search, tasks, requests) can't do what the job needs, a limit built into the runner stops real work, or the runner schedules or wakes agents wrong. Nobody watches a customer's agency, so it must never end at "ask a person".
+1. Tell it apart: the failing tool is one of the app's own (not a connection's - engineer.list_integrations doesn't list it), tool_history shows the same failure across runs, and it isn't how the agent called it.
+2. Get the agent working today: a way round it with what you have - an extension or plugin that does the job (e.g. a plugin that fills a form the browser can't), another tool, or telling the agent how to work around it (tasks.delegate_task).
+3. Report it, always - with engineer.report_app_gap: which of the app's tools (or the runner part), what failed, which agents and runs, and the fix the app needs. It goes to the app's makers as a public issue, so the official build gets fixed for everyone: in general terms only - what kind of page, job or tool, never whose (no names, sites, emails, accounts, addresses; the tool refuses them). Give the request_id when it came from one: once the way round it you built goes live, the report says so by itself, and the makers can take your fix into the app.
+4. You built the way round it already, or fixed it some other way here: report it as well, with fixed_here saying what you built and how it works, so the official build has it and no other agency needs it built again.
+5. Then carry the request on as usual (close it with the workaround, or hand_to_person what truly needs one). Filed already (the tool shows what's been filed)? Report again only with something new: it's counted, not duplicated.
 
 ## Events
 Some agents are woken by something happening at a service - a new Sentry issue, a support ticket, an alarm - as well as by their schedule. A request to "Set up the event sentry.new_issue" means: add it to an integration (a new one, or the service's existing one) under events:, each with an id (server.event), a description, and how it's detected:
@@ -350,6 +361,51 @@ const openRequest = (raw: unknown): RequestRow => {
     throw new Error(`Request #${r.id} was withdrawn: the agent that asked for it was deleted. Nobody turned it down - keep what you drafted for it as it is (another agent, or the same one added back, may need it) and move on.`);
   if (r.status !== 'open') throw new Error(`Request #${r.id} is already ${r.status}.`);
   return r;
+};
+
+// A new draft for something one of this agent's requests already has a draft of:
+// refused, so it's built once. Two Engineer runs started seconds apart on one agent's
+// setup requests ("Connect Google Drive", "Set up Directories") each built the same
+// Drive extension, as "directories" and "drive-directories". The same thing is the
+// same name, or an extension of the same connection.
+export function sameDraftAlready(definition: string, requestId: number | null, list: { id: string; name: string; draft: boolean; keyFrom: { id: string } | null }[]) {
+  let raw: Record<string, unknown>;
+  try {
+    raw = (parseDocument(definition).toJSON() ?? {}) as Record<string, unknown>;
+  } catch {
+    return; // not YAML: writeDraftIntegration says so
+  }
+  const id = String(raw.id ?? '');
+  if (!id || !requestId || list.some(i => i.id === id)) return; // rewriting one is fine
+  const agent = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', requestId)?.agent_id;
+  if (!agent) return;
+  const theirs = all<{ id: number }>("SELECT id FROM requests WHERE agent_id = ? AND (status = 'open' OR id = ?)", agent, requestId).map(r => r.id);
+  const name = String(raw.name ?? '').trim().toLowerCase();
+  const parent = typeof raw.key_from === 'string' ? raw.key_from : null;
+  for (const r of theirs)
+    for (const d of draftsForRequest(r)) {
+      const other = list.find(i => i.id === d);
+      if (!other?.draft || other.id === id) continue;
+      if ((name && other.name.trim().toLowerCase() === name) || (parent && other.keyFrom?.id === parent))
+        throw new Error(
+          `"${other.id}" (${other.name}) is already a draft for request #${r}, from the same agent${parent ? `, using the same ${parent} connection` : ''} - another of your runs may be building it right now. Add to that one instead (engineer.read_integration, then write it with id ${other.id}), and settle both requests with it.`,
+        );
+    }
+}
+
+// A tested draft can always go live for the request it was built for. One closed
+// meanwhile - settled by a connection coming online, or answered another way while
+// the draft waited - is opened again for it: the Engineer had a draft tested against
+// the real sheet and "the app won't let me publish without an open request". Turned
+// down or withdrawn stays closed: that was a person's no, or the agent is gone.
+export const publishable = (raw: unknown): RequestRow => {
+  const r = one<RequestRow>('SELECT * FROM requests WHERE id = ?', Number(raw));
+  if (r?.status === 'done') {
+    exec("UPDATE requests SET status = 'open', answered_at = NULL, stage = 'engineer' WHERE id = ?", r.id);
+    postToRequest(r.id, 'engineer', 'Opened again: what was built for this is tested and ready to go live.');
+    return { ...r, status: 'open', stage: 'engineer' };
+  }
+  return openRequest(raw);
 };
 
 // An agent's tools that nothing provides yet, with what its builder wrote for them.
@@ -831,6 +887,7 @@ const TOOLS: ToolDef[] = [
       'Save an integration definition (YAML: kind http | mcp | code, as in the shipped examples) as a DRAFT: it shows in Settings to be connected; no agent can call it until a person approves it going live. Rewriting a live one makes the change a draft; the live version keeps working for the agents that have it until the change is approved, and a connected one stays connected.',
     schema: obj({ definition: str('The whole YAML definition'), request_id: int('The request it answers') }, ['definition']),
     impl: async a => {
+      sameDraftAlready(String(a.definition), a.request_id ? Number(a.request_id) : null, await listIntegrations());
       const { integration, wasLive } = await writeDraftIntegration(String(a.definition), FLEET_ENGINEER, a.request_id ? Number(a.request_id) : undefined);
       // Already connected (its key or sign-in is saved): nothing to ask the person.
       const row = (await listIntegrations()).find(i => i.id === integration.id);
@@ -987,8 +1044,10 @@ const TOOLS: ToolDef[] = [
         if (seen.has(g.for_agent)) throw new Error(`${await nameOf(g.for_agent)} is on this card twice: one entry per agent, with all its tools. Leave out request #${g.request_id}, or settle it on its own.`);
         seen.add(g.for_agent);
         const waits = one<{ waiting_on: string | null }>('SELECT waiting_on FROM requests WHERE id = ?', g.request_id)?.waiting_on;
-        if (waits && waits !== String(a.integration_id)) throw new Error(`Request #${g.request_id} is waiting on ${waits}, not ${a.integration_id}: leave it off this card.`);
-        rate(openRequest(g.request_id), g.stars);
+        // An extension's request waits on the connection whose key it uses (ask_for_connection).
+        const parent = (await listIntegrations()).find(i => i.id === String(a.integration_id))?.keyFrom?.id;
+        if (waits && waits !== String(a.integration_id) && waits !== parent) throw new Error(`Request #${g.request_id} is waiting on ${waits}, not ${a.integration_id}: leave it off this card.`);
+        rate(publishable(g.request_id), g.stars);
         if (!(await loadAgent(g.for_agent))) throw new Error(`No agent "${g.for_agent}".`);
         requestNotWaiting(g.request_id);
       }
@@ -1036,6 +1095,7 @@ const TOOLS: ToolDef[] = [
           if (r.verdict === 'fix') throw new Error(`The security review sent the plugin back. Concerns: ${r.concerns.map(c => `(${c.severity}) ${c.what}`).join('; ')}. What to change: ${r.fix || 'see the concerns'}.`);
         }
         a = { ...a, name: p.name, code_hash: p.codeHash };
+        for (const g of grantsOf(a)) publishable(g.request_id);
       }
       // Requests closed since it was queued (answered another way) are left alone.
       const grants = await withJoined(grantsOf(a).filter(g => one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE id = ? AND status = 'open'", g.request_id)?.n));
@@ -1080,6 +1140,8 @@ const TOOLS: ToolDef[] = [
           continue;
         }
         exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", `${String(a.summary)}\n\nYou now have: ${ids}.`, Date.now(), g.request_id);
+        // A gap in the app it got round (app-gaps.ts): reported fixed here, for the official build.
+        await fixedHereFor(g.request_id, `${String(a.name ?? a.integration_id)} went live here: ${String(a.summary)}`).catch(() => []);
         // Woken to use them now: an agent that was blocked runs only as Steady (scheduler).
         const instead = replaced.length ? ` They are the service's own, in place of the ones you were written with (${replaced.join(', ')}): use these.` : '';
         ctx.wake(g.for_agent, 'request done', `Request #${g.request_id} is done - you now have ${ids}.${instead} Use them on your real work now.`);
@@ -1185,6 +1247,7 @@ const TOOLS: ToolDef[] = [
       return `Gave ${tools.map(t => t.id).join(', ')} to ${a.for_agent}.`;
     },
   },
+  appGapTool('engineer.report_app_gap'),
 ];
 
 registerTools(TOOLS);
@@ -1216,6 +1279,9 @@ export async function movedToBuiltIns(book: (agentId: string, trigger: 'request'
 
 export function startEngineer(book: (agentId: string, trigger: 'request' | 'connected' | 'connection failed', task: string) => void) {
   void movedToBuiltIns(book).catch(() => {});
+  // Gaps in the app that didn't reach its makers (offline): sent again, hourly.
+  void resendUnsent().catch(() => {});
+  setInterval(() => void resendUnsent().catch(() => {}), 3_600_000).unref?.();
   // Ones that failed before anyone was told (an older version): to it once now.
   reportUnflaggedFailures();
   // A connection that doesn't work: it finds out why and fixes it - the person never
@@ -1270,7 +1336,12 @@ export function startEngineer(book: (agentId: string, trigger: 'request' | 'conn
       const req = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', r);
       const agent = req ? await loadAgent(req.agent_id) : null;
       const has = agent ? Object.keys(heldTools(agent)).filter(t => tools.has(t)) : [];
-      if (!agent || !has.length) {
+      // Holding some of its tools isn't everything it waited for: a draft built on this
+      // connection (Google Drive (more tools)) is still untested, or other tools it needs
+      // are still missing. Closed anyway, Drive's request shut and its draft sat untested
+      // until the Engineer's next daily run - with no open request left to publish it for.
+      const pending = agent && has.length ? draftsForRequest(r).length > 0 || (await stillMissing(agent.id)).missing.length > 0 : false;
+      if (!agent || !has.length || pending) {
         rest.push(r);
         continue;
       }

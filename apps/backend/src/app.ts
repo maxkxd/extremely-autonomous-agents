@@ -27,6 +27,7 @@ import {
 } from './directory.js';
 import { devUserId, signInTicket, type Auth } from './tokens.js';
 import { sendInvite } from './mail.js';
+import { checkGap, takeGap } from './app-gaps.js';
 
 // Our backend's API (docs/architecture.md, "Accounts and organizations").
 // Every route but /health and the keys needs a signed-in person: their Clerk
@@ -71,6 +72,19 @@ const ROUTES: Route[] = [
       }
       if (tooMany(c.ip ?? '')) return { ok: true }; // dropped, quietly
       await c.db.query('INSERT INTO connection_failures (at, service, kind, auth, how, error) VALUES ($1, $2, $3, $4, $5, $6)', [Date.now(), f.service, f.kind, f.auth, f.how, f.error]);
+      return { ok: true };
+    },
+  },
+  // Gaps in the app itself (app-gaps.ts), from anyone's agency: checked again, kept, and filed as an issue.
+  {
+    method: 'POST',
+    path: /^\/reports\/app-gap$/,
+    open: true,
+    run: async c => {
+      const g = checkGap(c.body);
+      if (typeof g === 'string') throw new ApiError(400, `Bad ${g}.`);
+      if (tooMany(c.ip ?? '')) return { ok: true }; // dropped, quietly
+      await takeGap(c.db, g);
       return { ok: true };
     },
   },
