@@ -62,14 +62,38 @@ export const state = {
 
 // --- Signing in ---
 
-let clerk: ClerkType | null = null;
+// Clerk keeps who's signed in in a token we hold, sent as a header, not in its
+// cookie: production Clerk's cookie is same-site to extremely.agency, and the
+// app runs at 127.0.0.1, so the cookie would never be sent back.
+const CLERK_CLIENT_KEY = 'eaa.clerkClient';
+let clerk: Promise<ClerkType> | null = null;
 async function loadClerk() {
   if (!CLERK_KEY) return null;
-  if (!clerk) {
+  clerk ??= (async () => {
     const { Clerk } = await import('@clerk/clerk-js');
-    clerk = new Clerk(CLERK_KEY);
-    await clerk.load();
-  }
+    const c = new Clerk(CLERK_KEY);
+    // Back from Google/GitHub: their sign-in reaches this token only once it's
+    // swapped with the nonce Clerk lands with, on the first fetch of the client.
+    let nonce = new URLSearchParams(location.search).get('rotating_token_nonce');
+    c.__internal_onBeforeRequest(req => {
+      req.credentials = 'omit';
+      req.url?.searchParams.append('_is_native', '1');
+      if (nonce && req.url?.pathname.endsWith('/client') && req.method === 'GET') {
+        req.url.searchParams.append('rotating_token_nonce', nonce);
+        nonce = null;
+      }
+      (req.headers as Headers).set('authorization', read<string>(CLERK_CLIENT_KEY, ''));
+    });
+    c.__internal_onAfterResponse((_req, res) => {
+      const token = res?.headers.get('authorization');
+      if (token) write(CLERK_CLIENT_KEY, token);
+    });
+    await c.load({ standardBrowser: false });
+    return c;
+  })().catch(e => {
+    clerk = null;
+    throw e;
+  });
   return clerk;
 }
 
@@ -143,8 +167,8 @@ export const inDesktopApp = /\bElectron\//.test(navigator.userAgent);
 // desktop app they refuse the embedded window, so the person's own browser
 // opens this same address, signs in there, and hands a single-use ticket back
 // through this computer's agency (apps/server/src/handoff.ts); this resolves
-// once the app is signed in with it.
-export async function signInWith(provider: 'google' | 'github') {
+// once the app is signed in with it, or quietly when stopped (Cancel).
+export async function signInWith(provider: 'google' | 'github', stop?: AbortSignal) {
   const c = await loadClerk();
   if (!c?.client) throw new SignInError("Can't reach sign-in right now.");
   if (!inDesktopApp) {
@@ -156,6 +180,7 @@ export async function signInWith(provider: 'google' | 'github') {
   const until = Date.now() + 10 * 60_000;
   while (Date.now() < until) {
     await new Promise(r => setTimeout(r, 1500));
+    if (stop?.aborted) return;
     const got = await local<{ ticket: string | null; expired: boolean }>(`/api/auth/handoff/ticket?state=${encodeURIComponent(code)}`).catch(() => null);
     if (got?.expired) break;
     if (!got?.ticket) continue;
@@ -172,43 +197,34 @@ export async function signInWith(provider: 'google' | 'github') {
 
 // The browser half (opened by the desktop app with ?handoff=<provider>&state=):
 // sign in as on the web, then hand the app a ticket and sign this browser back out.
-const HANDOFF_KEY = 'eaa.handoff';
-async function browserHandoff() {
+// The handoff's state rides along in /sso-callback's address (comingBack): the
+// tab's sessionStorage doesn't reliably survive the trip through the provider.
+async function browserHandoff(comingBack: string | null) {
   const params = new URLSearchParams(location.search);
   const provider = params.get('handoff');
-  const code = params.get('state');
-  if ((provider === 'google' || provider === 'github') && code) {
-    try {
-      sessionStorage.setItem(HANDOFF_KEY, code);
-    } catch {
-      // nowhere to keep it: the hand-back below fails and says so
-    }
+  let pendingCode = comingBack;
+  if ((provider === 'google' || provider === 'github') && params.get('state')) {
+    pendingCode = params.get('state')!;
     const c = await loadClerk();
     if (!c?.client) return void (state.handoff = { error: "Can't reach sign-in right now." });
     if (!c.session) {
-      // Off to the provider; this page comes back at /sso-callback.
-      await c.client.signIn.authenticateWithRedirect({ strategy: `oauth_${provider}`, redirectUrl: `${location.origin}/sso-callback`, redirectUrlComplete: `${location.origin}/` });
+      // Off to the provider; this page comes back at /sso-callback - either
+      // address, as Clerk lands finished sign-ins on the "complete" one directly.
+      const back = `${location.origin}/sso-callback?handoff_state=${encodeURIComponent(pendingCode)}`;
+      await c.client.signIn
+        .authenticateWithRedirect({ strategy: `oauth_${provider}`, redirectUrl: back, redirectUrlComplete: back })
+        .catch(err => void (state.handoff = { error: clerkMessage(err) }));
       return;
     }
   }
-  let pendingCode: string | null = null;
-  try {
-    pendingCode = sessionStorage.getItem(HANDOFF_KEY);
-  } catch {
-    // none
-  }
   if (!pendingCode) return;
-  try {
-    sessionStorage.removeItem(HANDOFF_KEY);
-  } catch {
-    // fine
-  }
   try {
     const c = await loadClerk();
     if (!c?.session) throw new SignInError('Signing in didn’t finish. Try again from the app.');
     const { ticket } = await backend<{ ticket: string }>('/me/sign-in-ticket', { method: 'POST' });
     await local('/api/auth/handoff/ticket', { state: pendingCode, ticket });
-    await c.signOut().catch(() => {});
+    // Signing out leaves the page (to / by default, the whole app): to the end of this one instead.
+    await c.signOut({ redirectUrl: `${location.origin}/?handoff=done` }).catch(() => {});
     state.handoff = 'done';
   } catch (e) {
     state.handoff = { error: (e as Error).message };
@@ -369,6 +385,7 @@ export const ownOrg = () => teamOrgs().find(o => o.role === 'owner') ?? null;
 
 // Startup, before the app draws: everything above, from wherever it can be had.
 export async function initAccount() {
+  const comingBack = location.pathname === '/sso-callback' ? new URLSearchParams(location.search).get('handoff_state') : null;
   if (location.pathname === '/sso-callback') {
     const c = await loadClerk().catch(() => null);
     await c?.handleRedirectCallback({ signInUrl: '/', signUpUrl: '/' }, async to => history.replaceState(null, '', to)).catch(() => {});
@@ -376,8 +393,8 @@ export async function initAccount() {
   }
   // The browser half of the desktop app's sign-in: nothing else on this page.
   if (!inDesktopApp) {
-    await browserHandoff();
-    if (state.handoff || new URLSearchParams(location.search).has('handoff')) return;
+    await browserHandoff(comingBack);
+    if (state.handoff || comingBack || new URLSearchParams(location.search).has('handoff')) return;
   }
   state.agency = read(AGENCY_KEY, 'personal');
   state.me = read(ME_KEY, null);

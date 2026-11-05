@@ -79,15 +79,20 @@ export function SignIn({ onDone, onCancel: close, mode: asked = 'in', from = nul
   const [busy, setBusy] = useState(false);
   // Google/GitHub in the desktop app: signing in in the browser (account.ts).
   const [inBrowser, setInBrowser] = useState(false);
+  // Cancel while waiting on the browser stops waiting.
+  const waiting = useRef<AbortController | null>(null);
+  useEffect(() => () => waiting.current?.abort(), []);
   const withProvider = (provider: 'google' | 'github') =>
     run(async () => {
       setInBrowser(inDesktopApp);
+      const stop = (waiting.current = new AbortController());
       try {
-        await signInWith(provider);
+        await signInWith(provider, stop.signal);
       } finally {
         setInBrowser(false);
+        waiting.current = null;
       }
-      if (inDesktopApp) onDone();
+      if (inDesktopApp && !stop.signal.aborted) onDone();
     });
   const [error, setError] = useState<string | null>(null);
   const first = useRef<HTMLInputElement>(null);
@@ -195,7 +200,7 @@ export function SignIn({ onDone, onCancel: close, mode: asked = 'in', from = nul
           </p>
         )}
         <div className="confirm-actions">
-          <button type="button" className="confirm-cancel" onClick={onCancel} disabled={busy}>
+          <button type="button" className="confirm-cancel" onClick={() => (waiting.current?.abort(), onCancel())} disabled={busy && !inBrowser}>
             Cancel
           </button>
           <button

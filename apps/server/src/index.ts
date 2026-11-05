@@ -504,8 +504,10 @@ createServer(async (req, res) => {
     }
   }
   // The packaged app's own files (ui.ts): any GET that isn't the agency's - not
-  // /api, and not a service's sign-in landing on the root (it carries state).
-  if (!HOSTED_ORG && req.method === 'GET' && !url.pathname.startsWith('/api/') && !(url.pathname === '/' && url.searchParams.has('state')) && (await serveUi(res, url.pathname)))
+  // /api, and not a service's sign-in landing on the root (it carries state; the
+  // app's own Google/GitHub sign-in in the browser carries state and handoff).
+  const landingSignIn = url.pathname === '/' && url.searchParams.has('state') && !url.searchParams.has('handoff');
+  if (!HOSTED_ORG && req.method === 'GET' && !url.pathname.startsWith('/api/') && !landingSignIn && (await serveUi(res, url.pathname)))
     return;
   const key = `${req.method} ${url.pathname}`;
   const runnerRoute = runnerRoutes[key];
