@@ -198,7 +198,16 @@ export async function loadIntegrations() {
     const hash = st?.codeHash ?? (liveCopies.has(drafted.id) ? st?.liveHash : undefined);
     if (integration.kind !== 'code' || MODULES[integration.module] || !hash) continue;
     const source = st?.codeHash ? undefined : ((await readPluginBackup(integration.module)) ?? undefined);
-    await installPlugin(integration.module, hash, resolvePermissions(integration.permissions), source).catch(e => problems.push({ file: `${integration.module}.ts`, error: (e as Error).message }));
+    await installPlugin(integration.module, hash, resolvePermissions(integration.permissions), source).catch(e => {
+      problems.push({ file: `${integration.module}.ts`, error: (e as Error).message });
+      // Connected and approved, and now it won't load (after an update, say): its agents
+      // have lost its tools - the Engineer is told now, not at the next daily check.
+      if (isConnected(drafted.id)) {
+        const message = `Its plugin didn't load: ${(e as Error).message}`;
+        putState(drafted.id, { ...states()[drafted.id], test: { ok: false, at: Date.now(), message } });
+        failed(drafted.id, 'recheck', message);
+      }
+    });
   }
   register();
 }
@@ -482,12 +491,19 @@ export function recheckStale(now = Date.now()): Promise<void> | undefined {
 // which works out why and fixes it or tells the person: nobody has to report it.
 export type FailedHow = 'connect' | 'sign-in' | 'recheck';
 let onFailed: ((id: string, how: FailedHow, message: string) => void) | null = null;
-export const whenConnectFailed = (fn: (id: string, how: FailedHow, message: string) => void) => void (onFailed = fn);
+// Failures from before anyone listens (a plugin that won't load as the app starts,
+// before the Engineer is set up) wait here, not dropped.
+const earlyFailures: [string, FailedHow, string][] = [];
+export const whenConnectFailed = (fn: (id: string, how: FailedHow, message: string) => void) => {
+  onFailed = fn;
+  for (const f of earlyFailures.splice(0)) fn(...f);
+};
 function failed(id: string, how: FailedHow, message: string) {
   const integration = find(id);
   if (!integration) return;
   putState(id, { ...states()[id], repair: { at: Date.now(), message } });
-  onFailed?.(id, how, message);
+  if (onFailed) onFailed(id, how, message);
+  else earlyFailures.push([id, how, message]);
   // To us too, as kinds only (report.ts): which services break for everyone.
   reportFailure({ service: id, kind: integration.kind, auth: integration.auth.type, how, message });
 }
