@@ -18,7 +18,7 @@ import type { Kit } from './modules/types.js';
 const KIT: Kit = { fetch: async (url, init) => (await safeFetch(url, init)).res as unknown as Response };
 import { discoverMcpSignIn } from './mcp-auth.js';
 import { stopStdioServer } from './mcp-stdio.js';
-import { oauthAccessToken, oauthCallback, oauthSecret, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
+import { oauthAccessToken, oauthCallback, oauthSecret, pendingSignIn, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
 import { Integration, type EventDefT, type HttpIntegration, type McpIntegration, type AuthDef } from './schema.js';
 import { sharedClient } from './shared-clients.js';
 import { DATA_DIR } from '../paths.js';
@@ -51,6 +51,7 @@ type State = {
   published?: boolean; // it has been live: a turned-down draft of it puts the live version back
   liveHash?: string; // while it's redrafted: the live plugin code's approved hash
   disconnectedAt?: number; // a person disconnected it after it had worked (maybe by mistake)
+  repair?: { at: number; message: string }; // it failed and the Agency Engineer is on it
 };
 const STATE_KEY = 'integrations';
 const states = () => getSetting<Record<string, State>>(STATE_KEY, {});
@@ -377,6 +378,7 @@ async function connectChecked(id: string, key?: string, fields?: Record<string, 
     } else if (!(await keyOf(id))) throw new Error('Paste the key first.');
   }
   const result = await test(integration);
+  if (!result.ok) failed(id, 'connect', result.message);
   // A typo in "Replace key" leaves the key that works (and the agents using it) alone.
   if (!result.ok && replaced) {
     if (before) {
@@ -390,6 +392,7 @@ async function connectChecked(id: string, key?: string, fields?: Record<string, 
   const prev = states()[id] ?? {};
   putState(id, {
     ...prev,
+    ...(result.ok ? { repair: undefined } : {}),
     connectedAt: result.ok ? Date.now() : undefined,
     test: { ok: result.ok, at: Date.now(), message: result.message },
     tools: result.tools ?? prev.tools,
@@ -416,10 +419,24 @@ export function recheckStale(now = Date.now()) {
   void (async () => {
     for (const { integration } of stale) {
       const r = await test(integration);
+      // Worked until now: broken since, so the Agency Engineer looks (a blip passes by itself).
+      if (!r.ok && states()[integration.id]?.test?.ok) failed(integration.id, 'recheck', r.message);
       putState(integration.id, { ...states()[integration.id], test: { ok: r.ok, at: Date.now(), message: r.message }, tools: r.tools ?? states()[integration.id]?.tools });
     }
     register();
   })().finally(() => (rechecking = false));
+}
+
+// A connection that doesn't work - Connect's test failed, a sign-in came back with an
+// error or never came back, or one that worked has broken - goes to the Agency Engineer,
+// which works out why and fixes it or tells the person: nobody has to report it.
+export type FailedHow = 'connect' | 'sign-in' | 'recheck';
+let onFailed: ((id: string, how: FailedHow, message: string) => void) | null = null;
+export const whenConnectFailed = (fn: (id: string, how: FailedHow, message: string) => void) => void (onFailed = fn);
+function failed(id: string, how: FailedHow, message: string) {
+  if (!find(id)) return;
+  putState(id, { ...states()[id], repair: { at: Date.now(), message } });
+  onFailed?.(id, how, message);
 }
 
 let onDraftConnected: ((id: string, request?: number) => void) | null = null;
@@ -454,7 +471,25 @@ function ourClient(id: string) {
 }
 
 // Signing in (OAuth): the person's OAuth client in, the service's sign-in page out.
+// A sign-in that can't start, or that never comes back (the service showed an error on
+// its own page, as Zoho's does), goes to the Agency Engineer.
+const SIGN_IN_WAIT_MS = 15 * 60_000;
 export async function startIntegrationSignIn(id: string, client: { clientId?: string; clientSecret?: string }) {
+  try {
+    const r = await signInUrl(id, client);
+    const startedAt = Date.now();
+    setTimeout(() => {
+      if (!isConnected(id) && (states()[id]?.test?.at ?? 0) < startedAt)
+        failed(id, 'sign-in', "The person opened the sign-in 15 minutes ago and it never came back to the app - the service may have shown an error on its own page, or they gave up on it.");
+    }, SIGN_IN_WAIT_MS).unref?.();
+    return r;
+  } catch (e) {
+    if (!(e instanceof ConnectError)) failed(id, 'sign-in', (e as Error).message);
+    throw e;
+  }
+}
+
+async function signInUrl(id: string, client: { clientId?: string; clientSecret?: string }) {
   const integration = find(id);
   // An MCP server's own sign-in: found and registered with here (mcp-auth.ts).
   if (integration?.kind === 'mcp' && integration.auth.type === 'mcp_oauth' && integration.url) {
@@ -475,7 +510,15 @@ export async function startIntegrationSignIn(id: string, client: { clientId?: st
 
 // The sign-in landed: test it straight away, so it's live only if it works.
 export async function finishIntegrationSignIn(q: URLSearchParams) {
-  const id = await oauthCallback(q);
+  const pendingId = pendingSignIn(q.get('state'));
+  let id: string;
+  try {
+    id = await oauthCallback(q);
+  } catch (e) {
+    // Cancelled by the person isn't a fault; anything else the service said is.
+    if (pendingId && q.get('error') !== 'access_denied') failed(pendingId, 'sign-in', (e as Error).message);
+    throw e;
+  }
   return connectIntegration(id);
 }
 
@@ -611,6 +654,8 @@ export async function listIntegrations() {
       setupHelp: e.setup_help ?? null,
     })),
     webhookSecretSet: secrets.has(integration.id),
+    // It failed and the Agency Engineer was told (whenConnectFailed): until it works again.
+    repairing: !!st[integration.id]?.repair,
   }));
 }
 

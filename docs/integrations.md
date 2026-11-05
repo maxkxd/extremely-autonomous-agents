@@ -153,6 +153,24 @@ wallpaper one) downloaded with plain `fetch`, which an agent could have aimed
 at the person's router - normal code anywhere else, dangerous here, and its
 author couldn't see it.
 
+## When a connection fails
+
+Nobody has to report a broken connection. Each of these goes to the Agency
+Engineer, with the exact error and the requests waiting on it
+(`whenConnectFailed` in `integrations/index.ts`, a `connection failed` run):
+
+- Connect's test fails (a key, fields, or a sign-in that came back);
+- a sign-in comes back with an error from the service (not one the person cancelled);
+- a sign-in never comes back within 15 minutes (the service showed an error on
+  its own page, as Zoho's does);
+- a connection that worked fails its daily check.
+
+Settings shows "The Agency Engineer is looking at this" on that connection until
+it works. The Engineer works out whose fault it is - the definition, the service,
+or what the person entered - and fixes the definition or tells the person, in
+plain words, the one thing to do differently (its Charter: "When a connection
+fails"). The same failure twice in an hour is one job.
+
 ## Email (Gmail)
 
 `gmail.yaml` + `modules/gmail.ts`, through the Gmail API with two scopes:

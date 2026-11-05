@@ -89,6 +89,10 @@ async function tokenRequest(auth: OAuthDef, body: Record<string, string>) {
 }
 
 // The browser lands here. Returns the integration's id, signed in.
+// Which connection a sign-in coming back is for, before it's handled (so a failed
+// one can still be told to the Agency Engineer).
+export const pendingSignIn = (state: string | null) => pending.get(state ?? '')?.id ?? null;
+
 export async function oauthCallback(q: URLSearchParams): Promise<string> {
   const p = pending.get(q.get('state') ?? '');
   if (!p) throw new ConnectError('That sign-in has expired. Start it again from Settings.');

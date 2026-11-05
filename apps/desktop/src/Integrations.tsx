@@ -136,6 +136,13 @@ function ServiceMark({ id }: { id: string }) {
 
 type RowProps = { i: IntegrationView; refresh: () => void; open: boolean; setOpen: (o: boolean) => void; onOpenApproval: (id: string) => void; events: EventInfo[] };
 
+// Not connected and it failed: what it said, and that the Agency Engineer is on it -
+// the person doesn't have to report it (a sign-in that never came back has no message).
+const failedLine = (i: IntegrationView) =>
+  i.test && !i.test.ok
+    ? i.repairing ? `${i.test.message} · The Agency Engineer is looking at this` : i.test.message
+    : i.repairing ? "It didn't connect · The Agency Engineer is looking at this" : null;
+
 // A service you sign in to, or one that takes a key.
 const IntegrationRow = (p: RowProps) => (p.i.signIn ? <SignInRow {...p} /> : <KeyRow {...p} />);
 
@@ -200,9 +207,7 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
       : [i.test?.message, tools].filter(Boolean).join(' · ')
     : i.free
       ? 'Free, no key needed, up to an hourly limit · add a key for more searches'
-      : i.test && !i.test.ok
-        ? i.test.message
-        : i.what;
+      : failedLine(i) ?? i.what;
   return (
     <li className={open || error ? 'with-form' : undefined} data-integration={i.id}>
       <span className="sconn-name">
@@ -417,9 +422,7 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
       ? i.draft
         ? i.approvalId ? 'Tested · waiting for your approval' : 'The Agency Engineer is testing it'
         : [i.test?.message, tools].filter(Boolean).join(' · ')
-      : i.test && !i.test.ok
-        ? i.test.message
-        : i.what;
+      : failedLine(i) ?? i.what;
   const bad = !waiting && !!i.test && !i.test.ok;
   return (
     <li className={open || error ? 'with-form' : undefined} data-integration={i.id}>

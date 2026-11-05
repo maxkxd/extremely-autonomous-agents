@@ -127,3 +127,23 @@ test("a draft nobody will connect - its request closed, nothing connected - is m
   await discardDraft('zz-wanted');
   await discardDraft('zz-stale');
 });
+
+test("a Connect that fails goes to the Agency Engineer, and the row says it's on it until it works", async () => {
+  const { resetDbForTests } = await import('../runner/db.js');
+  const { connectIntegration, discardDraft, listIntegrations, loadIntegrations, whenConnectFailed, writeDraftIntegration } = await import('./index.js');
+  resetDbForTests();
+  await loadIntegrations();
+  const told: string[] = [];
+  whenConnectFailed((id, how, message) => void told.push(`${id} ${how} ${message}`));
+  // An address that can't be reached (.invalid never resolves).
+  const def = `kind: http\nid: zz-broken\nname: Broken\nwhat: x\nauth: { type: bearer }\nbase_url: https://api.zz-broken.invalid\ntest: { tool: zz-broken.list, args: {} }\ntools:\n  - { id: zz-broken.list, tier: T0, description: x, input: { type: object }, request: { method: GET, path: /items } }\n`;
+  await writeDraftIntegration(def, 'fleet', 1);
+  await assert.rejects(connectIntegration('zz-broken', 'k-123'));
+  assert.equal(told.length, 1);
+  assert.match(told[0], /^zz-broken connect /);
+  assert.equal((await listIntegrations()).find(i => i.id === 'zz-broken')?.repairing, true);
+  // Pasting nothing isn't a fault to fix: no one is told.
+  await assert.rejects(connectIntegration('zz-broken', ''));
+  assert.equal(told.length, 1);
+  await discardDraft('zz-broken');
+});

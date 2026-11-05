@@ -20,7 +20,7 @@ import { canStillCount, execute, fileRequest, requestConnections, runEnded, tool
 // tool loop on its first working model, the floor and its nudges, then the
 // record and its post in the agent's DM channel.
 
-export type Trigger = 'scheduled' | 'self-booked' | 'request done' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'turned down' | 'connected' | 'event' | 'task done';
+export type Trigger = 'scheduled' | 'self-booked' | 'request done' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'turned down' | 'connected' | 'connection failed' | 'event' | 'task done';
 
 // What a run needs from outside, so tests can stand it up without a network.
 export type RunDeps = {
@@ -291,6 +291,11 @@ Test it properly now (engineer.test_integration), then carry its request forward
         : `${task}
 
 Get on with the work it unblocks now.`;
+    // A connection that doesn't work: the Agency Engineer fixes it, nobody reports it.
+    case 'connection failed':
+      return `${task}
+
+Follow "When a connection fails".`;
     // Something it watches for happened (docs/events.md).
     case 'event':
       return `Something you watch for happened:

@@ -12,6 +12,7 @@ import {
   publishPreview,
   testIntegrationTool,
   whenDraftConnected,
+  whenConnectFailed,
   whenConnected,
   whenFreeLimit,
   toolIdsOf,
@@ -123,6 +124,13 @@ Each person has their own default place for their agents' reports (engineer.list
 - Its owner has a default: don't ask them. Give the agent the default's tool (engineer.give_tools - a person approves it once) and say exactly where, in its why (the folder's full path, or "email to the owner"), so the agent knows; close the request once it's given.
 - None yet: engineer.hand_to_person, asking where: emailed to them, a Google Drive folder, a Notion page, a folder on this computer, or kept here in the app. Their answer is that agent's place and also becomes their default (engineer.set_report_default, for that person) - unless it was "kept in the app", which never is. A teammate who isn't on the host's computer choosing a folder on it: fine if they say so, but mention they can only open it on that computer.
 - The person names a place for one agent ("send the bug triage ones to my email instead"): that agent only - give it that tool and leave the default. A place that suits all their reports better than their current default - a general one like an "Agent stuff" folder, or they say it's for everything - becomes their default (engineer.set_report_default); their agents already delivering somewhere keep their place.
+
+## When a connection fails
+You're told when someone's Connect, sign-in or a daily check fails - the exact error, which connection, the requests waiting on it. The person sees "The Agency Engineer is looking at this" on that connection: they're waiting on you, not on themselves. Never leave it for them to work out or report.
+1. Work out whose fault it is, with the error and engineer.read_integration (and the service's docs, web.fetch_page): the definition (a wrong address or host, a field missing from the address, the wrong kind of sign-in, an address that's someone else's server, a token step that's wrong), the service (down, or refusing this kind of app), or what the person entered or chose (a typo'd key, the wrong account - a Google account with no Gmail inbox, a Zoho account on another data centre).
+2. The definition: fix it (engineer.write_integration, same id), then on the request waiting on it (engineer.reply_to_request) say in one sentence what was wrong and that it's fixed, and the one step to try again. No request waiting (a built-in): requests.request_resource with the same.
+3. What they entered or chose: tell them in plain words what to do differently - never the service's raw error - on the waiting request, or a new one. One that's a built-in you can't change (Gmail with no inbox): say which account works, or what to connect instead (their mail is on Zoho: the Zoho connection).
+4. The service is down or refuses apps like this: say so plainly, and the fallback (another service, the agents' own browser), as when a request is turned down.
 
 ## When a tool is failing
 Find the cause before you tell anyone what to do. The agent's report is where you start, not the diagnosis: it saw one error, at one moment.
@@ -1174,7 +1182,26 @@ registerTools(TOOLS);
 
 // --- Waking it ------------------------------------------------------------------------
 
-export function startEngineer(book: (agentId: string, trigger: 'request' | 'connected', task: string) => void) {
+// The same failure twice in an hour (Connect pressed again) is one job, not two.
+const failSeen = new Map<string, number>();
+
+export function startEngineer(book: (agentId: string, trigger: 'request' | 'connected' | 'connection failed', task: string) => void) {
+  // A connection that doesn't work: it finds out why and fixes it - the person never
+  // has to bring it to anyone (docs/integrations.md).
+  whenConnectFailed(async (id, how, message) => {
+    const seen = `${id} ${message}`;
+    if (Date.now() - (failSeen.get(seen) ?? 0) < 3_600_000) return;
+    failSeen.set(seen, Date.now());
+    const list = await listIntegrations();
+    const i = list.find(x => x.id === id);
+    const waiting = waitingFor(id, list);
+    const what = how === 'connect' ? 'pressed Connect and its test failed' : how === 'sign-in' ? 'signed in and it failed' : 'it worked before, and its daily check now fails';
+    book(
+      FLEET_ENGINEER,
+      'connection failed',
+      `"${i?.name ?? id}" (${id}, ${i?.kind ?? '?'}) doesn't work: the person ${what}. It said: ${message.slice(0, 600)}${waiting.length ? `\nRequests waiting on it: #${waiting.join(', #')}.` : ''} engineer.read_integration shows how it's defined.`,
+    );
+  });
   // A draft it's waiting on was connected: it tests it now.
   whenDraftConnected(async (id, request) => {
     const all = [...new Set([...(request ? [request] : []), ...waitingFor(id, await listIntegrations())])];

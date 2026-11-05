@@ -337,6 +337,7 @@ export type IntegrationView = {
   // Its events (docs/events.md): checked every N minutes (poll), and/or pushed to a webhook address.
   events: { id: string; description: string; poll: number | null; webhook: boolean; signed: boolean; secretHelp: string | null; setupHelp: string | null }[];
   webhookSecretSet: boolean;
+  repairing?: boolean; // it failed, and the Agency Engineer is on it
 };
 export type BrowserProfile = { n: number; open: boolean; inUse: boolean; accounts: number };
 export type IntegrationsView = { integrations: IntegrationView[]; problems: { file: string; error: string }[]; profile: { open: boolean; inUse: boolean; profiles?: BrowserProfile[] } };
