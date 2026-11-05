@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
 import { checkUrl, isPrivateIp } from './net.js';
@@ -21,14 +22,14 @@ import { getSecret, setSecret } from '../vault.js';
 //                        (passwords.ts). Profile 1 first; a profile holds up to 10
 //                        accounts on one site, and the next one gets a new profile.
 //
-// Each run gets its own session per profile. A page comes back as its text plus
-// numbered buttons, links and fields; the agent clicks or types by number. Every
-// request the page makes is checked like any agent fetch: never this computer or
-// its network.
+// A page comes back as its text plus numbered buttons, links and fields; the agent
+// clicks or types by number. Every request an agent's page makes is checked like any
+// agent fetch: never this computer or its network.
 //
-// A person (or an agent, for them) opens a profile in a real window: the browser
-// itself, not driven by automation - sites like Google and LinkedIn refuse sign-ins
-// in an automated window, and it's the same profile the agents then use.
+// A profile is one browser, shared: every agent run using it gets its own window
+// (minimised, out of the way) and the person gets theirs when they need it - a
+// sign-in, a CAPTCHA - all at once, with the same sign-ins, nobody waiting for
+// anybody (see "A profile's browser" below).
 
 export const PROFILES_DIR = join(DATA_DIR, 'browser-profiles');
 const OLD_PROFILE_DIR = join(DATA_DIR, 'browser-profile'); // one profile, before there could be more
@@ -120,23 +121,169 @@ async function launch(headless: boolean): Promise<Browser> {
   return chromium.launch({ executablePath: exe, headless });
 }
 
-async function launchProfile(n: number): Promise<BrowserContext> {
+// --- A profile's browser, shared -----------------------------------------------------
+//
+// A profile folder can only be open in one browser at a time, so there is one per
+// profile and everyone shares it: each agent run gets its own window, and the person
+// theirs. It's started as the plain browser with a debugging address on this computer
+// and connected to - not launched for automation, which Google and LinkedIn refuse
+// sign-ins in. Its first window stays minimised as the anchor (a browser quits with
+// its last window), and it closes a minute after the last run and the person's
+// windows have gone.
+
+type Shared = {
+  proc: ChildProcess;
+  browser: Browser;
+  context: BrowserContext;
+  runs: Set<string>; // runs with a window open in it
+  personWindows: Set<number>; // the person's windows (browser window ids)
+  personPages: Set<Page>; // every tab in those windows
+  idle?: ReturnType<typeof setTimeout>;
+};
+const shared = new Map<number, Promise<Shared>>();
+const IDLE_CLOSE_MS = 60_000;
+// Agents' windows are minimised and never looked at: the browser mustn't slow them down like hidden tabs.
+const PROFILE_FLAGS = ['--no-first-run', '--no-default-browser-check', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling'];
+
+const strayError = (n: number) =>
+  new Error(`Browser profile ${n} is open in a browser window the app didn't start (one left from before an update, say). Close that window and try again.`);
+
+function profileBrowser(n: number): Promise<Shared> {
+  let p = shared.get(n);
+  if (!p) {
+    p = startProfile(n);
+    shared.set(n, p);
+    p.catch(() => {
+      if (shared.get(n) === p) shared.delete(n);
+    });
+  }
+  return p;
+}
+
+async function startProfile(n: number): Promise<Shared> {
   const exe = browserExe();
   if (!exe) throw noBrowser();
   const dir = profileDir(n);
   await keepSignedIn(dir);
+  // The browser writes its debugging port here once it's listening.
+  const portFile = join(dir, 'DevToolsActivePort');
+  await rm(portFile, { force: true });
+  const proc = spawn(exe, [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', ...PROFILE_FLAGS, 'about:blank'], { stdio: 'ignore', windowsHide: false });
+  running.add(proc);
+  let exited = false;
+  proc.on('exit', () => {
+    exited = true;
+    running.delete(proc);
+  });
+  let port = 0;
+  // Already open in a browser we didn't start: this one hands over to it and exits, with no port.
+  for (let i = 0; i < 200 && !port && !exited; i++) {
+    const first = (await readFile(portFile, 'utf8').catch(() => '')).split('\n')[0].trim();
+    if (/^\d+$/.test(first)) port = Number(first);
+    else await new Promise(r => setTimeout(r, 100));
+  }
+  if (!port) {
+    proc.kill();
+    throw exited ? strayError(n) : new Error(`Browser profile ${n} didn't start. Try again.`);
+  }
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  const context = browser.contexts()[0];
+  await restoreSessionCookies(context, n);
+  const s: Shared = { proc, browser, context, runs: new Set(), personWindows: new Set(), personPages: new Set() };
+  // The anchor window: minimised, and nobody's.
+  for (const page of context.pages()) await setWindowState(s, page, 'minimized').catch(() => {});
+  // A tab the person opens in their own window is theirs too.
+  context.on('page', page => {
+    void windowOf(s, page).then(id => {
+      if (id != null && s.personWindows.has(id)) personPage(s, n, page);
+    }, () => {});
+  });
+  proc.on('exit', () => {
+    if (shared.get(n) && s.proc === proc) shared.delete(n);
+    clearTimeout(s.idle);
+    s.personPages.clear();
+    personGone(n);
+  });
+  return s;
+}
+
+// The browser window a page is in, and changing it: minimised for agents, normal and in front for the person.
+async function windowOf(s: Shared, page: Page): Promise<number | null> {
+  const pageSession = await s.context.newCDPSession(page);
+  const { targetInfo } = (await pageSession.send('Target.getTargetInfo')) as { targetInfo: { targetId: string } };
+  await pageSession.detach().catch(() => {});
+  const cdp = await s.browser.newBrowserCDPSession();
   try {
-    return await chromium.launchPersistentContext(dir, { executablePath: exe, headless: true, acceptDownloads: false, viewport: { width: 1280, height: 900 } });
-  } catch (e) {
-    if (/in use|already running|ProcessSingleton|lock/i.test((e as Error).message)) throw busyError(n);
-    throw e;
+    const { windowId } = (await cdp.send('Browser.getWindowForTarget', { targetId: targetInfo.targetId })) as { windowId: number };
+    return windowId;
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
+}
+async function setWindowState(s: Shared, page: Page, state: 'minimized' | 'normal') {
+  const windowId = await windowOf(s, page);
+  if (windowId == null) return;
+  const cdp = await s.browser.newBrowserCDPSession();
+  try {
+    await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: state } });
+  } finally {
+    await cdp.detach().catch(() => {});
   }
 }
 
+// A new window in the profile's browser, holding one page.
+async function newWindow(s: Shared, url: string, forPerson: boolean): Promise<Page> {
+  const tag = `eaa-${randomUUID()}`;
+  const start = forPerson ? url : `about:blank#${tag}`;
+  const arrived = s.context.waitForEvent('page', { predicate: p => (forPerson ? true : p.url().includes(tag)), timeout: 15_000 });
+  const cdp = await s.browser.newBrowserCDPSession();
+  try {
+    await cdp.send('Target.createTarget', { url: start, newWindow: true, background: !forPerson });
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
+  const page = await arrived;
+  await setWindowState(s, page, forPerson ? 'normal' : 'minimized').catch(() => {});
+  return page;
+}
+
+function personPage(s: Shared, n: number, page: Page) {
+  s.personPages.add(page);
+  page.on('close', () => {
+    s.personPages.delete(page);
+    if (!s.personPages.size) {
+      s.personWindows.clear();
+      personGone(n);
+      closeWhenIdle(n, s);
+    }
+  });
+}
+
+// Nobody's using it: close it a minute later, sign-ins kept.
+function closeWhenIdle(n: number, s: Shared) {
+  clearTimeout(s.idle);
+  if (s.runs.size || s.personPages.size) return;
+  s.idle = setTimeout(() => {
+    if (s.runs.size || s.personPages.size) return;
+    if (shared.get(n)) shared.delete(n);
+    void (async () => {
+      await keepSessionCookies(s.context, n).catch(() => {});
+      const cdp = await s.browser.newBrowserCDPSession();
+      await cdp.send('Browser.close').catch(() => s.proc.kill());
+    })().catch(() => s.proc.kill());
+  }, IDLE_CLOSE_MS);
+}
+
+// The app quitting takes the profiles' browsers with it.
+const running = new Set<ChildProcess>();
+process.on('exit', () => {
+  for (const proc of running) proc.kill();
+});
+
 // Blocks anything a page asks for on this computer or its network.
-async function guard(context: BrowserContext) {
+async function guard(target: BrowserContext | Page) {
   const verdicts = new Map<string, boolean>();
-  await context.route('**/*', async route => {
+  await target.route('**/*', async route => {
     const raw = route.request().url();
     if (raw.startsWith('data:') || raw.startsWith('blob:')) return route.continue();
     try {
@@ -156,40 +303,35 @@ async function guard(context: BrowserContext) {
 
 // --- Sessions, one per run, kind and profile ------------------------------------------
 
-type Session = { kind: 'blank' | 'profile'; profile: number; browser?: Browser; context: BrowserContext; page: Page };
+// blank: its own throwaway browser. profile: its own window in the profile's shared browser.
+type Session = { kind: 'blank' | 'profile'; runId: string; profile: number; browser?: Browser; context: BrowserContext; page: Page };
 const sessions = new Map<string, Session>();
-const busy = new Map<number, string>(); // profile -> the run holding it
-const windows = new Map<number, ChildProcess>(); // profile -> its window on the person's screen
-
-const busyError = (n: number) =>
-  new Error(
-    windows.has(n)
-      ? `Browser profile ${n} is open on the person's screen. It's free again once they close that window.`
-      : `Browser profile ${n} is in use by another agent's run. Try again shortly, or use another profile.`,
-  );
 
 async function session(ctx: RunCtx, kind: Session['kind'], profile = 1): Promise<Session> {
   const key = `${ctx.runId}:${kind}:${kind === 'profile' ? profile : 0}`;
   const existing = sessions.get(key);
-  if (existing) return existing;
+  if (existing && !existing.page.isClosed()) return existing;
   let s: Session;
   if (kind === 'blank') {
     const browser = await launch(true);
     const context = await browser.newContext({ acceptDownloads: false, viewport: { width: 1280, height: 900 } });
-    s = { kind, profile: 0, browser, context, page: await context.newPage() };
+    s = { kind, runId: ctx.runId, profile: 0, browser, context, page: await context.newPage() };
+    await guard(context);
   } else {
-    if (windows.has(profile) || (busy.has(profile) && busy.get(profile) !== ctx.runId)) throw busyError(profile);
-    busy.set(profile, ctx.runId);
+    const sh = await profileBrowser(profile);
+    clearTimeout(sh.idle);
+    sh.runs.add(ctx.runId);
     try {
-      const context = await launchProfile(profile);
-      await restoreSessionCookies(context, profile);
-      s = { kind, profile, context, page: context.pages()[0] ?? (await context.newPage()) };
+      const page = await newWindow(sh, 'about:blank', false);
+      await page.setViewportSize({ width: 1280, height: 900 }).catch(() => {});
+      await guard(page);
+      s = { kind, runId: ctx.runId, profile, context: sh.context, page };
     } catch (e) {
-      busy.delete(profile);
+      sh.runs.delete(ctx.runId);
+      closeWhenIdle(profile, sh);
       throw e;
     }
   }
-  await guard(s.context);
   sessions.set(key, s);
   return s;
 }
@@ -198,18 +340,22 @@ async function closeSession(key: string) {
   const s = sessions.get(key);
   if (!s) return;
   sessions.delete(key);
-  if (s.kind === 'profile') await keepSessionCookies(s).catch(() => {});
-  await (s.browser ? s.browser.close() : s.context.close()).catch(() => {});
-  if (s.kind === 'profile') busy.delete(s.profile);
+  if (s.kind === 'blank') return void (await s.browser?.close().catch(() => {}));
+  await keepSessionCookies(s.context, s.profile).catch(() => {});
+  await s.page.close().catch(() => {});
+  const sh = await shared.get(s.profile)?.catch(() => null);
+  if (!sh) return;
+  sh.runs.delete(s.runId);
+  closeWhenIdle(s.profile, sh);
 }
 
 // A sign-in without "remember me" lives in session cookies, which the browser drops
 // when it closes - so a run's sign-ins were gone by the next run. Kept in the vault
 // (encrypted) when a run ends, and put back when the profile opens again.
 const sessionKey = (n: number) => `browser:${n}:session-cookies`;
-async function keepSessionCookies(s: Session) {
-  const kept = (await s.context.cookies()).filter(c => c.expires === -1);
-  await setSecret(sessionKey(s.profile), kept);
+async function keepSessionCookies(context: BrowserContext, n: number) {
+  const kept = (await context.cookies()).filter(c => c.expires === -1);
+  await setSecret(sessionKey(n), kept);
 }
 async function restoreSessionCookies(context: BrowserContext, n: number) {
   const kept = await getSecret<Parameters<BrowserContext['addCookies']>[0]>(sessionKey(n)).catch(() => null);
@@ -399,11 +545,10 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       id: 'signed_in_browser.show_person',
       tier: 'T0',
       description:
-        "Open a browser profile in a window on the person's screen, at a page - for what only a person can do: a CAPTCHA, or a code sent to their phone. Then file a request saying what they need to do, with a line \"Open in signed-in browser: <address>\" (and \" (profile N)\" if not 1) so they get a button. Your own use of that profile stops until they close it.",
+        "Open a browser profile in a window on the person's screen, at a page - for what only a person can do: a CAPTCHA, or a code sent to their phone. Then file a request saying what they need to do, with a line \"Open in signed-in browser: <address>\" (and \" (profile N)\" if not 1) so they get a button. Their window is beside yours in the same browser: you carry on in your own, and what they sign in to is signed in for you too.",
       schema: obj({ url: { type: 'string', description: 'The page to open' }, profile: PROFILE_ARG }, ['url']),
-      impl: async (a, ctx) => {
+      impl: async a => {
         const n = await knownProfile(a.profile);
-        await closeSession(`${ctx.runId}:profile:${n}`);
         await openProfileWindow(n, String(a.url ?? ''));
         return `Opened profile ${n} on the person's screen at ${String(a.url)}.`;
       },
@@ -417,44 +562,46 @@ registerTools([...BROWSER_TOOLS, ...SIGNED_IN_TOOLS]);
 
 // --- A profile on the person's screen ------------------------------------------------------
 
-// The real browser, on this profile: the person signs in (or does a CAPTCHA or a phone
-// code) and closes the window, and the agents carry on in the same profile.
-// onClosed: once that window closes (opened from a request, its Engineer is told) -
-// once per key however often it's opened meanwhile.
+// The person's window, in the profile's shared browser: they sign in (or do a CAPTCHA
+// or a phone code) while the agents carry on in their own windows, and close it when
+// done. onClosed: once their windows are all closed (opened from a request, its
+// Engineer is told) - once per key however often it's opened meanwhile.
 const whenClosed = new Map<number, Map<string, () => void>>();
+function personGone(n: number) {
+  const then = whenClosed.get(n);
+  whenClosed.delete(n);
+  for (const f of then?.values() ?? []) f();
+}
 export async function openProfileWindow(profile = 1, url = 'https://www.google.com', onClosed?: { key: string; run: () => void }) {
   const n = await knownProfile(profile);
   const target = checkUrl(url).toString();
-  if (busy.has(n)) throw busyError(n);
-  const exe = browserExe();
-  if (!exe) throw noBrowser();
-  const open = windows.get(n);
-  await keepSignedIn(profileDir(n));
-  // Already open: the page opens in it (the browser hands it to the running window).
-  const child = spawn(exe, [`--user-data-dir=${profileDir(n)}`, '--no-first-run', '--no-default-browser-check', target], { stdio: 'ignore', windowsHide: false });
+  const s = await profileBrowser(n);
+  clearTimeout(s.idle);
+  const already = s.personPages.size > 0;
   if (onClosed) whenClosed.set(n, (whenClosed.get(n) ?? new Map()).set(onClosed.key, onClosed.run));
-  if (open) return { ok: true, profile: n, already: true };
-  windows.set(n, child);
-  const closed = () => {
-    if (windows.get(n) !== child) return;
-    windows.delete(n);
-    const then = whenClosed.get(n);
-    whenClosed.delete(n);
-    for (const f of then?.values() ?? []) f();
-  };
-  child.on('exit', closed);
-  child.on('error', closed);
-  return { ok: true, profile: n, already: false };
+  const page = await newWindow(s, target, true);
+  const id = await windowOf(s, page).catch(() => null);
+  if (id != null) s.personWindows.add(id);
+  personPage(s, n, page);
+  await page.bringToFront().catch(() => {});
+  return { ok: true, profile: n, already };
 }
 
 export async function profileStatus() {
   const profiles = await listProfiles();
   const counts = new Map<string, number>();
   for (const r of listPasswords()) counts.set(`${r.profile}`, (counts.get(`${r.profile}`) ?? 0) + 1);
+  const now = new Map<number, Shared>();
+  for (const [n, p] of shared) {
+    const s = await p.catch(() => null);
+    if (s) now.set(n, s);
+  }
+  const open = (n: number) => (now.get(n)?.personPages.size ?? 0) > 0;
+  const inUse = (n: number) => (now.get(n)?.runs.size ?? 0) > 0;
   return {
     // Kept for older screens: profile 1.
-    open: windows.has(1),
-    inUse: busy.has(1),
-    profiles: profiles.map(n => ({ n, open: windows.has(n), inUse: busy.has(n), accounts: counts.get(`${n}`) ?? 0 })),
+    open: open(1),
+    inUse: inUse(1),
+    profiles: profiles.map(n => ({ n, open: open(n), inUse: inUse(n), accounts: counts.get(`${n}`) ?? 0 })),
   };
 }

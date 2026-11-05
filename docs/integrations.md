@@ -350,10 +350,17 @@ is forced under `agent/`. Approving a review is for people.
       posts publicly or starts a new business tool is its own tool
       (`click_to_pay`, `click_to_post`, `click_to_start_tool`) at approval.
       The agent's rules make it use those for those clicks.
-    - A person's window is the real browser, not automation (Google and
-      LinkedIn refuse sign-ins in automated windows) - the same profile the
-      agents then use. It's set to quit when its window closes (Edge kept
-      running in the background, holding the profile).
+    - **One browser per profile, shared** (2026-11-06; it used to be one run
+      at a time, and a person's window locked every agent out). A profile
+      folder opens in only one browser, so the runner starts the plain
+      browser itself with a debugging address on 127.0.0.1 and connects to
+      it - not one launched for automation, which Google and LinkedIn refuse
+      sign-ins in. Every agent run gets its own window (minimised, never
+      throttled), the person theirs (`show_person`, the request button), all
+      at the same time with the same sign-ins. Its first window stays
+      minimised as the anchor; it closes a minute after the last run and the
+      person's windows have gone, and with the app. A profile already open
+      in a browser the app didn't start is reported, not fought over.
     - Kept signed in: lasting cookies are the browser's own; session cookies
       (a sign-in without "remember me") are kept in the vault at the end of a
       run and put back at the next (checked: both survive a restart).
