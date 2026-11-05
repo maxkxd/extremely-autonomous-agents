@@ -147,3 +147,20 @@ test("a Connect that fails goes to the Agency Engineer, and the row says it's on
   assert.equal(told.length, 1);
   await discardDraft('zz-broken');
 });
+
+test("before a person is asked to connect: an account's own server from a web page, an address that doesn't exist, are caught", async () => {
+  const { accountCode, preflight } = await import('./preflight.js');
+  const mcp = (url: string, auth: object) => Integration.parse({ kind: 'mcp', id: 'zz-pre', name: 'Pre', what: 'x', auth, url });
+  // Zoho CRM's from Zoho's "connect to Claude" page: someone else's server.
+  const zohoPage = 'https://zoho-crm-data-operations-12345678901.zohomcp.in/mcp/0123456789abcdef0123456789abcdef/message';
+  assert.ok(accountCode(zohoPage));
+  assert.match((await preflight(mcp(zohoPage, { type: 'mcp_oauth' }))) ?? '', /one account's own server/);
+  // The same kind of address built from what the person pastes is theirs: fine (nothing to look up).
+  const fields = { type: 'fields', fields: [{ name: 'server', label: 'Server' }, { name: 'api_key', label: 'Key' }] };
+  assert.equal(await preflight(mcp('https://{{server}}.zohomcp.com/mcp/{{api_key}}/message', fields)), null);
+  // A shared server's address has no code in it.
+  assert.equal(accountCode('https://mcp.notion.com/mcp'), null);
+  assert.equal(accountCode('https://mcp.zapier.com/api/mcp/mcp'), null);
+  // An address that doesn't exist.
+  assert.match((await preflight(mcp('https://mcp.zz-nothing.invalid/mcp', { type: 'bearer' }))) ?? '', /doesn't exist/);
+});

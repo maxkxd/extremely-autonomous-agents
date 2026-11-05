@@ -18,6 +18,7 @@ import type { Kit } from './modules/types.js';
 const KIT: Kit = { fetch: async (url, init) => (await safeFetch(url, init)).res as unknown as Response };
 import { discoverMcpSignIn } from './mcp-auth.js';
 import { stopStdioServer } from './mcp-stdio.js';
+import { preflight } from './preflight.js';
 import { oauthAccessToken, oauthCallback, oauthSecret, pendingSignIn, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
 import { Integration, type EventDefT, type HttpIntegration, type McpIntegration, type AuthDef } from './schema.js';
 import { sharedClient } from './shared-clients.js';
@@ -193,6 +194,11 @@ export async function loadIntegrations() {
 }
 
 const find = (id: string) => loaded.find(l => l.integration.id === id)?.integration;
+// Checked before a person is asked to connect it (preflight.ts).
+export async function preflightOf(id: string) {
+  const integration = find(id);
+  return integration ? preflight(integration) : null;
+}
 // The connection an extension uses the key of (key_from), if it is one.
 const keyFrom = (i: Integration) => (i.kind === 'http' || i.kind === 'code' ? i.key_from : undefined);
 const isConnected = (id: string): boolean => {

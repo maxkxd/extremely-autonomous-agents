@@ -7,6 +7,7 @@ import {
   integrationSource,
   savedSettings,
   listIntegrations,
+  preflightOf,
   liveEventIds,
   publishIntegration,
   publishPreview,
@@ -884,6 +885,9 @@ const TOOLS: ToolDef[] = [
       rename(r, a.setup_name);
       const i = (await listIntegrations()).find(x => x.id === String(a.integration_id));
       if (!i) throw new Error(`No integration "${a.integration_id}".`);
+      // Checked first, so the person is never sent to connect something that can't work.
+      const problem = await preflightOf(i.id);
+      if (problem) throw new Error(`Not asked - fix this first: ${problem}`);
       // Asked already: the person has the steps - saying them again is noise.
       const was = one<{ waiting_on: string | null; stage: string | null }>('SELECT waiting_on, stage FROM requests WHERE id = ?', r.id);
       if (was?.waiting_on === i.id && was.stage === 'waiting_you') return `Request #${r.id} is already waiting on the person to connect ${i.name}, with the steps. Nothing more to say on it; you'll be woken when it's connected.`;

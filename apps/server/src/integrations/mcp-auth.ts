@@ -14,7 +14,7 @@ const json = async (url: string, init?: Parameters<typeof safeFetch>[1]) => {
 };
 
 // The protected-resource metadata: from the server's 401 header, else the well-known path.
-async function resourceMetadata(serverUrl: string): Promise<{ authorization_servers?: string[]; scopes_supported?: string[]; resource?: string }> {
+export async function resourceMetadata(serverUrl: string): Promise<{ authorization_servers?: string[]; scopes_supported?: string[]; resource?: string }> {
   const { res } = await safeFetch(serverUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
@@ -30,7 +30,7 @@ async function resourceMetadata(serverUrl: string): Promise<{ authorization_serv
   return { authorization_servers: [u.origin] };
 }
 
-async function serverMetadata(issuer: string): Promise<Record<string, unknown>> {
+export async function serverMetadata(issuer: string): Promise<Record<string, unknown>> {
   const u = new URL(issuer);
   const path = u.pathname.replace(/\/$/, '');
   for (const url of [`${u.origin}/.well-known/oauth-authorization-server${path}`, `${u.origin}/.well-known/openid-configuration${path}`, `${issuer.replace(/\/$/, '')}/.well-known/openid-configuration`]) {
