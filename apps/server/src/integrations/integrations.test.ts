@@ -400,3 +400,16 @@ test('a permission left unticked on Google\'s page is named the way people know 
   assert.equal(plainScope('youtube.force-ssl'), 'your YouTube account');
   assert.equal(plainScope('something.new'), 'something.new');
 });
+
+test("a field's hint is one short line (it's inside the box and cut off past that); steps go above the fields", async () => {
+  const { discardDraft, loadIntegrations, writeDraftIntegration } = await import('./index.js');
+  await loadIntegrations();
+  const def = (help: string) =>
+    `kind: mcp\nid: zz-hint\nname: Hint\nwhat: x\nkey_help: Make a server in the console, then copy its address.\nurl: https://mcp.example.com/{{server}}\nauth:\n  type: fields\n  fields: [{ name: server, label: Server, secret: false, help: "${help}" }]\n  headers: { x: "{{server}}" }\n`;
+  await assert.rejects(
+    writeDraftIntegration(def('In the console, open your server > Connect. The MCP URL looks like https://mcp.example.com/abc'), 'fleet'),
+    /hint inside the box.*key_help/,
+  );
+  await writeDraftIntegration(def('Looks like abc123'), 'fleet');
+  await discardDraft('zz-hint');
+});

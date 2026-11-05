@@ -288,6 +288,8 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
                       spellCheck={false}
                       value={vals[f.name] ?? f.value ?? ''}
                       placeholder={f.secret && f.saved ? 'Saved - leave blank to keep it' : (f.help ?? '')}
+                      // A hint longer than the box (one made before hints were kept short): all of it on hover.
+                      title={f.help && f.help.length > 60 ? f.help : undefined}
                       onChange={e => {
                         setVals(v => ({ ...v, [f.name]: e.target.value }));
                         setError(null);

@@ -912,6 +912,9 @@ export type { HttpIntegration, McpIntegration };
 // connected, but no agent can call it until a person approves it going live.
 // asPerson: written for the person (from their IDE): any added integration may
 // be redrafted, and it stays whoever's it was.
+// How long a field's help (the hint inside its box) may be: about what fits in one.
+export const FIELD_HELP_MAX = 60;
+
 export async function writeDraftIntegration(definition: string, by: string, request?: number, asPerson = false): Promise<{ integration: Integration; wasLive: boolean }> {
   let raw: unknown;
   try {
@@ -960,6 +963,13 @@ export async function writeDraftIntegration(definition: string, by: string, requ
     const unused = auth.fields.filter(f => !f.optional && !used.includes(`{{${f.name}}}`)).map(f => f.name);
     if (unused.length)
       throw new Error(`${unused.map(n => `"${n}"`).join(', ')} ${unused.length > 1 ? "aren't" : "isn't"} used anywhere: put {{${unused[0]}}} where the service wants it (the address, headers, query, basic, or the token step) - otherwise the person pastes it and it's never sent.`);
+  }
+  // A field's help is the grey hint inside its box: past one short line it's cut off
+  // mid-sentence. Steps go in key_help, the paragraph above the fields.
+  if (integration.auth.type === 'fields') {
+    const long = integration.auth.fields.find(f => (f.help?.length ?? 0) > FIELD_HELP_MAX);
+    if (long)
+      throw new Error(`The help for "${long.name}" is ${long.help!.length} characters: it's the hint inside the box, and past ${FIELD_HELP_MAX} it's cut off. Keep it to a short example of what goes there ("Looks like https://mcp.example.com/..."), and put the steps in key_help, shown above the fields.`);
   }
   // Programs on this computer, or local addresses, are a person's call alone.
   if (integration.kind === 'mcp' && (integration.command || integration.local))
