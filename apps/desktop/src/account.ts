@@ -261,6 +261,7 @@ export async function signOut() {
   // What organizations showed stays with the person, not the browser.
   forgetSnapshots();
   if (state.signIn === 'clerk') await (await loadClerk().catch(() => null))?.signOut();
+  await publishAssistantDirectory([]).catch(() => {});
   switchAgency('personal');
 }
 
@@ -402,8 +403,8 @@ export const ownOrg = () => teamOrgs().find(o => o.role === 'owner') ?? null;
 export async function initAccount() {
   const comingBack = location.pathname === '/sso-callback' ? new URLSearchParams(location.search).get('handoff_state') : null;
   if (location.pathname === '/sso-callback') {
-    const c = await loadClerk().catch(() => null);
     // Loaded before the address is cleared (loadClerk reads its nonce from it).
+    const c = await loadClerk().catch(() => null);
     // The desktop app's sign-in in the browser finishes in browserHandoff instead.
     if (!comingBack)
       await c?.handleRedirectCallback({ signInUrl: '/', signUpUrl: '/' }, async to => history.replaceState(null, '', to)).catch(() => {});
@@ -746,13 +747,27 @@ async function carry(c: Carried) {
   }
 }
 
-// Started once, when you're in an organization hosted on another computer.
+// The organizations you're in, for the public MCP package (docs/mcp-server.md):
+// the app's own agency lists their addresses where it finds them. Sent when
+// they change; sign-out sends none.
+let published: string | null = null;
+export async function publishAssistantDirectory(orgs = teamOrgs()) {
+  const list = JSON.stringify(orgs.map(o => ({ id: o.id, name: o.name, role: o.role })));
+  if (list === published) return;
+  await local('/api/assistant/directory', { orgs: JSON.parse(list) });
+  published = list;
+}
+
+// Started once, while the app is open. Carries messages for any organization
+// you're in (the public MCP package reaches all of them, not only ones hosted
+// elsewhere); with none, nothing comes and it just waits.
 let carrying = false;
 export function carryAssistantMessages() {
-  if (carrying || !state.me || !teamOrgs().some(o => !reachedHere(o))) return;
+  if (carrying) return;
   carrying = true;
   void (async () => {
     for (;;) {
+      void publishAssistantDirectory().catch(() => {});
       try {
         const { calls } = await local<{ calls: Carried[] }>('/api/assistant/pending?wait=25000');
         for (const c of calls) void carry(c);

@@ -1,0 +1,169 @@
+{
+  "manifest_version": "0.3",
+  "name": "extremely-agency",
+  "display_name": "EXTREMELY agency",
+  "version": "0.1.0",
+  "description": "Your agency of AI agents in Claude: what agents did, approvals, requests, jobs and reports.",
+  "long_description": "Talk to the agency running in the Extremely Autonomous Agents app on this computer: ask what an agent did today, approve or reject what is waiting, answer requests, give an agent a job, read its latest report or start a run. For an organization you are in, it goes through the app, end to end encrypted to its host. Needs the app (https://extremely.agency).",
+  "author": {
+    "name": "EXTREMELY",
+    "url": "https://extremely.agency"
+  },
+  "homepage": "https://extremely.agency",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maxkxd/extremely-autonomous-agents"
+  },
+  "license": "AGPL-3.0-only",
+  "server": {
+    "type": "node",
+    "entry_point": "index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/index.js"
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "list_agencies",
+      "description": "Your own agency and every organization you are in."
+    },
+    {
+      "name": "list_requests",
+      "description": "List requests"
+    },
+    {
+      "name": "answer_request",
+      "description": "Close a request"
+    },
+    {
+      "name": "reply_to_request",
+      "description": "Reply on a request"
+    },
+    {
+      "name": "give_task",
+      "description": "Give an agent a job"
+    },
+    {
+      "name": "list_agents",
+      "description": "List agents"
+    },
+    {
+      "name": "read_agent",
+      "description": "Read an agent"
+    },
+    {
+      "name": "write_agent_file",
+      "description": "Replace an agent's file"
+    },
+    {
+      "name": "list_models",
+      "description": "List AI models"
+    },
+    {
+      "name": "set_agent_models",
+      "description": "Set an agent's models"
+    },
+    {
+      "name": "set_agent",
+      "description": "Set an agent's ferocity or state"
+    },
+    {
+      "name": "builder_guide",
+      "description": "Agent builder guide"
+    },
+    {
+      "name": "check_build",
+      "description": "Check an agent build"
+    },
+    {
+      "name": "create_agent",
+      "description": "Create an agent"
+    },
+    {
+      "name": "delete_agent",
+      "description": "Delete an agent"
+    },
+    {
+      "name": "run_agent",
+      "description": "Run or message an agent"
+    },
+    {
+      "name": "list_approvals",
+      "description": "List approvals"
+    },
+    {
+      "name": "decide_approval",
+      "description": "Approve or reject an action"
+    },
+    {
+      "name": "agency_today",
+      "description": "What the agency did today"
+    },
+    {
+      "name": "agent_activity",
+      "description": "What an agent did"
+    },
+    {
+      "name": "latest_report",
+      "description": "An agent's latest report"
+    },
+    {
+      "name": "list_integrations",
+      "description": "List integrations"
+    },
+    {
+      "name": "read_integration",
+      "description": "Read an integration"
+    },
+    {
+      "name": "write_integration",
+      "description": "Write an integration draft"
+    },
+    {
+      "name": "write_plugin",
+      "description": "Write a code plugin"
+    },
+    {
+      "name": "test_integration",
+      "description": "Try an integration tool"
+    },
+    {
+      "name": "publish_integration",
+      "description": "Publish an integration"
+    },
+    {
+      "name": "test_event",
+      "description": "Try an event"
+    },
+    {
+      "name": "give_events",
+      "description": "Subscribe an agent to events"
+    },
+    {
+      "name": "give_tools",
+      "description": "Give an agent tools"
+    },
+    {
+      "name": "discard_integration",
+      "description": "Discard or remove an integration"
+    }
+  ],
+  "compatibility": {
+    "platforms": [
+      "win32",
+      "darwin",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "keywords": [
+    "agents",
+    "agency",
+    "automation"
+  ]
+}

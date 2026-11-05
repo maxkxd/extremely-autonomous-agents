@@ -1,0 +1,1559 @@
+[
+  {
+    "name": "list_requests",
+    "title": "List requests",
+    "description": "Requests agents filed for things they can't do themselves: what they need, why, where each stands, and the conversation with the Agency Engineer.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "include_closed": {
+          "type": "boolean",
+          "description": "Closed ones too (default: open only)"
+        }
+      },
+      "required": []
+    },
+    "annotations": {
+      "title": "List requests",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "answer_request",
+    "title": "Close a request",
+    "description": "Close a request: done (say what was done, so the agent knows) or rejected (anything drafted for it is discarded). The agent hears on its next run.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "number",
+          "description": "The request number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "done",
+            "rejected"
+          ]
+        },
+        "answer": {
+          "type": "string",
+          "description": "What was done, or why not"
+        }
+      },
+      "required": [
+        "request_id",
+        "status"
+      ]
+    },
+    "annotations": {
+      "title": "Close a request",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "reply_to_request",
+    "title": "Reply on a request",
+    "description": "Write in an open request, to the Agency Engineer (as in the app: everyone on the request sees it, and the Engineer is woken to answer).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "number",
+          "description": "The request number"
+        },
+        "text": {
+          "type": "string",
+          "description": "What to say"
+        }
+      },
+      "required": [
+        "request_id",
+        "text"
+      ]
+    },
+    "annotations": {
+      "title": "Reply on a request",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "give_task",
+    "title": "Give an agent a job",
+    "description": "Give an agent a job, from you: it starts on it as soon as it can and marks it done with the result (agent_activity shows it). For a question or a quick word, run_agent with a message instead.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id (list_agents)"
+        },
+        "task": {
+          "type": "string",
+          "description": "The whole job, with everything it needs to know"
+        }
+      },
+      "required": [
+        "agent_id",
+        "task"
+      ]
+    },
+    "annotations": {
+      "title": "Give an agent a job",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "list_agents",
+    "title": "List agents",
+    "description": "Every agent: id, name, department, owner, state (active / draining = standby / stopped), ferocity level, models, and whether it is built in.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "title": "List agents",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "read_agent",
+    "title": "Read an agent",
+    "description": "An agent's files (CHARTER.md, TOOLS.yaml, KPI.yaml), its models and state, its last runs and its memory notes.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id"
+        }
+      },
+      "required": [
+        "agent_id"
+      ]
+    },
+    "annotations": {
+      "title": "Read an agent",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "write_agent_file",
+    "title": "Replace an agent's file",
+    "description": "Replace one of an agent's files: CHARTER.md (its job), TOOLS.yaml (tools, tiers, approval windows, ferocity plan) or KPI.yaml (which actions count as output). read_agent first. Its next run uses it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id"
+        },
+        "file": {
+          "type": "string",
+          "enum": [
+            "CHARTER.md",
+            "TOOLS.yaml",
+            "KPI.yaml"
+          ]
+        },
+        "content": {
+          "type": "string",
+          "description": "The whole new file"
+        }
+      },
+      "required": [
+        "agent_id",
+        "file",
+        "content"
+      ]
+    },
+    "annotations": {
+      "title": "Replace an agent's file",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "list_models",
+    "title": "List AI models",
+    "description": "The AI models connected in the app, which agents can be given (set_agent_models).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "title": "List AI models",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "set_agent_models",
+    "title": "Set an agent's models",
+    "description": "An agent's models: up to three, in order of preference; it falls to the next when one fails. Each {connection, model, effort: low|medium|high|max}, from list_models.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "connection": {
+                "type": "string",
+                "description": "Connection id"
+              },
+              "model": {
+                "type": "string",
+                "description": "Model id"
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "max"
+                ]
+              }
+            },
+            "required": [
+              "connection",
+              "model"
+            ]
+          }
+        }
+      },
+      "required": [
+        "agent_id",
+        "models"
+      ]
+    },
+    "annotations": {
+      "title": "Set an agent's models",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "set_agent",
+    "title": "Set an agent's ferocity or state",
+    "description": "An agent's ferocity (how hard it works: Chill, Steady, Driven, Relentless, Apocalyptic) or state (active, draining = standby: starts nothing itself, stopped: runs nothing). Built-in agents have neither.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id"
+        },
+        "ferocity": {
+          "type": "string",
+          "enum": [
+            "Chill",
+            "Steady",
+            "Driven",
+            "Relentless",
+            "Apocalyptic"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "active",
+            "draining",
+            "stopped"
+          ]
+        }
+      },
+      "required": [
+        "agent_id"
+      ]
+    },
+    "annotations": {
+      "title": "Set an agent's ferocity or state",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "builder_guide",
+    "title": "Agent builder guide",
+    "description": "Read this first when making an agent: the agent builder's whole brief - how agents work here, the tool catalogue and default tiers, the tools every agent gets, this organization and the person, the fleet, connected services and their tools and events, the connected models, how to interview the person, and how to tier. create_agent's fields carry the rest.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "title": "Agent builder guide",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "check_build",
+    "title": "Check an agent build",
+    "description": "Check a build before creating it, without creating anything: the same input as create_agent. Answers with what's wrong, or what it would make.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Short agent name, 1-3 words, title case, e.g. \"Invoice Chaser\""
+        },
+        "department": {
+          "type": "string",
+          "enum": [
+            "engineering",
+            "marketing",
+            "sales",
+            "finance",
+            "research",
+            "operations"
+          ]
+        },
+        "charter": {
+          "type": "string",
+          "description": "The full CHARTER.md in Markdown, written for this organization: # CHARTER - <name>, then ## Mission, ## What this agent does, ## What this agent does not do, ## Autonomy tier (which actions are T0, T1, T2 and why), ## Guardrails, ## When to ask a person (Requests for things only a person can give; Approvals for T2 actions; never rely on anyone reading its channel), ## Standard run (start from its task list), ## Definition of a good run. Specific to this agent, no filler."
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "connection": {
+                "type": "string",
+                "description": "A connection id from \"Models connected\""
+              },
+              "model": {
+                "type": "string",
+                "description": "One of that connection's model ids, exactly"
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "max"
+                ]
+              }
+            },
+            "required": [
+              "connection",
+              "model",
+              "effort"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Up to three models in order of preference, from \"Models connected\" only: the first is used, the others take over if it fails. Pick the best fit for the job - strong models for open-ended judgement, fast cheap ones for simple high-volume work - preferring plan connections over pay-per-use keys, and spreading the three across different connections where possible so one outage doesn't stop the agent. Effort: low for routine work, medium by default, high for hard judgement. Empty when nothing is connected."
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "A fleet tool id, a catalogue tool id (server.tool), or the id of one of your new_tools"
+              },
+              "tier": {
+                "type": "string",
+                "enum": [
+                  "T0",
+                  "T1",
+                  "T2"
+                ]
+              },
+              "why": {
+                "type": "string",
+                "description": "A few words: why it needs this tool, and why this tier if it differs from the default"
+              }
+            },
+            "required": [
+              "id",
+              "tier",
+              "why"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Every tool the job needs. Leave out anything it does not need. Do not list the fleet plumbing."
+        },
+        "approval_hours": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "hours": {
+                "type": "number",
+                "description": "How long a T2 approval waits before it expires"
+              }
+            },
+            "required": [
+              "id",
+              "hours"
+            ],
+            "additionalProperties": false
+          },
+          "description": "One entry per T2 tool"
+        },
+        "new_tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "server": {
+                "type": "string",
+                "description": "Server name, lowercase; reuse an existing server name when it extends that system"
+              },
+              "name": {
+                "type": "string",
+                "description": "snake_case verb_noun"
+              },
+              "description": {
+                "type": "string"
+              },
+              "input_schema": {
+                "type": "string",
+                "description": "JSON Schema for its input, as a JSON string"
+              },
+              "how_it_works": {
+                "type": "string",
+                "description": "What it calls (API, endpoint, library) and what it returns"
+              }
+            },
+            "required": [
+              "server",
+              "name",
+              "description",
+              "input_schema",
+              "how_it_works"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Tools that neither the fleet nor the catalogue has and this agent needs. Empty when existing tools cover it."
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "An event id from the connected services listed, or the id (server.name) of one of your new_events"
+              },
+              "why": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "why"
+            ],
+            "additionalProperties": false
+          },
+          "description": "What wakes this agent besides its schedule: things happening at a service that it reacts to - a new error report, a support ticket, an alarm, a payment failing. Empty for an agent that only works on its schedule. An agent with events still has a schedule: then Chill is a slow sweep for anything missed."
+        },
+        "new_events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "server": {
+                "type": "string",
+                "description": "The service, lowercase (sentry, zendesk, aws)"
+              },
+              "name": {
+                "type": "string",
+                "description": "snake_case, what happened: new_issue, ticket_created, alarm_fired"
+              },
+              "description": {
+                "type": "string",
+                "description": "What happened, in a few words"
+              },
+              "how_detected": {
+                "type": "string",
+                "description": "How the service tells it: its webhook for this, or the API to poll for new items"
+              }
+            },
+            "required": [
+              "server",
+              "name",
+              "description",
+              "how_detected"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Events nothing connected provides yet that this agent should wake on. The Agency Engineer sets each up and the person connects it. Empty when none."
+        },
+        "kpi": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "A tool id from tools"
+              },
+              "label": {
+                "type": "string",
+                "description": "Plural, lowercase, e.g. \"invoices chased\""
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "additionalProperties": false
+          },
+          "description": "1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing."
+        },
+        "max_runs_per_day": {
+          "type": "number",
+          "description": "Runaway backstop, not the cadence: comfortably above what the job needs"
+        },
+        "ferocity": {
+          "type": "object",
+          "properties": {
+            "chill_every_hours": {
+              "type": "number",
+              "description": "Chill (\"the default: gets the job done\"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168)"
+            },
+            "steady_every_hours": {
+              "type": "number",
+              "description": "Steady (\"needle mover: goes above expectations\"): somewhat more often than Chill where more runs find more work; the same where they would not"
+            },
+            "driven_every_hours": {
+              "type": "number",
+              "description": "Driven (\"never leaves output on the table\"): as often as there is usually new work to find"
+            },
+            "relentless_every_hours": {
+              "type": "number",
+              "description": "Relentless (\"inhuman, never rests\" - very high effort, not constant runs), in hours: as often as this job can turn up new real outcomes, which depends on the job, not on Chill. A stream of fresh work to find (lead research, outreach, content ideas): minutes - 0.17 (10 min) to 0.5. Work that arrives as events (bug triage on a Sentry alert, incidents, tickets): its events wake it, so this schedule is only an idle sweep, e.g. 6-8 hours - its intensity is each run digging to the bottom and booking follow-up runs, a high floor, and asking for more tools. Never more often than new work can appear (a weekly report stays weekly)."
+            },
+            "driven_soft_floor": {
+              "type": "number",
+              "description": "Driven: output actions a good run makes; a run ending below it gets one gentle nudge. Modest."
+            },
+            "relentless_floor": {
+              "type": "number",
+              "description": "Relentless: the minimum real outcomes per run - set high, what a tireless expert gets done in one run of this job (bug triage woken by an alert: the issue filed, its notes, a repro, and anything related it turned up - not 1 or 2), but always reachable with real work and never above its natural limits (a cap of 15 a day over ~4 runs is ~4 a run; at a 10-minute pace, a run is a few outcomes)"
+            },
+            "apocalyptic_floor": {
+              "type": "number",
+              "description": "Apocalyptic: well above Relentless, still real outcomes and still within natural limits; runs go back to back and push toward it"
+            },
+            "counts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The tool ids whose calls count toward a floor: real outcomes only - usually the kpi ids. Real means it leaves the agent and matters to someone: a record created or changed in a business system, a draft, an email, a post, a pull request, a document delivered to a shared place. Never workspace files (files.*), memory, tasks, requests or reports to the person (gmail.send_to_me) - counted, they were padded (one agent wrote 106 files to reach its number). If the main action has a natural limit (see natural_limits), still count it, and set the floors within the limit."
+            },
+            "hint": {
+              "type": "string",
+              "description": "Where else to look or what else to do when a run is below its floor: specific sources, approaches and streams of work for this job"
+            },
+            "extra_effort": {
+              "type": "string",
+              "description": "What more effort means for this job above Chill, where doing the main action more would be useless or harmful: wider and better real work (more sources searched, harder cases taken on), never files written to reach a number - e.g. a wallpaper agent finds better candidates and asks what the person likes, rather than changing the wallpaper again"
+            }
+          },
+          "required": [
+            "chill_every_hours",
+            "steady_every_hours",
+            "driven_every_hours",
+            "relentless_every_hours",
+            "driven_soft_floor",
+            "relentless_floor",
+            "apocalyptic_floor",
+            "counts",
+            "hint",
+            "extra_effort"
+          ],
+          "additionalProperties": false,
+          "description": "How hard it works at each ferocity level, set for this job. The person picks the level on the card."
+        },
+        "natural_limits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tool": {
+                "type": "string"
+              },
+              "max": {
+                "type": "number"
+              },
+              "per_hours": {
+                "type": "number"
+              },
+              "why": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool",
+              "max",
+              "per_hours",
+              "why"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Caps on an action at every ferocity - ONLY ones the person asked for in this conversation, in their own words (\"at most one post a day\"). Never add one because it seems sensible: the agency is here for as much good output as possible. Empty unless the person asked."
+        },
+        "profile_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "New facts about the organization that every agent should know. Only what will still be true and useful to an agent months from now: lasting roles, responsibilities, preferences, standards and how they like to work. Never plans, intentions, one-off tasks, current projects, setup steps, or anything that stops being true once it's done (not \"plans to set up X\", \"is moving to Y next month\", \"is working on Z\"). Leave out anything trivial or that no agent would act on. When in doubt, leave it out. One short sentence each; usually empty."
+        },
+        "person_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "New facts about the person you're talking to. Only what will still be true and useful to an agent months from now: lasting roles, responsibilities, preferences, standards and how they like to work. Never plans, intentions, one-off tasks, current projects, setup steps, or anything that stops being true once it's done (not \"plans to set up X\", \"is moving to Y next month\", \"is working on Z\"). Leave out anything trivial or that no agent would act on. When in doubt, leave it out. One short sentence each; usually empty."
+        },
+        "report_place": {
+          "description": "Where this agent's reports go when the person named a place in this conversation: exactly where (a folder's full path, \"email to the owner\", the Drive folder or Notion page), then \" | \" and the tool that delivers there - e.g. \"C:\\\\Users\\\\sam\\\\Documents\\\\Reports | computer_files.write_file\". Empty when they named none, or chose to keep them in the app.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "department",
+        "charter",
+        "models",
+        "tools",
+        "approval_hours",
+        "new_tools",
+        "events",
+        "new_events",
+        "kpi",
+        "max_runs_per_day",
+        "ferocity",
+        "natural_limits",
+        "profile_notes",
+        "person_notes"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Check an agent build",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "create_agent",
+    "title": "Create an agent",
+    "description": "Add a new agent, as the app's agent builder would (read builder_guide first, and talk to the person the way it says): the full build - name, department, Charter, tools with tiers, events, KPIs, models, ferocity plan. Every id must exist (the guide lists them) or be one of its own new_tools / new_events, which go to the Agency Engineer as requests. Answers with what it made.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Short agent name, 1-3 words, title case, e.g. \"Invoice Chaser\""
+        },
+        "department": {
+          "type": "string",
+          "enum": [
+            "engineering",
+            "marketing",
+            "sales",
+            "finance",
+            "research",
+            "operations"
+          ]
+        },
+        "charter": {
+          "type": "string",
+          "description": "The full CHARTER.md in Markdown, written for this organization: # CHARTER - <name>, then ## Mission, ## What this agent does, ## What this agent does not do, ## Autonomy tier (which actions are T0, T1, T2 and why), ## Guardrails, ## When to ask a person (Requests for things only a person can give; Approvals for T2 actions; never rely on anyone reading its channel), ## Standard run (start from its task list), ## Definition of a good run. Specific to this agent, no filler."
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "connection": {
+                "type": "string",
+                "description": "A connection id from \"Models connected\""
+              },
+              "model": {
+                "type": "string",
+                "description": "One of that connection's model ids, exactly"
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "max"
+                ]
+              }
+            },
+            "required": [
+              "connection",
+              "model",
+              "effort"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Up to three models in order of preference, from \"Models connected\" only: the first is used, the others take over if it fails. Pick the best fit for the job - strong models for open-ended judgement, fast cheap ones for simple high-volume work - preferring plan connections over pay-per-use keys, and spreading the three across different connections where possible so one outage doesn't stop the agent. Effort: low for routine work, medium by default, high for hard judgement. Empty when nothing is connected."
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "A fleet tool id, a catalogue tool id (server.tool), or the id of one of your new_tools"
+              },
+              "tier": {
+                "type": "string",
+                "enum": [
+                  "T0",
+                  "T1",
+                  "T2"
+                ]
+              },
+              "why": {
+                "type": "string",
+                "description": "A few words: why it needs this tool, and why this tier if it differs from the default"
+              }
+            },
+            "required": [
+              "id",
+              "tier",
+              "why"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Every tool the job needs. Leave out anything it does not need. Do not list the fleet plumbing."
+        },
+        "approval_hours": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "hours": {
+                "type": "number",
+                "description": "How long a T2 approval waits before it expires"
+              }
+            },
+            "required": [
+              "id",
+              "hours"
+            ],
+            "additionalProperties": false
+          },
+          "description": "One entry per T2 tool"
+        },
+        "new_tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "server": {
+                "type": "string",
+                "description": "Server name, lowercase; reuse an existing server name when it extends that system"
+              },
+              "name": {
+                "type": "string",
+                "description": "snake_case verb_noun"
+              },
+              "description": {
+                "type": "string"
+              },
+              "input_schema": {
+                "type": "string",
+                "description": "JSON Schema for its input, as a JSON string"
+              },
+              "how_it_works": {
+                "type": "string",
+                "description": "What it calls (API, endpoint, library) and what it returns"
+              }
+            },
+            "required": [
+              "server",
+              "name",
+              "description",
+              "input_schema",
+              "how_it_works"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Tools that neither the fleet nor the catalogue has and this agent needs. Empty when existing tools cover it."
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "An event id from the connected services listed, or the id (server.name) of one of your new_events"
+              },
+              "why": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "why"
+            ],
+            "additionalProperties": false
+          },
+          "description": "What wakes this agent besides its schedule: things happening at a service that it reacts to - a new error report, a support ticket, an alarm, a payment failing. Empty for an agent that only works on its schedule. An agent with events still has a schedule: then Chill is a slow sweep for anything missed."
+        },
+        "new_events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "server": {
+                "type": "string",
+                "description": "The service, lowercase (sentry, zendesk, aws)"
+              },
+              "name": {
+                "type": "string",
+                "description": "snake_case, what happened: new_issue, ticket_created, alarm_fired"
+              },
+              "description": {
+                "type": "string",
+                "description": "What happened, in a few words"
+              },
+              "how_detected": {
+                "type": "string",
+                "description": "How the service tells it: its webhook for this, or the API to poll for new items"
+              }
+            },
+            "required": [
+              "server",
+              "name",
+              "description",
+              "how_detected"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Events nothing connected provides yet that this agent should wake on. The Agency Engineer sets each up and the person connects it. Empty when none."
+        },
+        "kpi": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "A tool id from tools"
+              },
+              "label": {
+                "type": "string",
+                "description": "Plural, lowercase, e.g. \"invoices chased\""
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "additionalProperties": false
+          },
+          "description": "1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing."
+        },
+        "max_runs_per_day": {
+          "type": "number",
+          "description": "Runaway backstop, not the cadence: comfortably above what the job needs"
+        },
+        "ferocity": {
+          "type": "object",
+          "properties": {
+            "chill_every_hours": {
+              "type": "number",
+              "description": "Chill (\"the default: gets the job done\"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168)"
+            },
+            "steady_every_hours": {
+              "type": "number",
+              "description": "Steady (\"needle mover: goes above expectations\"): somewhat more often than Chill where more runs find more work; the same where they would not"
+            },
+            "driven_every_hours": {
+              "type": "number",
+              "description": "Driven (\"never leaves output on the table\"): as often as there is usually new work to find"
+            },
+            "relentless_every_hours": {
+              "type": "number",
+              "description": "Relentless (\"inhuman, never rests\" - very high effort, not constant runs), in hours: as often as this job can turn up new real outcomes, which depends on the job, not on Chill. A stream of fresh work to find (lead research, outreach, content ideas): minutes - 0.17 (10 min) to 0.5. Work that arrives as events (bug triage on a Sentry alert, incidents, tickets): its events wake it, so this schedule is only an idle sweep, e.g. 6-8 hours - its intensity is each run digging to the bottom and booking follow-up runs, a high floor, and asking for more tools. Never more often than new work can appear (a weekly report stays weekly)."
+            },
+            "driven_soft_floor": {
+              "type": "number",
+              "description": "Driven: output actions a good run makes; a run ending below it gets one gentle nudge. Modest."
+            },
+            "relentless_floor": {
+              "type": "number",
+              "description": "Relentless: the minimum real outcomes per run - set high, what a tireless expert gets done in one run of this job (bug triage woken by an alert: the issue filed, its notes, a repro, and anything related it turned up - not 1 or 2), but always reachable with real work and never above its natural limits (a cap of 15 a day over ~4 runs is ~4 a run; at a 10-minute pace, a run is a few outcomes)"
+            },
+            "apocalyptic_floor": {
+              "type": "number",
+              "description": "Apocalyptic: well above Relentless, still real outcomes and still within natural limits; runs go back to back and push toward it"
+            },
+            "counts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The tool ids whose calls count toward a floor: real outcomes only - usually the kpi ids. Real means it leaves the agent and matters to someone: a record created or changed in a business system, a draft, an email, a post, a pull request, a document delivered to a shared place. Never workspace files (files.*), memory, tasks, requests or reports to the person (gmail.send_to_me) - counted, they were padded (one agent wrote 106 files to reach its number). If the main action has a natural limit (see natural_limits), still count it, and set the floors within the limit."
+            },
+            "hint": {
+              "type": "string",
+              "description": "Where else to look or what else to do when a run is below its floor: specific sources, approaches and streams of work for this job"
+            },
+            "extra_effort": {
+              "type": "string",
+              "description": "What more effort means for this job above Chill, where doing the main action more would be useless or harmful: wider and better real work (more sources searched, harder cases taken on), never files written to reach a number - e.g. a wallpaper agent finds better candidates and asks what the person likes, rather than changing the wallpaper again"
+            }
+          },
+          "required": [
+            "chill_every_hours",
+            "steady_every_hours",
+            "driven_every_hours",
+            "relentless_every_hours",
+            "driven_soft_floor",
+            "relentless_floor",
+            "apocalyptic_floor",
+            "counts",
+            "hint",
+            "extra_effort"
+          ],
+          "additionalProperties": false,
+          "description": "How hard it works at each ferocity level, set for this job. The person picks the level on the card."
+        },
+        "natural_limits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tool": {
+                "type": "string"
+              },
+              "max": {
+                "type": "number"
+              },
+              "per_hours": {
+                "type": "number"
+              },
+              "why": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool",
+              "max",
+              "per_hours",
+              "why"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Caps on an action at every ferocity - ONLY ones the person asked for in this conversation, in their own words (\"at most one post a day\"). Never add one because it seems sensible: the agency is here for as much good output as possible. Empty unless the person asked."
+        },
+        "profile_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "New facts about the organization that every agent should know. Only what will still be true and useful to an agent months from now: lasting roles, responsibilities, preferences, standards and how they like to work. Never plans, intentions, one-off tasks, current projects, setup steps, or anything that stops being true once it's done (not \"plans to set up X\", \"is moving to Y next month\", \"is working on Z\"). Leave out anything trivial or that no agent would act on. When in doubt, leave it out. One short sentence each; usually empty."
+        },
+        "person_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "New facts about the person you're talking to. Only what will still be true and useful to an agent months from now: lasting roles, responsibilities, preferences, standards and how they like to work. Never plans, intentions, one-off tasks, current projects, setup steps, or anything that stops being true once it's done (not \"plans to set up X\", \"is moving to Y next month\", \"is working on Z\"). Leave out anything trivial or that no agent would act on. When in doubt, leave it out. One short sentence each; usually empty."
+        },
+        "report_place": {
+          "description": "Where this agent's reports go when the person named a place in this conversation: exactly where (a folder's full path, \"email to the owner\", the Drive folder or Notion page), then \" | \" and the tool that delivers there - e.g. \"C:\\\\Users\\\\sam\\\\Documents\\\\Reports | computer_files.write_file\". Empty when they named none, or chose to keep them in the app.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "department",
+        "charter",
+        "models",
+        "tools",
+        "approval_hours",
+        "new_tools",
+        "events",
+        "new_events",
+        "kpi",
+        "max_runs_per_day",
+        "ferocity",
+        "natural_limits",
+        "profile_notes",
+        "person_notes"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Create an agent",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "delete_agent",
+    "title": "Delete an agent",
+    "description": "Delete an agent: its files go, its approvals and requests are closed, work handed to it is closed as not done. Its past runs stay in Usage. Built-in agents can't be deleted.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id"
+        }
+      },
+      "required": [
+        "agent_id"
+      ]
+    },
+    "annotations": {
+      "title": "Delete an agent",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "run_agent",
+    "title": "Run or message an agent",
+    "description": "Start an agent now. With a message, it answers it in its DM channel (as if the person wrote it); without, it does its job as on Run now.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id"
+        },
+        "message": {
+          "type": "string",
+          "description": "Optional: what to say to it"
+        }
+      },
+      "required": [
+        "agent_id"
+      ]
+    },
+    "annotations": {
+      "title": "Run or message an agent",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "list_approvals",
+    "title": "List approvals",
+    "description": "Agents' actions waiting on a person in the app (sending, posting, going live...): only the ones that are yours to decide. decide_approval approves or rejects one.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "title": "List approvals",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "decide_approval",
+    "title": "Approve or reject an action",
+    "description": "Approve or reject one of the actions in list_approvals, as on the Approvals screen: approved, it runs now and the agent hears the result; rejected, the agent is told (with the note, if any).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "approval_id": {
+          "type": "string",
+          "description": "The id from list_approvals"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "approved",
+            "rejected"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional: why, for the agent"
+        }
+      },
+      "required": [
+        "approval_id",
+        "decision"
+      ]
+    },
+    "annotations": {
+      "title": "Approve or reject an action",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "agency_today",
+    "title": "What the agency did today",
+    "description": "What the whole agency did since a time (default: the start of today, the agency's own clock): per agent its runs, output actions and last summary, plus what's waiting on a person (approvals, open requests).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "since": {
+          "type": "string",
+          "description": "Optional: an ISO date or time, e.g. 2026-11-05 or 2026-11-05T09:00"
+        }
+      },
+      "required": []
+    },
+    "annotations": {
+      "title": "What the agency did today",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "agent_activity",
+    "title": "What an agent did",
+    "description": "What one agent did since a time (default: the start of today): its DM channel posts (each run's write-up and the tools it used), the people's messages to it, and the jobs given to it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id (list_agents)"
+        },
+        "since": {
+          "type": "string",
+          "description": "Optional: an ISO date or time"
+        },
+        "limit": {
+          "type": "number",
+          "description": "Optional: at most this many posts, newest kept (default 30)"
+        }
+      },
+      "required": [
+        "agent_id"
+      ]
+    },
+    "annotations": {
+      "title": "What an agent did",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "latest_report",
+    "title": "An agent's latest report",
+    "description": "An agent's latest report: the write-up of its last run that made one, and where its reports go (the place its person chose, e.g. a Drive folder).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id (list_agents)"
+        }
+      },
+      "required": [
+        "agent_id"
+      ]
+    },
+    "annotations": {
+      "title": "An agent's latest report",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "list_integrations",
+    "title": "List integrations",
+    "description": "Every integration (the services agents' tools run on): connected or not, draft or live, its tools. Plus whether code plugins are allowed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "title": "List integrations",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "read_integration",
+    "title": "Read an integration",
+    "description": "An integration's definition (YAML), and a plugin's code. The shipped ones - brave-search (HTTP), github and gmail (code) - show the format.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "integration_id": {
+          "type": "string",
+          "description": "The integration id"
+        }
+      },
+      "required": [
+        "integration_id"
+      ]
+    },
+    "annotations": {
+      "title": "Read an integration",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "write_integration",
+    "title": "Write an integration draft",
+    "description": "Save an integration definition (YAML, kind http | mcp | code) as a draft: it shows in the app's Settings > Connectors to be connected, and no agent can call it until publish_integration. Redrafting a live one keeps the live one working meanwhile. Keys and sign-ins are added by the person in Settings, never here.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "yaml": {
+          "type": "string",
+          "description": "The whole definition"
+        }
+      },
+      "required": [
+        "yaml"
+      ]
+    },
+    "annotations": {
+      "title": "Write an integration draft",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "write_plugin",
+    "title": "Write a code plugin",
+    "description": "Save a code plugin's TypeScript (only if code plugins are allowed in Settings): export default { tools: [{ id, tier, description, input, run: async (args, token, kit) => string }] }. Network only through kit.fetch; it runs sandboxed with the permissions its kind: code definition declares. It runs only once published.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "module": {
+          "type": "string",
+          "description": "The module name its definition names"
+        },
+        "code": {
+          "type": "string",
+          "description": "The whole TypeScript file"
+        }
+      },
+      "required": [
+        "module",
+        "code"
+      ]
+    },
+    "annotations": {
+      "title": "Write a code plugin",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "test_integration",
+    "title": "Try an integration tool",
+    "description": "Call one of an integration's tools for real (a draft or a live one), and see what an agent would. A plugin's code can't be tried before it's published.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "integration_id": {
+          "type": "string",
+          "description": "The integration id"
+        },
+        "tool": {
+          "type": "string",
+          "description": "The tool id"
+        },
+        "args": {
+          "type": "object",
+          "description": "Its input"
+        }
+      },
+      "required": [
+        "integration_id",
+        "tool"
+      ]
+    },
+    "annotations": {
+      "title": "Try an integration tool",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "publish_integration",
+    "title": "Publish an integration",
+    "description": "Make a draft live, and optionally give its tools to an agent. A plugin first gets the independent security review; a serious finding stops it. Done here, it doesn't wait for the app's Approvals.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "integration_id": {
+          "type": "string",
+          "description": "The draft"
+        },
+        "for_agent": {
+          "type": "string",
+          "description": "Optional: the agent that gets its tools"
+        },
+        "tools": {
+          "type": "array",
+          "description": "For for_agent: the tools to give and their tiers (T0 read, T1 reversible write, T2 needs a person)",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Tool id"
+              },
+              "tier": {
+                "type": "string",
+                "enum": [
+                  "T0",
+                  "T1",
+                  "T2"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "tier"
+            ]
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "For for_agent: its events the agent should wake on"
+        }
+      },
+      "required": [
+        "integration_id"
+      ]
+    },
+    "annotations": {
+      "title": "Publish an integration",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "test_event",
+    "title": "Try an event",
+    "description": "Try an integration's event (draft or live) without waking anyone: a real poll showing what it finds, and the webhook address to paste into the service.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "integration_id": {
+          "type": "string",
+          "description": "The integration id"
+        },
+        "event_id": {
+          "type": "string",
+          "description": "The event (server.event)"
+        }
+      },
+      "required": [
+        "integration_id",
+        "event_id"
+      ]
+    },
+    "annotations": {
+      "title": "Try an event",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "give_events",
+    "title": "Subscribe an agent to events",
+    "description": "Subscribe an agent to live events: it wakes when they happen, as well as on its schedule. list_integrations shows each integration's events.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Event ids (server.event)"
+        }
+      },
+      "required": [
+        "agent_id",
+        "events"
+      ]
+    },
+    "annotations": {
+      "title": "Subscribe an agent to events",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "give_tools",
+    "title": "Give an agent tools",
+    "description": "Give an agent tools that a live integration (or the agency's built-ins) provides, each at a tier.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Tool id"
+              },
+              "tier": {
+                "type": "string",
+                "enum": [
+                  "T0",
+                  "T1",
+                  "T2"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "tier"
+            ]
+          }
+        }
+      },
+      "required": [
+        "agent_id",
+        "tools"
+      ]
+    },
+    "annotations": {
+      "title": "Give an agent tools",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "discard_integration",
+    "title": "Discard or remove an integration",
+    "description": "Throw away a draft (a redraft of a live one goes back to the live version), or remove an added integration entirely. Shipped ones can't be removed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "integration_id": {
+          "type": "string",
+          "description": "The integration id"
+        },
+        "remove_live": {
+          "type": "boolean",
+          "description": "Remove it even though it is live"
+        }
+      },
+      "required": [
+        "integration_id"
+      ]
+    },
+    "annotations": {
+      "title": "Discard or remove an integration",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  }
+]

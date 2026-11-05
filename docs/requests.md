@@ -178,8 +178,9 @@ terminal on the task; Cursor and Antigravity open the folder.
 Engineer and the agent builder can do, for the person's own AI IDE - requests
 (list, answer), agents (read, edit CHARTER/TOOLS/KPI, models, ferocity and
 state, create, delete, run or message), integrations (list, read, draft,
-plugins, test, publish, give tools, discard) and what's waiting in Approvals
-(read-only). It acts for the person, so nothing queues in the app: the IDE
+plugins, test, publish, give tools, discard), what's waiting in Approvals
+(read and decide), what agents did, and jobs for them. The public package
+(docs/mcp-server.md) reaches the same server from any AI app. It acts for the person, so nothing queues in the app: the IDE
 asks them before each call. A plugin still gets the security review and runs
 sandboxed; built-in agents can't be edited or stopped. One address on this
 computer, kept across restarts (Settings -> Connectors -> Your IDE copies it,

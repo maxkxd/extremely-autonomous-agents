@@ -33,6 +33,7 @@ import { clearResume } from './selfsettings.js';
 import { spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
 import { mcpUrlFor, rpcAs } from './agency-mcp.js';
+import { setDirectoryOrgs, writeMcpDirectory } from './mcp-directory.js';
 import { eventOverview } from './events.js';
 import { hooksBase, setTunnel, tunnelState } from './hooks.js';
 import { resume as resumeJobs } from '../jobs.js';
@@ -122,7 +123,7 @@ export function replyToEngineer(requestId: number, who: string, text: string) {
 }
 
 // What a person says on a request: there for everyone, and the Engineer woken.
-async function personWrites(r: { id: number; agent_id: string }, text: string) {
+export async function personWrites(r: { id: number; agent_id: string }, text: string) {
   postToRequest(r.id, 'you', text);
   // One joined to another's stays with it (one request per connection); the engineer reads it there.
   exec("UPDATE requests SET stage = 'engineer' WHERE id = ? AND joined_to IS NULL", r.id);
@@ -468,7 +469,18 @@ export const runnerRoutes: Record<string, Route> = {
     answerRemoteMcp(Number(id), reply ?? null, error);
     return { ok: true };
   },
-  'POST /api/settings/agency-mcp': async () => ({ url: mcpUrlFor(currentActor(), true) }),
+  'POST /api/settings/agency-mcp': async () => {
+    const url = mcpUrlFor(currentActor(), true);
+    // The standing address changed: the public MCP package finds the new one (mcp-directory.ts).
+    if (currentActor().via === 'local') await writeMcpDirectory();
+    return { url };
+  },
+  // The organizations the app shows, for the public MCP package's directory (mcp-directory.ts).
+  'POST /api/assistant/directory': async (_req, _q, body) => {
+    if (currentActor().via !== 'local') throw new AccessError(403, 'Only from this computer.');
+    const { orgs } = await body<{ orgs: unknown }>();
+    return setDirectoryOrgs(orgs);
+  },
   // Who the host is (until orgs exist, whoever runs the app): agents made from the IDE are theirs.
   'POST /api/settings/host-person': async (_req, _q, body) => {
     const { name, org } = await body<{ name: string; org?: string | null }>();

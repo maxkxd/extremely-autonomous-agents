@@ -8,7 +8,8 @@
     "dev": "node --env-file-if-exists=.env --watch --watch-preserve-output --import tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "build-packs": "node --env-file-if-exists=.env --import tsx scripts/build-packs.ts",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "test": "node --import tsx --test src/**/*.test.ts",
+    "agency-mcp-tools": "node --import tsx scripts/agency-mcp-tools.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",

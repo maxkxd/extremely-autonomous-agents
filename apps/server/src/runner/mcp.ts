@@ -8,7 +8,9 @@ import type { Call, ToolSpec } from './providers.js';
 // call goes back through the runner (tiers, limits, output counting).
 // Minimal MCP over HTTP: JSON-RPC posts answered with JSON.
 
-export type Bridge = { tools: ToolSpec[]; call: (c: Call) => Promise<{ content: string; error: boolean }> };
+// title and annotations: how AI apps show a tool and whether they ask before it (the agency's own server sets them).
+export type McpTool = ToolSpec & { title?: string; annotations?: Record<string, unknown> };
+export type Bridge = { tools: McpTool[]; call: (c: Call) => Promise<{ content: string; error: boolean }> };
 const bridges = new Map<string, Bridge>();
 
 const PORT = Number(process.env.PORT ?? 5175);
@@ -20,6 +22,11 @@ export function openBridge(b: Bridge, token = randomBytes(24).toString('hex')): 
 }
 
 let seq = 0;
+
+// The MCP versions this answers as (all the same for tools over plain JSON
+// answers): the client's own when it's one of them, else the newest.
+export const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
+export const protocolFor = (asked: unknown) => (typeof asked === 'string' && PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0]);
 
 // Handles /mcp/<token>. Returns false when the path isn't ours.
 export async function handleMcp(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
@@ -63,14 +70,14 @@ export async function rpc(bridge: Bridge, msg: Rpc): Promise<object | null> {
   switch (msg.method) {
     case 'initialize':
       return reply({
-        protocolVersion: (msg.params?.protocolVersion as string) ?? '2025-06-18',
+        protocolVersion: protocolFor(msg.params?.protocolVersion),
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'agency', version: '1.0.0' },
       });
     case 'ping':
       return reply({});
     case 'tools/list':
-      return reply({ tools: bridge.tools.map(t => ({ name: t.name, description: t.description, inputSchema: t.schema })) });
+      return reply({ tools: bridge.tools.map(t => ({ name: t.name, ...(t.title ? { title: t.title } : {}), description: t.description, inputSchema: t.schema, ...(t.annotations ? { annotations: t.annotations } : {}) })) });
     case 'tools/call': {
       const name = String(msg.params?.name ?? '');
       const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;

@@ -148,6 +148,8 @@ const NEEDS: Record<string, Level> = {
   'POST /api/assistant/remote': 'local',
   'GET /api/assistant/pending': 'local',
   'POST /api/assistant/answer': 'local',
+  // ...and which organizations it's in, for the public MCP package's directory (mcp-directory.ts).
+  'POST /api/assistant/directory': 'local',
   // On the host computer, for a request on an agent they made (runner/api.ts).
   'POST /api/runner/requests/ide': 'member',
   // The secret this organization's agency asks our backend about members with (hosting.ts).

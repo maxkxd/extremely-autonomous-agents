@@ -27,7 +27,12 @@ import { allChoices, setChoices } from '../models/choice.js';
 import { availableModels } from '../models/connections.js';
 import type { Tier } from '../catalog.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
-import { answerRequest } from './api.js';
+import { answerRequest, personWrites } from './api.js';
+import { decideApproval } from './approvals.js';
+import { startOfDay } from './clock.js';
+import { DOCTOR } from './doctor.js';
+import { reportDefault } from './reports.js';
+import { scrub } from '../secrets.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { giveEvents, giveTools } from './engineer.js';
 import { checkEvent } from './events.js';
@@ -35,7 +40,7 @@ import { hooksBase } from './hooks.js';
 import { LEVELS } from './ferocity.js';
 import { openBridge, rpc, type Rpc } from './mcp.js';
 import { selfMember, SELF_HOSTED } from '../selfhost.js';
-import { accessConfig, asActor, currentActor, localActor, personFor, requireMakerOrAdmin, type Actor, type Role } from '../access.js';
+import { accessConfig, asActor, currentActor, localActor, personFor, recordAction, requireMakerOrAdmin, type Actor, type Role } from '../access.js';
 import { registeredToolIds } from './tools.js';
 import { stateOf } from './run.js';
 import { abortRun, book } from './scheduler.js';
@@ -89,6 +94,15 @@ function buildProblems(b: Build, fleetIds: Set<string>, eventIds: Set<string>, m
   return out;
 }
 
+// "since" as a tool takes it: an ISO date or time, else the start of today on the agency's clock.
+function sinceOf(v: unknown): number {
+  const text = String(v ?? '').trim();
+  if (!text) return startOfDay(Date.now());
+  const t = Date.parse(text);
+  if (Number.isNaN(t)) throw new Error(`"${text}" isn't a date or time: use e.g. 2026-11-05 or 2026-11-05T09:00.`);
+  return t;
+}
+
 async function agentOrThrow(id: unknown) {
   const agentId = String(id ?? '');
   const meta = await readMeta(agentId);
@@ -140,7 +154,40 @@ const TOOLS: Tool[] = [
     },
   },
 
+  {
+    name: 'reply_to_request',
+    description: 'Write in an open request, to the Agency Engineer (as in the app: everyone on the request sees it, and the Engineer is woken to answer).',
+    schema: obj({ request_id: num('The request number'), text: str('What to say') }, ['request_id', 'text']),
+    run: async a => {
+      const r = one<{ id: number; status: string; agent_id: string }>('SELECT id, status, agent_id FROM requests WHERE id = ?', Number(a.request_id));
+      if (!r || r.status !== 'open') throw new Error(`Request #${a.request_id} isn't open.`);
+      await requireMakerOrAdmin(r.agent_id);
+      const text = scrub(String(a.text ?? '')).trim();
+      if (!text) throw new Error('Nothing to send.');
+      await personWrites(r, text);
+      return `Sent on request #${r.id}; the Agency Engineer answers there (list_requests shows the conversation).`;
+    },
+  },
+
   // --- Agents ---
+  {
+    name: 'give_task',
+    description: "Give an agent a job, from you: it starts on it as soon as it can and marks it done with the result (agent_activity shows it). For a question or a quick word, run_agent with a message instead.",
+    schema: obj({ agent_id: str('The agent id (list_agents)'), task: str('The whole job, with everything it needs to know') }, ['agent_id', 'task']),
+    run: async a => {
+      const { agentId, meta } = await agentOrThrow(a.agent_id);
+      if (meta.builtIn || meta.service) throw new Error(`${meta.name} is built in and takes no jobs. Requests and its DM channel reach the Agency Engineer.`);
+      await requireMakerOrAdmin(agentId, null, currentActor(), 'give it a job');
+      const st = stateOf(agentId).state;
+      if (st === 'stopped' || st === 'draining') throw new Error(`${meta.name} is ${st === 'stopped' ? 'stopped' : 'on standby'}, so it wouldn't start on it. Turn it back on first (set_agent, state: active).`);
+      const task = scrub(String(a.task ?? '')).trim().slice(0, 6000);
+      if (!task) throw new Error('No task given.');
+      const by = currentActor();
+      const t = exec('INSERT INTO tasks (agent_id, from_agent, task, created_at) VALUES (?, NULL, ?, ?)', agentId, task, Date.now());
+      book(agentId, 'handoff', `Task #${t.lastInsertRowid} from ${by.name || 'a person'}: ${task}`);
+      return `Given to ${meta.name} as task #${t.lastInsertRowid}; it starts as soon as it can.`;
+    },
+  },
   {
     name: 'list_agents',
     description: 'Every agent: id, name, department, owner, state (active / draining = standby / stopped), ferocity level, models, and whether it is built in.',
@@ -366,7 +413,7 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
   },
   {
     name: 'list_approvals',
-    description: "Agents' actions waiting on a person in the app (sending, posting, going live...). Read-only: they're decided in the app.",
+    description: "Agents' actions waiting on a person in the app (sending, posting, going live...): only the ones that are yours to decide. decide_approval approves or rejects one.",
     schema: obj({}),
     run: async () => {
       const all_ = all<{ id: string; agent_id: string; tool: string; args: string; expires_at: number }>("SELECT id, agent_id, tool, args, expires_at FROM approvals WHERE status = 'pending' AND expires_at > ? ORDER BY created_at", Date.now());
@@ -383,6 +430,111 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
         if (mine) rows.push(r);
       }
       return rows.length ? json(rows.map(r => ({ ...r, args: JSON.parse(r.args), expires: new Date(r.expires_at).toISOString() }))) : 'Nothing waiting.';
+    },
+  },
+
+  {
+    name: 'decide_approval',
+    description: "Approve or reject one of the actions in list_approvals, as on the Approvals screen: approved, it runs now and the agent hears the result; rejected, the agent is told (with the note, if any).",
+    schema: obj({ approval_id: str('The id from list_approvals'), decision: { type: 'string', enum: ['approved', 'rejected'] }, note: str('Optional: why, for the agent') }, ['approval_id', 'decision']),
+    run: async a => {
+      const id = String(a.approval_id ?? '');
+      const decision = a.decision === 'approved' || a.decision === 'rejected' ? a.decision : null;
+      if (!decision) throw new Error('decision is approved or rejected.');
+      const row = one<{ agent_id: string; status: string; request: number | null; about: string | null }>(
+        "SELECT agent_id, status, json_extract(args, '$.request_id') AS request, json_extract(args, '$.agent_id') AS about FROM approvals WHERE id = ?",
+        id,
+      );
+      if (!row) throw new Error(`No approval "${id}". list_approvals shows what's waiting.`);
+      if (row.status !== 'pending') throw new Error(`That one is already ${row.status}.`);
+      await requireMakerOrAdmin(row.agent_id, row.request == null ? null : Number(row.request), currentActor(), 'decide this', row.agent_id === DOCTOR ? row.about : null);
+      const note = a.note ? scrub(String(a.note)).trim() || null : null;
+      const by = currentActor();
+      const out = await decideApproval(id, decision, note, book, undefined, undefined, by);
+      if (decision === 'rejected') return 'Rejected; the agent is told.';
+      return out.ok ? `Approved and done: ${String(out.result ?? '').slice(0, 2000)}` : `Approved, but it failed when it ran: ${String(out.result ?? '').slice(0, 2000)}`;
+    },
+  },
+
+  // --- What the agency did ---
+  {
+    name: 'agency_today',
+    description: "What the whole agency did since a time (default: the start of today, the agency's own clock): per agent its runs, output actions and last summary, plus what's waiting on a person (approvals, open requests).",
+    schema: obj({ since: str('Optional: an ISO date or time, e.g. 2026-11-05 or 2026-11-05T09:00') }),
+    run: async a => {
+      const since = sinceOf(a.since);
+      const out = [];
+      for (const id of await listIds()) {
+        const m = await readMeta(id);
+        if (!m) continue;
+        const runs = all<{ status: string; summary: string | null; acts: number; started_at: number }>('SELECT status, summary, acts, started_at FROM runs WHERE agent_id = ? AND started_at >= ? ORDER BY started_at DESC', id, since);
+        if (!runs.length) continue;
+        out.push({
+          agent: `${m.name} (${id})`,
+          runs: runs.length,
+          failed: runs.filter(r => r.status === 'failed').length,
+          output_actions: runs.reduce((n, r) => n + r.acts, 0),
+          last_summary: (runs.find(r => r.summary)?.summary ?? '').slice(0, 800) || null,
+        });
+      }
+      const approvals = one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE status = 'pending' AND expires_at > ?", Date.now())?.n ?? 0;
+      const requests = one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE status = 'open'")?.n ?? 0;
+      return json({ since: new Date(since).toISOString(), agents: out, waiting_on_people: { approvals, open_requests: requests }, quiet: out.length ? undefined : 'No agent ran in that time.' });
+    },
+  },
+  {
+    name: 'agent_activity',
+    description: "What one agent did since a time (default: the start of today): its DM channel posts (each run's write-up and the tools it used), the people's messages to it, and the jobs given to it.",
+    schema: obj({ agent_id: str('The agent id (list_agents)'), since: str('Optional: an ISO date or time'), limit: num('Optional: at most this many posts, newest kept (default 30)') }, ['agent_id']),
+    run: async a => {
+      const { agentId, meta } = await agentOrThrow(a.agent_id);
+      const since = sinceOf(a.since);
+      const limit = Math.max(1, Math.min(200, Number(a.limit) || 30));
+      // The Agency Engineer keeps one chat per person, as in the app.
+      const me = agentId === FLEET_ENGINEER ? currentActor().id : null;
+      const posts = all<{ kind: string; body: string; at: number }>(
+        'SELECT kind, body, at FROM dm WHERE agent_id = ? AND at >= ? AND (? IS NULL OR person_id IS NULL OR person_id = ?) ORDER BY at DESC, id DESC LIMIT ?',
+        agentId,
+        since,
+        me,
+        me,
+        limit,
+      )
+        .reverse()
+        .map(p => {
+          const b = JSON.parse(p.body) as { text?: string; by?: string; outcome?: string; trigger?: string; tools?: { server: string; tool: string; status: string }[] };
+          const at = new Date(p.at).toISOString();
+          if (p.kind === 'you') return { at, from: b.by ?? 'A person', text: b.text ?? '' };
+          return { at, from: meta.name, trigger: b.trigger, outcome: b.outcome, text: b.text ?? '', tools: (b.tools ?? []).map(t => `${t.server}.${t.tool}${t.status === 'ok' ? '' : ' (failed)'}`) };
+        });
+      const tasks = all<{ id: number; task: string; status: string; result: string | null; from_agent: string | null }>(
+        'SELECT id, task, status, result, from_agent FROM tasks WHERE agent_id = ? AND (status = ? OR created_at >= ? OR done_at >= ?) ORDER BY id',
+        agentId,
+        'open',
+        since,
+        since,
+      ).map(t => ({ id: t.id, from: t.from_agent ?? 'a person', task: t.task, status: t.status, result: t.result }));
+      return json({ agent: `${meta.name} (${agentId})`, since: new Date(since).toISOString(), posts, tasks });
+    },
+  },
+  {
+    name: 'latest_report',
+    description: "An agent's latest report: the write-up of its last run that made one, and where its reports go (the place its person chose, e.g. a Drive folder).",
+    schema: obj({ agent_id: str('The agent id (list_agents)') }, ['agent_id']),
+    run: async a => {
+      const { agentId, meta } = await agentOrThrow(a.agent_id);
+      const last = one<{ id: string; trigger: string; status: string; started_at: number; summary: string | null }>(
+        "SELECT id, trigger, status, started_at, summary FROM runs WHERE agent_id = ? AND summary IS NOT NULL AND summary != '' ORDER BY started_at DESC LIMIT 1",
+        agentId,
+      );
+      const post = last ? one<{ body: string }>("SELECT body FROM dm WHERE run_id = ? AND kind = 'run' ORDER BY id DESC LIMIT 1", last.id) : undefined;
+      const text = (post ? (JSON.parse(post.body) as { text?: string }).text : null) || last?.summary || '';
+      const where = reportDefault(meta.owner);
+      return [
+        `# ${meta.name}: latest report`,
+        last ? `Run of ${new Date(last.started_at).toISOString()} (${last.trigger}, ${last.status})\n\n${text}` : 'No report yet: it has not finished a run with a write-up.',
+        `\nWhere its reports go: ${where ? `${where.where} (via ${where.tool})` : "not chosen yet - its instructions say, or it asks the first time it has one."}`,
+      ].join('\n');
     },
   },
 
@@ -531,7 +683,53 @@ const ADMIN_TOOLS = new Set([
   'give_tools',
   'discard_integration',
 ]);
-const toolsFor = (role: Role) => TOOLS.filter(t => role !== 'member' || !ADMIN_TOOLS.has(t.name)).map(t => ({ name: t.name, description: t.description, schema: t.schema }));
+// What AI apps show for each tool and use to decide what to allow without
+// asking (MCP tool annotations). Hard-to-undo ones are destructive, so apps ask
+// first by default; nothing here asks again on top (decided 2026-11-05).
+type Hint = { title: string; read?: boolean; destructive?: boolean; idempotent?: boolean; world?: boolean };
+export const HINTS: Record<string, Hint> = {
+  list_requests: { title: 'List requests', read: true },
+  answer_request: { title: 'Close a request', destructive: true },
+  reply_to_request: { title: 'Reply on a request' },
+  give_task: { title: 'Give an agent a job' },
+  list_agents: { title: 'List agents', read: true },
+  read_agent: { title: 'Read an agent', read: true },
+  write_agent_file: { title: "Replace an agent's file", destructive: true, idempotent: true },
+  list_models: { title: 'List AI models', read: true },
+  set_agent_models: { title: "Set an agent's models", idempotent: true },
+  set_agent: { title: "Set an agent's ferocity or state", idempotent: true },
+  builder_guide: { title: 'Agent builder guide', read: true },
+  check_build: { title: 'Check an agent build', read: true },
+  create_agent: { title: 'Create an agent' },
+  delete_agent: { title: 'Delete an agent', destructive: true },
+  run_agent: { title: 'Run or message an agent' },
+  list_approvals: { title: 'List approvals', read: true },
+  decide_approval: { title: 'Approve or reject an action', destructive: true, world: true },
+  agency_today: { title: 'What the agency did today', read: true },
+  agent_activity: { title: 'What an agent did', read: true },
+  latest_report: { title: "An agent's latest report", read: true },
+  list_integrations: { title: 'List integrations', read: true },
+  read_integration: { title: 'Read an integration', read: true },
+  write_integration: { title: 'Write an integration draft', idempotent: true },
+  write_plugin: { title: 'Write a code plugin', idempotent: true },
+  test_integration: { title: 'Try an integration tool', world: true },
+  publish_integration: { title: 'Publish an integration', destructive: true },
+  test_event: { title: 'Try an event', world: true },
+  give_events: { title: 'Subscribe an agent to events', idempotent: true },
+  give_tools: { title: 'Give an agent tools', idempotent: true },
+  discard_integration: { title: 'Discard or remove an integration', destructive: true },
+};
+const annotationsOf = (name: string) => {
+  const h = HINTS[name];
+  if (!h) return {};
+  return {
+    title: h.title,
+    annotations: { title: h.title, readOnlyHint: !!h.read, destructiveHint: !h.read && !!h.destructive, idempotentHint: !!h.read || !!h.idempotent, openWorldHint: !!h.world },
+  };
+};
+export const agencyTools = (role: Role = 'owner') =>
+  TOOLS.filter(t => role !== 'member' || !ADMIN_TOOLS.has(t.name)).map(t => ({ name: t.name, description: t.description, schema: t.schema, ...annotationsOf(t.name) }));
+const toolsFor = agencyTools;
 
 // One MCP message from a teammate's AI assistant on another computer, as them
 // (POST /api/agency-mcp/rpc: through their app and the relay, with their org
@@ -542,6 +740,8 @@ async function runAs(actor: Actor, c: { name: string; args?: Record<string, unkn
   const tool = TOOLS.find(t => t.name === c.name);
   if (!tool) return { content: `No tool "${c.name}".`, error: true };
   if (actor.role === 'member' && ADMIN_TOOLS.has(tool.name)) return { content: `${tool.name} is for the owner or an admin.`, error: true };
+  // Who did what (person_actions), as for the app's own changes; reads aren't changes.
+  if (!HINTS[tool.name]?.read) recordAction(actor, 'MCP', tool.name, c.args ?? {});
   try {
     return { content: await asActor(actor, () => tool.run(c.args ?? {})), error: false };
   } catch (e) {

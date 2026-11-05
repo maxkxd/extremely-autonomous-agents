@@ -1,0 +1,10 @@
+# Smithery: a local (stdio) server. It needs the Extremely Autonomous Agents
+# app running on the same computer, so it can't run on Smithery's hosts.
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties: {}
+  commandFunction: |-
+    () => ({ command: 'npx', args: ['-y', '@extremely/agency-mcp'] })
+  exampleConfig: {}

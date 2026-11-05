@@ -1,0 +1,51 @@
+name: Publish agency-mcp
+
+# Publishes the public MCP package (packages/agency-mcp, docs/mcp-server.md) to
+# npm and builds its Claude Desktop extension (.mcpb), kept as this run's
+# artifact. Only ever run by hand (Actions > Publish agency-mcp > Run workflow),
+# in the protected `release` environment: a person approves it before it starts.
+# npm trusted publishing (OIDC): no token is stored anywhere.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing and provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    defaults:
+      run:
+        working-directory: packages/agency-mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Versions agree (package.json, server.json, manifest.json)
+        run: |
+          node -e "
+            const v = require('./package.json').version, s = require('./server.json'), m = require('./manifest.json');
+            const bad = [s.version, s.packages[0].version, m.version].filter(x => x !== v);
+            if (bad.length) { console.error('Versions differ from package.json ' + v + ': ' + bad.join(', ')); process.exit(1); }"
+
+      - name: Test
+        run: node --test test/*.test.js
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+
+      - name: Build the Claude Desktop extension
+        run: |
+          mkdir -p ../../out
+          npx -y @anthropic-ai/mcpb pack . ../../out/extremely-agency.mcpb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extremely-agency-mcpb
+          path: out/extremely-agency.mcpb

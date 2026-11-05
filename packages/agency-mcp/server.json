@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "agency.extremely/agency",
+  "title": "EXTREMELY agency",
+  "description": "Your agency of AI agents in your AI app: what agents did, approvals, requests, jobs and reports.",
+  "websiteUrl": "https://extremely.agency",
+  "repository": {
+    "url": "https://github.com/maxkxd/extremely-autonomous-agents",
+    "source": "github",
+    "subfolder": "packages/agency-mcp"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@extremely/agency-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

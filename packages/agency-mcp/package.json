@@ -1,0 +1,39 @@
+{
+  "name": "@extremely/agency-mcp",
+  "version": "0.1.0",
+  "description": "Your EXTREMELY agency of AI agents in any AI app (Claude Desktop, Cursor, VS Code, Claude Code): what agents did, approvals, requests, jobs, reports. Needs the Extremely Autonomous Agents app.",
+  "mcpName": "agency.extremely/agency",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "agency-mcp": "index.js"
+  },
+  "files": [
+    "index.js",
+    "lib.js",
+    "tools.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "ai-agents",
+    "agency",
+    "extremely"
+  ],
+  "homepage": "https://extremely.agency",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maxkxd/extremely-autonomous-agents.git",
+    "directory": "packages/agency-mcp"
+  },
+  "author": "EXTREMELY"
+}

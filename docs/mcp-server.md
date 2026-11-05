@@ -1,13 +1,17 @@
-# The public MCP server (design, not built)
+# The public MCP server
 
 A small package anyone can install in Claude Desktop, Cursor, VS Code, Claude
 Code, Windsurf and so on, so they can talk to their agency there: "what did my
 sales agent do today?", approvals, Requests, giving an agent a job, its latest
 report, starting a run. It is the kind of server MCP registries list.
 
-## What's already there
+Built 2026-11-05 (`packages/agency-mcp`, see Status at the end). It isn't
+published yet. The app looks and works exactly as before: one-click connect in
+Settings > Connectors is unchanged.
 
-Most of it exists. The missing part is a package people can install without
+## What was already there
+
+Most of it existed. The missing part is a package people can install without
 copying an address out of Settings.
 
 - **The agency's MCP server** (`runner/agency-mcp.ts`, docs/requests.md):
@@ -47,13 +51,17 @@ AI app ──stdio──> agency-mcp ──http 127.0.0.1──> the app on this
 ### How it finds the app
 
 1. **A discovery file the app writes** on every start:
-   `%APPDATA%\Extremely Autonomous Agents\mcp.json` (Electron's userData; on
-   macOS and Linux, the matching userData folder). It holds
+   `%APPDATA%\Extremely Autonomous Agents\agency-mcp.json` (Electron's
+   userData; on macOS `~/Library/Application Support/...`, on Linux
+   `~/.config/...`; `EAA_MCP_DISCOVERY` moves it), written by
+   `runner/mcp-directory.ts`. It holds
    `{ v: 1, agencies: [{ id, name, role, url }] }`: your own agency's standing
    address, and for each organisation you're in, the address that acts as you
-   (a `remoteMcpUrl` one for an org hosted elsewhere). It's rewritten when you
-   join or leave an org, regenerate an address or sign out, so sign-out drops
-   the org entries.
+   (a `remoteMcpUrl` one, carried by the app, for every organisation, the
+   one hosted on this computer too). The server doesn't know your
+   organisations, so the desktop app tells it (`POST /api/assistant/directory`,
+   this computer only) when they change. Sign-out sends none, so it drops the
+   org entries. It's also rewritten when the standing address is replaced.
 2. **`EXTREMELY_MCP_URL`**, an override for a self-hosted org or testing. It
    takes one address and skips the file.
 3. **Nothing found or not answering**: `initialize` and `tools/list` still
@@ -81,7 +89,7 @@ members). A per-argument choice works in every AI app. Switching with
 | Who | Path | Acts as | Checked by |
 |---|---|---|---|
 | Owner, own agency | standing address (`agency_mcp_token`) | `localActor()`, the owner | the host itself, no account needed |
-| Owner of an org hosted on this computer | through own agency to `/hosted/...` | owner | the host process |
+| Owner of an org hosted on this computer | `remoteMcpUrl`, then the app, then `/hosted/...` | owner | the host process |
 | Member at the host computer | their `mcp_people` address | them, their role | host, plus backend re-check every 5 min |
 | Member on their own computer | `remoteMcpUrl`, then app, then relay (E2E), then host | them, via their org token | host, every request |
 | Self-hosted org | `EXTREMELY_MCP_URL`, its own address | its accounts | the self-host, every request |
@@ -98,8 +106,9 @@ Tiers read the way Settings names them. For a person's own MCP calls the tier
 means:
 
 - **Silent**: read-only (`readOnlyHint: true`), nothing recorded.
-- **Logged**: recorded in `person_actions`, with a notice in the agent's DM
-  channel where it's about an agent.
+- **Logged**: recorded in `person_actions` (who did what), as the app's own
+  changes are: route `MCP <tool>`.
+
 There's no Approval tier for these calls (decided 2026-11-05). The person
 controls which tools their AI app may call, and whether it asks first, in
 that app's own settings, so the host adds no extra confirmation step. That
@@ -108,21 +117,21 @@ includes deciding approvals. Hard-to-undo tools are marked
 
 Every tool also gets `title`, `readOnlyHint`, `destructiveHint` and
 `idempotentHint` annotations, which Anthropic's directory requires and other
-apps use to decide what to auto-allow. Today `runner/mcp.ts` sends none.
+apps use to decide what to auto-allow (`HINTS` in `runner/agency-mcp.ts`).
 
 ### The "talk to your agency" set (new or changed)
 
 | Tool | Tier | What it does | Status |
 |---|---|---|---|
-| `list_agencies` | Silent | Your own agency and each org: name, role, online or "host offline since ..." | new, answered by the package |
+| `list_agencies` | Silent | Your own agency and each org: name, your role, whether it answers right now | new, answered by the package |
 | `agency_today` | Silent | Per agent since a time (default: today, host clock): runs, output actions (KPI), what's waiting on you, requests filed | new: `runs`, `actions`, `approvals`, `requests` |
-| `agent_activity` | Silent | One agent: its DM channel posts and runs since a time ("what did my sales agent do today?") | new: `dm`, `runs` |
+| `agent_activity` | Silent | One agent: its DM channel posts (each run's write-up and tools used) and the jobs given to it, since a time ("what did my sales agent do today?") | new: `dm`, `tasks` |
 | `latest_report` | Silent | Its last report: summary, and where it went (file or link, per `reports.ts` destinations) | new |
 | `list_agents`, `read_agent` | Silent | as today | exists |
 | `list_approvals` | Silent | Pending, only the ones that are yours to decide | exists |
 | `decide_approval` | Logged (destructive) | Approve or reject one, with a note. The person who decided is recorded as on the Approvals screen | new: wraps `decideApproval`, same `requireMakerOrAdmin` check as `POST /api/runner/approvals/decide` |
 | `list_requests` | Silent | as today | exists |
-| `reply_to_request` | Logged | Write in a request's thread with the Agency Engineer (it wakes) | new: wraps the thread reply in `engineer.ts` |
+| `reply_to_request` | Logged | Write in a request's thread with the Agency Engineer (it wakes) | new: the app's own `personWrites` (api.ts) |
 | `answer_request` | Logged | Close as done or rejected | exists |
 | `give_task` | Logged | Give an agent a job (`tasks`, `from_agent` null = a person), and it runs | new |
 | `run_agent` | Logged | Run now, or message it | exists |
@@ -138,24 +147,25 @@ Integration-building stays owner and admin only, as now.
 That makes about 30 tools, under the point (around 40) where Cursor starts
 warning.
 
-## Protocol hygiene the package needs
+## Protocol
 
-- Negotiate `protocolVersion` against a list we support. Today any version
-  the client sends is echoed back.
+- `protocolVersion` is negotiated against the versions we answer as
+  (`PROTOCOLS` in `runner/mcp.ts` and the package): the client's own when
+  it's one of them, else the newest. It used to echo any version back.
 - Stdio rules: protocol only on stdout, logs to stderr, handle
   `notifications/initialized`, and stay alive across app restarts by
   re-reading the discovery file on each failure.
-- No dependencies, Node 18+ (`fetch`), like today's bridge. The one-click
-  connect keeps running the same file on the app's own Node, so people who
-  don't have Node installed are unaffected. The npm package is the same file,
-  published.
+- No dependencies, Node 18+ (`fetch`). The one-click connect is unchanged
+  (its own small bridge, on the app's own Node), so people without Node
+  installed are unaffected.
 
 ## Packaging and registries
 
 - **npm**: `@extremely/agency-mcp`, built from `packages/agency-mcp/` in this
   repo (AGPL-3.0), with `mcpName` in `package.json` for the official
-  registry. Published by the manual, approval-gated Release workflow like
-  the app.
+  registry. Published by hand with the approval-gated **Publish
+  agency-mcp** workflow (`.github/workflows/agency-mcp.yml`): npm trusted
+  publishing (no stored token), provenance, and the `.mcpb` as its artifact.
 - **`server.json`** for the official MCP Registry
   (`registry.modelcontextprotocol.io`). Namespace `agency.extremely/agency`
   needs a DNS TXT record on extremely.agency; the fallback is
@@ -190,18 +200,34 @@ For an org hosted on someone's own computer it's ruled out: a public endpoint
 would have to end TLS on our servers and see plaintext, which breaks the
 end-to-end promise. Those people use the local package.
 
-## Effort (one developer, with tests)
+## Status (2026-11-05)
 
-| Piece | Days |
-|---|---|
-| Package: stdio, discovery file, `agency` routing, bundled tool list, offline answers | 2 |
-| App writes and refreshes the discovery file | 0.5 |
-| New tools (`agency_today`, `agent_activity`, `latest_report`, `decide_approval`, `reply_to_request`, `give_task`, `list_agencies`) and annotations | 2.5 |
-| Version negotiation | 0.5 |
-| Tests: unit, plus live in Claude Desktop, Cursor, VS Code and Claude Code as owner and as a member through the relay | 1.5 |
-| npm, `server.json`, `smithery.yaml`, `.mcpb`, README, release workflow | 1 |
-| Submissions | 0.5 (plus each registry's review wait) |
-| **Total** | **about 8.5 days** |
+Built and tested:
+
+- **The package** (`packages/agency-mcp`: `index.js` the program, `lib.js`
+  what it does, `tools.json` the bundled list). 9 tests (`npm test` there):
+  finding the file, picking an agency, the version, live and bundled tool
+  lists, routing with `agency`, refusals, the app closed, a replaced address,
+  and a real stdio run.
+- **The host**: the six new tools, annotations on all 30, version
+  negotiation, MCP calls recorded in `person_actions`, the directory file
+  (`runner/mcp-directory.ts`). `agency-mcp-tools.test.ts` covers them, and
+  fails if `tools.json` is out of date (`npm run agency-mcp-tools` in
+  apps/server rewrites it). The whole server suite passes.
+- **Live**: a real server on spare ports wrote the file on start. The package
+  found it, listed 31 tools and answered `list_agencies`, `agency_today`,
+  `list_approvals` and `list_agents` over stdio. An organisation the app had
+  reported answered "open the app", as it should with no app window to
+  carry it.
+
+Not yet:
+
+- **Publishing** (owner): claim the `@extremely` npm scope and add this
+  repo's workflow as its trusted publisher; add the DNS TXT record for
+  `agency.extremely`; run **Publish agency-mcp**; then
+  `mcp-publisher publish` with `server.json`, and the submission list above.
+- **Not tried live**: Claude Desktop, Cursor, VS Code and Claude Code
+  themselves, and an organisation through the relay from a second computer.
 
 The hosted HTTPS endpoint is separate: about 2 to 3 weeks (OAuth, per-org
 routing, rate limits, connector-directory review).
