@@ -102,6 +102,14 @@ async function fieldsOf(id: string, auth: FieldsAuth): Promise<Record<string, st
   return { ...creds, token: (await pending).token };
 }
 
+// The token step refused what's saved (a refresh token revoked or expired) - not the
+// service being down. Zoho says so with HTTP 200 and {"error": "invalid_code"}.
+export function tokenRefused(status: number, answer: unknown): boolean {
+  if (status === 400 || status === 401 || status === 403) return true;
+  const error = answer && typeof answer === 'object' ? (answer as { error?: unknown }).error : undefined;
+  return status >= 200 && status < 300 && typeof error === 'string' && error.length > 0;
+}
+
 async function renewToken(id: string, auth: FieldsAuth, creds: Record<string, string>, cacheKey: string): Promise<{ token: string; until: number }> {
   if (!auth.token) throw new Error('No token exchange.');
   const url = putFields(auth.token.url, creds);
@@ -125,7 +133,7 @@ async function renewToken(id: string, auth: FieldsAuth, creds: Record<string, st
     const message = `Getting a token from ${new URL(url).host} failed (${res.status}): ${errorText(text).slice(0, 200)}`;
     // A connection that worked, refused now (a refresh token revoked or expired): said
     // the moment a call finds out, like a sign-in the service ended.
-    if ((res.status === 400 || res.status === 401) && isConnected(id)) {
+    if (tokenRefused(res.status, answer) && isConnected(id)) {
       putState(id, { ...states()[id], test: { ok: false, at: Date.now(), message } });
       failed(id, 'recheck', message);
     }

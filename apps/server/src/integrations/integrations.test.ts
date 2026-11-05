@@ -323,3 +323,13 @@ test("a signed-in service refusing a token that looked current: renewed once and
   await assert.rejects(withKey(signedIn, async () => { calls++; throw new Error('Tok answered 401: nope'); }, getKey), /401/);
   assert.equal(calls, 2);
 });
+
+test("a token step refusing what's saved is told apart from the service being down, however it says it (Zoho: 200 with an error)", async () => {
+  const { tokenRefused } = await import('./index.js');
+  assert.equal(tokenRefused(200, { error: 'invalid_code' }), true);
+  assert.equal(tokenRefused(400, { error: 'invalid_grant' }), true);
+  assert.equal(tokenRefused(401, null), true);
+  assert.equal(tokenRefused(200, { access_token: 't' }), false);
+  assert.equal(tokenRefused(503, null), false);
+  assert.equal(tokenRefused(200, null), false);
+});
