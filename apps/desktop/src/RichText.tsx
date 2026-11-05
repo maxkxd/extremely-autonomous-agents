@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 import { openAgentBrowser } from './builder';
 
 // Agents' and the Agency Engineer's text, made easy to follow: numbered steps as a
@@ -6,7 +6,8 @@ import { openAgentBrowser } from './builder';
 // "- " lines as bullets, `code` set apart, web addresses as links, and other
 // requests ("request #41", "#41") as links that take you to them.
 
-type Ref = { onRequest?: (id: number) => void; canOpen?: (id: number) => boolean; onSettings?: (integration: string | null) => void };
+// request: the one this text is on (its server id), if any.
+type Ref = { onRequest?: (id: number) => void; canOpen?: (id: number) => boolean; onSettings?: (integration: string | null) => void; request?: number };
 
 // "Settings > Connectors > Integrations > Sentry Errors": where to connect
 // something. A link to it in Settings (the integration glowing), when the app
@@ -46,6 +47,17 @@ const hostOf = (url: string) => {
     return url;
   }
 };
+
+// Once open, it says what's next: the request carries on when that window closes
+// (the Engineer is told, runner/api.ts). Pressed again, the page opens again.
+function BrowserButton({ url, profile, request }: { url: string; profile: number; request?: number }) {
+  const [opened, setOpened] = useState(false);
+  return (
+    <button className="rt-settings" onClick={() => openAgentBrowser(profile, url, request).then(() => setOpened(true), e => window.alert((e as Error).message))}>
+      {opened ? 'Close the browser to continue' : `Open ${hostOf(url)} in the signed-in browser`}
+    </button>
+  );
+}
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 const TRAILING = /[.,;:!?)\]]+$/;
@@ -117,10 +129,12 @@ function InlineCore({ text, refs }: { text: string; refs: Ref }) {
   return <>{parts}</>;
 }
 
-export function RichText({ text, onRequest, canOpen, onSettings }: { text: string } & Ref) {
+export function RichText({ text, onRequest, canOpen, onSettings, request }: { text: string } & Ref) {
   const refs = { onRequest, canOpen, onSettings };
   const lines = unfoldSteps(text).split('\n');
   const blocks: React.ReactNode[] = [];
+  // Pages to open in the agents' browser: buttons after the text, not splitting its steps.
+  const pages: React.ReactNode[] = [];
   let para: string[] = [];
   // (Typed by assertion: it's changed inside the closures below too.)
   let list = null as { kind: 'ol' | 'ul'; start: number; items: string[] } | null;
@@ -162,14 +176,8 @@ export function RichText({ text, onRequest, canOpen, onSettings }: { text: strin
     // A page to open in the agents' browser: a button that opens it there.
     const page = BROWSER_LINE.exec(line);
     if (page) {
-      flushPara();
-      flushList();
       const [, url, profile] = page;
-      blocks.push(
-        <button key={blocks.length} className="rt-settings" onClick={() => openAgentBrowser(profile ? Number(profile) : 1, url).catch(e => window.alert((e as Error).message))}>
-          Open {hostOf(url)} in the signed-in browser
-        </button>,
-      );
+      pages.push(<BrowserButton key={pages.length} url={url} profile={profile ? Number(profile) : 1} request={request} />);
       continue;
     }
     // A line that's only where to connect something: a big button to it.
@@ -207,5 +215,10 @@ export function RichText({ text, onRequest, canOpen, onSettings }: { text: strin
   }
   flushPara();
   flushList();
-  return <>{blocks}</>;
+  return (
+    <>
+      {blocks}
+      {pages}
+    </>
+  );
 }

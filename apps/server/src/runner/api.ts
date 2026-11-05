@@ -121,6 +121,14 @@ export function replyToEngineer(requestId: number, who: string, text: string) {
   else book(FLEET_ENGINEER, 'request reply', `${who} replied on request #${requestId}: ${said}`);
 }
 
+// What a person says on a request: there for everyone, and the Engineer woken.
+async function personWrites(r: { id: number; agent_id: string }, text: string) {
+  postToRequest(r.id, 'you', text);
+  // One joined to another's stays with it (one request per connection); the engineer reads it there.
+  exec("UPDATE requests SET stage = 'engineer' WHERE id = ? AND joined_to IS NULL", r.id);
+  replyToEngineer(r.id, (await readMeta(r.agent_id))?.owner || 'The person', text);
+}
+
 // A person turned a request down: the agent still needs what it was for, so
 // the Agency Engineer follows up - what they'd rather, or how the agent does
 // without - instead of the agent being stuck on one no. (Not worded "request
@@ -410,10 +418,7 @@ export const runnerRoutes: Record<string, Route> = {
     if (!r || r.status !== 'open') throw new Error('That request is closed.');
     await requireMakerOrAdmin(r.agent_id);
     if (!text?.trim()) throw new Error('Nothing to send.');
-    postToRequest(r.id, 'you', text.trim());
-    // One joined to another's stays with it (one request per connection); the engineer reads it there.
-    exec("UPDATE requests SET stage = 'engineer' WHERE id = ? AND joined_to IS NULL", r.id);
-    replyToEngineer(r.id, (await readMeta(r.agent_id))?.owner || 'The person', text.trim());
+    await personWrites(r, text.trim());
     return { ok: true };
   },
 
@@ -617,9 +622,32 @@ export const runnerRoutes: Record<string, Route> = {
   },
   // Opens one of the agents' browser profiles in a window on this computer, so the
   // person can sign in (or do what an agent asked: a CAPTCHA, a code), at a page.
+  // Opened from a request: closing the window tells its Engineer, as a reply would -
+  // it was opened to sign in or do something there, so it's worth a look now.
   'POST /api/browser/sign-in': async (_req, _q, body) => {
-    const b = await body<{ profile?: number; url?: string }>().catch(() => ({}) as { profile?: number; url?: string });
-    return openProfileWindow(b.profile ?? 1, b.url || undefined);
+    const b = await body<{ profile?: number; url?: string; request?: number }>().catch(() => ({}) as { profile?: number; url?: string; request?: number });
+    const r = b.request ? one<{ id: number; status: string; agent_id: string }>('SELECT id, status, agent_id FROM requests WHERE id = ?', Number(b.request)) : undefined;
+    if (r) await requireMakerOrAdmin(r.agent_id);
+    const site = (() => {
+      try {
+        return new URL(b.url ?? '').hostname.replace(/^www\./, '');
+      } catch {
+        return null;
+      }
+    })();
+    const onClosed =
+      r?.status === 'open'
+        ? {
+            key: `request ${r.id}`,
+            run: () => {
+              // Still waiting on it by then (not answered in the meantime).
+              const now = one<{ status: string }>('SELECT status FROM requests WHERE id = ?', r.id);
+              if (now?.status !== 'open') return;
+              void personWrites(r, `I closed the signed-in browser${site ? ` (opened at ${site})` : ''}. Done there - please check it worked.`).catch(e => console.error('Telling the Engineer the browser closed:', e));
+            },
+          }
+        : undefined;
+    return openProfileWindow(b.profile ?? 1, b.url || undefined, onClosed);
   },
 
   // --- The agents' password store (Settings > Connectors > Signed-in browser > Passwords): owners and admins (access.ts) ---

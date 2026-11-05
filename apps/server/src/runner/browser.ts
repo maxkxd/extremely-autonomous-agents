@@ -419,7 +419,10 @@ registerTools([...BROWSER_TOOLS, ...SIGNED_IN_TOOLS]);
 
 // The real browser, on this profile: the person signs in (or does a CAPTCHA or a phone
 // code) and closes the window, and the agents carry on in the same profile.
-export async function openProfileWindow(profile = 1, url = 'https://www.google.com') {
+// onClosed: once that window closes (opened from a request, its Engineer is told) -
+// once per key however often it's opened meanwhile.
+const whenClosed = new Map<number, Map<string, () => void>>();
+export async function openProfileWindow(profile = 1, url = 'https://www.google.com', onClosed?: { key: string; run: () => void }) {
   const n = await knownProfile(profile);
   const target = checkUrl(url).toString();
   if (busy.has(n)) throw busyError(n);
@@ -429,10 +432,18 @@ export async function openProfileWindow(profile = 1, url = 'https://www.google.c
   await keepSignedIn(profileDir(n));
   // Already open: the page opens in it (the browser hands it to the running window).
   const child = spawn(exe, [`--user-data-dir=${profileDir(n)}`, '--no-first-run', '--no-default-browser-check', target], { stdio: 'ignore', windowsHide: false });
+  if (onClosed) whenClosed.set(n, (whenClosed.get(n) ?? new Map()).set(onClosed.key, onClosed.run));
   if (open) return { ok: true, profile: n, already: true };
   windows.set(n, child);
-  child.on('exit', () => windows.get(n) === child && windows.delete(n));
-  child.on('error', () => windows.get(n) === child && windows.delete(n));
+  const closed = () => {
+    if (windows.get(n) !== child) return;
+    windows.delete(n);
+    const then = whenClosed.get(n);
+    whenClosed.delete(n);
+    for (const f of then?.values() ?? []) f();
+  };
+  child.on('exit', closed);
+  child.on('error', closed);
   return { ok: true, profile: n, already: false };
 }
 

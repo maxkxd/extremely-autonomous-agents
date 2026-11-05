@@ -363,7 +363,8 @@ export const getLiveApprovals = () => request<{ approvals: LiveApproval[] }>('/a
 export const decideApproval = (id: string, decision: 'approved' | 'rejected', note?: string) =>
   post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note });
 // One of the agents' browser profiles, in a window on this computer (at a page, if given).
-export const openAgentBrowser = (profile = 1, url?: string) => post<{ ok: boolean }>('/api/browser/sign-in', { profile, url });
+// From a request: its Engineer is told when the window closes.
+export const openAgentBrowser = (profile = 1, url?: string, request?: number) => post<{ ok: boolean }>('/api/browser/sign-in', { profile, url, request });
 
 // The agents' password store (Settings > Connectors > Passwords): owners and admins.
 export type SavedPassword = { id: string; site: string; username: string; profile: number; agent_id: string | null; note: string | null; created_at: number };

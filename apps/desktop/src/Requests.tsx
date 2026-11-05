@@ -243,7 +243,7 @@ function RequestRow({
           <div className="request-clip">
             <div className="request-body">
               <div className="request-detail">
-                <RichText text={request.detail} {...refs} />
+                <RichText text={request.detail} {...refs} request={request.live} />
               </div>
 
               {/* Conversation with the Agency Engineer. */}
@@ -257,7 +257,7 @@ function RequestRow({
                       </span>
                     )}
                     <div className="eng-text">
-                      <RichText text={m.text} {...refs} />
+                      <RichText text={m.text} {...refs} request={request.live} />
                     </div>
                   </div>
                 ))}
@@ -427,7 +427,8 @@ function ConnectGroup({ name, members, row, refs, focus }: { name: string; membe
   }, [holds]);
   const agents = [...new Set(members.map(m => AGENTS.find(a => a.id === m.agentId)?.name ?? m.agentId))];
   // The latest steps from the Agency Engineer, on any of them.
-  const steps = members.flatMap(m => (m.liveThread ?? []).filter(t => t.from === 'engineer').slice(-1))[0]?.text ?? '';
+  const latest = members.flatMap(m => (m.liveThread ?? []).filter(t => t.from === 'engineer').slice(-1).map(t => ({ text: t.text, live: m.live })))[0];
+  const steps = latest?.text ?? '';
   return (
     <div className="request-wrap">
       <article className={`request connect-group${open ? ' open' : ''}`}>
@@ -445,7 +446,7 @@ function ConnectGroup({ name, members, row, refs, focus }: { name: string; membe
               </p>
               {steps && (
                 <div className="request-detail">
-                  <RichText text={steps} {...refs} />
+                  <RichText text={steps} {...refs} request={latest?.live} />
                 </div>
               )}
               <button className="sbtn connect-group-list" onClick={() => setList(l => !l)}>
