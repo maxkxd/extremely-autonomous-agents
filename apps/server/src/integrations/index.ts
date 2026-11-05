@@ -141,19 +141,40 @@ async function renewToken(id: string, auth: FieldsAuth, creds: Record<string, st
 // for a fields sign-in, its fields (and token) as JSON.
 // With the definition doing the calling: a live version while its redraft waits
 // reads its own fields (the draft may have dropped one, like a region).
-const keyOf = async (id: string, def?: Integration): Promise<string | undefined> => {
+// A call refused for its token (401) by a signed-in service, though the token looked
+// current: renewed once and tried again, instead of failing until it expires.
+export const REFUSED_TOKEN = /answered 401\b|invalid[_ ]token|token (has )?expired|unauthenticated/i;
+// getKey: keyOf, or a test's stand-in (renewing goes over the network).
+export async function withKey(
+  integration: Integration,
+  run: (key: string | undefined) => Promise<string>,
+  getKey: (id: string, def: Integration, fresh?: boolean) => Promise<string | undefined> = keyOf,
+): Promise<string> {
+  const key = await getKey(integration.id, integration);
+  try {
+    return await run(key);
+  } catch (e) {
+    const parent = keyFrom(integration);
+    const signedIn = (parent ? find(parent)?.auth.type : integration.auth.type) ?? '';
+    if (!['oauth2', 'mcp_oauth'].includes(signedIn) || !REFUSED_TOKEN.test((e as Error).message)) throw e;
+    const again = await getKey(integration.id, integration, true);
+    if (!again || again === key) throw e;
+    return run(again);
+  }
+}
+const keyOf = async (id: string, def?: Integration, fresh = false): Promise<string | undefined> => {
   const d = def ?? find(id);
   const parent = d && keyFrom(d);
-  if (parent) return keyOf(parent);
+  if (parent) return keyOf(parent, undefined, fresh);
   const auth = d?.auth;
   if (auth?.type === 'fields') {
     const c = await fieldsOf(id, auth);
     return c ? JSON.stringify(c) : undefined;
   }
-  if (auth?.type === 'oauth2') return oauthAccessToken(id, auth);
+  if (auth?.type === 'oauth2') return oauthAccessToken(id, auth, fresh);
   if (auth?.type === 'mcp_oauth') {
     const found = (await oauthSecret(id))?.discovered;
-    return found ? oauthAccessToken(id, found) : undefined;
+    return found ? oauthAccessToken(id, found, fresh) : undefined;
   }
   return (await getSecret<{ key: string }>(secretKey(id)))?.key;
 };
@@ -288,7 +309,7 @@ function providers(forAgents = false): Map<string, { def: Omit<ToolDef, 'impl'>;
         add(tool.id, { id: tool.id, tier: tool.tier, description: tool.description, schema: tool.input }, {
           integration,
           call: async args => {
-            if (!isFree(integration)) return callHttp(integration, tool, args, await keyOf(integration.id, integration));
+            if (!isFree(integration)) return withKey(integration, key => callHttp(integration, tool, args, key));
             try {
               return await callHttp({ ...integration, auth: { type: 'none' } }, { ...tool, request: { ...tool.request, headers: { ...tool.request.headers, ...integration.keyless!.headers } } }, args, undefined);
             } catch (e) {
@@ -303,14 +324,14 @@ function providers(forAgents = false): Map<string, { def: Omit<ToolDef, 'impl'>;
       for (const tool of moduleOf(integration.module)?.tools ?? [])
         add(tool.id, { id: tool.id, tier: tool.tier, description: tool.description, schema: tool.input }, {
           integration,
-          call: async args => tool.run(args, await keyOf(integration.id, integration), KIT),
+          call: async args => withKey(integration, key => tool.run(args, key, KIT)),
         });
     } else {
       for (const t of states()[integration.id]?.tools ?? []) {
         const id = mcpToolId(integration, t.name);
         add(id, { id, tier: mcpTier(integration, t), description: t.description.slice(0, 1000) || t.name, schema: t.inputSchema }, {
           integration,
-          call: async args => callMcpTool(integration, await keyOf(integration.id, integration), t.name, args),
+          call: async args => withKey(integration, key => callMcpTool(integration, key, t.name, args)),
         });
       }
     }

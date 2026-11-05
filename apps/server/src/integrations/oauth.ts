@@ -159,15 +159,18 @@ export function once<T>(map: Map<string, Promise<T>>, key: string, run: () => Pr
 let onEnded: ((id: string, message: string) => void) | null = null;
 export const whenSignInEnded = (fn: (id: string, message: string) => void) => void (onEnded = fn);
 
-export async function oauthAccessToken(id: string, auth: OAuthDef): Promise<string | undefined> {
+// fresh: renew even if it looks current - the service refused it early (revoked,
+// replaced by a newer sign-in, or its clock is ahead of ours).
+export async function oauthAccessToken(id: string, auth: OAuthDef, fresh = false): Promise<string | undefined> {
   const s = await oauthSecret(id);
   if (!s?.accessToken) return undefined;
-  if (s.expiresAt && s.expiresAt - Date.now() > 60_000) return s.accessToken;
+  if (!fresh && s.expiresAt && s.expiresAt - Date.now() > 60_000) return s.accessToken;
   if (!s.refreshToken) throw new Error('The sign-in has run out and has no way to renew itself. Sign in again in Settings > Connectors.');
   return once(renewing, id, async () => {
     // Renewed by the call before this one while it waited: use that.
     const now = await oauthSecret(id);
-    if (now?.accessToken && now.expiresAt && now.expiresAt - Date.now() > 60_000) return now.accessToken;
+    // (Asked for a fresh one: only a token other than the refused one will do.)
+    if (now?.accessToken && (!fresh || now.accessToken !== s.accessToken) && now.expiresAt && now.expiresAt - Date.now() > 60_000) return now.accessToken;
     const current = now ?? s;
     let t: Awaited<ReturnType<typeof tokenRequest>>;
     try {

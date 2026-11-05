@@ -301,3 +301,25 @@ test("an MCP sign-in's registration is reused only for the address it was made f
   await assert.rejects(startIntegrationSignIn('zz-reg', {}));
   await removeIntegration('zz-reg');
 });
+
+test("a signed-in service refusing a token that looked current: renewed once and tried again; anything else isn't retried", async () => {
+  const { withKey } = await import('./index.js');
+  const signedIn = Integration.parse({ kind: 'mcp', id: 'zz-tok', name: 'Tok', what: 'x', auth: { type: 'mcp_oauth' }, url: 'https://mcp.example.com/mcp' });
+  const keyed = Integration.parse({ kind: 'mcp', id: 'zz-key', name: 'Key', what: 'x', auth: { type: 'bearer' }, url: 'https://mcp.example.com/mcp' });
+  const getKey = async (_id: string, _d: unknown, fresh?: boolean) => (fresh ? 'new-token' : 'old-token');
+  const service = async (key: string | undefined) => {
+    if (key !== 'new-token') throw new Error('Tok answered 401: invalid_token');
+    return 'ok';
+  };
+  assert.equal(await withKey(signedIn, service, getKey), 'ok');
+  // A pasted key isn't renewed: it fails as it is.
+  await assert.rejects(withKey(keyed, service, getKey), /401/);
+  // Any other failure isn't retried.
+  let calls = 0;
+  await assert.rejects(withKey(signedIn, async () => { calls++; throw new Error('Tok answered 500: down'); }, getKey), /500/);
+  assert.equal(calls, 1);
+  // Renewed and still refused: said, not retried again.
+  calls = 0;
+  await assert.rejects(withKey(signedIn, async () => { calls++; throw new Error('Tok answered 401: nope'); }, getKey), /401/);
+  assert.equal(calls, 2);
+});
