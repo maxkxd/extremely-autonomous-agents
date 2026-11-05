@@ -17,6 +17,8 @@ import { addNotes, interviewDone, overWritten, addPersonNotes, loadPerson, loadP
 import { keepLinks, linkPeople } from './links.js';
 import { runnerRoutes } from './runner/api.js';
 import { finishIntegrationSignIn, integrationToolIds, liveEventIds } from './integrations/index.js';
+import { pendingSignIn } from './integrations/oauth.js';
+import { heldResult, heldSignIns, heldStatus, parkSignIn } from './signin-handoff.js';
 import { handleMcp } from './runner/mcp.js';
 import { book, startScheduler } from './runner/scheduler.js';
 import { FLEET_ENGINEER } from './runner/agent.js';
@@ -73,6 +75,14 @@ function landing(ok: boolean, message: string) {
 <p style="color:#8a8a8a;margin:0">${escape(message)}</p></div>
 <script>${ok ? 'setTimeout(() => window.close(), 1200)' : ''}</script></body>`);
 }
+async function finishSignIn(q: URLSearchParams) {
+  try {
+    await finishIntegrationSignIn(q);
+  } catch (e) {
+    throw e instanceof ConnectError ? e : new ConnectError(`Signed in, but the test failed: ${(e as Error).message}`);
+  }
+}
+
 async function callback(finish: () => Promise<void>) {
   try {
     await finish();
@@ -301,17 +311,36 @@ const routes: Record<string, Route> = {
   'GET /api/oauth/openrouter/callback': async (_req, q) => callback(() => conn.openRouterCallback(q)),
   'GET /api/oauth/chatgpt/callback': async (_req, q) => callback(() => conn.chatGptCallback(q)),
   // An integration's sign-in (Gmail...) lands on the root (oauth.ts says why);
-  // it's tested before it counts as connected.
-  'GET /': async (_req, q) =>
-    !q.get('state')
-      ? { server: 'Extremely Autonomous Agents' }
-      : callback(async () => {
-      try {
-        await finishIntegrationSignIn(q);
-      } catch (e) {
-        throw e instanceof ConnectError ? e : new ConnectError(`Signed in, but the test failed: ${(e as Error).message}`);
-      }
-    }),
+  // it's tested before it counts as connected. One this agency didn't start is an
+  // organization's: on the host, handed to the organization's agency; on a teammate's
+  // computer, held for their app to send to the host through the relay (signInHandoff).
+  'GET /': async (_req, q) => {
+    const state = q.get('state');
+    if (!state) return { server: 'Extremely Autonomous Agents' };
+    if (pendingSignIn(state)) return callback(() => finishSignIn(q));
+    if (hostingStatus()?.running) {
+      const r = await fetch(`http://127.0.0.1:${HOSTED_PORT}/?${q.toString()}`).catch(() => null);
+      if (r) return new Html(await r.text());
+    }
+    return new Html(parkSignIn(q));
+  },
+  // An organization's sign-in, sent on by a teammate's app (or this computer's).
+  'GET /api/oauth/finish': async (_req, q) => {
+    try {
+      await finishSignIn(q);
+      return { ok: true, message: 'You can close this window and go back to the app.' };
+    } catch (e) {
+      return { ok: false, message: e instanceof ConnectError ? e.message : 'Something went wrong. Try again from Settings.' };
+    }
+  },
+  // A teammate's app collects the sign-ins held here, and says how each went.
+  'GET /api/oauth/held': async () => heldSignIns(),
+  'POST /api/oauth/held/result': async req => {
+    const b = await body<{ state?: string; ok?: boolean; message?: string }>(req);
+    heldResult(String(b.state ?? ''), !!b.ok, String(b.message ?? ''));
+    return { ok: true };
+  },
+  'GET /api/oauth/held/status': async (_req, q) => heldStatus(String(q.get('state') ?? '')),
   'POST /api/connections/copilot/start': async () => conn.copilotStart(),
   'POST /api/connections/claude-code/check': async () => {
     await conn.claudeCodeConnect();

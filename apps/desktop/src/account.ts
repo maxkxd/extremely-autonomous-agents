@@ -454,6 +454,32 @@ const linkTo = (o: OrgView) => {
 // organization this computer hosts through /hosted, as its owner (this computer)
 // or, for anyone else signed in here, with their org access token; one hosted
 // elsewhere through the relay, with your org access token inside it.
+// An organization hosted elsewhere: a sign-in to a service (Gmail, Notion...) comes back
+// to this computer's app (oauth.ts), which holds it; this app sends it to the host
+// through the relay and tells the waiting page how it went. Started with each sign-in,
+// for as long as the sign-in can last. (Hosted here: the server hands it over itself.)
+let handingOff: number | null = null;
+export function handOffSignIns(minutes = 35) {
+  const org = currentOrg();
+  if (!org || reachedHere(org)) return;
+  if (handingOff) window.clearInterval(handingOff);
+  const until = Date.now() + minutes * 60_000;
+  handingOff = window.setInterval(async () => {
+    if (Date.now() > until) {
+      window.clearInterval(handingOff!);
+      handingOff = null;
+      return;
+    }
+    const waiting = await local<{ state: string; query: string }[]>('/api/oauth/held').catch(() => []);
+    for (const h of waiting) {
+      const r = (await agencyFetch(`/api/oauth/finish?${h.query}`)
+        .then(res => res.json())
+        .catch(e => ({ ok: false, message: (e as Error).message }))) as { ok?: boolean; message?: string };
+      await local('/api/oauth/held/result', { state: h.state, ok: !!r.ok, message: String(r.message ?? '') }).catch(() => {});
+    }
+  }, 1500);
+}
+
 export async function agencyFetch(path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<Response> {
   const org = currentOrg();
   if (!org) return fetch(path, init);

@@ -286,18 +286,19 @@ test("an MCP sign-in's registration is reused only for the address it was made f
   const { resetDbForTests } = await import('../runner/db.js');
   const { setSecret } = await import('../vault.js');
   const { addIntegration, loadIntegrations, removeIntegration, startIntegrationSignIn } = await import('./index.js');
+  const { OAUTH_REDIRECT } = await import('./oauth.js');
   resetDbForTests();
   await loadIntegrations();
   const at = (url: string) => addIntegration({ kind: 'mcp', id: 'zz-reg', name: 'Reg', what: 'x', auth: { type: 'mcp_oauth' }, url });
   await at('https://mcp.zz-first.invalid/mcp');
   const discovered = { type: 'oauth2', authorize_url: 'https://auth.zz-first.invalid/authorize', token_url: 'https://auth.zz-first.invalid/token', scopes: ['all'] };
-  await setSecret('integration:zz-reg', { clientId: 'client-1', discovered, registeredFor: 'https://mcp.zz-first.invalid/mcp' });
+  await setSecret('integration:zz-reg', { clientId: 'client-1', discovered, registeredFor: `https://mcp.zz-first.invalid/mcp ${OAUTH_REDIRECT}` });
   // Same address: the saved registration (nothing to look up).
   assert.match((await startIntegrationSignIn('zz-reg', {})).url, /^https:\/\/auth\.zz-first\.invalid\/authorize\?/);
   // The address changed (another server): found and registered afresh - here it can't be reached, so it fails rather than using the old server's page.
   await removeIntegration('zz-reg');
   await at('https://mcp.zz-second.invalid/mcp');
-  await setSecret('integration:zz-reg', { clientId: 'client-1', discovered, registeredFor: 'https://mcp.zz-first.invalid/mcp' });
+  await setSecret('integration:zz-reg', { clientId: 'client-1', discovered, registeredFor: `https://mcp.zz-first.invalid/mcp ${OAUTH_REDIRECT}` });
   await assert.rejects(startIntegrationSignIn('zz-reg', {}));
   await removeIntegration('zz-reg');
 });

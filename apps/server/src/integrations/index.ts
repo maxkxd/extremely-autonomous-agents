@@ -616,9 +616,9 @@ async function signInUrl(id: string, client: { clientId?: string; clientSecret?:
     // The registration is reused only for the address it was made for: the Engineer
     // changing the address (another account's server -> the person's own) sent the
     // sign-in to the old server's page for good.
-    const same = prev?.discovered && prev.clientId && prev.registeredFor === integration.url;
+    const same = prev?.discovered && prev.clientId && prev.registeredFor === `${integration.url} ${OAUTH_REDIRECT}`;
     const found = same ? { auth: prev.discovered!, clientId: prev.clientId, clientSecret: prev.clientSecret } : await discoverMcpSignIn(integration.url, integration.name);
-    return { url: await oauthStart(id, found.auth, { clientId: found.clientId, clientSecret: found.clientSecret }, { discovered: found.auth, registeredFor: integration.url }) };
+    return { url: await oauthStart(id, found.auth, { clientId: found.clientId, clientSecret: found.clientSecret }, { discovered: found.auth, registeredFor: `${integration.url} ${OAUTH_REDIRECT}` }) };
   }
   if (integration?.auth.type !== 'oauth2') throw new Error("That integration doesn't sign in.");
   const prev = await oauthSecret(id);

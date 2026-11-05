@@ -81,6 +81,7 @@ async function launch(h: Hosting) {
     env: {
       ...process.env,
       PORT: String(HOSTED_PORT),
+      EAA_CALLBACK_PORT: String(process.env.PORT ?? 5175), // sign-ins come back to the app's port (oauth.ts)
       HOOKS_PORT: String(HOSTED_HOOKS_PORT),
       EAA_DATA_DIR: hostedDir(h.orgId),
       EAA_VAULT_KEY: '', // its own vault, with its own key - not this agency's

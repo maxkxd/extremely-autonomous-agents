@@ -16,7 +16,10 @@ import { sharedClient, type SharedProvider } from './shared-clients.js';
 // The token endpoint comes from a definition someone may have written, so it
 // goes through the safe fetcher like every other call agents can cause.
 
-const PORT = Number(process.env.PORT ?? 5175);
+// Where a sign-in comes back: the app's own port on whatever computer the browser is
+// on. An organization's agency (on the host's 5185) uses it too, so a sign-in from a
+// teammate's computer lands on their app, which hands it to the host (index.ts).
+const PORT = Number(process.env.EAA_CALLBACK_PORT ?? process.env.PORT ?? 5175);
 export const OAUTH_REDIRECT = `http://127.0.0.1:${PORT}`;
 export const LOCALHOST_REDIRECT = `http://localhost:${PORT}`;
 const redirectOf = (auth: OAuthDef) => (auth.loopback === 'localhost' ? LOCALHOST_REDIRECT : OAUTH_REDIRECT);

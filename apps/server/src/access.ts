@@ -168,6 +168,11 @@ const NEEDS: Record<string, Level> = {
   'GET /api/self/address': 'member',
   // Browser sign-ins land on the host's own address.
   'GET /': 'local',
+  // An organization's sign-in sent on by a teammate's app; those held here, for this computer's app.
+  'GET /api/oauth/finish': 'member',
+  'GET /api/oauth/held': 'local',
+  'POST /api/oauth/held/result': 'local',
+  'GET /api/oauth/held/status': 'local',
   'GET /api/oauth/openrouter/callback': 'local',
   'GET /api/oauth/chatgpt/callback': 'local',
   'POST /api/settings/host-person': 'local',

@@ -3,7 +3,7 @@ import { ExternalLink, Globe, Plug, Plus } from 'lucide-react';
 import { siBrave, siGithub, siGmail, siGoogleanalytics, siGoogledrive, siGooglecalendar, siGooglesearchconsole, siHubspot, siNotion, siPosthog, siSentry, siShopify, siSquare, siStripe, siYoutube, siZoho, type SimpleIcon } from 'simple-icons';
 import { SpinButton } from './ModelConnectors';
 import { SkelRows } from './Skeleton';
-import { connectAssistantTo, currentOrg, isAdmin, remoteAssistantUrl } from './account';
+import { connectAssistantTo, currentOrg, handOffSignIns, isAdmin, remoteAssistantUrl } from './account';
 import { ACCOUNT } from './data';
 import { AI_IDES, IdeLogo, type IdeId } from './Requests';
 import { useOffline } from './offline';
@@ -392,6 +392,7 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
     try {
       const { url } = await startIntegrationSignIn(i.id, { clientId: clientId.trim() || undefined, clientSecret: clientSecret.trim() || undefined });
       popup.current = window.open(url, '_blank', 'popup,width=520,height=720');
+      handOffSignIns();
       setWaiting(Date.now());
       setClientId('');
       setClientSecret('');
@@ -765,7 +766,10 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
       if (!r.ok) setError(r.message);
       else {
         // One that signs in: its sign-in opens now; the row waits for it to land.
-        if (r.signIn) window.open(r.signIn, '_blank', 'popup,width=520,height=720');
+        if (r.signIn) {
+          window.open(r.signIn, '_blank', 'popup,width=520,height=720');
+          handOffSignIns();
+        }
         setUrl('');
         setName('');
         setKey('');
