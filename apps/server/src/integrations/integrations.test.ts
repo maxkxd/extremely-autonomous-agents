@@ -344,3 +344,21 @@ test("the Engineer can't save a connection with a field that's never sent (the p
   await writeDraftIntegration(def('  headers: { x-account: "{{account}}", authorization: "Bearer {{api_key}}" }\n'), 'fleet');
   await discardDraft('zz-unused');
 });
+
+test("after an update, a connection that failed before failures went to the Engineer is told to it once", async () => {
+  const { getSetting, resetDbForTests, setSetting } = await import('../runner/db.js');
+  const { discardDraft, listIntegrations, loadIntegrations, reportUnflaggedFailures, whenConnectFailed, writeDraftIntegration } = await import('./index.js');
+  resetDbForTests();
+  await loadIntegrations();
+  const def = `kind: http\nid: zz-old\nname: Old\nwhat: x\nauth: { type: bearer }\nbase_url: https://api.example.com\ntest: { tool: zz-old.list, args: {} }\ntools:\n  - { id: zz-old.list, tier: T0, description: x, input: { type: object }, request: { method: GET, path: /items } }\n`;
+  await writeDraftIntegration(def, 'fleet', 1);
+  // As an older version left it: failed, nobody told.
+  setSetting('integrations', { ...getSetting<Record<string, object>>('integrations', {}), 'zz-old': { draft: true, by: 'fleet', request: 1, test: { ok: false, at: 1, message: 'Old failure' } } });
+  const told: string[] = [];
+  whenConnectFailed((id, how, message) => void told.push(`${id} ${how} ${message}`));
+  reportUnflaggedFailures();
+  reportUnflaggedFailures();
+  assert.deepEqual(told.filter(t => t.startsWith('zz-old')), ['zz-old connect Old failure']);
+  assert.equal((await listIntegrations()).find(i => i.id === 'zz-old')?.repairing, true);
+  await discardDraft('zz-old');
+});

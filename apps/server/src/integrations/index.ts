@@ -543,6 +543,17 @@ whenSignInEnded((id, message) => {
   failed(id, 'recheck', message);
 });
 
+// Connections that failed before failures went to the Agency Engineer (an older
+// version), or while nothing listened: told once each, so a person isn't left with
+// an old error nobody is looking at - the cause may well be fixed by now.
+export function reportUnflaggedFailures() {
+  for (const { integration } of loaded) {
+    const st = states()[integration.id];
+    if (!st?.test || st.test.ok || st.repair) continue;
+    failed(integration.id, 'connect', st.test.message);
+  }
+}
+
 let onDraftConnected: ((id: string, request?: number) => void) | null = null;
 export const whenDraftConnected = (fn: (id: string, request?: number) => void) => void (onDraftConnected = fn);
 // A live one (a built-in like GitHub) connected: requests waiting on it are settled.

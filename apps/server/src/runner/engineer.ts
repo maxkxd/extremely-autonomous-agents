@@ -14,6 +14,7 @@ import {
   testIntegrationTool,
   whenDraftConnected,
   whenConnectFailed,
+  reportUnflaggedFailures,
   draftsCoveredByBuiltIns,
   whenConnected,
   whenFreeLimit,
@@ -1215,6 +1216,8 @@ export async function movedToBuiltIns(book: (agentId: string, trigger: 'request'
 
 export function startEngineer(book: (agentId: string, trigger: 'request' | 'connected' | 'connection failed', task: string) => void) {
   void movedToBuiltIns(book).catch(() => {});
+  // Ones that failed before anyone was told (an older version): to it once now.
+  reportUnflaggedFailures();
   // A connection that doesn't work: it finds out why and fixes it - the person never
   // has to bring it to anyone (docs/integrations.md).
   whenConnectFailed(async (id, how, message) => {
