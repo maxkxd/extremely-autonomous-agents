@@ -70,6 +70,12 @@ for (const name of fs.existsSync(gh) ? fs.readdirSync(gh) : [])
 const desktop = path.join(__dirname, '..', 'build', 'desktop');
 fs.rmSync(desktop, { recursive: true, force: true });
 fs.cpSync(path.join(ROOT, 'desktop'), desktop, { recursive: true, filter: src => !/[\\/](node_modules|dist)([\\/]|$)/.test(path.relative(path.join(ROOT, 'desktop'), src)) });
+// The sign-in key: development's (pk_test_, in apps/desktop/.env.local) knows none of
+// the real accounts - an app built with it comes up signed out of everything, and
+// Google sign-in fails. An installer is built with production's unless asked.
+const clerkKey = (process.env.VITE_CLERK_PUBLISHABLE_KEY ?? /^VITE_CLERK_PUBLISHABLE_KEY=(.*)$/m.exec(envLocal)?.[1] ?? '').trim().replace(/^["']|["']$/g, '');
+if (clerkKey.startsWith('pk_test_') && !process.env.EAA_ALLOW_TEST_SIGN_IN)
+  throw new Error("This would build with development's sign-in key (pk_test_): set VITE_CLERK_PUBLISHABLE_KEY to production's (the release environment's CLERK_PUBLISHABLE_KEY), or EAA_ALLOW_TEST_SIGN_IN=1 for a test build.");
 run('npm ci --no-audit --no-fund', desktop);
 run('npm run build', desktop);
 fs.cpSync(path.join(desktop, 'dist'), path.join(STAGE, 'ui'), { recursive: true });
