@@ -398,7 +398,10 @@ export function Approvals({
 }) {
   const shown = visibleApprovals(pending, scope)
     .filter(a => !agentFilter || a.agentId === agentFilter)
-    .sort((a, b) => raisedAt(a) - raisedAt(b)); // oldest first; new ones arrive at the bottom
+    // Oldest first; new ones arrive at the bottom. Raised together (a batch from the
+    // Agency Engineer): by id, never by the order the list came in - a decided card
+    // is put last when the list reloads, and moving it mid-exit restarts its animation.
+    .sort((a, b) => raisedAt(a) - raisedAt(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   if (loading && shown.length === 0)
     return (
