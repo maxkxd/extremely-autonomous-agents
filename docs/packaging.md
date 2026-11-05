@@ -105,8 +105,8 @@ people get no "unknown publisher" warning.
   publisher. They go in the `release` environment as the variables
   `MS_STORE_IDENTITY_NAME` and `MS_STORE_PUBLISHER`, which override the
   same values in `package.json` (`build.appx`), which local builds use. The
-  publisher display name must match Partner Center's exactly - it's currently
-  "World AssetRegister" there.
+  publisher display name must match Partner Center's exactly: "World Asset
+  Register Pty Ltd".
 - **Tiles**: `apps/electron/build/appx`, made from `build/icon.png`.
 - **Updates**: the Store updates the package itself. `electron-updater` stays
   off (`process.windowsStore`), and there is no standby-and-drain before an
