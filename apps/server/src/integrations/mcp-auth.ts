@@ -40,6 +40,15 @@ export async function serverMetadata(issuer: string): Promise<Record<string, unk
   throw new Error("The server asks for a sign-in but doesn't say where it is, so it can't be signed in to from here.");
 }
 
+// What the sign-in asks for: what the server lists (its own list first), or nothing at
+// all when it lists none - it then grants its default. "openid" was sent instead, which
+// a server that isn't an OpenID one (Atlassian, Klaviyo, monday, PayPal, Square, Webflow
+// list no scopes) can refuse, or answer with a token missing the access it needs.
+export function scopesToAsk(resource: unknown, server: unknown): string[] {
+  const list = Array.isArray(resource) && resource.length ? resource : Array.isArray(server) ? server : [];
+  return list.filter((s): s is string => typeof s === 'string' && s.length > 0);
+}
+
 // Finds the sign-in and registers this app. Returns how to sign in, and the client to sign in as.
 export async function discoverMcpSignIn(serverUrl: string, name: string): Promise<{ auth: OAuthDef; clientId: string; clientSecret?: string }> {
   const rm = await resourceMetadata(serverUrl);
@@ -67,14 +76,14 @@ export async function discoverMcpSignIn(serverUrl: string, name: string): Promis
     if (again.res.ok) ({ res, body } = again), (loopback = 'localhost');
   }
   if (!res.ok || typeof body.client_id !== 'string') throw new Error(`${name} wouldn't register this app (${res.status}).`);
-  const scopes = (rm.scopes_supported ?? (as.scopes_supported as string[] | undefined) ?? []).filter(s => typeof s === 'string');
+  const scopes = scopesToAsk(rm.scopes_supported, as.scopes_supported);
   return {
     auth: {
       type: 'oauth2',
       authorize_url: String(as.authorization_endpoint),
       token_url: String(as.token_endpoint),
       revoke_url: typeof as.revocation_endpoint === 'string' ? as.revocation_endpoint : undefined,
-      scopes: scopes.length ? scopes : ['openid'],
+      scopes,
       // The resource this sign-in is for (RFC 8707), as the MCP spec asks.
       params: { resource: rm.resource ?? serverUrl },
       resource: rm.resource ?? serverUrl,

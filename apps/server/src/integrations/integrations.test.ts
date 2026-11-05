@@ -373,3 +373,12 @@ test("the built-in signed-in modules' refused-token messages are ones the renew-
     assert.match(said!, REFUSED_TOKEN, `${mod}'s 401 message isn't recognised`);
   }
 });
+
+test("an MCP sign-in asks for the scopes the server lists, and for none (not a made-up openid) when it lists none", async () => {
+  const { scopesToAsk } = await import('./mcp-auth.js');
+  assert.deepEqual(scopesToAsk(['read', 'write'], ['other']), ['read', 'write']);
+  assert.deepEqual(scopesToAsk(undefined, ['read']), ['read']);
+  // The resource lists none (an empty list) but the sign-in server does: that one.
+  assert.deepEqual(scopesToAsk([], ['mcp']), ['mcp']);
+  assert.deepEqual(scopesToAsk(undefined, undefined), []);
+});
