@@ -1,6 +1,6 @@
 {
   "name": "@extremely-agency/mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Your EXTREMELY agency of AI agents in any AI app (Claude Desktop, Cursor, VS Code, Claude Code): what agents did, approvals, requests, jobs, reports. Needs the Extremely Autonomous Agents app.",
   "mcpName": "agency.extremely/agency",
   "license": "AGPL-3.0-only",

@@ -5,9 +5,10 @@ Code, Windsurf and so on, so they can talk to their agency there: "what did my
 sales agent do today?", approvals, Requests, giving an agent a job, its latest
 report, starting a run. It is the kind of server MCP registries list.
 
-Built 2026-11-05 (`packages/agency-mcp`, see Status at the end). It isn't
-published yet. The app looks and works exactly as before: one-click connect in
-Settings > Connectors is unchanged.
+Built 2026-11-05 (`packages/agency-mcp`, see Status at the end). Published
+2026-11-06 as `@extremely-agency/mcp` on npm and `agency.extremely/agency` in
+the official MCP registry. The app looks and works exactly as before:
+one-click connect in Settings > Connectors is unchanged.
 
 ## What was already there
 
@@ -234,12 +235,22 @@ Built and tested:
   - That testing found one bug, now fixed: with input closed straight after a
     call, the program quit before answering.
 
+Published (2026-11-06):
+
+- **npm**: `@extremely-agency/mcp` (`@extremely` was taken), org
+  `extremely-agency`. 0.1.0 was published by hand; from then on the
+  **Publish agency-mcp** workflow publishes, as the package's trusted
+  publisher (this repo, `agency-mcp.yml`, environment `release`).
+- **Official MCP registry**: `agency.extremely/agency`. The namespace is
+  proved by a DNS TXT record on extremely.agency (`v=MCPv1; k=ed25519;
+  p=...`); its private key stays on the owner's computer, never in a repo.
+  Each new version is published there with `server.json` after npm.
+
 Not yet:
 
-- **Publishing** (owner): claim the `@extremely-agency` npm scope (`@extremely` was taken) and add this
-  repo's workflow as its trusted publisher; add the DNS TXT record for
-  `agency.extremely`; run **Publish agency-mcp**; then
-  `mcp-publisher publish` with `server.json`, and the submission list above.
+- **The other directories** in the submission list above.
+- **The installer**: the app installed before 2026-11-06 doesn't keep
+  `agency-mcp.json`; a new installer from main does.
 - **Not tried live**: Claude Desktop (it can't be restarted while it's in
   use, and the package is what its one-click connect already does), VS Code's
   chat (needs Copilot), and an organisation through the relay from a second

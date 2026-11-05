@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "extremely-agency",
   "display_name": "EXTREMELY agency",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Your agency of AI agents in Claude: what agents did, approvals, requests, jobs and reports.",
   "long_description": "Talk to the agency running in the Extremely Autonomous Agents app on this computer: ask what an agent did today, approve or reject what is waiting, answer requests, give an agent a job, read its latest report or start a run. For an organization you are in, it goes through the app, end to end encrypted to its host. Needs the app (https://extremely.agency).",
   "author": {
