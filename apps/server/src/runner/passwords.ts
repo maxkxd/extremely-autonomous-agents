@@ -5,7 +5,7 @@ import { all, one, run as exec } from './db.js';
 // The agents' password store: accounts agents sign up for (and ones a person adds),
 // for the signed-in browser. The password is sealed in the vault; agents never see
 // it - signed_in_browser.type_password types it straight into the page. Owners and
-// admins can see them in Settings > Passwords.
+// admins can see them in Settings > Connectors > Signed-in browser > Passwords.
 //
 // A browser profile holds up to ACCOUNTS_PER_SITE accounts on one site (Google's own
 // limit per browser): the next goes in the next profile, made for it.

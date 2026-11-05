@@ -253,3 +253,23 @@ test("a field in an MCP address's host: under a fixed domain it may be any name 
   await discardDraft('zz-under');
   await discardDraft('zz-end');
 });
+
+test('every "Settings > ..." place the app tells people or agents about is a real section of Settings', async () => {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  // Settings' sections (apps/desktop/src/Settings.tsx SECTIONS).
+  const sections = new Set(['Account', 'Organization', 'Usage', 'Connectors', 'Tools']);
+  const src = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const files: string[] = [];
+  const walk = async (dir: string) => {
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) await walk(join(dir, e.name));
+      else if (/\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name)) files.push(join(dir, e.name));
+    }
+  };
+  await walk(src);
+  const wrong: string[] = [];
+  for (const f of files)
+    for (const m of (await readFile(f, "utf8")).matchAll(/(-> )?Settings > ([A-Z][A-Za-z]+)/g)) if (!m[1] && !sections.has(m[2])) wrong.push(`${f.slice(src.length)}: Settings > ${m[2]}`);
+  assert.deepEqual(wrong, []);
+});

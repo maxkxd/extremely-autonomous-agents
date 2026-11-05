@@ -622,7 +622,7 @@ export const runnerRoutes: Record<string, Route> = {
     return openProfileWindow(b.profile ?? 1, b.url || undefined);
   },
 
-  // --- The agents' password store (Settings > Passwords): owners and admins (access.ts) ---
+  // --- The agents' password store (Settings > Connectors > Signed-in browser > Passwords): owners and admins (access.ts) ---
   'GET /api/passwords': async () => ({ passwords: listPasswords(), profiles: await listProfiles() }),
   'POST /api/passwords/reveal': async (_req, _q, body) => {
     const { id } = await body<{ id: string }>();
