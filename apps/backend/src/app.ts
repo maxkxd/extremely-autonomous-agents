@@ -33,7 +33,7 @@ import { sendInvite } from './mail.js';
 // session token as "Authorization: Bearer ...". It knows who's in which
 // organization and where each host is; it never sees an agency's contents.
 
-type Ctx = { db: Db; auth: Auth; userId: string; params: string[]; body: Record<string, unknown>; authorization?: string };
+type Ctx = { db: Db; auth: Auth; userId: string; params: string[]; body: Record<string, unknown>; authorization?: string; ip?: string };
 type Route = { method: string; path: RegExp; open?: boolean; run: (c: Ctx) => Promise<unknown> };
 
 // Signed in: their record kept current, and the name they go by (their own choice, if they made one).
@@ -43,8 +43,37 @@ const user = async (c: Ctx) => {
   return { ...p, name: (await displayName(c.db, p.id)) || p.name };
 };
 
+// Connection failure reports (apps/server integrations/report.ts): anyone's app may
+// send one, signed in or not, so only the five short fields it sends are kept, each
+// checked to be just letters and the like, and a burst from one address is dropped.
+const FAILURE_FIELDS = { service: /^[a-z0-9_-]{1,40}$/, kind: /^(http|mcp|code)$/, auth: /^[a-z0-9_]{1,12}$/, how: /^(connect|sign-in|recheck)$/, error: /^[a-zA-Z0-9 _-]{0,100}$/ };
+const reportsFrom = new Map<string, number[]>();
+const tooMany = (ip: string, now = Date.now()) => {
+  const recent = (reportsFrom.get(ip) ?? []).filter(t => now - t < 3_600_000);
+  recent.push(now);
+  reportsFrom.set(ip, recent);
+  if (reportsFrom.size > 10_000) reportsFrom.clear();
+  return recent.length > 60;
+};
+
 const ROUTES: Route[] = [
   { method: 'GET', path: /^\/health$/, open: true, run: async () => ({ ok: true }) },
+  {
+    method: 'POST',
+    path: /^\/reports\/connection-failure$/,
+    open: true,
+    run: async c => {
+      const f: Record<string, string> = {};
+      for (const [k, re] of Object.entries(FAILURE_FIELDS)) {
+        const v = typeof c.body[k] === 'string' ? (c.body[k] as string) : '';
+        if (!re.test(v)) throw new ApiError(400, `Bad ${k}.`);
+        f[k] = v;
+      }
+      if (tooMany(c.ip ?? '')) return { ok: true }; // dropped, quietly
+      await c.db.query('INSERT INTO connection_failures (at, service, kind, auth, how, error) VALUES ($1, $2, $3, $4, $5, $6)', [Date.now(), f.service, f.kind, f.auth, f.how, f.error]);
+      return { ok: true };
+    },
+  },
   // How the apps sign people in: Clerk, or (development only) by email alone.
   { method: 'GET', path: /^\/config$/, open: true, run: async c => ({ signIn: c.auth.devSignIn ? 'dev' : 'clerk', issuer: c.auth.issuer }) },
   {
@@ -200,7 +229,8 @@ export function createApp(db: Db, auth: Auth) {
         if (!userId) return send(401, { error: 'Sign in first.' });
       }
       const body = req.method === 'GET' || req.method === 'DELETE' ? {} : await readBody(req);
-      send(200, await route.run({ db, auth, userId, params, body, authorization: req.headers.authorization }));
+      const ip = (String(req.headers['x-forwarded-for'] ?? '').split(',')[0] || req.socket.remoteAddress || '').trim();
+      send(200, await route.run({ db, auth, userId, params, body, authorization: req.headers.authorization, ip }));
     } catch (e) {
       if (e instanceof ApiError) return send(e.status, { error: e.message });
       console.error(e);

@@ -36,6 +36,18 @@ run('npm ci --omit=dev --no-audit --no-fund', server);
 const google = process.env.EAA_GOOGLE_CLIENT_ID?.trim();
 if (google) fs.writeFileSync(path.join(server, 'shared-clients.json'), JSON.stringify({ google: { clientId: google, clientSecret: process.env.EAA_GOOGLE_CLIENT_SECRET?.trim() || undefined } }));
 else console.warn("No EAA_GOOGLE_CLIENT_ID: Gmail sign-in will ask for the person's own Google client.");
+// Our backend, the one the app is built with: connection failures are reported
+// there as kinds only (apps/server/src/integrations/report.ts). None: nothing is sent.
+const envLocal = (() => {
+  try {
+    return fs.readFileSync(path.join(ROOT, 'desktop', '.env.local'), 'utf8');
+  } catch {
+    return '';
+  }
+})();
+const backend = (process.env.VITE_EAA_BACKEND_URL ?? /^VITE_EAA_BACKEND_URL=(.*)$/m.exec(envLocal)?.[1] ?? '').trim().replace(/^["']|["']$/g, '');
+if (/^https:\/\//.test(backend)) fs.writeFileSync(path.join(server, 'backend.json'), JSON.stringify({ url: backend }));
+else console.warn('No https VITE_EAA_BACKEND_URL: connection failures will not be reported.');
 // Copilot's runtime (about 160 MB, most of the app) is fetched the first time
 // someone connects Copilot (apps/server/src/models/copilotRuntime.ts), not shipped.
 const gh = path.join(server, 'node_modules', '@github');

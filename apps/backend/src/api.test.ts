@@ -277,3 +277,13 @@ test('email invites: waiting in their app, declinable, a new one replaces the ol
   await call('cat', 'POST', `/invites/${third.body.code}/accept`);
   assert.deepEqual((await call('cat', 'GET', '/me/invites')).body, [], 'joined: nothing waiting');
 });
+
+test('a connection failure report keeps only its five short fields, from anyone', async () => {
+  const report = { service: 'zoho', kind: 'mcp', auth: 'fields', how: 'connect', error: 'ENOTFOUND reach getaddrinfo' };
+  assert.equal((await call(null, 'POST', '/reports/connection-failure', report)).status, 200);
+  // Anything that could carry a key, an address or an email is refused.
+  assert.equal((await call(null, 'POST', '/reports/connection-failure', { ...report, error: 'key sk-1234 at max@example.com' })).status, 400);
+  assert.equal((await call(null, 'POST', '/reports/connection-failure', { ...report, kind: 'ftp' })).status, 400);
+  const rows = (await db.query<{ service: string; error: string }>('SELECT service, error FROM connection_failures')).rows;
+  assert.deepEqual(rows, [{ service: 'zoho', error: 'ENOTFOUND reach getaddrinfo' }]);
+});

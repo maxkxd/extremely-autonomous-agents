@@ -19,6 +19,7 @@ const KIT: Kit = { fetch: async (url, init) => (await safeFetch(url, init)).res 
 import { discoverMcpSignIn } from './mcp-auth.js';
 import { stopStdioServer } from './mcp-stdio.js';
 import { preflight } from './preflight.js';
+import { reportFailure } from './report.js';
 import { oauthAccessToken, oauthCallback, oauthSecret, pendingSignIn, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
 import { Integration, type EventDefT, type HttpIntegration, type McpIntegration, type AuthDef } from './schema.js';
 import { sharedClient } from './shared-clients.js';
@@ -440,9 +441,12 @@ export type FailedHow = 'connect' | 'sign-in' | 'recheck';
 let onFailed: ((id: string, how: FailedHow, message: string) => void) | null = null;
 export const whenConnectFailed = (fn: (id: string, how: FailedHow, message: string) => void) => void (onFailed = fn);
 function failed(id: string, how: FailedHow, message: string) {
-  if (!find(id)) return;
+  const integration = find(id);
+  if (!integration) return;
   putState(id, { ...states()[id], repair: { at: Date.now(), message } });
   onFailed?.(id, how, message);
+  // To us too, as kinds only (report.ts): which services break for everyone.
+  reportFailure({ service: id, kind: integration.kind, auth: integration.auth.type, how, message });
 }
 
 let onDraftConnected: ((id: string, request?: number) => void) | null = null;

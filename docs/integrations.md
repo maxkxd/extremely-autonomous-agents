@@ -171,6 +171,20 @@ or what the person entered - and fixes the definition or tells the person, in
 plain words, the one thing to do differently (its Charter: "When a connection
 fails"). The same failure twice in an hour is one job.
 
+Each failure is also reported to our backend, as kinds only
+(`integrations/report.ts`, `POST /reports/connection-failure`): the service's id,
+the kind of connection and sign-in, how it failed, and the error with every word
+that could identify anything taken out - no key, address, email, name or account.
+Only builds we make report (the installer writes `backend.json` with our backend's
+address); a development copy sends nothing.
+
+Before the Engineer asks a person to connect anything (`ask_for_connection`), the
+connection is checked (`integrations/preflight.ts`): its address exists, an MCP
+server's sign-in can be found and lets apps register, and an MCP address isn't one
+account's own server copied from a web page. Every kind of connection with every
+kind of sign-in is tested end to end (`connection-matrix.test.ts`); a new kind of
+sign-in fails the tests until it's covered.
+
 ## Email (Gmail)
 
 `gmail.yaml` + `modules/gmail.ts`, through the Gmail API with two scopes:

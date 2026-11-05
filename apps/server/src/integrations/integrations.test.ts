@@ -164,3 +164,11 @@ test("before a person is asked to connect: an account's own server from a web pa
   // An address that doesn't exist.
   assert.match((await preflight(mcp('https://mcp.zz-nothing.invalid/mcp', { type: 'bearer' }))) ?? '', /doesn't exist/);
 });
+
+test('a failure reported to us is its kind only: no key, address, email or name gets through', async () => {
+  const { errorKind } = await import('./report.js');
+  assert.equal(errorKind('Gmail answered 400: Precondition check failed.'), '400 gmail answered precondition check failed');
+  assert.equal(errorKind("Couldn't reach {{server}}.zohomcp.com: getaddrinfo ENOTFOUND {{server}}.zohomcp.com"), 'ENOTFOUND reach getaddrinfo');
+  const leaky = errorKind('Zoho answered 401: user Max Smith (max@example.com) not found for key sk-abc123 abcdefghijklmnopqrstuvwx at https://x.example.com/a');
+  for (const bit of ['max', 'smith', 'example', 'sk-', 'abcdefghijklmnop', 'https']) assert.ok(!leaky.includes(bit), `${bit} got through: ${leaky}`);
+});

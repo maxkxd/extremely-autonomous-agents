@@ -66,6 +66,19 @@ CREATE TABLE IF NOT EXISTS hosts (
   registered_at BIGINT NOT NULL,
   last_seen BIGINT
 );
+
+-- Connections that failed in someone's agency, as kinds only (apps/server
+-- integrations/report.ts): which service, which kind of connection and sign-in,
+-- how it failed, and the error's kind with anything identifying taken out. No
+-- person, organization, key or address - so we see what breaks for everyone.
+CREATE TABLE IF NOT EXISTS connection_failures (
+  at BIGINT NOT NULL,
+  service TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  how TEXT NOT NULL,
+  error TEXT NOT NULL
+);
 `;
 
 export async function migrate(db: Db) {
