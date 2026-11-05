@@ -184,3 +184,11 @@ test("before a person is asked: an MCP address with nothing at it (a wrong path)
   // Can't be reached right now isn't proof it's wrong: not refused.
   assert.equal(await preflight(mcp('https://mcp.example.com/other'), { resolve: async () => true, status: async () => { throw new Error('timeout'); } }), null);
 });
+
+test("an MCP tool that only reads goes silent by its name however it's written; anything that writes waits for a person", async () => {
+  const { readsByName } = await import('./index.js');
+  for (const n of ['read_wiki_contents', 'notion-search', 'query-docs', 'domain_search', 'email_finder', 'emailFinder', 'whoami', 'retrieve_records', 'get_profile', 'list_issues'])
+    assert.equal(readsByName(n), true, n);
+  for (const n of ['create_issue', 'search_and_replace', 'send_email', 'update-page', 'delete_record', 'run_query', 'post_message', 'enrich', 'do_thing', 'checkout'])
+    assert.equal(readsByName(n), false, n);
+});

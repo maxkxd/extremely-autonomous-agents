@@ -219,10 +219,18 @@ const moduleOf = (name: string): CodeModule | undefined => MODULES[name] ?? plug
 // MCP tools are named after their integration: deepwiki.ask_question.
 const mcpToolId = (integration: McpIntegration, name: string) => `${integration.id}.${name.toLowerCase().replace(/[^a-z0-9_]/g, '_')}`;
 // A discovered tool's tier: the definition's override, else T0 when the server
-// marks it read-only or its name plainly reads (get_, list_, search_...), else
-// T2 - an unknown action waits for a person until someone decides otherwise.
-const READS = /^(read|get|list|search|fetch|find|query|lookup|look_up|describe|ask|view|show|count)(_|$)/i;
-const mcpTier = (integration: McpIntegration, t: McpTool): Tier => integration.tiers?.[t.name] ?? (t.readOnly || READS.test(t.name) ? 'T0' : 'T2');
+// marks it read-only or its name plainly reads, else T2 - an unknown action waits
+// for a person until someone decides otherwise. A name reads when one of its words
+// is a read and none is a write, however it's written: notion-search, query-docs,
+// domain_search, emailFinder, whoami (only get_/list_... at the start counted, so
+// every lookup on servers like those waited for a person's approval).
+const READ_WORDS = new Set(['read', 'get', 'list', 'search', 'fetch', 'find', 'finder', 'query', 'lookup', 'describe', 'ask', 'view', 'show', 'count', 'retrieve', 'verify', 'verifier', 'check', 'whoami', 'info', 'status', 'preview', 'explain', 'resolve', 'browse', 'inspect']);
+const WRITE_WORDS = new Set(['create', 'update', 'delete', 'remove', 'send', 'post', 'add', 'set', 'write', 'edit', 'archive', 'move', 'cancel', 'publish', 'upload', 'invite', 'charge', 'refund', 'pay', 'merge', 'close', 'assign', 'insert', 'upsert', 'patch', 'put', 'replace', 'reply', 'schedule', 'submit', 'approve', 'reject', 'transfer', 'execute', 'run', 'trigger', 'deploy', 'import', 'enroll', 'subscribe', 'unsubscribe', 'mark', 'label', 'tag', 'rename', 'restore', 'revoke', 'grant', 'disable', 'enable', 'toggle', 'start', 'stop', 'save', 'store', 'generate', 'make', 'new']);
+export function readsByName(name: string) {
+  const words = name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  return words.some(w => READ_WORDS.has(w)) && !words.some(w => WRITE_WORDS.has(w));
+}
+const mcpTier = (integration: McpIntegration, t: McpTool): Tier => integration.tiers?.[t.name] ?? (t.readOnly || readsByName(t.name) ? 'T0' : 'T2');
 
 type Provider = { integration: Integration; call: (args: Record<string, unknown>) => Promise<string> };
 
