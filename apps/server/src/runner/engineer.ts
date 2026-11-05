@@ -14,6 +14,7 @@ import {
   testIntegrationTool,
   whenDraftConnected,
   whenConnectFailed,
+  draftsCoveredByBuiltIns,
   whenConnected,
   whenFreeLimit,
   toolIdsOf,
@@ -28,7 +29,7 @@ import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { BROWSER_KIT, toolTitle, toolsForPeople, type Tier } from '../catalog.js';
 import { FLEET_ENGINEER, loadAgent, type NaturalLimit } from './agent.js';
 import { askerMayChange, charterVersions, readCharterVersion, writeCharter } from './charter.js';
-import { all, builtInLevels, one, run as exec } from './db.js';
+import { all, builtInLevels, getSetting, one, run as exec, setSetting } from './db.js';
 import { reportDefault, reportDefaultsForPrompt, setReportDefault } from './reports.js';
 import { fileRequest, heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
 
@@ -1192,7 +1193,28 @@ registerTools(TOOLS);
 // The same failure twice in an hour (Connect pressed again) is one job, not two.
 const failSeen = new Map<string, number>();
 
+// After an update: the Engineer's drafts that a new built-in covers, with the requests
+// waiting on them - told once each, to move them to the built-in (nothing to make).
+export async function movedToBuiltIns(book: (agentId: string, trigger: 'request', task: string) => void) {
+  const told = getSetting<string[]>('drafts-covered-told', []);
+  const list = await listIntegrations();
+  for (const c of draftsCoveredByBuiltIns()) {
+    const key = `${c.draft}>${c.builtIn}`;
+    if (told.includes(key)) continue;
+    const waiting = waitingFor(c.draft, list);
+    if (waiting.length)
+      book(
+        FLEET_ENGINEER,
+        'request',
+        `${c.builtInName} (${c.builtIn}) is now built in and signs in with the app's own client - nothing for the person to make. Your draft "${c.draft}" does the same and can't use that client, so request${waiting.length > 1 ? 's' : ''} #${waiting.join(', #')} would send the person through a Google Cloud setup. Ask for ${c.builtIn} on ${waiting.length > 1 ? 'them' : 'it'} instead (engineer.ask_for_connection) and give the agent its tools once connected; the draft goes unused.`,
+      );
+    told.push(key);
+  }
+  setSetting('drafts-covered-told', told);
+}
+
 export function startEngineer(book: (agentId: string, trigger: 'request' | 'connected' | 'connection failed', task: string) => void) {
+  void movedToBuiltIns(book).catch(() => {});
   // A connection that doesn't work: it finds out why and fixes it - the person never
   // has to bring it to anyone (docs/integrations.md).
   whenConnectFailed(async (id, how, message) => {

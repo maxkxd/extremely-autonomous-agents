@@ -1237,3 +1237,22 @@ test("asking a person to connect an extension waits on the connection they conne
   await discardDraft('zz-ext');
   await discardDraft('zz-parent');
 });
+
+test("after an update, a request waiting on the Engineer's own Google draft is moved to the new built-in, once", async () => {
+  const { discardDraft, loadIntegrations, writeDraftIntegration } = await import('../integrations/index.js');
+  const { movedToBuiltIns } = await import('./engineer.js');
+  await loadIntegrations();
+  await writeDraftIntegration(
+    `kind: http\nid: zz-my-calendar\nname: My Calendar\nwhat: x\nauth: { type: oauth2, authorize_url: https://accounts.google.com/o/oauth2/v2/auth, token_url: https://oauth2.googleapis.com/token, scopes: [https://www.googleapis.com/auth/calendar] }\nbase_url: https://www.googleapis.com/calendar/v3\ntest: { tool: zz-my-calendar.list, args: {} }\ntools:\n  - { id: zz-my-calendar.list, tier: T0, description: x, input: { type: object }, request: { method: GET, path: /users/me/calendarList } }\n`,
+    'fleet',
+  );
+  const req = Number(exec("INSERT INTO requests (agent_id, what, why, status, created_at, stage, waiting_on) VALUES ('zz-cal', 'Set up a calendar', 'x', 'open', 0, 'waiting_you', 'zz-my-calendar')").lastInsertRowid);
+  const told: string[] = [];
+  await movedToBuiltIns((_a, _t, task) => void told.push(task));
+  assert.equal(told.length, 1);
+  assert.ok(told[0].startsWith('Google Calendar (calendar) is now built in') && told[0].includes(`#${req}`), told[0]);
+  await movedToBuiltIns((_a, _t, task) => void told.push(task));
+  assert.equal(told.length, 1); // once
+  exec("DELETE FROM requests WHERE agent_id = 'zz-cal'");
+  await discardDraft('zz-my-calendar');
+});

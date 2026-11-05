@@ -204,6 +204,26 @@ export async function loadIntegrations() {
 }
 
 const find = (id: string) => loaded.find(l => l.integration.id === id)?.integration;
+// The Engineer's drafts that a built-in now covers - same sign-in site, the same API
+// by its scopes (calendar, calendar.events) - after an update shipped that built-in
+// (Calendar, YouTube...). The draft can never use the app's own client, so its request
+// sent the person through a Google Cloud setup the built-in doesn't need.
+const apiOf = (scope: string) => (scope.split('/').pop() ?? '').split('.')[0];
+export function draftsCoveredByBuiltIns(): { draft: string; builtIn: string; builtInName: string }[] {
+  const out: { draft: string; builtIn: string; builtInName: string }[] = [];
+  for (const l of loaded) {
+    const d = l.integration;
+    if (l.shipped || !states()[d.id]?.draft || d.auth.type !== 'oauth2') continue;
+    const host = new URL(d.auth.authorize_url).host;
+    const apis = new Set(d.auth.scopes.map(apiOf));
+    const by = loaded.find(
+      s => s.shipped && s.integration.auth.type === 'oauth2' && new URL(s.integration.auth.authorize_url).host === host && s.integration.auth.scopes.some(sc => apis.has(apiOf(sc))),
+    );
+    if (by) out.push({ draft: d.id, builtIn: by.integration.id, builtInName: by.integration.name });
+  }
+  return out;
+}
+
 // Checked before a person is asked to connect it (preflight.ts).
 export async function preflightOf(id: string) {
   const integration = find(id);
