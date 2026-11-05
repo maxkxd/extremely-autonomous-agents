@@ -671,9 +671,13 @@ const failedInRun = new Map<string, { n: number; last: string }>();
 // otherwise - rather than each agent spending calls to find out, and it isn't a
 // broken tool (Zoho's 24-hour limit read as one).
 const pausedUntil = new Map<string, { until: number; why: string }>();
+// Google says a quota as a 403 ("exceeded your quota", quotaExceeded, dailyLimitExceeded,
+// RESOURCE_EXHAUSTED): one project's daily quota - YouTube's is shared by every person
+// on our Google client - read as a broken tool had every agent hammer it and file requests.
 export function rateLimitPause(message: string): number | null {
-  if (!/\b429\b|rate limit|too many requests|many requests fired/i.test(message)) return null;
-  return /24 hours|daily|per day|a day|today/i.test(message) ? 3_600_000 : 60_000;
+  const daily = /exceeded your\b[^.]{0,80}quota|quota exceeded|quotaExceeded|dailyLimitExceeded/i.test(message);
+  if (!daily && !/\b429\b|rate limit|too many requests|many requests fired|rateLimitExceeded|RESOURCE_EXHAUSTED/i.test(message)) return null;
+  return daily || /24 hours|daily|per day|a day|today/i.test(message) ? 3_600_000 : 60_000;
 }
 const serviceOf = (id: string) => id.split('.')[0];
 // What a limit pauses: a service's tools together - but the web tools each on its

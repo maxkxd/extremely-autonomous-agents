@@ -1256,3 +1256,12 @@ test("after an update, a request waiting on the Engineer's own Google draft is m
   exec("DELETE FROM requests WHERE agent_id = 'zz-cal'");
   await discardDraft('zz-my-calendar');
 });
+
+test("Google's quota answers (403s) pause a service's tools like any rate limit, instead of reading as a broken tool", async () => {
+  const { rateLimitPause } = await import('./tools.js');
+  const youtube = 'YouTube answered 403: The request cannot be completed because you have exceeded your <a href="/youtube/v3/getting-started#quota">quota</a>.';
+  assert.equal(rateLimitPause(youtube), 3_600_000);
+  assert.equal(rateLimitPause('Google answered 403: Quota exceeded for quota metric Queries per day'), 3_600_000);
+  assert.equal(rateLimitPause('Google answered 429: RESOURCE_EXHAUSTED'), 60_000);
+  assert.equal(rateLimitPause('Google answered 403: The caller does not have permission'), null);
+});
