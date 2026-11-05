@@ -437,17 +437,21 @@ async function connectChecked(id: string, key?: string, fields?: Record<string, 
 // it: a service being down for a minute shouldn't cost the person their key.
 const RECHECK_MS = 24 * 3_600_000;
 let rechecking = false;
-export function recheckStale(now = Date.now()) {
+// Run by the scheduler too (it ran only when someone opened Settings, so a connection
+// that broke overnight went unnoticed until a person looked).
+export function recheckStale(now = Date.now()): Promise<void> | undefined {
   if (rechecking) return;
   const stale = loaded.filter(({ integration: i }) => isConnected(i.id) && now - (states()[i.id]?.test?.at ?? 0) > RECHECK_MS);
   if (!stale.length) return;
   rechecking = true;
-  void (async () => {
+  return (async () => {
     for (const { integration } of stale) {
       const r = await test(integration);
       // Worked until now: broken since, so the Agency Engineer looks (a blip passes by itself).
       if (!r.ok && states()[integration.id]?.test?.ok) failed(integration.id, 'recheck', r.message);
-      putState(integration.id, { ...states()[integration.id], test: { ok: r.ok, at: Date.now(), message: r.message }, tools: r.tools ?? states()[integration.id]?.tools });
+      // Working again: nobody needs to look any more.
+      const { repair, ...rest } = states()[integration.id] ?? {};
+      putState(integration.id, { ...(r.ok ? rest : { ...rest, repair }), test: { ok: r.ok, at: Date.now(), message: r.message }, tools: r.tools ?? states()[integration.id]?.tools });
     }
     register();
   })().finally(() => (rechecking = false));

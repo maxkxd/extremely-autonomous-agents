@@ -1,5 +1,5 @@
 import { listIds, readMeta } from '../files.js';
-import { liveEvents, loadIntegrations } from '../integrations/index.js';
+import { liveEvents, loadIntegrations, recheckStale } from '../integrations/index.js';
 import './web.js'; // registers the web tools
 import './browser.js'; // registers the browser tools
 import './computer.js'; // registers the tools for files on this computer
@@ -153,6 +153,9 @@ export async function tick(deps: RunDeps = liveDeps) {
     hookAddressRequest(hooksBase(), liveEvents().filter(e => e.event.webhook).map(e => ({ service: e.integration.name, id: e.event.id })), deps.now());
     const now = deps.now();
     resumeDue(now); // agents that paused themselves "until Monday"
+    // Connections nobody has checked in a day, checked in the background (a broken one
+    // goes to the Agency Engineer) - not only when someone opens Settings.
+    void recheckStale()?.catch(() => {});
     expireApprovals(now, book);
     dropStaleRequestRuns();
     // Requests that joined another agent's (one per connection), once it's settled.

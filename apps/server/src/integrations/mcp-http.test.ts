@@ -10,6 +10,8 @@ import { Integration, type McpIntegration } from './schema.js';
 // 405, the way Asana's and DeepWiki's do.
 let server: Server;
 let base: string;
+// /flaky/mcp answers only while this is true: a service that goes down and comes back.
+let up = true;
 before(async () => {
   server = createServer((req, res) => {
     let body = '';
@@ -31,8 +33,9 @@ before(async () => {
         // Every line of the message on its own "data:" line, as the event-stream format allows.
         return res.writeHead(200, { 'content-type': 'text/event-stream' }).end(`event: message\r\n${json.split('\n').map(l => `data: ${l}`).join('\r\n')}\r\n\r\n`);
       }
+      if (req.url === '/flaky/mcp' && !up) return res.writeHead(503).end('Service Unavailable');
       // /k-123/mcp: a server whose address carries the person's key (Zoho's).
-      if (req.url !== '/mcp' && req.url !== '/k-123/mcp') return res.writeHead(req.url === '/sse' ? 405 : 404).end('Method Not Allowed');
+      if (req.url !== '/mcp' && req.url !== '/k-123/mcp' && req.url !== '/flaky/mcp') return res.writeHead(req.url === '/sse' ? 405 : 404).end('Method Not Allowed');
       const m = JSON.parse(body);
       if (m.id === undefined) return res.writeHead(202).end();
       const result = m.method === 'initialize' ? { protocolVersion: '2025-06-18', capabilities: { tools: {} } } : { tools: [{ name: 'ask', inputSchema: { type: 'object' } }] };
@@ -91,4 +94,25 @@ test('a server on an older protocol version is spoken to in that version after t
 
 test('a streamed answer split over several data lines is read whole', async () => {
   assert.deepEqual((await listMcpTools(at('/split/mcp'), undefined)).map(t => t.name), ['split']);
+});
+
+test('a working connection that breaks is noticed by the background check and goes to the Engineer; working again, the flag clears', async () => {
+  const { resetDbForTests } = await import('../runner/db.js');
+  const { addIntegration, connectIntegration, listIntegrations, loadIntegrations, recheckStale, removeIntegration, whenConnectFailed } = await import('./index.js');
+  resetDbForTests();
+  await loadIntegrations();
+  const told: string[] = [];
+  whenConnectFailed((id, how) => void told.push(`${id} ${how}`));
+  await addIntegration({ kind: 'mcp', id: 'zz-flaky', name: 'Flaky', what: 'x', auth: { type: 'none' }, url: `${base}/flaky/mcp`, local: true });
+  await connectIntegration('zz-flaky');
+  const day = 25 * 3_600_000;
+  const repairing = async () => (await listIntegrations()).find(i => i.id === 'zz-flaky')?.repairing;
+  up = false;
+  await recheckStale(Date.now() + day);
+  assert.deepEqual(told, ['zz-flaky recheck']);
+  assert.equal(await repairing(), true);
+  up = true;
+  await recheckStale(Date.now() + 2 * day);
+  assert.equal(await repairing(), false);
+  await removeIntegration('zz-flaky');
 });
