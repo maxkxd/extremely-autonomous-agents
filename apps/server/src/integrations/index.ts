@@ -20,7 +20,7 @@ import { discoverMcpSignIn } from './mcp-auth.js';
 import { stopStdioServer } from './mcp-stdio.js';
 import { preflight } from './preflight.js';
 import { reportFailure } from './report.js';
-import { oauthAccessToken, oauthCallback, oauthSecret, pendingSignIn, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
+import { oauthAccessToken, oauthCallback, oauthSecret, pendingSignIn, whenSignInEnded, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
 import { Integration, type EventDefT, type HttpIntegration, type McpIntegration, type AuthDef } from './schema.js';
 import { sharedClient } from './shared-clients.js';
 import { DATA_DIR } from '../paths.js';
@@ -456,6 +456,12 @@ function failed(id: string, how: FailedHow, message: string) {
   // To us too, as kinds only (report.ts): which services break for everyone.
   reportFailure({ service: id, kind: integration.kind, auth: integration.auth.type, how, message });
 }
+// A sign-in the service ended, found by an agent's call: its row says so and the
+// Agency Engineer is told now, not at the next daily check.
+whenSignInEnded((id, message) => {
+  putState(id, { ...states()[id], test: { ok: false, at: Date.now(), message } });
+  failed(id, 'recheck', message);
+});
 
 let onDraftConnected: ((id: string, request?: number) => void) | null = null;
 export const whenDraftConnected = (fn: (id: string, request?: number) => void) => void (onDraftConnected = fn);

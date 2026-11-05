@@ -212,3 +212,22 @@ test("an address a person pastes themselves may carry their account's code; a wr
   const wrong = Integration.parse({ kind: 'mcp', id: 'zz-own', name: 'Own', what: 'x', auth: { type: 'none' }, url: 'https://agency-1234567890.zohomcp.com/mcp/0123456789abcdef0123456789abcdef/wrong' });
   assert.match((await preflight(wrong, net)) ?? '', /Nothing answers/);
 });
+
+test('a sign-in renewed by several agents at once is renewed once, and they all get its token', async () => {
+  const { once } = await import('./oauth.js');
+  const going = new Map<string, Promise<string>>();
+  let renewals = 0;
+  const renew = async () => {
+    renewals++;
+    await new Promise(r => setTimeout(r, 20));
+    return `token-${renewals}`;
+  };
+  const tokens = await Promise.all([1, 2, 3, 4, 5].map(() => once(going, 'zz-signin', renew)));
+  assert.equal(renewals, 1);
+  assert.deepEqual(new Set(tokens), new Set(['token-1']));
+  // Finished: the next renewal is a new one.
+  assert.equal(await once(going, 'zz-signin', renew), 'token-2');
+  // A failed renewal isn't stuck: the next call tries again.
+  await assert.rejects(once(going, 'zz-fail', async () => { throw new Error('nope'); }));
+  assert.equal(await once(going, 'zz-fail', async () => 'ok'), 'ok');
+});

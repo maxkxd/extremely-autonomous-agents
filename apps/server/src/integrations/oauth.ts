@@ -137,23 +137,49 @@ export async function setOAuthAccount(id: string, account: string) {
 }
 
 // A current access token, refreshed when it's about to run out.
+// One renewal at a time per connection: agents calling at once each renewed it, and
+// a service that hands out a new refresh token every time (most MCP servers) takes
+// the second use of the old one as theft and ends the whole sign-in; Zoho allows
+// only 10 renewals in 10 minutes. The rest wait for that one and share its token.
+const renewing = new Map<string, Promise<string>>();
+export function once<T>(map: Map<string, Promise<T>>, key: string, run: () => Promise<T>): Promise<T> {
+  const going = map.get(key);
+  if (going) return going;
+  const p = run().finally(() => map.delete(key));
+  map.set(key, p);
+  return p;
+}
+
+// A sign-in the service has ended (expired, revoked, a password changed): said the
+// moment an agent finds out, not at the next daily check (index.ts tells the Engineer).
+let onEnded: ((id: string, message: string) => void) | null = null;
+export const whenSignInEnded = (fn: (id: string, message: string) => void) => void (onEnded = fn);
+
 export async function oauthAccessToken(id: string, auth: OAuthDef): Promise<string | undefined> {
   const s = await oauthSecret(id);
   if (!s?.accessToken) return undefined;
   if (s.expiresAt && s.expiresAt - Date.now() > 60_000) return s.accessToken;
   if (!s.refreshToken) throw new Error('The sign-in has run out and has no way to renew itself. Sign in again in Settings > Connectors.');
-  const t = await tokenRequest(auth, {
-    grant_type: 'refresh_token',
-    refresh_token: s.refreshToken,
-    ...clientParams(s),
+  return once(renewing, id, async () => {
+    // Renewed by the call before this one while it waited: use that.
+    const now = await oauthSecret(id);
+    if (now?.accessToken && now.expiresAt && now.expiresAt - Date.now() > 60_000) return now.accessToken;
+    const current = now ?? s;
+    let t: Awaited<ReturnType<typeof tokenRequest>>;
+    try {
+      t = await tokenRequest(auth, { grant_type: 'refresh_token', refresh_token: current.refreshToken ?? s.refreshToken!, ...clientParams(current) });
+    } catch (e) {
+      if (/expired or was revoked/.test((e as Error).message)) onEnded?.(id, (e as Error).message);
+      throw e;
+    }
+    await setSecret(secretKey(id), {
+      ...current,
+      accessToken: t.access_token,
+      refreshToken: t.refresh_token ?? current.refreshToken,
+      expiresAt: Date.now() + (t.expires_in ?? 3600) * 1000,
+    } satisfies OAuthSecret);
+    return t.access_token;
   });
-  await setSecret(secretKey(id), {
-    ...s,
-    accessToken: t.access_token,
-    refreshToken: t.refresh_token ?? s.refreshToken,
-    expiresAt: Date.now() + (t.expires_in ?? 3600) * 1000,
-  } satisfies OAuthSecret);
-  return t.access_token;
 }
 
 // Signing out: the service forgets the sign-in (where it can), and only the
