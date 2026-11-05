@@ -17,3 +17,11 @@ test("another provider's key is turned away before anything is saved", async () 
   await assert.rejects(connectKey('anthropic', 'sk-proj-abc123'), /OpenAI key, not an Anthropic one - add it under OpenAI/);
   await assert.rejects(connectKey('openai', 'AQ.abc123'), /Google Gemini key/);
 });
+
+test('a key copied from a web page loses its zero-width characters', async () => {
+  const { cleanKey, dropInvisible } = await import('./connections.js');
+  assert.equal(cleanKey('\u200bsk-test-\u200d123\ufeff'), 'sk-test-123');
+  assert.equal(dropInvisible('acme\u2060-team'), 'acme-team');
+  // Unchanged: what's left goes into a request header without failing.
+  assert.doesNotThrow(() => new Headers({ 'x-api-key': cleanKey('abc\u200bdef') }));
+});

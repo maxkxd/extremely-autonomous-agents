@@ -24,7 +24,7 @@ import { oauthAccessToken, oauthCallback, oauthSecret, pendingSignIn, SIGN_IN_LI
 import { Integration, type EventDefT, type HttpIntegration, type McpIntegration, type AuthDef } from './schema.js';
 import { sharedClient } from './shared-clients.js';
 import { DATA_DIR } from '../paths.js';
-import { cleanKey } from '../models/connections.js';
+import { cleanKey, dropInvisible } from '../models/connections.js';
 import { ConnectError } from '../models/providers.js';
 
 // Integrations (docs/integrations.md): the ones that ship with the app
@@ -436,7 +436,7 @@ async function connectChecked(id: string, key?: string, fields?: Record<string, 
       const next: Record<string, string> = {};
       for (const f of auth.fields) {
         // A secret left blank keeps the one saved (it's never shown back to fill in).
-        const v = typeof fields[f.name] === 'string' ? (fields[f.name] as string).trim() : '';
+        const v = typeof fields[f.name] === 'string' ? dropInvisible(fields[f.name] as string).trim() : '';
         if (v && f.options && !f.options.includes(v)) throw new Error(`${f.label} must be one of: ${f.options.join(', ')}.`);
         // Part of an address's host (accounts.zoho.{{region}}) in a definition made before
         // options were required: a host label, never "/", "@" or ":" that sends keys elsewhere.

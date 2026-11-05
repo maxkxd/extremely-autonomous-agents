@@ -138,8 +138,12 @@ export async function list(): Promise<ConnectionView[]> {
 // What people paste: stray spaces and line breaks, quotes, a "Bearer " prefix.
 // Pasted with what was around it: spaces, quotes, "Bearer", or the whole .env
 // line ("ANTHROPIC_API_KEY=sk-ant-...", "export OPENAI_API_KEY=...").
+// Copied from a web page or PDF: zero-width characters a key can't contain (and
+// that make every request fail before it's sent).
+export const dropInvisible = (s: string) => s.replace(/[\u200b-\u200d\u2060\ufeff]/g, '');
+
 export const cleanKey = (key: string) =>
-  key
+  dropInvisible(key)
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^export\s+/i, '')
