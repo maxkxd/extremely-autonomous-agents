@@ -98,7 +98,9 @@ class Session {
     const id = (body as { id?: number }).id;
     // An event stream: the reply is the data line carrying our id.
     const messages = (res.headers.get('content-type') ?? '').includes('text/event-stream') ? streamMessages(text) : [JSON.parse(text)];
-    const reply = messages.find(m => m && m.id === id) as { result?: unknown; error?: { message?: string } } | undefined;
+    // Our answer: a result or an error for our id - not a request of the server's own,
+    // which can carry the same number (its ids are its own).
+    const reply = messages.find(m => m && (m as { id?: unknown }).id === id && !('method' in (m as object)) && ('result' in (m as object) || 'error' in (m as object))) as { result?: unknown; error?: { message?: string } } | undefined;
     if (!reply) throw new Error(`${this.integration.name} sent no answer.`);
     if (reply.error) throw new Error(`${this.integration.name}: ${reply.error.message ?? 'error'}`);
     return reply.result;

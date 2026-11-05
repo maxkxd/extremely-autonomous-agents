@@ -49,11 +49,18 @@ class StdioServer {
     this.stderr = '';
     child.stderr?.on('data', d => (this.stderr = (this.stderr + String(d)).slice(-1500)));
     createInterface({ input: child.stdout! }).on('line', line => {
-      let msg: { id?: number; result?: unknown; error?: { message?: string } };
+      let msg: { id?: number; method?: string; result?: unknown; error?: { message?: string } };
       try {
         msg = JSON.parse(line);
       } catch {
         return; // a server's own logging on stdout
+      }
+      // The server asking something of us (its ids are its own, and can match ours):
+      // a ping is answered - some servers hang up without - anything else declined.
+      if (typeof msg.method === 'string') {
+        if (msg.id !== undefined)
+          this.send(msg.method === 'ping' ? { jsonrpc: '2.0', id: msg.id, result: {} } : { jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Not supported' } });
+        return;
       }
       const p = msg.id !== undefined ? this.pending.get(msg.id) : undefined;
       if (!p) return;
@@ -110,7 +117,10 @@ class StdioServer {
   }
 
   stop() {
-    this.child?.kill();
+    // On Windows it runs under the shell (start()): ending the shell left the server
+    // itself running, so every stop or command change left one behind. The whole tree goes.
+    if (process.platform === 'win32' && this.child?.pid) spawn('taskkill', ['/pid', String(this.child.pid), '/T', '/F'], { windowsHide: true }).on('error', () => {});
+    else this.child?.kill();
     this.child = null;
     this.ready = null;
   }

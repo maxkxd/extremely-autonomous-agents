@@ -46,3 +46,41 @@ test("a program that isn't on this computer says what to install (a new computer
   assert.match(missing('/opt/bin/thing', 'sh: /opt/bin/thing: No such file or directory') ?? '', /isn't on this computer/);
   assert.equal(missing('npx', 'Error: something else broke'), null);
 });
+
+// A server that asks us something first, with the same id as our request, and
+// writes down its process id - to see it answered right, and really stopped.
+const ASKING = `
+import { createInterface } from 'node:readline';
+import { writeFileSync } from 'node:fs';
+writeFileSync(process.argv[2], String(process.pid));
+const send = m => process.stdout.write(JSON.stringify(m) + '\\n');
+let waiting = null;
+createInterface({ input: process.stdin }).on('line', l => {
+  const m = JSON.parse(l);
+  if (m.method === 'initialize') return send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} } } });
+  if (m.method === 'tools/list') { waiting = m.id; return send({ jsonrpc: '2.0', id: m.id, method: 'ping' }); }
+  // Our answer to its ping arrives: only now the tools.
+  if (m.id === waiting && m.result) send({ jsonrpc: '2.0', id: waiting, result: { tools: [{ name: 'after_ping', inputSchema: { type: 'object' } }] } });
+});
+`;
+
+test("a server on this computer asking us something (a ping, with an id like ours) is answered, not taken for our answer; stopped, it's really gone", async () => {
+  await writeFile(join(dir, 'asking.mjs'), ASKING);
+  const pidFile = join(dir, 'pid.txt');
+  const asking = Integration.parse({ kind: 'mcp', id: 'zz-asking', name: 'Asking', what: 'x', auth: { type: 'none' }, command: ['node', join(dir, 'asking.mjs'), pidFile] }) as McpIntegration;
+  assert.deepEqual((await listMcpTools(asking, undefined)).map(t => t.name), ['after_ping']);
+  const { readFile } = await import('node:fs/promises');
+  const pid = Number(await readFile(pidFile, 'utf8'));
+  const alive = () => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  assert.equal(alive(), true);
+  stopStdioServer('zz-asking');
+  for (let i = 0; i < 40 && alive(); i++) await new Promise(r => setTimeout(r, 100));
+  assert.equal(alive(), false);
+});
