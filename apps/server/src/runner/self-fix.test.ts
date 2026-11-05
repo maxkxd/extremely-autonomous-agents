@@ -87,7 +87,7 @@ test('a tested draft can go live for a request that closed meanwhile; a turned-d
   const done = request('zz-dir', 'Record outcomes');
   exec("UPDATE requests SET status = 'done', answer = 'connected', answered_at = 1, stage = NULL WHERE id = ?", done);
   assert.equal(publishable(done).status, 'open');
-  assert.deepEqual({ ...one('SELECT status, stage, answered_at FROM requests WHERE id = ?', done) }, { status: 'open', stage: 'engineer', answered_at: null });
+  assert.deepEqual({ ...one<Record<string, unknown>>('SELECT status, stage, answered_at FROM requests WHERE id = ?', done) }, { status: 'open', stage: 'engineer', answered_at: null });
   const no = request('zz-dir', 'Something they refused');
   exec("UPDATE requests SET status = 'rejected' WHERE id = ?", no);
   assert.throws(() => publishable(no), /already rejected/);

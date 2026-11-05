@@ -226,7 +226,7 @@ export function appGapTool(id: string): ToolDef {
     id,
     tier: 'T1',
     description:
-      "Report a gap in this app itself - one of its own tools, or the runner, falling short of real work - to the app's makers, so the official build is fixed for everyone. Also for a fix you built here to get round one (fixed_here), so the official build takes it up. Public: general terms only, never whose (no names, sites, emails, accounts) - refused otherwise. The same gap again is counted, not duplicated. Lists what's been filed.",
+      "Report a gap in this app itself - one of its own tools, or the runner, falling short of real work - to the app's makers, so the official build is fixed for everyone. Also for a fix you built here to get round one (fixed_here), so the official build takes it up. Write it as a neutral bug report for an open-source project: it becomes an issue on the app's public GitHub repository, which anyone in the world can read. Describe only the app - which tool or part, what it does, what it should do, how to reproduce it with a made-up example - never this organization or its work: no names of the business, its people, customers or agents, no sites, accounts, emails, addresses, file paths, numbers or content from their work, and nothing about what they sell or who they contact - text that could identify anyone is refused. The same gap again is counted, not duplicated. Lists what's been filed.",
     schema: obj(
       {
         area: { type: 'string', enum: [...AREAS], description: 'Which part of the app' },
