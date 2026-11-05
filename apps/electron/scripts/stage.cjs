@@ -33,8 +33,18 @@ for (const item of ['src', 'integrations', 'packs', 'package.json', 'package-loc
 run('npm ci --omit=dev --no-audit --no-fund', server);
 // Our own OAuth clients (apps/server/src/integrations/shared-clients.ts), from the
 // release environment: people sign in with them and make nothing. Never in git.
-const google = process.env.EAA_GOOGLE_CLIENT_ID?.trim();
-if (google) fs.writeFileSync(path.join(server, 'shared-clients.json'), JSON.stringify({ google: { clientId: google, clientSecret: process.env.EAA_GOOGLE_CLIENT_SECRET?.trim() || undefined } }));
+// Built on a computer that has them in apps/server/.env (development's own, also
+// never in git): from there, so a local build signs in as the release does.
+const serverEnv = (() => {
+  try {
+    return fs.readFileSync(path.join(from, '.env'), 'utf8');
+  } catch {
+    return '';
+  }
+})();
+const fromEnv = name => (process.env[name] ?? new RegExp(`^${name}=(.*)$`, 'm').exec(serverEnv)?.[1] ?? '').trim().replace(/^["']|["']$/g, '');
+const google = fromEnv('EAA_GOOGLE_CLIENT_ID');
+if (google) fs.writeFileSync(path.join(server, 'shared-clients.json'), JSON.stringify({ google: { clientId: google, clientSecret: fromEnv('EAA_GOOGLE_CLIENT_SECRET') || undefined } }));
 else console.warn("No EAA_GOOGLE_CLIENT_ID: Gmail sign-in will ask for the person's own Google client.");
 // Our backend, the one the app is built with: connection failures are reported
 // there as kinds only (apps/server/src/integrations/report.ts). None: nothing is sent.
