@@ -177,10 +177,10 @@ async function politely<R extends { status: number; headers: { get(name: string)
   }
 }
 
-export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, args: Record<string, unknown>, key: string | undefined): Promise<string> {
-  // A required input left out or empty is the agent's mistake: say so, don't send it.
-  const required = ((tool.input as { required?: string[] }).required ?? []).filter(r => args[r] === undefined || args[r] === null || String(args[r]).trim() === '');
-  if (required.length) throw new Error(`Missing ${required.join(', ')}: give ${required.length === 1 ? 'it' : 'them'} and call again.`);
+// Exactly what a tool call sends - its address with the key and fields where the
+// service wants them, its headers and body - before anything is sent (tested for
+// every kind of sign-in: integrations.test.ts).
+export function httpRequest(integration: HttpIntegration, tool: HttpToolDef, args: Record<string, unknown>, key: string | undefined) {
   const { headers: authHeaders, query: authQuery } = authParts(integration.auth, key);
   const path = String(fill(tool.request.path, args) ?? tool.request.path);
   // A full address for a tool on another of the service's hosts (Google Analytics lists
@@ -189,13 +189,16 @@ export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, 
   const query = (fill(tool.request.query ?? {}, args) ?? {}) as Record<string, unknown>;
   for (const [k, v] of Object.entries({ ...query, ...authQuery })) url.searchParams.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   const body = tool.request.body === undefined ? undefined : JSON.stringify(fill(tool.request.body, args));
-  const res = await politely(() =>
-    safeFetch(url.toString(), {
-      method: tool.request.method,
-      headers: { accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}), ...(tool.request.headers ?? {}), ...authHeaders },
-      body,
-    }).then(r => r.res),
-  );
+  const headers: Record<string, string> = { accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}), ...(tool.request.headers ?? {}), ...authHeaders };
+  return { url: url.toString(), method: tool.request.method, headers, body };
+}
+
+export async function callHttp(integration: HttpIntegration, tool: HttpToolDef, args: Record<string, unknown>, key: string | undefined): Promise<string> {
+  // A required input left out or empty is the agent's mistake: say so, don't send it.
+  const required = ((tool.input as { required?: string[] }).required ?? []).filter(r => args[r] === undefined || args[r] === null || String(args[r]).trim() === '');
+  if (required.length) throw new Error(`Missing ${required.join(', ')}: give ${required.length === 1 ? 'it' : 'them'} and call again.`);
+  const req = httpRequest(integration, tool, args, key);
+  const res = await politely(() => safeFetch(req.url, { method: req.method, headers: req.headers, body: req.body }).then(r => r.res));
   const text = await res.text();
   if (!res.ok) {
     throw new Error(`${integration.name} answered ${res.status}: ${errorText(redact(text, integration.auth, key)).slice(0, 300)}`);
