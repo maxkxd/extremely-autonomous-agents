@@ -33,9 +33,36 @@ export function filledUrl(template: string, filled: string): URL {
   return url;
 }
 
+// A streamed answer's messages: events are separated by a blank line, and one
+// event's data may run over several "data:" lines, joined with newlines (the
+// event-stream format) - read line by line, a message split that way was lost.
+export function streamMessages(text: string): unknown[] {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split(/\n\n+/)
+    .map(event =>
+      event
+        .split('\n')
+        .filter(l => l.startsWith('data:'))
+        .map(l => l.slice(5).replace(/^ /, ''))
+        .join('\n'),
+    )
+    .filter(Boolean)
+    .map(data => {
+      try {
+        return JSON.parse(data);
+      } catch {
+        return null;
+      }
+    });
+}
+
 class Session {
   private sessionId: string | null = null;
   private seq = 1;
+  // The version the server agreed to at initialize, sent on every request after it:
+  // a server on an older one refuses requests that name a version it doesn't speak.
+  private version = PROTOCOL;
   constructor(
     private integration: McpIntegration,
     private key: string | undefined,
@@ -54,7 +81,7 @@ class Session {
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
-        'mcp-protocol-version': PROTOCOL,
+        'mcp-protocol-version': this.version,
         ...(this.sessionId ? { 'mcp-session-id': this.sessionId } : {}),
         ...auth,
       },
@@ -70,18 +97,7 @@ class Session {
     if (!expectReply) return null;
     const id = (body as { id?: number }).id;
     // An event stream: the reply is the data line carrying our id.
-    const messages = (res.headers.get('content-type') ?? '').includes('text/event-stream')
-      ? text
-          .split('\n')
-          .filter(l => l.startsWith('data:'))
-          .map(l => {
-            try {
-              return JSON.parse(l.slice(5).trim());
-            } catch {
-              return null;
-            }
-          })
-      : [JSON.parse(text)];
+    const messages = (res.headers.get('content-type') ?? '').includes('text/event-stream') ? streamMessages(text) : [JSON.parse(text)];
     const reply = messages.find(m => m && m.id === id) as { result?: unknown; error?: { message?: string } } | undefined;
     if (!reply) throw new Error(`${this.integration.name} sent no answer.`);
     if (reply.error) throw new Error(`${this.integration.name}: ${reply.error.message ?? 'error'}`);
@@ -92,11 +108,12 @@ class Session {
   notify = (method: string, params: object = {}) => this.post({ jsonrpc: '2.0', method, params }, false);
 
   async open() {
-    await this.request('initialize', {
+    const r = (await this.request('initialize', {
       protocolVersion: PROTOCOL,
       capabilities: {},
       clientInfo: { name: 'Extremely Autonomous Agents', version: '1.0.0' },
-    });
+    })) as { protocolVersion?: unknown } | null;
+    if (typeof r?.protocolVersion === 'string' && r.protocolVersion) this.version = r.protocolVersion;
     await this.notify('notifications/initialized');
   }
 }

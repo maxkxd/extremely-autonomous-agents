@@ -14,6 +14,23 @@ before(async () => {
   server = createServer((req, res) => {
     let body = '';
     req.on('data', c => (body += c)).on('end', () => {
+      // /v-old/mcp: a strict server on an older protocol version, refusing requests that name another.
+      if (req.url === '/v-old/mcp') {
+        const m = JSON.parse(body);
+        if (m.method !== 'initialize' && req.headers['mcp-protocol-version'] !== '2025-03-26') return res.writeHead(400).end('Unsupported protocol version');
+        if (m.id === undefined) return res.writeHead(202).end();
+        const result = m.method === 'initialize' ? { protocolVersion: '2025-03-26', capabilities: { tools: {} } } : { tools: [{ name: 'old', inputSchema: { type: 'object' } }] };
+        return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+      }
+      // /split/mcp: answers as an event stream, its message over two "data:" lines.
+      if (req.url === '/split/mcp') {
+        const m = JSON.parse(body);
+        if (m.id === undefined) return res.writeHead(202).end();
+        const result = m.method === 'initialize' ? { protocolVersion: '2025-06-18', capabilities: { tools: {} } } : { tools: [{ name: 'split', inputSchema: { type: 'object' } }] };
+        const json = JSON.stringify({ jsonrpc: '2.0', id: m.id, result }, null, 1);
+        // Every line of the message on its own "data:" line, as the event-stream format allows.
+        return res.writeHead(200, { 'content-type': 'text/event-stream' }).end(`event: message\r\n${json.split('\n').map(l => `data: ${l}`).join('\r\n')}\r\n\r\n`);
+      }
       // /k-123/mcp: a server whose address carries the person's key (Zoho's).
       if (req.url !== '/mcp' && req.url !== '/k-123/mcp') return res.writeHead(req.url === '/sse' ? 405 : 404).end('Method Not Allowed');
       const m = JSON.parse(body);
@@ -66,4 +83,12 @@ test("a wrong new key that leaves the working one in place isn't sent to the Age
   assert.deepEqual(told, []);
   assert.equal((await listIntegrations()).find(i => i.id === 'zz-replace')?.repairing, false);
   await removeIntegration('zz-replace');
+});
+
+test('a server on an older protocol version is spoken to in that version after the handshake', async () => {
+  assert.deepEqual((await listMcpTools(at('/v-old/mcp'), undefined)).map(t => t.name), ['old']);
+});
+
+test('a streamed answer split over several data lines is read whole', async () => {
+  assert.deepEqual((await listMcpTools(at('/split/mcp'), undefined)).map(t => t.name), ['split']);
 });
