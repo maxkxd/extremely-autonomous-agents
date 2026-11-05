@@ -382,3 +382,14 @@ test("an MCP sign-in asks for the scopes the server lists, and for none (not a m
   assert.deepEqual(scopesToAsk([], ['mcp']), ['mcp']);
   assert.deepEqual(scopesToAsk(undefined, undefined), []);
 });
+
+test('a token answer with no token in it is a failed sign-in, not a saved blank one', async () => {
+  const { tokenAnswer } = await import('./oauth.js');
+  assert.equal(tokenAnswer(200, { access_token: 'tok-1', expires_in: 3600 }).access_token, 'tok-1');
+  // Zoho: 200 with an error for a revoked refresh token or a used code.
+  assert.throws(() => tokenAnswer(200, { error: 'invalid_code' }), /expired or was revoked/);
+  assert.throws(() => tokenAnswer(200, {}), /no token came back/);
+  assert.throws(() => tokenAnswer(200, 'not json'), /no token came back/);
+  assert.throws(() => tokenAnswer(400, { error: 'invalid_grant' }), /expired or was revoked/);
+  assert.throws(() => tokenAnswer(500, {}), /Sign-in failed: 500/);
+});

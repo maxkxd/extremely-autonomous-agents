@@ -87,12 +87,17 @@ async function tokenRequest(auth: OAuthDef, body: Record<string, string>) {
     headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
     body: new URLSearchParams({ ...body, ...(auth.resource ? { resource: auth.resource } : {}) }).toString(),
   });
-  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) {
-    const why = String(json.error_description ?? json.error ?? res.status);
-    throw new ConnectError(json.error === 'invalid_grant' ? 'The sign-in has expired or was revoked. Sign in again.' : `Sign-in failed: ${why}`);
-  }
-  return json as { access_token: string; refresh_token?: string; expires_in?: number; scope?: string };
+  return tokenAnswer(res.status, await res.json().catch(() => ({})));
+}
+
+// Some services (Zoho) answer 200 with an error instead of a token, so a token
+// answer only counts when it has a token in it.
+export function tokenAnswer(status: number, answer: unknown) {
+  const json = (answer && typeof answer === 'object' ? answer : {}) as Record<string, unknown>;
+  if (status >= 200 && status < 300 && !json.error && typeof json.access_token === 'string' && json.access_token)
+    return json as { access_token: string; refresh_token?: string; expires_in?: number; scope?: string };
+  const why = String(json.error_description ?? json.error ?? (status < 300 ? 'no token came back' : status));
+  throw new ConnectError(json.error === 'invalid_grant' || json.error === 'invalid_code' ? 'The sign-in has expired or was revoked. Sign in again.' : `Sign-in failed: ${why}`);
 }
 
 // The browser lands here. Returns the integration's id, signed in.
