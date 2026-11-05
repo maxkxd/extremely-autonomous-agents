@@ -355,10 +355,11 @@ is forced under `agent/`. Approving a review is for people.
       folder opens in only one browser, so the runner starts the plain
       browser itself with a debugging address on 127.0.0.1 and connects to
       it - not one launched for automation, which Google and LinkedIn refuse
-      sign-ins in. Every agent run gets its own window (minimised, never
-      throttled), the person theirs (`show_person`, the request button), all
-      at the same time with the same sign-ins. Its first window stays
-      minimised as the anchor; it closes a minute after the last run and the
+      sign-ins in. Every agent run gets its own window, made off-screen at
+      -10000 (never minimised: minimised windows barely draw, and Zoho Mail
+      sat on "Loading"; -32000 counts as minimised on Windows), the person theirs (`show_person`, the request button), all
+      at the same time with the same sign-ins. Its first window, also off-screen, is the
+      anchor (a browser quits with its last window); it closes a minute after the last run and the
       person's windows have gone, and with the app. A profile already open
       in a browser the app didn't start is reported, not fought over.
     - Kept signed in: lasting cookies are the browser's own; session cookies

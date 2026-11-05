@@ -27,7 +27,7 @@ import { getSecret, setSecret } from '../vault.js';
 // agent fetch: never this computer or its network.
 //
 // A profile is one browser, shared: every agent run using it gets its own window
-// (minimised, out of the way) and the person gets theirs when they need it - a
+// (off-screen, out of the way) and the person gets theirs when they need it - a
 // sign-in, a CAPTCHA - all at once, with the same sign-ins, nobody waiting for
 // anybody (see "A profile's browser" below).
 
@@ -127,9 +127,13 @@ async function launch(headless: boolean): Promise<Browser> {
 // profile and everyone shares it: each agent run gets its own window, and the person
 // theirs. It's started as the plain browser with a debugging address on this computer
 // and connected to - not launched for automation, which Google and LinkedIn refuse
-// sign-ins in. Its first window stays minimised as the anchor (a browser quits with
-// its last window), and it closes a minute after the last run and the person's
-// windows have gone.
+// sign-ins in. Agents' windows - and the first one, kept as the anchor, since a
+// browser quits with its last window - are made far off-screen at a normal size, so
+// none ever flashes up on the person's screen. Not minimised: a minimised window
+// barely draws (a few frames a second, often none), and web apps like Zoho Mail then
+// sit on "Loading" for good; off-screen at -10000 draws at full speed (Windows treats
+// -32000, its own minimised spot, like minimised). It closes a minute after the last
+// run and the person's windows have gone.
 
 type Shared = {
   proc: ChildProcess;
@@ -142,8 +146,19 @@ type Shared = {
 };
 const shared = new Map<number, Promise<Shared>>();
 const IDLE_CLOSE_MS = 60_000;
-// Agents' windows are minimised and never looked at: the browser mustn't slow them down like hidden tabs.
-const PROFILE_FLAGS = ['--no-first-run', '--no-default-browser-check', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling'];
+// Where agents' windows go, and how big; the person's open on screen.
+const OFF_SCREEN = { left: -10000, top: -10000, width: 1280, height: 900 };
+const ON_SCREEN = { left: 80, top: 60, width: 1280, height: 900 };
+// Agents' windows are never looked at: the browser mustn't slow them down like hidden tabs.
+const PROFILE_FLAGS = [
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+  '--disable-background-timer-throttling',
+  `--window-position=${OFF_SCREEN.left},${OFF_SCREEN.top}`,
+  `--window-size=${OFF_SCREEN.width},${OFF_SCREEN.height}`,
+];
 
 const strayError = (n: number) =>
   new Error(`Browser profile ${n} is open in a browser window the app didn't start (one left from before an update, say). Close that window and try again.`);
@@ -190,8 +205,6 @@ async function startProfile(n: number): Promise<Shared> {
   const context = browser.contexts()[0];
   await restoreSessionCookies(context, n);
   const s: Shared = { proc, browser, context, runs: new Set(), personWindows: new Set(), personPages: new Set() };
-  // The anchor window: minimised, and nobody's.
-  for (const page of context.pages()) await setWindowState(s, page, 'minimized').catch(() => {});
   // A tab the person opens in their own window is theirs too.
   context.on('page', page => {
     void windowOf(s, page).then(id => {
@@ -207,7 +220,7 @@ async function startProfile(n: number): Promise<Shared> {
   return s;
 }
 
-// The browser window a page is in, and changing it: minimised for agents, normal and in front for the person.
+// The browser window a page is in.
 async function windowOf(s: Shared, page: Page): Promise<number | null> {
   const pageSession = await s.context.newCDPSession(page);
   const { targetInfo } = (await pageSession.send('Target.getTargetInfo')) as { targetInfo: { targetId: string } };
@@ -220,30 +233,19 @@ async function windowOf(s: Shared, page: Page): Promise<number | null> {
     await cdp.detach().catch(() => {});
   }
 }
-async function setWindowState(s: Shared, page: Page, state: 'minimized' | 'normal') {
-  const windowId = await windowOf(s, page);
-  if (windowId == null) return;
-  const cdp = await s.browser.newBrowserCDPSession();
-  try {
-    await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: state } });
-  } finally {
-    await cdp.detach().catch(() => {});
-  }
-}
-
-// A new window in the profile's browser, holding one page.
+// A new window in the profile's browser, holding one page: made off-screen for an
+// agent (never seen), on screen and in front for the person.
 async function newWindow(s: Shared, url: string, forPerson: boolean): Promise<Page> {
   const tag = `eaa-${randomUUID()}`;
-  const start = forPerson ? url : `about:blank#${tag}`;
-  const arrived = s.context.waitForEvent('page', { predicate: p => (forPerson ? true : p.url().includes(tag)), timeout: 15_000 });
+  const arrived = s.context.waitForEvent('page', { predicate: p => p.url().includes(tag), timeout: 15_000 });
   const cdp = await s.browser.newBrowserCDPSession();
   try {
-    await cdp.send('Target.createTarget', { url: start, newWindow: true, background: !forPerson });
+    await cdp.send('Target.createTarget', { url: `about:blank#${tag}`, newWindow: true, background: !forPerson, ...(forPerson ? ON_SCREEN : OFF_SCREEN) });
   } finally {
     await cdp.detach().catch(() => {});
   }
   const page = await arrived;
-  await setWindowState(s, page, forPerson ? 'normal' : 'minimized').catch(() => {});
+  if (forPerson) await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
   return page;
 }
 
