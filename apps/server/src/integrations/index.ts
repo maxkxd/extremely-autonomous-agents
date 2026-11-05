@@ -449,7 +449,13 @@ async function connectChecked(id: string, key?: string, fields?: Record<string, 
       replaced = true;
       for (const k of tokens.keys()) if (k.startsWith(`${id} `)) tokens.delete(k);
       await deleteSecret(tokenKey(id));
-    } else if (!(await getSecret(secretKey(id)))) throw new Error('Fill in the fields first.');
+    } else {
+      // Nothing entered: what's saved has to be complete (after a Disconnect only the
+      // non-secret fields are).
+      const saved = (await getSecret<{ fields: Record<string, string> }>(secretKey(id)))?.fields;
+      const gap = saved && auth.fields.find(f => !saved[f.name] && !f.optional && f.default === undefined);
+      if (!saved || gap) throw new Error(gap ? `Fill in ${gap.label}.` : 'Fill in the fields first.');
+    }
   } else if (integration.auth.type === 'oauth2' || integration.auth.type === 'mcp_oauth') {
     if (!(await oauthSecret(id))?.accessToken) throw new Error('Sign in first.');
   } else if (integration.auth.type !== 'none') {
@@ -672,7 +678,16 @@ export async function disconnectIntegration(id: string) {
   const found = auth?.type === 'mcp_oauth' ? (await oauthSecret(id))?.discovered : undefined;
   if (auth?.type === 'oauth2') await oauthSignOut(id, auth);
   else if (found) await oauthSignOut(id, found);
-  else await deleteSecret(secretKey(id));
+  else if (auth?.type === 'fields') {
+    // The secrets go; what isn't secret (a server name, a region) stays, so
+    // reconnecting is just the key.
+    const had = (await getSecret<{ fields: Record<string, string> }>(secretKey(id)))?.fields ?? {};
+    const kept = Object.fromEntries(auth.fields.filter(f => !f.secret && had[f.name]).map(f => [f.name, had[f.name]]));
+    if (Object.keys(kept).length) await setSecret(secretKey(id), { fields: kept });
+    else await deleteSecret(secretKey(id));
+    for (const k of tokens.keys()) if (k.startsWith(`${id} `)) tokens.delete(k);
+    await deleteSecret(tokenKey(id));
+  } else await deleteSecret(secretKey(id));
   // Signed out; whether it's a draft, and whose, stays - and that it worked until now,
   // so a request for "web search" gets "reconnect Brave", not a new provider to sign up for.
   const { draft, by, request, codeHash: hash, connectedAt } = states()[id] ?? {};

@@ -393,3 +393,10 @@ test('a token answer with no token in it is a failed sign-in, not a saved blank 
   assert.throws(() => tokenAnswer(400, { error: 'invalid_grant' }), /expired or was revoked/);
   assert.throws(() => tokenAnswer(500, {}), /Sign-in failed: 500/);
 });
+
+test('a permission left unticked on Google\'s page is named the way people know it', async () => {
+  const { plainScope } = await import('./oauth.js');
+  assert.equal(plainScope('gmail.modify'), 'reading, organising and sending your email');
+  assert.equal(plainScope('youtube.force-ssl'), 'your YouTube account');
+  assert.equal(plainScope('something.new'), 'something.new');
+});

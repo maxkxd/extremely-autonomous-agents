@@ -111,6 +111,20 @@ export function missingGoogleScopes(auth: OAuthDef, granted: string | undefined)
   return auth.scopes.filter(sc => !have.has(sc)).map(sc => sc.replace(/^https:\/\/www\.googleapis\.com\/auth\//, ''));
 }
 
+// A Google permission the way a person knows it, to find its box on Google's page.
+const PLAIN_SCOPES: Record<string, string> = {
+  'gmail.modify': 'reading, organising and sending your email',
+  'gmail.settings.basic': 'your Gmail filters and settings',
+  drive: 'your Google Drive files',
+  calendar: 'your calendars',
+  'calendar.events': 'your calendar events',
+  'calendar.freebusy': "when you're free",
+  'youtube.force-ssl': 'your YouTube account',
+  'analytics.readonly': 'your Google Analytics data',
+  'webmasters.readonly': 'your Search Console data',
+};
+export const plainScope = (scope: string) => PLAIN_SCOPES[scope] ?? scope;
+
 // Which connection a sign-in coming back is for, before it's handled (so a failed
 // one can still be told to the Agency Engineer).
 export const pendingSignIn = (state: string | null) => pending.get(state ?? '')?.id ?? null;
@@ -133,7 +147,7 @@ export async function oauthCallback(q: URLSearchParams): Promise<string> {
   });
   const missing = missingGoogleScopes(p.auth, t.scope);
   if (missing.length)
-    throw new ConnectError(`Google wasn't given everything this needs: ${missing.join(', ')}. Sign in again and tick every box on Google's page.`);
+    throw new ConnectError(`Google wasn't given everything this needs: ${missing.map(plainScope).join(', ')}. Sign in again and tick every box on Google's page.`);
   await setSecret(secretKey(p.id), {
     ...s,
     accessToken: t.access_token,
