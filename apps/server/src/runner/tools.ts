@@ -662,8 +662,11 @@ const workspaceCounted = new Map<string, number>();
 // health), where the Agency Doctor sees them.
 const FAILS_PER_RUN = 3;
 // A write that isn't the agent's counted output, made over and over in one run
-// (81 Drive documents), is padding: refused past this many.
+// (81 Drive documents), is padding: refused past this many. Not working a page in
+// the browser - clicking, typing, signing in - which is how a browser job gets done
+// at all: one sign-up form is ten fields (Directory Submitter was cut off mid-form).
 const REPEATS_PER_RUN = 10;
+const BROWSER_STEPS = /^(signed_in_browser|browser)\.(click|type|type_password|scroll|back|open)$/;
 const repeatsInRun = new Map<string, number>();
 const failedInRun = new Map<string, { n: number; last: string }>();
 // A service that says its limit is reached (429, "rate limit"): its tools pause for
@@ -813,7 +816,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
       counted: 0,
     });
   const failKey = `${ctx.runId}|${id}`;
-  if (!n && (tier !== 'T0' || id === 'files.write_file') && !/^(tasks|requests|memory|ops|engineer|doctor)\./.test(id)) {
+  if (!n && (tier !== 'T0' || id === 'files.write_file') && !/^(tasks|requests|memory|ops|engineer|doctor)\./.test(id) && !BROWSER_STEPS.test(id)) {
     const made = (repeatsInRun.get(failKey) ?? 0) + 1;
     repeatsInRun.set(failKey, made);
     // A report to the person: a couple a run (Revenue Ops sent Max five).

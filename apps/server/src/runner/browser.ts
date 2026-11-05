@@ -383,16 +383,25 @@ const SNAPSHOT_SCRIPT = `(() => {
     const s = getComputedStyle(e);
     return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
   };
-  const label = e => (e.getAttribute('aria-label') || e.placeholder || e.getAttribute('title') || e.innerText || (e.type === 'password' ? '' : e.value) || e.getAttribute('name') || '')
+  const tickable = e => e && e.tagName === 'INPUT' && (e.type === 'radio' || e.type === 'checkbox');
+  const label = e => (e.getAttribute('aria-label') || e.placeholder || e.getAttribute('title') || (tickable(e) && e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.innerText || (e.type === 'password' || tickable(e) ? '' : e.value) || e.getAttribute('name') || '')
     .replace(/\\s+/g, ' ').trim().slice(0, 80);
   const items = [];
   let n = 0;
-  for (const e of document.querySelectorAll('a[href], button, input:not([type=hidden]), textarea, select, [role=button], [role=link], [role=tab], [role=checkbox], [contenteditable=true]')) {
+  // A radio button or checkbox is often hidden behind a styled label: then its label
+  // is what's listed, and clicking it ticks the box.
+  for (const e of document.querySelectorAll('a[href], button, input:not([type=hidden]), textarea, select, label, [role=button], [role=link], [role=tab], [role=checkbox], [role=radio], [contenteditable=true]')) {
     if (n >= max || !visible(e)) continue;
+    const tag = e.tagName.toLowerCase();
+    const control = tag === 'label' ? e.control : null;
+    if (tag === 'label' && !(tickable(control) && !visible(control))) continue;
     n++;
     e.setAttribute('data-eaa-ref', String(n));
-    const tag = e.tagName.toLowerCase();
-    const kind = tag === 'a' || e.getAttribute('role') === 'link' ? 'link'
+    const box = control || (tickable(e) ? e : null);
+    const role = e.getAttribute('role');
+    const kind = box ? (box.type === 'radio' ? 'radio option' : 'checkbox') + (box.checked ? ' (ticked)' : '')
+      : role === 'radio' || role === 'checkbox' ? role + (e.getAttribute('aria-checked') === 'true' ? ' (ticked)' : '')
+      : tag === 'a' || role === 'link' ? 'link'
       : tag === 'input' ? (e.type || 'text') + ' field'
       : tag === 'textarea' || e.getAttribute('contenteditable') === 'true' ? 'text box'
       : tag === 'select' ? 'dropdown' : 'button';
