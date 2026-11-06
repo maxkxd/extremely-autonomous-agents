@@ -3,7 +3,9 @@
 **Build your paperclip maximizer.** A free, open-source AI agency that runs on
 your own computer: a fleet of agents, each with a job, its own tools and a
 schedule, that do real work for a business - and fix, extend and look after
-themselves. It runs on the ChatGPT, Claude or Copilot plan you already pay for.
+themselves. It runs on the AI you already have: a ChatGPT, Claude or Copilot
+plan, an API key (Anthropic, OpenAI, Gemini, OpenRouter, xAI, Mistral, DeepSeek,
+Groq or any OpenAI-compatible endpoint), or a local model through Ollama.
 
 ![The EXTREMELY dashboard: lead research and outreach agents running around the clock](docs/images/dashboard.png)
 
@@ -24,8 +26,10 @@ If you'd like to see it ship, star this repo. It helps other people find it.
   or waiting for your approval - and you can change it any time. Anything that
   reaches outside the business (an email, a post, a payment) starts on approval.
 - **Your own AI.** Agents run on the AI you connect: a Claude, ChatGPT or Copilot
-  plan, or API keys from Anthropic, OpenAI, Google, OpenRouter, Ollama and
-  others. Each agent has up to three models and falls to the next if one fails.
+  plan, API keys from Anthropic, OpenAI, Google, OpenRouter, xAI, Mistral,
+  DeepSeek, Groq or any OpenAI-compatible endpoint (Azure OpenAI, Together,
+  Fireworks, LM Studio, vLLM), or a local model through Ollama. Each agent has
+  up to three models and falls to the next if one fails.
 - **It builds its own tools.** When an agent needs something it doesn't have, it
   files a request. The built-in **Agency Engineer** finds or builds the
   connection (HTTP, MCP, or a sandboxed code plugin that an independent review
