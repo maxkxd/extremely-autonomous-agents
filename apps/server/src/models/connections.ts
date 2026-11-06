@@ -119,7 +119,7 @@ export async function list(): Promise<ConnectionView[]> {
       broken: saved?.broken,
     };
     if (p.id === 'claude-code') {
-      view.claudeCode = cc;
+      view.claudeCode = { ...cc, planToken: hasClaudeToken() };
       view.connected = cc.loggedIn && !!saved;
     }
     if (p.id === 'copilot') {
@@ -518,6 +518,7 @@ export type ClaudeCodeStatus = {
   task?: 'installing' | 'signing-in' | 'updating';
   // A model needs a newer Claude Code than this one (learnt from a run): that version.
   needsUpdate?: string;
+  planToken?: boolean; // signed in with a long-lived plan token (setClaudeToken), not a sign-in here
 };
 
 // "Claude Code 2.1.278 does not support this model; version 2.1.280 or newer is
@@ -541,13 +542,41 @@ const withNeeds = (s: ClaudeCodeStatus): ClaudeCodeStatus => {
 };
 
 // Without the server's own Anthropic key, so Claude Code reports (and signs in
-// to) the person's Claude account, not that key.
-function claudeEnv() {
+// to) the person's Claude account, not that key - or, where nobody can sign in
+// (an agency in the cloud), the plan's long-lived token (claude setup-token).
+export function claudeEnv() {
   const env = { ...process.env };
   delete env.ANTHROPIC_API_KEY;
   delete env.ANTHROPIC_AUTH_TOKEN;
+  if (planToken) env.CLAUDE_CODE_OAUTH_TOKEN = planToken;
   return env;
 }
+
+// The Claude plan's long-lived token, kept in the vault and read once at start.
+// The person makes it with `claude setup-token` on their own computer.
+const PLAN_TOKEN = 'claude-code:token';
+let planToken: string | null = null;
+export const loadClaudeToken = async () => void (planToken = (await getSecret<{ token: string }>(PLAN_TOKEN).catch(() => null))?.token ?? null);
+export async function setClaudeToken(raw: unknown) {
+  const token = typeof raw === 'string' ? raw.trim() : '';
+  if (!token) {
+    await deleteSecret(PLAN_TOKEN);
+    planToken = null;
+    return claudeCodeStatus(true);
+  }
+  if (!/^sk-ant-oat\d*-[\w-]{20,}$/.test(token)) throw new ConnectError('That isn’t a Claude plan token: run `claude setup-token` and paste the token it prints (sk-ant-oat...).');
+  const was = planToken;
+  planToken = token;
+  try {
+    await claudeCodeConnect();
+  } catch (e) {
+    planToken = was;
+    throw e;
+  }
+  await setSecret(PLAN_TOKEN, { token });
+  return { ok: true, hint: mask(token) };
+}
+export const hasClaudeToken = () => !!planToken;
 
 // Where Claude Code is: on the PATH, or where the official installer puts it
 // (a fresh install isn't on this server's PATH until it restarts).

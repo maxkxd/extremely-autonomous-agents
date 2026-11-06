@@ -1,4 +1,4 @@
-import { HOSTED_PORT, hosting, type Hosting } from './hosting.js';
+import { HOSTED_PORT, type Hosting } from './hosting.js';
 import { fromB64, fromB64url, hostHandshake, toB64, type Bytes, type Session } from './relay-crypto.js';
 import { getSecret } from './vault.js';
 
@@ -15,6 +15,9 @@ type Request = { id: number; method?: string; path?: string; headers?: Record<st
 type Channel = { session: Session | null; inbox: Promise<unknown>; outbox: Promise<unknown> };
 
 const MAX_BODY = 2 * 1024 * 1024;
+// The organization's agency: beside us on HOSTED_PORT, or (in the cloud, cloud.ts) this very process.
+// (A function: hosting.ts imports this file, so its values aren't there yet at load.)
+const agencyPort = () => (process.env.EAA_HOSTED_ORG ? Number(process.env.PORT ?? HOSTED_PORT) : HOSTED_PORT);
 let sock: WebSocket | null = null;
 let stopped = true;
 let retry = 0;
@@ -78,9 +81,9 @@ export async function startRelay(h: Hosting) {
   ws.onclose = () => {
     sock = null;
     state = 'off';
-    if (stopped || !hosting()) return;
+    if (stopped) return;
     const wait = Math.min(60_000, 1000 * 2 ** retry++);
-    setTimeout(() => !stopped && hosting() && void startRelay(hosting()!), wait);
+    setTimeout(() => !stopped && void startRelay(h), wait);
   };
   ws.onerror = () => {}; // onclose follows
 }
@@ -99,7 +102,7 @@ async function answer(r: Request): Promise<{ id: number; status: number; body: s
   if ((r.body?.length ?? 0) > MAX_BODY) return fail(413, 'Too much.');
   const method = r.method === 'POST' ? 'POST' : 'GET';
   try {
-    const res = await fetch(`http://127.0.0.1:${HOSTED_PORT}${r.path}`, {
+    const res = await fetch(`http://127.0.0.1:${agencyPort()}${r.path}`, {
       method,
       headers: { authorization: auth, ...(method === 'POST' ? { 'content-type': 'application/json' } : {}) },
       body: method === 'POST' ? (r.body ?? '{}') : undefined,

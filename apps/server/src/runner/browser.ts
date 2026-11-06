@@ -97,6 +97,7 @@ async function keepSignedIn(dir: string) {
 // agents, so they share one profile format and its saved sign-ins.
 export function browserExe(): string | null {
   const env = process.env;
+  if (env.EAA_BROWSER && existsSync(env.EAA_BROWSER)) return env.EAA_BROWSER;
   const candidates =
     process.platform === 'win32'
       ? [
@@ -118,7 +119,7 @@ const noBrowser = () => new Error('No Edge or Chrome found on this computer. Ins
 async function launch(headless: boolean): Promise<Browser> {
   const exe = browserExe();
   if (!exe) throw noBrowser();
-  return chromium.launch({ executablePath: exe, headless });
+  return chromium.launch({ executablePath: exe, headless, args: EXTRA_FLAGS });
 }
 
 // --- A profile's browser, shared -----------------------------------------------------
@@ -160,6 +161,10 @@ const PROFILE_FLAGS = [
   '--disable-background-timer-throttling',
   '--no-startup-window',
 ];
+// Where the machine needs more: in a container (docs/hosting-in-the-cloud.md),
+// "--no-sandbox --password-store=basic --disable-dev-shm-usage" - no user
+// namespaces for Chrome's sandbox, no keyring to lock cookies with, a small /dev/shm.
+const EXTRA_FLAGS = (process.env.EAA_BROWSER_ARGS ?? '').split(/\s+/).filter(f => f.startsWith('--'));
 
 const strayError = (n: number) =>
   new Error(`Browser profile ${n} is open in a browser window the app didn't start (one left from before an update, say). Close that window and try again.`);
@@ -192,7 +197,7 @@ async function startProfile(n: number): Promise<Shared> {
   // The browser writes its debugging port (and its address) here once it's listening.
   const portFile = join(dir, 'DevToolsActivePort');
   await rm(portFile, { force: true });
-  const proc = spawn(exe, [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', ...PROFILE_FLAGS], { stdio: 'ignore', windowsHide: false });
+  const proc = spawn(exe, [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', ...PROFILE_FLAGS, ...EXTRA_FLAGS], { stdio: 'ignore', windowsHide: false });
   running.add(proc);
   let exited = false;
   proc.on('exit', () => {
@@ -213,6 +218,7 @@ async function startProfile(n: number): Promise<Shared> {
   }
   const cdp = await Cdp.connect(`ws://127.0.0.1:${port}${path}`);
   await restoreSessionCookies(cdp, n);
+  await addCarriedCookies(cdp, n);
   const s: Shared = { proc, cdp, runs: new Set() };
   proc.on('exit', () => {
     if (shared.get(n) && s.proc === proc) shared.delete(n);
@@ -350,6 +356,23 @@ async function restoreSessionCookies(cdp: Cdp, n: number) {
   if (!kept?.length) return;
   const cookies = kept.map(({ name, value, domain, path, secure, httpOnly, sameSite }) => ({ name, value, domain, path, secure, httpOnly, ...(sameSite ? { sameSite } : {}) }));
   await cdp.send('Storage.setCookies', { cookies }).catch(() => {});
+}
+
+// Sign-ins carried over from another computer (scripts/move-org.ts): every cookie the
+// profile had there, read through its browser's DevTools connection - a profile's
+// cookie file can't be copied, it's locked to that computer's account. Added once,
+// the first time the profile opens here; from then on they're this profile's own.
+export const carriedKey = (n: number) => `browser:${n}:carried-cookies`;
+async function addCarriedCookies(cdp: Cdp, n: number) {
+  const carried = await getSecret<Record<string, unknown>[]>(carriedKey(n)).catch(() => null);
+  if (!carried?.length) return;
+  const now = Date.now() / 1000;
+  const cookies = carried.filter(c => typeof c.expires !== 'number' || c.expires < 0 || c.expires > now);
+  // One at a time past a batch that's refused, so one odd cookie doesn't lose the rest.
+  await cdp.send('Storage.setCookies', { cookies }).catch(async () => {
+    for (const c of cookies) await cdp.send('Storage.setCookies', { cookies: [c] }).catch(() => {});
+  });
+  await deleteSecret(carriedKey(n));
 }
 
 async function closeSessions(runId: string) {
@@ -604,7 +627,7 @@ export async function openProfileWindow(profile = 1, url = 'https://www.google.c
   if (personOpen.has(n)) {
     remember();
     // Another page in it: handed to their open browser, which opens a window and exits.
-    spawn(exe, [`--user-data-dir=${profileDir(n)}`, target], { stdio: 'ignore' }).on('error', () => {});
+    spawn(exe, [`--user-data-dir=${profileDir(n)}`, ...EXTRA_FLAGS, target], { stdio: 'ignore' }).on('error', () => {});
     return { ok: true, profile: n, already: true };
   }
   // Theirs from now: a run starting meanwhile waits rather than reopening the agents' browser.
@@ -622,7 +645,7 @@ export async function openProfileWindow(profile = 1, url = 'https://www.google.c
   // Registered after the agents' browser has closed.
   remember();
   await keepSignedIn(profileDir(n));
-  const proc = spawn(exe, [`--user-data-dir=${profileDir(n)}`, '--no-first-run', '--no-default-browser-check', target], { stdio: 'ignore' });
+  const proc = spawn(exe, [`--user-data-dir=${profileDir(n)}`, '--no-first-run', '--no-default-browser-check', ...EXTRA_FLAGS, target], { stdio: 'ignore' });
   running.add(proc);
   const ended = () => {
     running.delete(proc);

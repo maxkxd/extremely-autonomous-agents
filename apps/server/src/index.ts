@@ -33,6 +33,7 @@ import * as selfhost from './selfhost.js';
 import { listTools, setToolTier } from './toolSettings.js';
 import { SELF_HOSTED } from './selfhost.js';
 import { randomUUID } from 'node:crypto';
+import { startCloudHost } from './cloud.js';
 import { forwardToHosted, HOSTED_ORG, HOSTED_PORT, hostingStatus, keepHostSecret, resumeHosting, startHosting, deleteHosting, stopHosting } from './hosting.js';
 import { getSetting, setSetting } from './runner/db.js';
 import { scrub } from './secrets.js';
@@ -355,7 +356,10 @@ const routes: Record<string, Route> = {
     await conn.claudeCodeUpdate();
     return { ok: true };
   },
-  'POST /api/connections/claude-code/login': async () => {
+  // Where nobody can sign in to Claude Code (an agency in the cloud): the plan's
+  // long-lived token from `claude setup-token`. Empty: forgotten.
+  'POST /api/connections/claude-code/token': async req => conn.setClaudeToken((await body<{ token?: string }>(req)).token),
+    'POST /api/connections/claude-code/login': async () => {
     await conn.claudeCodeLogin();
     return { ok: true };
   },
@@ -545,6 +549,8 @@ createServer(async (req, res) => {
   console.log(`eaa server on http://localhost:${PORT}`);
   if (HOSTED_ORG && process.env.EAA_HOST_PERSON) setSetting('host_person', process.env.EAA_HOST_PERSON);
   resumeHosting();
+  void startCloudHost();
+  void conn.loadClaudeToken();
   resume();
   void conn.recheckCapabilities();
   startScheduler();

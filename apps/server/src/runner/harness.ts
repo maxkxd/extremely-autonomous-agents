@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { approveAll, CopilotClient, defineTool, ToolSet } from '@github/copilot-sdk';
 import { copilotConnection } from '../models/copilotRuntime.js';
 import { getSecret } from '../vault.js';
-import { claudeCommand, noteClaudeCodeTooOld } from '../models/connections.js';
+import { claudeCommand, claudeEnv, noteClaudeCodeTooOld } from '../models/connections.js';
 import { openBridge } from './mcp.js';
 import { ModelError, type Call, type ToolSpec, type Usage } from './providers.js';
 
@@ -40,13 +40,8 @@ export function harnessFor(connection: string): Harness | null {
 const LIMIT = /usage limit|rate limit|limit reached|overloaded|429|too many requests/i;
 
 // Its environment without any Anthropic key, so it can only use the person's
-// own Claude sign-in (never the server's key, never billed by mistake).
-function claudeEnv() {
-  const env = { ...process.env };
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ANTHROPIC_AUTH_TOKEN;
-  return env;
-}
+// own Claude sign-in or plan token (never the server's key, never billed by
+// mistake): claudeEnv in models/connections.ts.
 
 type ClaudeOut = { result?: string; is_error?: boolean; subtype?: string; session_id?: string; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } };
 

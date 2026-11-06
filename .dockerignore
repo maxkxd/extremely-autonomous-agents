@@ -1,0 +1,8 @@
+**/node_modules
+**/data
+**/dist
+**/.env
+.git
+apps/desktop
+apps/electron
+apps/backend
