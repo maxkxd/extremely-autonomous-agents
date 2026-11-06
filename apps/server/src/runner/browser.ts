@@ -309,13 +309,17 @@ function playwrightDriver(page: Page): Driver {
 }
 
 // blank: its own throwaway browser. profile: its own window in the profile's shared browser.
-type Session = { kind: 'blank' | 'profile'; runId: string; profile: number; browser?: Browser; page: Driver };
+// cdp/agent: a profile's page, as the live view sees it (live-view.ts).
+type Session = { kind: 'blank' | 'profile'; runId: string; profile: number; browser?: Browser; page: Driver; cdp?: CdpPage; agent?: { id: string; name: string } };
 const sessions = new Map<string, Session>();
 
 async function session(ctx: RunCtx, kind: Session['kind'], profile = 1): Promise<Session> {
   const key = `${ctx.runId}:${kind}:${kind === 'profile' ? profile : 0}`;
   const existing = sessions.get(key);
-  if (existing && !existing.page.isClosed()) return existing;
+  if (existing && !existing.page.isClosed()) {
+    if (existing.cdp) await untilFree(existing.cdp);
+    return existing;
+  }
   let s: Session;
   if (kind === 'blank') {
     const browser = await launch(true);
@@ -329,7 +333,7 @@ async function session(ctx: RunCtx, kind: Session['kind'], profile = 1): Promise
     try {
       const page = await CdpPage.open(sh.cdp, agentBounds());
       await page.guard(allowUrl());
-      s = { kind, runId: ctx.runId, profile, page };
+      s = { kind, runId: ctx.runId, profile, page, cdp: page, agent: { id: ctx.agent.id, name: ctx.agent.name } };
     } catch (e) {
       sh.runs.delete(ctx.runId);
       closeWhenIdle(profile, sh);
@@ -344,6 +348,7 @@ async function closeSession(key: string) {
   const s = sessions.get(key);
   if (!s) return;
   sessions.delete(key);
+  if (s.cdp) release(s.cdp.targetId);
   if (s.kind === 'blank') return void (await s.browser?.close().catch(() => {}));
   const sh = await shared.get(s.profile)?.catch(() => null);
   if (sh) await keepSessionCookies(sh.cdp, s.profile).catch(() => {});
@@ -614,6 +619,92 @@ export const BROWSER_TOOLS = toolsFor('blank', 'browser', 'T0', 'a blank throwaw
 export const SIGNED_IN_TOOLS = toolsFor('profile', 'signed_in_browser', 'T1', "the agents' own signed-in browser profiles");
 registerTools([...BROWSER_TOOLS, ...SIGNED_IN_TOOLS]);
 
+// --- Watched by a person: the live view (live-view.ts) --------------------------------
+//
+// Every agent's page in a profile's browser can be watched, and taken over: while the
+// person has a page, the agent's browser tools on it wait (that agent, that page only),
+// and only a page they've taken gets their input. They can open pages of their own in
+// a profile's browser too - in the cloud that's where they sign in and do CAPTCHAs,
+// since nobody can see the container's screen.
+
+export type LiveTab = {
+  id: string; // the page's target id
+  kind: 'agent' | 'person';
+  profile: number;
+  agent: { id: string; name: string } | null;
+  page: CdpPage;
+  since: number;
+  request?: number; // a person's page opened from a request
+};
+const personTabs = new Map<string, LiveTab & { onDone?: () => void }>();
+const opening = new Map<string, number>(); // when each agent page was first seen
+export function liveTabs(): LiveTab[] {
+  const tabs: LiveTab[] = [];
+  for (const s of sessions.values()) {
+    if (!s.cdp || s.cdp.isClosed()) continue;
+    const id = s.cdp.targetId;
+    if (!opening.has(id)) opening.set(id, Date.now());
+    tabs.push({ id, kind: 'agent', profile: s.profile, agent: s.agent ?? null, page: s.cdp, since: opening.get(id)! });
+  }
+  for (const [id, t] of personTabs) if (t.page.isClosed()) personTabs.delete(id);
+  return [...tabs, ...personTabs.values()];
+}
+
+// Taken by the person: the agent waits on it until it's handed back (or 15 minutes).
+const HOLD_MAX_MS = 15 * 60_000;
+const held = new Map<string, { since: number; release: () => void; released: Promise<void> }>();
+export const heldSince = (id: string) => held.get(id)?.since ?? null;
+export function hold(id: string) {
+  if (held.has(id)) return;
+  let release = () => {};
+  const released = new Promise<void>(r => (release = r));
+  held.set(id, { since: Date.now(), release, released });
+}
+export function release(id: string) {
+  held.get(id)?.release();
+  held.delete(id);
+}
+async function untilFree(page: CdpPage) {
+  const h = held.get(page.targetId);
+  if (!h) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const freed = await Promise.race([h.released.then(() => true), new Promise<false>(r => (timer = setTimeout(() => r(false), HOLD_MAX_MS)))]);
+  clearTimeout(timer);
+  if (!freed) throw new Error("The person has taken over this page in the agents' browser and hasn't handed it back. Work on something else and try it later.");
+}
+
+// A page of the person's own in a profile's browser, at a page. done: when they press
+// "Done" on it (not when they hand it back unfinished), once.
+export async function openPersonTab(profile: number, url: string, opts: { request?: number; onDone?: () => void } = {}): Promise<LiveTab> {
+  const n = await knownProfile(profile);
+  const target = checkUrl(url).toString();
+  const sh = await profileBrowser(n);
+  clearTimeout(sh.idle);
+  const page = await CdpPage.open(sh.cdp, agentBounds(), 'about:blank');
+  await page.guard(allowUrl());
+  const tab = { id: page.targetId, kind: 'person' as const, profile: n, agent: null, page, since: Date.now(), request: opts.request, onDone: opts.onDone };
+  personTabs.set(tab.id, tab);
+  sh.runs.add(`person:${tab.id}`);
+  void page.goto(target).catch(() => {});
+  return tab;
+}
+export async function closePersonTab(id: string, done: boolean) {
+  const t = personTabs.get(id);
+  if (!t) return;
+  personTabs.delete(id);
+  const sh = await shared.get(t.profile)?.catch(() => null);
+  if (sh) await keepSessionCookies(sh.cdp, t.profile).catch(() => {});
+  await t.page.close();
+  if (done) t.onDone?.();
+  if (!sh) return;
+  sh.runs.delete(`person:${id}`);
+  closeWhenIdle(t.profile, sh);
+}
+
+// In the cloud nobody sees the screen, so "open it for the person" opens one of their
+// pages for the live view instead of a window: the same sign-ins, and watched in the app.
+const LIVE_ONLY = !!process.env.EAA_CLOUD_HOST;
+
 // --- A profile on the person's screen ------------------------------------------------------
 
 // The person's window: the plain browser on the profile, nothing attached and no
@@ -630,7 +721,11 @@ function personGone(n: number) {
 }
 const personOpen = new Map<number, Promise<void>>();
 const PERSON_WAIT_MS = 20 * 60_000;
-export async function openProfileWindow(profile = 1, url = 'https://www.google.com', onClosed?: { key: string; run: () => void }) {
+export async function openProfileWindow(profile = 1, url = 'https://www.google.com', onClosed?: { key: string; run: () => void }, request?: number) {
+  if (LIVE_ONLY) {
+    const tab = await openPersonTab(profile, url, { request, onDone: onClosed?.run });
+    return { ok: true, profile: tab.profile, already: false, live: tab.id };
+  }
   const n = await knownProfile(profile);
   const target = checkUrl(url).toString();
   const exe = browserExe();

@@ -70,6 +70,12 @@ export class Cdp {
 }
 
 export type Bounds = { left: number; top: number; width: number; height: number };
+// A person's input on a page they've taken over (live-view.ts), in the page's own pixels.
+export type PersonInput =
+  | { type: 'mouse'; action: 'mousePressed' | 'mouseReleased' | 'mouseMoved'; x: number; y: number; button?: 'left' | 'middle' | 'right' | 'none'; buttons?: number; clickCount?: number; modifiers?: number }
+  | { type: 'wheel'; x: number; y: number; deltaX: number; deltaY: number; modifiers?: number }
+  | { type: 'key'; action: 'down' | 'up'; key: string; code: string; keyCode: number; text?: string; modifiers?: number }
+  | { type: 'text'; text: string };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 // One page an agent works in: its own window, attached to it alone.
@@ -91,8 +97,8 @@ export class CdpPage {
   }
 
   // A new window (shown, but not brought in front of what the person's doing).
-  static async open(cdp: Cdp, bounds: Bounds): Promise<CdpPage> {
-    const { targetId } = await cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank', newWindow: true, background: true, ...bounds });
+  static async open(cdp: Cdp, bounds: Bounds, url = 'about:blank'): Promise<CdpPage> {
+    const { targetId } = await cdp.send<{ targetId: string }>('Target.createTarget', { url, newWindow: true, background: true, ...bounds });
     const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
     await cdp.send('Page.enable', {}, sessionId);
     return new CdpPage(cdp, targetId, sessionId);
@@ -209,6 +215,50 @@ export class CdpPage {
     await this.evaluate(
       `(() => { const e = document.querySelector('[data-eaa-ref="${ref}"]'); e.selectedIndex = ${index}; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); })()`,
     );
+  }
+
+  // --- Watched by a person (live-view.ts) ---------------------------------------------
+
+  // The page as it is now, small: a JPEG, base64, at `scale` of its size.
+  async thumbnail(scale = 0.25, quality = 45): Promise<string> {
+    const { w, h } = await this.evaluate<{ w: number; h: number }>('({ w: innerWidth, h: innerHeight })');
+    const { data } = await this.send<{ data: string }>('Page.captureScreenshot', { format: 'jpeg', quality, clip: { x: 0, y: 0, width: w, height: h, scale } });
+    return data;
+  }
+
+  // Frames as the page changes (Page.startScreencast), each acknowledged so the
+  // next one comes. Returns the stop.
+  async screencast(onFrame: (f: { data: string; width: number; height: number }) => void): Promise<() => Promise<void>> {
+    const off = this.cdp.on('Page.screencastFrame', (p, sessionId) => {
+      if (sessionId !== this.session) return;
+      onFrame({ data: p.data, width: p.metadata.deviceWidth, height: p.metadata.deviceHeight });
+      void this.send('Page.screencastFrameAck', { sessionId: p.sessionId }).catch(() => {});
+    });
+    await this.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1280, maxHeight: 1000, everyNthFrame: 1 });
+    return async () => {
+      off();
+      await this.send('Page.stopScreencast').catch(() => {});
+    };
+  }
+
+  // What the person does on it, as the browser's own input: mouse, wheel, keys, pasted text.
+  async input(e: PersonInput) {
+    if (e.type === 'mouse') return void (await this.send('Input.dispatchMouseEvent', { type: e.action, x: e.x, y: e.y, button: e.button ?? 'left', buttons: e.buttons ?? 0, clickCount: e.clickCount ?? 0, modifiers: e.modifiers ?? 0 }));
+    if (e.type === 'wheel') return void (await this.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: e.x, y: e.y, deltaX: e.deltaX, deltaY: e.deltaY, modifiers: e.modifiers ?? 0 }));
+    if (e.type === 'text') return void (await this.send('Input.insertText', { text: e.text }));
+    await this.send('Input.dispatchKeyEvent', {
+      type: e.action === 'up' ? 'keyUp' : e.text ? 'keyDown' : 'rawKeyDown',
+      key: e.key,
+      code: e.code,
+      windowsVirtualKeyCode: e.keyCode,
+      nativeVirtualKeyCode: e.keyCode,
+      modifiers: e.modifiers ?? 0,
+      ...(e.action !== 'up' && e.text ? { text: e.text, unmodifiedText: e.text } : {}),
+    });
+  }
+
+  title() {
+    return this.evaluate<string>('document.title');
   }
 
   async wheel(deltaY: number) {

@@ -25,6 +25,7 @@ import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals } from './approvals.js';
 import { listProfiles, openProfileWindow, profileStatus } from './browser.js';
+import { control, frame, input, liveState, openForPerson } from './live-view.js';
 import { deletePassword, listPasswords, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
@@ -659,7 +660,23 @@ export const runnerRoutes: Record<string, Route> = {
             },
           }
         : undefined;
-    return openProfileWindow(b.profile ?? 1, b.url || undefined, onClosed);
+    return openProfileWindow(b.profile ?? 1, b.url || undefined, onClosed, r?.id);
+  },
+
+  // --- The agents' browser, live (live-view.ts): owners and admins (access.ts) ---
+  'GET /api/browser/live': async (_req, q) => liveState(q.get('thumbs') === '1'),
+  'GET /api/browser/live/frame': async (_req, q) => frame(String(q.get('tab') ?? ''), Number(q.get('after') ?? 0) || 0),
+  'POST /api/browser/live/input': async (_req, _q, body) => {
+    const b = await body<{ tab: string; events: unknown }>();
+    return input(String(b.tab), b.events);
+  },
+  'POST /api/browser/live/control': async (_req, _q, body) => {
+    const b = await body<{ tab: string; action: string }>();
+    return control(String(b.tab), b.action);
+  },
+  'POST /api/browser/live/open': async (_req, _q, body) => {
+    const b = await body<{ profile?: number; url?: string }>();
+    return openForPerson(b.profile, b.url);
   },
 
   // --- The agents' password store (Settings > Connectors > Signed-in browser > Passwords): owners and admins (access.ts) ---
