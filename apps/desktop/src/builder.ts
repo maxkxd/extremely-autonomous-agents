@@ -397,7 +397,7 @@ export const liveBrowser = (thumbs: boolean) => request<{ profiles: number[]; ne
 export const liveFrame = (tab: string, after: number) => request<LiveFrame>(`/api/browser/live/frame?tab=${encodeURIComponent(tab)}&after=${after}`);
 export const liveInput = (tab: string, events: PersonInput[]) => post<{ ok: boolean }>('/api/browser/live/input', { tab, events });
 export const liveControl = (tab: string, action: 'take' | 'done' | 'handback') => post<{ ok: boolean }>('/api/browser/live/control', { tab, action });
-export const liveOpen = (profile: number, url: string) => post<{ tab: string }>('/api/browser/live/open', { profile, url });
+export const liveOpen = (profile: number, url: string) => post<{ tab: string | null }>('/api/browser/live/open', { profile, url });
 
 // The agents' password store (Settings > Connectors > Passwords): owners and admins.
 export type SavedPassword = { id: string; site: string; username: string; profile: number; agent_id: string | null; note: string | null; created_at: number };

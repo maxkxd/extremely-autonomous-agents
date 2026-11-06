@@ -115,7 +115,8 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
     try {
       const { tab } = await liveOpen(n, url);
       setSignInUrl('');
-      setSelected(tab);
+      // Here the window opens on this screen; in the cloud, on the page.
+      if (tab) setSelected(tab);
       await refresh();
     } catch (e) {
       window.alert((e as Error).message);
@@ -154,7 +155,7 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
               ))}
             </div>
           )}
-          {shown.length === 0 && <p className="abrowser-muted">No agent has a page open.</p>}
+          {shown.length === 0 && <p className="abrowser-empty">No agent has a page open right now.</p>}
           <div className="abrowser-thumbs">
             {shown.map(t => (
               <button key={t.id} className={`abrowser-thumb${t.id === selected ? ' on' : ''}${t.held ? ' held' : ''}`} onClick={() => setSelected(t.id)}>
@@ -179,7 +180,7 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
         </section>
         {error && <p className="abrowser-error">{error}</p>}
       </aside>
-      <section className="abrowser-main">{current ? <LivePage key={current.id} tab={current} onAct={act} /> : <div className="main-empty">Pick a page to watch it.</div>}</section>
+      <section className="abrowser-main">{current ? <LivePage key={current.id} tab={current} onAct={act} /> : <div className="main-empty">Pick a page on the left to watch it.</div>}</section>
     </div>
   );
 }
@@ -264,7 +265,7 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
       <header className="abrowser-bar">
         <span className="abrowser-bar-who">
           {tab.kind === 'person' ? <User size={14} /> : <Globe size={14} />}
-          <strong>{tab.kind === 'person' ? 'Your page' : (tab.agent?.name ?? 'An agent')}</strong>
+          <strong>{tab.kind === 'person' ? 'Your window' : (tab.agent?.name ?? 'An agent')}</strong>
           <span className="abrowser-muted" title={tab.url}>
             {site}
             {tab.title ? ` · ${tab.title}` : ''}

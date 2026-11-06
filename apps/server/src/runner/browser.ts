@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { lookup } from 'node:dns/promises';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
 import { Cdp, CdpPage, type Bounds } from './cdp.js';
@@ -105,6 +106,28 @@ async function keepSignedIn(dir: string) {
   await writeFile(stateFile, JSON.stringify(state));
 }
 
+// Chrome on Linux locks a profile with a link naming the machine and process that has it
+// open. A container that started again is a new machine with the same folder, so Chrome
+// takes its own old lock for another computer's and won't open the profile ("open in a
+// browser window the app didn't start"). A lock from another machine, or from a process
+// that's gone, is cleared before starting.
+async function clearStaleLock(dir: string) {
+  if (process.platform === 'win32') return;
+  const lock = await readlink(join(dir, 'SingletonLock')).catch(() => null);
+  if (!lock) return;
+  const at = lock.lastIndexOf('-');
+  const [host, pid] = [lock.slice(0, at), Number(lock.slice(at + 1))];
+  let alive = host === hostname();
+  if (alive)
+    try {
+      process.kill(pid, 0);
+    } catch {
+      alive = false;
+    }
+  if (alive) return;
+  for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) await rm(join(dir, f), { force: true });
+}
+
 // The Edge or Chrome on this computer - the same one for the person's window and the
 // agents, so they share one profile format and its saved sign-ins.
 export function browserExe(): string | null {
@@ -206,6 +229,7 @@ async function startProfile(n: number): Promise<Shared> {
   if (!exe) throw noBrowser();
   const dir = profileDir(n);
   await keepSignedIn(dir);
+  await clearStaleLock(dir);
   // The browser writes its debugging port (and its address) here once it's listening.
   const portFile = join(dir, 'DevToolsActivePort');
   await rm(portFile, { force: true });
@@ -636,7 +660,6 @@ export type LiveTab = {
   since: number;
   request?: number; // a person's page opened from a request
 };
-const personTabs = new Map<string, LiveTab & { onDone?: () => void }>();
 const opening = new Map<string, number>(); // when each agent page was first seen
 export function liveTabs(): LiveTab[] {
   const tabs: LiveTab[] = [];
@@ -646,8 +669,7 @@ export function liveTabs(): LiveTab[] {
     if (!opening.has(id)) opening.set(id, Date.now());
     tabs.push({ id, kind: 'agent', profile: s.profile, agent: s.agent ?? null, page: s.cdp, since: opening.get(id)! });
   }
-  for (const [id, t] of personTabs) if (t.page.isClosed()) personTabs.delete(id);
-  return [...tabs, ...personTabs.values()];
+  return tabs;
 }
 
 // Taken by the person: the agent waits on it until it's handed back (or 15 minutes).
@@ -673,37 +695,37 @@ async function untilFree(page: CdpPage) {
   if (!freed) throw new Error("The person has taken over this page in the agents' browser and hasn't handed it back. Work on something else and try it later.");
 }
 
-// A page of the person's own in a profile's browser, at a page. done: when they press
-// "Done" on it (not when they hand it back unfinished), once.
-export async function openPersonTab(profile: number, url: string, opts: { request?: number; onDone?: () => void } = {}): Promise<LiveTab> {
-  const n = await knownProfile(profile);
-  const target = checkUrl(url).toString();
-  const sh = await profileBrowser(n);
-  clearTimeout(sh.idle);
-  const page = await CdpPage.open(sh.cdp, agentBounds(), 'about:blank');
-  await page.guard(allowUrl());
-  const tab = { id: page.targetId, kind: 'person' as const, profile: n, agent: null, page, since: Date.now(), request: opts.request, onDone: opts.onDone };
-  personTabs.set(tab.id, tab);
-  sh.runs.add(`person:${tab.id}`);
-  void page.goto(target).catch(() => {});
-  return tab;
+// In the cloud nobody sees the screen: the person's window opens on a screen of its own
+// (a virtual display per profile), which the live view streams and sends their input to
+// (live-view.ts). It's still the plain browser, nothing attached, so Google signs them in.
+const CLOUD = !!process.env.EAA_CLOUD_HOST;
+const SCREEN = { width: 1280, height: 860 };
+type Screen = { profile: number; display: string; since: number; url: string; request?: number };
+const screens = new Map<number, Screen>();
+export const personScreens = () => [...screens.values()];
+export const screenSize = SCREEN;
+const xvfbs = new Map<string, ChildProcess>();
+const screenOf = (n: number) => `:${100 + n}`;
+async function displayFor(n: number) {
+  const display = `:${100 + n}`;
+  const had = xvfbs.get(display);
+  if (had && had.exitCode === null) return display;
+  await rm(`/tmp/.X${100 + n}-lock`, { force: true });
+  const x = spawn('Xvfb', [display, '-screen', '0', `${SCREEN.width}x${SCREEN.height}x24`, '-nolisten', 'tcp'], { stdio: 'ignore' });
+  xvfbs.set(display, x);
+  running.add(x);
+  await new Promise(r => setTimeout(r, 700));
+  return display;
 }
-export async function closePersonTab(id: string, done: boolean) {
-  const t = personTabs.get(id);
-  if (!t) return;
-  personTabs.delete(id);
-  const sh = await shared.get(t.profile)?.catch(() => null);
-  if (sh) await keepSessionCookies(sh.cdp, t.profile).catch(() => {});
-  await t.page.close();
-  if (done) t.onDone?.();
-  if (!sh) return;
-  sh.runs.delete(`person:${id}`);
-  closeWhenIdle(t.profile, sh);
+// Done (or handed back unfinished: its request isn't told) - the window closes.
+export function closePersonWindow(n: number, done: boolean) {
+  const proc = personProcs.get(n);
+  if (!proc) return false;
+  if (!done) whenClosed.delete(n);
+  proc.kill();
+  return true;
 }
-
-// In the cloud nobody sees the screen, so "open it for the person" opens one of their
-// pages for the live view instead of a window: the same sign-ins, and watched in the app.
-const LIVE_ONLY = !!process.env.EAA_CLOUD_HOST;
+const personProcs = new Map<number, ChildProcess>();
 
 // --- A profile on the person's screen ------------------------------------------------------
 
@@ -722,10 +744,6 @@ function personGone(n: number) {
 const personOpen = new Map<number, Promise<void>>();
 const PERSON_WAIT_MS = 20 * 60_000;
 export async function openProfileWindow(profile = 1, url = 'https://www.google.com', onClosed?: { key: string; run: () => void }, request?: number) {
-  if (LIVE_ONLY) {
-    const tab = await openPersonTab(profile, url, { request, onDone: onClosed?.run });
-    return { ok: true, profile: tab.profile, already: false, live: tab.id };
-  }
   const n = await knownProfile(profile);
   const target = checkUrl(url).toString();
   const exe = browserExe();
@@ -733,9 +751,13 @@ export async function openProfileWindow(profile = 1, url = 'https://www.google.c
   const remember = () => onClosed && whenClosed.set(n, (whenClosed.get(n) ?? new Map()).set(onClosed.key, onClosed.run));
   if (personOpen.has(n)) {
     remember();
+    if (CLOUD) {
+      const sc = screens.get(n);
+      if (sc) Object.assign(sc, { url: target, request: request ?? sc.request });
+    }
     // Another page in it: handed to their open browser, which opens a window and exits.
-    spawn(exe, [`--user-data-dir=${profileDir(n)}`, ...EXTRA_FLAGS, target], { stdio: 'ignore' }).on('error', () => {});
-    return { ok: true, profile: n, already: true };
+    spawn(exe, [`--user-data-dir=${profileDir(n)}`, ...EXTRA_FLAGS, target], { stdio: 'ignore', env: CLOUD ? { ...process.env, DISPLAY: screenOf(n) } : process.env }).on('error', () => {});
+    return { ok: true, profile: n, already: true, ...(CLOUD ? { live: `screen:${n}` } : {}) };
   }
   // Theirs from now: a run starting meanwhile waits rather than reopening the agents' browser.
   let done = () => {};
@@ -752,10 +774,20 @@ export async function openProfileWindow(profile = 1, url = 'https://www.google.c
   // Registered after the agents' browser has closed.
   remember();
   await keepSignedIn(profileDir(n));
-  const proc = spawn(exe, [`--user-data-dir=${profileDir(n)}`, '--no-first-run', '--no-default-browser-check', ...EXTRA_FLAGS, target], { stdio: 'ignore' });
+  await clearStaleLock(profileDir(n));
+  const display = CLOUD ? await displayFor(n) : null;
+  const onScreen = display ? ['--window-position=0,0', `--window-size=${SCREEN.width},${SCREEN.height}`, '--start-maximized'] : [];
+  const proc = spawn(exe, [`--user-data-dir=${profileDir(n)}`, '--no-first-run', '--no-default-browser-check', ...onScreen, ...EXTRA_FLAGS, target], {
+    stdio: 'ignore',
+    env: display ? { ...process.env, DISPLAY: display } : process.env,
+  });
   running.add(proc);
+  personProcs.set(n, proc);
+  if (display) screens.set(n, { profile: n, display, since: Date.now(), url: target, request });
   const ended = () => {
     running.delete(proc);
+    personProcs.delete(n);
+    screens.delete(n);
     personOpen.delete(n);
     // What they signed in to is in the profile now; the copy kept for the agents'
     // browser is older, and put back it would undo it.
@@ -765,7 +797,7 @@ export async function openProfileWindow(profile = 1, url = 'https://www.google.c
   };
   proc.once('exit', ended);
   proc.once('error', ended);
-  return { ok: true, profile: n, already: false };
+  return { ok: true, profile: n, already: false, ...(display ? { live: `screen:${n}` } : {}) };
 }
 
 export async function profileStatus() {
