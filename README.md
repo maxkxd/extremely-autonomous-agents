@@ -1,16 +1,19 @@
 # Extremely Autonomous Agents
 
-An AI agency that runs on your own computer: a fleet of agents, each with a job,
-its own tools and a schedule, that do real work for a business - and fix,
-extend and look after themselves.
+**Build your paperclip maximizer.** A free, open-source AI agency that runs on
+your own computer: a fleet of agents, each with a job, its own tools and a
+schedule, that do real work for a business - and fix, extend and look after
+themselves. It runs on the AI you already have: a ChatGPT, Claude or Copilot
+plan, an API key (Anthropic, OpenAI, Gemini, OpenRouter, xAI, Mistral, DeepSeek,
+Groq or any OpenAI-compatible endpoint), or a local model through Ollama.
 
-Not released yet: [join the waitlist at extremely.agency](https://extremely.agency/#waitlist).
+![The EXTREMELY dashboard: lead research and outreach agents running around the clock](docs/images/dashboard.png)
 
-**Try it in your browser:** the [live demo](https://extremely.agency/demo/) runs
-the whole app with sample agents, nothing to install.
+**Launching 1 December 2026 on Windows.** [Join the waitlist](https://extremely.agency/#waitlist),
+or [try the live demo](https://extremely.agency/demo/) in your browser: the whole
+app with sample agents, nothing to install.
 
-Free and open source. Agents run on the AI you already have, so there's nothing
-extra to pay for them. [extremely.agency](https://extremely.agency)
+If you'd like to see it ship, star this repo. It helps other people find it.
 
 ## What it does
 
@@ -23,8 +26,10 @@ extra to pay for them. [extremely.agency](https://extremely.agency)
   or waiting for your approval - and you can change it any time. Anything that
   reaches outside the business (an email, a post, a payment) starts on approval.
 - **Your own AI.** Agents run on the AI you connect: a Claude, ChatGPT or Copilot
-  plan, or API keys from Anthropic, OpenAI, Google, OpenRouter, Ollama and
-  others. Each agent has up to three models and falls to the next if one fails.
+  plan, API keys from Anthropic, OpenAI, Google, OpenRouter, xAI, Mistral,
+  DeepSeek, Groq or any OpenAI-compatible endpoint (Azure OpenAI, Together,
+  Fireworks, LM Studio, vLLM), or a local model through Ollama. Each agent has
+  up to three models and falls to the next if one fails.
 - **It builds its own tools.** When an agent needs something it doesn't have, it
   files a request. The built-in **Agency Engineer** finds or builds the
   connection (HTTP, MCP, or a sandboxed code plugin that an independent review
@@ -36,6 +41,22 @@ extra to pay for them. [extremely.agency](https://extremely.agency)
 - **Organisations.** Sign up to create one, invite people by email, and host its
   agency on your computer; members reach it from their own apps over an
   end-to-end encrypted relay. Or self-host it with local accounts.
+
+## Use it from your AI app
+
+Talk to your agency from Claude Desktop, Cursor, VS Code, Claude Code or any app
+that speaks MCP: "what did my sales agent do today?", "approve the email to
+Northside Bikes", "give the research agent a job". In the app, Settings →
+Connectors → Your AI assistant connects Claude Desktop or Cursor in one click;
+anywhere else, add an MCP server that runs `npx -y @extremely-agency/mcp`.
+Details in [packages/agency-mcp](packages/agency-mcp).
+
+![Approvals: every tool is silent, logged or waits for you](docs/images/approvals.png)
+
+## How it compares
+
+Side-by-side pages against n8n, Zapier, Make, Lindy, OpenClaw, CrewAI, Manus,
+Relevance AI and more: [extremely.agency/alternatives](https://extremely.agency/alternatives/).
 
 ## What's in this repository
 
