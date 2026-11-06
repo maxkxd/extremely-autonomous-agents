@@ -19,7 +19,10 @@ import { sharedClient, type SharedProvider } from './shared-clients.js';
 // Where a sign-in comes back: the app's own port on whatever computer the browser is
 // on. An organization's agency (on the host's 5185) uses it too, so a sign-in from a
 // teammate's computer lands on their app, which hands it to the host (index.ts).
-const PORT = Number(process.env.EAA_CALLBACK_PORT ?? process.env.PORT ?? 5175);
+// In the cloud the host's own PORT is the platform's (Railway's 8080), never the app's:
+// always 5175 there (docs/hosting-in-the-cloud.md).
+export const callbackPort = (env: NodeJS.ProcessEnv = process.env) => Number(env.EAA_CALLBACK_PORT ?? (env.EAA_CLOUD_HOST ? 5175 : (env.PORT ?? 5175)));
+const PORT = callbackPort();
 export const OAUTH_REDIRECT = `http://127.0.0.1:${PORT}`;
 export const LOCALHOST_REDIRECT = `http://localhost:${PORT}`;
 const redirectOf = (auth: OAuthDef) => (auth.loopback === 'localhost' ? LOCALHOST_REDIRECT : OAUTH_REDIRECT);
