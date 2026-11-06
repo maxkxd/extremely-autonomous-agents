@@ -45,9 +45,11 @@ type Source = {
 const SCREEN_PREFIX = 'screen:';
 function grabStream(display: string, onFrame: (f: Frame) => void, fps = 6): ChildProcess {
   const ff = spawn('ffmpeg', ['-loglevel', 'error', '-f', 'x11grab', '-framerate', String(fps), '-video_size', `${screenSize.width}x${screenSize.height}`, '-i', display, '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '7', 'pipe:1'], {
-    stdio: ['ignore', 'pipe', 'ignore'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
   let buf = Buffer.alloc(0);
+  let err = '';
+  ff.stderr?.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-2_000)));
   ff.stdout!.on('data', (d: Buffer) => {
     buf = Buffer.concat([buf, d]);
     // Each JPEG runs from FFD8 to FFD9.
@@ -58,20 +60,34 @@ function grabStream(display: string, onFrame: (f: Frame) => void, fps = 6): Chil
       onFrame({ data: buf.subarray(start, end + 2).toString('base64'), ...screenSize });
       buf = buf.subarray(end + 2);
     }
-    if (buf.length > 8 * 1024 * 1024) buf = Buffer.alloc(0);
+    if (buf.length > 8 * 1024 * 1024) {
+      console.error(`[browser] ffmpeg on ${display} sent more than 8MB without a finished frame. Dropping it.`);
+      buf = Buffer.alloc(0);
+    }
   });
-  ff.on('error', () => {});
+  ff.on('error', e => console.error(`[browser] ffmpeg on ${display} failed to start:`, e.message));
+  ff.on('exit', (code, signal) => {
+    if (code !== 0 && code !== null) console.error(`[browser] ffmpeg on ${display} exited (code ${code}${signal ? `, ${signal}` : ''}).${err.trim() ? ` ${err.trim()}` : ''}`);
+  });
   return ff;
 }
 const grabOne = (display: string, width = 320) =>
   new Promise<string | null>(resolve => {
     const ff = spawn('ffmpeg', ['-loglevel', 'error', '-f', 'x11grab', '-video_size', `${screenSize.width}x${screenSize.height}`, '-i', display, '-frames:v', '1', '-vf', `scale=${width}:-1`, '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '8', 'pipe:1'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     const parts: Buffer[] = [];
+    let err = '';
     ff.stdout!.on('data', d => parts.push(d));
-    ff.on('close', () => resolve(parts.length ? Buffer.concat(parts).toString('base64') : null));
-    ff.on('error', () => resolve(null));
+    ff.stderr?.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-2_000)));
+    ff.on('close', code => {
+      if (!parts.length) console.error(`[browser] No thumbnail from ${display} (ffmpeg code ${code ?? 'none'}).${err.trim() ? ` ${err.trim()}` : ''}`);
+      resolve(parts.length ? Buffer.concat(parts).toString('base64') : null);
+    });
+    ff.on('error', e => {
+      console.error(`[browser] ffmpeg thumbnail on ${display} failed to start:`, e.message);
+      resolve(null);
+    });
   });
 
 // The browser's key names, as X knows them. A key with a character is typed as text.
@@ -82,10 +98,17 @@ const KEYSYM: Record<string, string> = {
 for (let i = 1; i <= 12; i++) KEYSYM[`F${i}`] = `F${i}`;
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock']);
 const xdotool = (display: string, args: string[]) =>
-  new Promise<void>(resolve => {
-    const p = spawn('xdotool', args, { env: { ...process.env, DISPLAY: display }, stdio: 'ignore' });
-    p.on('close', () => resolve());
-    p.on('error', () => resolve());
+  new Promise<void>((resolve, reject) => {
+    const p = spawn('xdotool', args, { env: { ...process.env, DISPLAY: display }, stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    p.stderr?.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-2_000)));
+    p.on('error', e => reject(new Error(`Sending input to ${display} failed: ${e.message}`)));
+    p.on('close', code => {
+      if (code === 0) return resolve();
+      const why = err.trim() || `xdotool exited with code ${code ?? 'none'}`;
+      console.error(`[browser] Input on ${display} (${args[0]}) failed: ${why}`);
+      reject(new Error(`The page didn't get that input. ${why}`));
+    });
   });
 async function typeInto(display: string, e: PersonInput) {
   const btn = (b?: string) => (b === 'right' ? '3' : b === 'middle' ? '2' : '1');

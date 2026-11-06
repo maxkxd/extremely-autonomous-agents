@@ -33,6 +33,7 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [signInUrl, setSignInUrl] = useState('');
+  const [opening, setOpening] = useState(false);
 
   // The list, with its thumbnails, about once a second.
   const refresh = useCallback(async () => {
@@ -80,11 +81,16 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
   }, [tabs, selected, openTab]);
 
   const openNeed = async (n: LiveNeed) => {
+    if (opening) return;
+    setOpening(true);
     try {
       const r = await openAgentBrowser(n.profile, n.url, n.request);
       if (r.live) setSelected(r.live);
+      else await refresh();
     } catch (e) {
       window.alert((e as Error).message);
+    } finally {
+      setOpening(false);
     }
   };
 
@@ -110,8 +116,10 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
   };
 
   const openProfile = async () => {
+    if (opening) return;
     const n = profile === 'all' ? profiles[0] : profile;
     const url = signInUrl.trim() ? (/^https?:\/\//.test(signInUrl.trim()) ? signInUrl.trim() : `https://${signInUrl.trim()}`) : 'https://www.google.com';
+    setOpening(true);
     try {
       const { tab } = await liveOpen(n, url);
       setSignInUrl('');
@@ -120,6 +128,8 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
       await refresh();
     } catch (e) {
       window.alert((e as Error).message);
+    } finally {
+      setOpening(false);
     }
   };
 
@@ -133,7 +143,7 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
             {needs.map(n => {
               const open = tabs?.find(t => t.request === n.request);
               return (
-                <button key={n.request} className={`abrowser-need${open && open.id === selected ? ' on' : ''}`} onClick={() => (open ? setSelected(open.id) : openNeed(n))}>
+                <button key={n.request} className={`abrowser-need${open && open.id === selected ? ' on' : ''}`} disabled={opening && !open} onClick={() => (open ? setSelected(open.id) : openNeed(n))}>
                   <Hand size={14} />
                   <span className="abrowser-need-text">
                     <strong>{n.agent.name}</strong> · {n.site}
@@ -173,8 +183,8 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
           <h2 className="abrowser-h">Open a profile to sign in</h2>
           <form onSubmit={e => (e.preventDefault(), void openProfile())}>
             <input value={signInUrl} onChange={e => setSignInUrl(e.target.value)} placeholder="linkedin.com" aria-label="The page to open" />
-            <button className="sbtn" type="submit">
-              <Plus size={14} /> Open{profile !== 'all' && profiles.length > 1 ? ` in profile ${profile}` : ''}
+            <button className="sbtn" type="submit" disabled={opening}>
+              <Plus size={14} /> {opening ? 'Opening…' : `Open${profile !== 'all' && profiles.length > 1 ? ` in profile ${profile}` : ''}`}
             </button>
           </form>
         </section>
@@ -188,6 +198,7 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
 // One page, as it changes, and - once it's yours - your input on it.
 function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | 'handback') => void }) {
   const [frame, setFrame] = useState<LiveFrame | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
   const img = useRef<HTMLImageElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const mine = tab.held != null;
@@ -208,8 +219,13 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
             seq = f.seq;
             size.current = { width: f.width, height: f.height };
             setFrame(f);
+            setStreamError(null);
           }
-        } catch {
+        } catch (e) {
+          if (!alive) return;
+          const message = (e as Error).message;
+          console.error(`[browser] frame ${tab.id}:`, message);
+          setStreamError(message);
           await new Promise(r => setTimeout(r, 1000));
         }
       }
@@ -224,7 +240,11 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
       if (!queue.current.length) return;
       const events = queue.current.filter((e, i, all) => !(e.type === 'mouse' && e.action === 'mouseMoved' && all.slice(i + 1).some(x => x.type === 'mouse' && x.action === 'mouseMoved')));
       queue.current = [];
-      void liveInput(tab.id, events).catch(() => {});
+      void liveInput(tab.id, events).catch(e => {
+        const message = (e as Error).message;
+        console.error(`[browser] input ${tab.id}:`, message);
+        setStreamError(message);
+      });
     }, 40);
     return () => clearInterval(t);
   }, [tab.id]);
@@ -314,7 +334,7 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
             onMouseMove={mouse('mouseMoved')}
           />
         ) : (
-          <div className="main-empty">Connecting to the page…</div>
+          <div className="main-empty">{streamError ?? 'Connecting to the page…'}</div>
         )}
       </div>
     </div>

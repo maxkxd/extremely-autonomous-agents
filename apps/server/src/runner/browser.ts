@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { lookup } from 'node:dns/promises';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, readlink, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
@@ -236,9 +236,15 @@ async function startProfile(n: number): Promise<Shared> {
   const proc = spawn(exe, [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', ...PROFILE_FLAGS, ...EXTRA_FLAGS], { stdio: 'ignore', windowsHide: false });
   running.add(proc);
   let exited = false;
-  proc.on('exit', () => {
+  proc.on('error', e => {
+    exited = true;
+    console.error(`[browser] Profile ${n} (agents) failed to start:`, e.message);
+  });
+  proc.on('exit', (code, signal) => {
     exited = true;
     running.delete(proc);
+    if (code !== 0 && code !== null) console.error(`[browser] Profile ${n} (agents) exited (code ${code}${signal ? `, ${signal}` : ''}).`);
+    else console.log(`[browser] Profile ${n} (agents) exited${signal ? ` (${signal})` : ''}.`);
   });
   let port = 0;
   let path = '';
@@ -272,7 +278,7 @@ function closeWhenIdle(n: number, s: Shared) {
     if (s.runs.size) return;
     if (shared.get(n)) shared.delete(n);
     void (async () => {
-      await keepSessionCookies(s.cdp, n).catch(() => {});
+      await keepSessionCookies(s.cdp, n).catch(e => console.error(`[browser] Profile ${n}: keeping the session before closing failed:`, (e as Error).message));
       await s.cdp.send('Browser.close').catch(() => s.proc.kill());
     })().catch(() => s.proc.kill());
   }, IDLE_CLOSE_MS);
@@ -706,26 +712,109 @@ export const personScreens = () => [...screens.values()];
 export const screenSize = SCREEN;
 const xvfbs = new Map<string, ChildProcess>();
 const screenOf = (n: number) => `:${100 + n}`;
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// Chrome's POSIX profile lock is a symlink "hostname-pid". A hostname can itself
+// contain dashes, so the pid is the part after the last one, and only this machine's
+// lock counts: another machine's is a container that was replaced out from under it.
+export function singletonPid(lock: string | null, host = hostname()): number | null {
+  if (!lock) return null;
+  const at = lock.lastIndexOf('-');
+  if (at <= 0) return null;
+  const pid = Number(lock.slice(at + 1));
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  if (lock.slice(0, at) !== host) return null;
+  return pid;
+}
+
+// The process we spawned has gone. Keep streaming the screen when the lock names
+// some other live process: Chrome's singleton makes the second process the window
+// and the one we started exits, and dropping the screen then is how a live browser
+// disappeared from the page with nothing to click.
+export function personWindowAfterExit(ourPid: number | undefined, lockPid: number | null, lockAlive: boolean): 'keep' | 'close' {
+  if (ourPid != null && lockPid != null && lockPid !== ourPid && lockAlive) return 'keep';
+  return 'close';
+}
+
+function pidAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+async function pidParent(pid: number): Promise<number | null> {
+  if (process.platform !== 'linux') return null;
+  try {
+    const m = /^PPid:\s+(\d+)/m.exec(await readFile(`/proc/${pid}/status`, 'utf8'));
+    return m ? Number(m[1]) : null;
+  } catch (e) {
+    console.error(`[browser] Couldn't read the parent of pid ${pid}:`, (e as Error).message);
+    return null;
+  }
+}
+
+// One opener per profile. A second open used to run while the first was still
+// closing the agents' browser and starting the screen, spawn its own Chrome
+// (without the first-run flags, on a display that didn't exist yet), and that
+// Chrome won the profile. The one we were watching then exited and took the
+// screen with it.
+const profileTails = new Map<number, Promise<void>>();
+function withProfile<T>(n: number, fn: () => Promise<T>): Promise<T> {
+  const prev = profileTails.get(n) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  profileTails.set(n, run.then(() => undefined, () => undefined));
+  return run;
+}
+
+async function displayReady(display: string, x: ChildProcess) {
+  const sock = `/tmp/.X11-unix/X${display.slice(1)}`;
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (x.exitCode !== null || x.signalCode) return false;
+    if (existsSync(sock)) return true;
+    await sleep(50);
+  }
+  return existsSync(sock) && x.exitCode === null;
+}
 async function displayFor(n: number) {
-  const display = `:${100 + n}`;
+  const display = screenOf(n);
+  const num = 100 + n;
   const had = xvfbs.get(display);
-  if (had && had.exitCode === null) return display;
-  await rm(`/tmp/.X${100 + n}-lock`, { force: true });
-  const x = spawn('Xvfb', [display, '-screen', '0', `${SCREEN.width}x${SCREEN.height}x24`, '-nolisten', 'tcp'], { stdio: 'ignore' });
+  if (had && had.exitCode === null) {
+    if (await displayReady(display, had)) return display;
+    console.error(`[browser] Virtual screen ${display} is running but its socket never appeared. Starting it again.`);
+    had.kill();
+    await Promise.race([new Promise<void>(r => had.once('exit', () => r())), sleep(2_000)]);
+    xvfbs.delete(display);
+  }
+  await rm(`/tmp/.X${num}-lock`, { force: true });
+  await rm(`/tmp/.X11-unix/X${num}`, { force: true });
+  let stderr = '';
+  const x = spawn('Xvfb', [display, '-screen', '0', `${SCREEN.width}x${SCREEN.height}x24`, '-nolisten', 'tcp'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  x.stderr?.on('data', (d: Buffer) => (stderr = (stderr + d.toString()).slice(-2_000)));
+  x.on('error', e => console.error(`[browser] Virtual screen ${display} failed to start:`, e.message));
+  x.on('exit', (code, signal) => {
+    running.delete(x);
+    if (xvfbs.get(display) === x) xvfbs.delete(display);
+    console.error(`[browser] Virtual screen ${display} exited (code ${code ?? 'none'}${signal ? `, ${signal}` : ''}).${stderr.trim() ? ` ${stderr.trim()}` : ''}`);
+  });
   xvfbs.set(display, x);
   running.add(x);
-  await new Promise(r => setTimeout(r, 700));
-  return display;
+  if (await displayReady(display, x)) {
+    console.log(`[browser] Virtual screen ${display} is up.`);
+    return display;
+  }
+  throw new Error(`The virtual screen ${display} never came up.${stderr.trim() ? ` ${stderr.trim()}` : ''}`);
 }
-// Done (or handed back unfinished: its request isn't told) - the window closes.
-export function closePersonWindow(n: number, done: boolean) {
-  const proc = personProcs.get(n);
-  if (!proc) return false;
-  if (!done) whenClosed.delete(n);
-  proc.kill();
-  return true;
-}
-const personProcs = new Map<number, ChildProcess>();
+
+// The browser that has the profile. `spawned` is the process we started; once
+// that exits and Chrome has kept the profile under another pid, only that pid
+// is left, and closing the window means signalling it.
+type PersonBrowser = { pid: number | undefined; spawned?: ChildProcess; kill: () => void; exited: () => boolean };
+const personProcs = new Map<number, PersonBrowser>();
+const watchers = new Map<number, ReturnType<typeof setInterval>>();
 
 // --- A profile on the person's screen ------------------------------------------------------
 
@@ -739,65 +828,264 @@ const whenClosed = new Map<number, Map<string, () => void>>();
 function personGone(n: number) {
   const then = whenClosed.get(n);
   whenClosed.delete(n);
-  for (const f of then?.values() ?? []) f();
+  for (const f of then?.values() ?? []) {
+    try {
+      f();
+    } catch (e) {
+      console.error(`[browser] Profile ${n}: telling the agency the window closed failed:`, (e as Error).message);
+    }
+  }
 }
 const personOpen = new Map<number, Promise<void>>();
+const personRelease = new Map<number, () => void>();
 const PERSON_WAIT_MS = 20 * 60_000;
+const PERSON_FLAGS = ['--no-first-run', '--no-default-browser-check'];
+const personArgs = (dir: string, target: string, display: string | null) => [
+  `--user-data-dir=${dir}`,
+  ...PERSON_FLAGS,
+  ...(display ? ['--window-position=0,0', `--window-size=${SCREEN.width},${SCREEN.height}`, '--start-maximized'] : []),
+  ...EXTRA_FLAGS,
+  target,
+];
+
+function forgetPerson(n: number, tell = true) {
+  const w = watchers.get(n);
+  if (w) clearInterval(w);
+  watchers.delete(n);
+  const proc = personProcs.get(n);
+  if (proc?.spawned) running.delete(proc.spawned);
+  personProcs.delete(n);
+  screens.delete(n);
+  personOpen.delete(n);
+  // A window that never opened isn't "closed": the caller already got the error.
+  if (!tell) whenClosed.delete(n);
+  // What they signed in to is in the profile now; the copy kept for the agents'
+  // browser is older, and put back it would undo it.
+  void deleteSecret(sessionKey(n)).catch(e => console.error(`[browser] Profile ${n}: clearing the saved session failed:`, (e as Error).message));
+  personGone(n);
+  const release = personRelease.get(n);
+  personRelease.delete(n);
+  release?.();
+}
+
+// Chrome kept the profile after the process we started exited. Watch that pid:
+// the screen stays until it, and no successor, is gone.
+function adopt(n: number, pid: number): PersonBrowser {
+  const prev = watchers.get(n);
+  if (prev) clearInterval(prev);
+  const browser: PersonBrowser = {
+    pid,
+    kill() {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== 'ESRCH') console.error(`[browser] Profile ${n}: couldn't close pid ${pid}:`, err.message);
+      }
+    },
+    exited: () => !pidAlive(pid),
+  };
+  const timer = setInterval(() => {
+    if (pidAlive(pid)) return;
+    clearInterval(timer);
+    if (watchers.get(n) === timer) watchers.delete(n);
+    void withProfile(n, async () => {
+      if (personProcs.get(n) !== browser) return;
+      const holder = singletonPid(await readlink(join(profileDir(n), 'SingletonLock')).catch(() => null));
+      if (holder && personWindowAfterExit(pid, holder, pidAlive(holder)) === 'keep') {
+        console.error(`[browser] Profile ${n}: pid ${pid} exited and Chrome kept the profile as pid ${holder}. Still streaming that screen.`);
+        personProcs.set(n, adopt(n, holder));
+        return;
+      }
+      console.log(`[browser] Profile ${n} closed.`);
+      forgetPerson(n);
+    });
+  }, 1_000);
+  timer.unref();
+  watchers.set(n, timer);
+  return browser;
+}
+
+// Done (or handed back unfinished: its request isn't told) - the window closes.
+export function closePersonWindow(n: number, done: boolean) {
+  const proc = personProcs.get(n);
+  if (!proc || proc.exited()) return false;
+  if (!done) whenClosed.delete(n);
+  console.log(`[browser] Profile ${n}: closing the signed-in browser (${done ? 'done' : 'handed back'}).`);
+  proc.kill();
+  return true;
+}
+
+// True once this pid (or a child of it) holds the profile, so a second Chrome
+// can only be a handoff: it opens the page in the browser we already track and exits.
+async function profileHeld(dir: string, pid: number | undefined, since: number) {
+  if (!pid || !pidAlive(pid)) return false;
+  if (process.platform === 'win32') {
+    try {
+      return (await stat(join(dir, 'SingletonLock'))).mtimeMs >= since;
+    } catch {
+      return false;
+    }
+  }
+  const holder = singletonPid(await readlink(join(dir, 'SingletonLock')).catch(() => null));
+  if (!holder || !pidAlive(holder)) return false;
+  // The lock is sometimes a child of the process we spawned (Chrome's zygote),
+  // not that process itself. Walk up a few parents before calling it someone else's.
+  let cur: number | null = holder;
+  for (let i = 0; i < 8 && cur && cur > 1; i++) {
+    if (cur === pid) return true;
+    cur = await pidParent(cur);
+  }
+  return false;
+}
+
+function handOffPage(exe: string, dir: string, target: string, display: string | null, n: number) {
+  const child = spawn(exe, personArgs(dir, target, display), {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    env: display ? { ...process.env, DISPLAY: display } : process.env,
+  });
+  running.add(child);
+  let stderr = '';
+  child.stderr?.on('data', (d: Buffer) => (stderr = (stderr + d.toString()).slice(-2_000)));
+  child.on('error', e => console.error(`[browser] Profile ${n}: handing ${target} to the open browser failed:`, e.message));
+  child.on('exit', (code, signal) => {
+    running.delete(child);
+    // Exiting is what a handoff does once the open browser has the page. Anything
+    // else means the page never arrived, and the browser we track is still the window.
+    if (code !== 0) console.error(`[browser] Profile ${n}: handing ${target} to the open browser failed (code ${code ?? 'none'}${signal ? `, ${signal}` : ''}).${stderr.trim() ? ` ${stderr.trim()}` : ''}`);
+  });
+}
+
+async function lockHolder(dir: string) {
+  return singletonPid(await readlink(join(dir, 'SingletonLock')).catch(() => null));
+}
+
 export async function openProfileWindow(profile = 1, url = 'https://www.google.com', onClosed?: { key: string; run: () => void }, request?: number) {
   const n = await knownProfile(profile);
   const target = checkUrl(url).toString();
   const exe = browserExe();
   if (!exe) throw noBrowser();
+  return withProfile(n, () => openPersonWindow(n, exe, target, onClosed, request));
+}
+
+async function openPersonWindow(n: number, exe: string, target: string, onClosed?: { key: string; run: () => void }, request?: number) {
+  const dir = profileDir(n);
   const remember = () => onClosed && whenClosed.set(n, (whenClosed.get(n) ?? new Map()).set(onClosed.key, onClosed.run));
-  if (personOpen.has(n)) {
+  const cur = personProcs.get(n);
+  if (personOpen.has(n) && cur && !cur.exited()) {
     remember();
-    if (CLOUD) {
-      const sc = screens.get(n);
-      if (sc) Object.assign(sc, { url: target, request: request ?? sc.request });
+    const held = await profileHeld(dir, cur.pid, 0);
+    if (!held) {
+      const holder = await lockHolder(dir);
+      console.error(`[browser] Profile ${n} is open as pid ${cur.pid ?? 'unknown'} but the profile lock is ${holder ?? 'absent'}.`);
+      throw new Error(`Browser profile ${n} is still opening. Try again in a moment.`);
     }
-    // Another page in it: handed to their open browser, which opens a window and exits.
-    spawn(exe, [`--user-data-dir=${profileDir(n)}`, ...EXTRA_FLAGS, target], { stdio: 'ignore', env: CLOUD ? { ...process.env, DISPLAY: screenOf(n) } : process.env }).on('error', () => {});
-    return { ok: true, profile: n, already: true, ...(CLOUD ? { live: `screen:${n}` } : {}) };
+    const sc = screens.get(n);
+    if (CLOUD && !sc) throw new Error(`Browser profile ${n} is open, but its screen isn't being streamed. Close it and open it again.`);
+    if (sc) Object.assign(sc, { url: target, request: request ?? sc.request });
+    handOffPage(exe, dir, target, sc?.display ?? null, n);
+    console.log(`[browser] Profile ${n}: handed ${target} to the open browser (pid ${cur.pid}).`);
+    return { ok: true, profile: n, already: true, ...(sc ? { live: `screen:${n}` } : {}) };
+  }
+  if (personOpen.has(n)) {
+    console.error(`[browser] Profile ${n} was marked open with no browser running. Clearing it.`);
+    forgetPerson(n);
   }
   // Theirs from now: a run starting meanwhile waits rather than reopening the agents' browser.
-  let done = () => {};
-  personOpen.set(n, new Promise<void>(r => (done = r)));
-  const agents = await shared.get(n)?.catch(() => null);
-  if (agents) {
-    shared.delete(n);
-    clearTimeout(agents.idle);
-    await keepSessionCookies(agents.cdp, n).catch(() => {});
-    const gone = new Promise<void>(r => (agents.proc.exitCode !== null ? r() : agents.proc.once('exit', () => r())));
-    await agents.cdp.send('Browser.close').catch(() => agents.proc.kill());
-    await Promise.race([gone, new Promise(r => setTimeout(r, 10_000))]);
+  let release = () => {};
+  personOpen.set(n, new Promise<void>(r => (release = r)));
+  personRelease.set(n, release);
+  try {
+    const agents = await shared.get(n)?.catch(e => {
+      console.error(`[browser] Profile ${n}: the agents' browser failed:`, (e as Error).message);
+      return null;
+    });
+    if (agents) {
+      shared.delete(n);
+      clearTimeout(agents.idle);
+      await keepSessionCookies(agents.cdp, n).catch(e => console.error(`[browser] Profile ${n}: keeping the session before the person's window failed:`, (e as Error).message));
+      const gone = new Promise<void>(r => (agents.proc.exitCode !== null ? r() : agents.proc.once('exit', () => r())));
+      await agents.cdp.send('Browser.close').catch(e => {
+        console.error(`[browser] Profile ${n}: closing the agents' browser failed:`, (e as Error).message);
+        agents.proc.kill();
+      });
+      await Promise.race([gone, sleep(10_000)]);
+      if (agents.proc.exitCode === null) {
+        console.error(`[browser] Profile ${n}: the agents' browser didn't close; killing it.`);
+        agents.proc.kill('SIGKILL');
+        await Promise.race([gone, sleep(2_000)]);
+      }
+      if (agents.proc.exitCode === null) throw new Error(`Browser profile ${n} is still open in the agents' browser, so yours can't open.`);
+    }
+    remember();
+    await keepSignedIn(dir);
+    await clearStaleLock(dir);
+    const display = CLOUD ? await displayFor(n) : null;
+    const started = Date.now();
+    let stderr = '';
+    const proc = spawn(exe, personArgs(dir, target, display), {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      env: display ? { ...process.env, DISPLAY: display } : process.env,
+    });
+    proc.stderr?.on('data', (d: Buffer) => (stderr = (stderr + d.toString()).slice(-4_000)));
+    running.add(proc);
+    const tracked: PersonBrowser = { pid: proc.pid, spawned: proc, kill: () => proc.kill(), exited: () => proc.exitCode !== null };
+    personProcs.set(n, tracked);
+    if (display) screens.set(n, { profile: n, display, since: started, url: target, request });
+    console.log(`[browser] Profile ${n}: opening ${target}${display ? ` on ${display}` : ''} (pid ${proc.pid ?? 'unknown'}).`);
+    let settled = false;
+    const onGone = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      void withProfile(n, async () => {
+        running.delete(proc);
+        if (personProcs.get(n)?.spawned !== proc) return;
+        const holder = await lockHolder(dir);
+        if (holder && personWindowAfterExit(proc.pid, holder, pidAlive(holder)) === 'keep') {
+          console.error(`[browser] Profile ${n}: the browser we started (pid ${proc.pid}) exited (${code ?? 'none'}${signal ? `, ${signal}` : ''}) and Chrome kept the profile as pid ${holder}. Still streaming that screen.`);
+          personProcs.set(n, adopt(n, holder));
+          return;
+        }
+        if (code !== 0 && code !== null) console.error(`[browser] Profile ${n} closed (code ${code}${signal ? `, ${signal}` : ''}).${stderr.trim() ? ` ${stderr.trim()}` : ''}`);
+        else console.log(`[browser] Profile ${n} closed.`);
+        forgetPerson(n);
+      });
+    };
+    proc.once('exit', onGone);
+    proc.once('error', e => {
+      console.error(`[browser] Profile ${n} failed to start:`, e.message);
+      onGone(null, null);
+    });
+    const deadline = started + 15_000;
+    let held = false;
+    while (Date.now() < deadline) {
+      if (proc.exitCode !== null) break;
+      if (await profileHeld(dir, proc.pid, started)) {
+        held = true;
+        break;
+      }
+      await sleep(50);
+    }
+    if (!held) {
+      const holder = await lockHolder(dir);
+      if (holder && personWindowAfterExit(proc.pid, holder, pidAlive(holder)) === 'keep') {
+        console.error(`[browser] Profile ${n}: pid ${proc.pid} never held the profile; pid ${holder} does. Streaming that screen.`);
+        personProcs.set(n, adopt(n, holder));
+        return { ok: true, profile: n, already: false, ...(display ? { live: `screen:${n}` } : {}) };
+      }
+      throw new Error(`Browser profile ${n} didn't open${proc.exitCode !== null ? ` (the browser exited with code ${proc.exitCode})` : ''}.${stderr.trim() ? ` ${stderr.trim()}` : ''}`);
+    }
+    return { ok: true, profile: n, already: false, ...(display ? { live: `screen:${n}` } : {}) };
+  } catch (e) {
+    console.error(`[browser] Opening profile ${n} at ${target} failed:`, (e as Error).message);
+    const proc = personProcs.get(n);
+    if (proc?.spawned && proc.spawned.exitCode === null) {
+      proc.kill();
+      await Promise.race([new Promise<void>(r => proc.spawned?.once('exit', () => r())), sleep(2_000)]);
+    } else if (proc && !proc.spawned) proc.kill();
+    forgetPerson(n, false);
+    throw e;
   }
-  // Registered after the agents' browser has closed.
-  remember();
-  await keepSignedIn(profileDir(n));
-  await clearStaleLock(profileDir(n));
-  const display = CLOUD ? await displayFor(n) : null;
-  const onScreen = display ? ['--window-position=0,0', `--window-size=${SCREEN.width},${SCREEN.height}`, '--start-maximized'] : [];
-  const proc = spawn(exe, [`--user-data-dir=${profileDir(n)}`, '--no-first-run', '--no-default-browser-check', ...onScreen, ...EXTRA_FLAGS, target], {
-    stdio: 'ignore',
-    env: display ? { ...process.env, DISPLAY: display } : process.env,
-  });
-  running.add(proc);
-  personProcs.set(n, proc);
-  if (display) screens.set(n, { profile: n, display, since: Date.now(), url: target, request });
-  const ended = () => {
-    running.delete(proc);
-    personProcs.delete(n);
-    screens.delete(n);
-    personOpen.delete(n);
-    // What they signed in to is in the profile now; the copy kept for the agents'
-    // browser is older, and put back it would undo it.
-    void deleteSecret(sessionKey(n)).catch(() => {});
-    personGone(n);
-    done();
-  };
-  proc.once('exit', ended);
-  proc.once('error', ended);
-  return { ok: true, profile: n, already: false, ...(display ? { live: `screen:${n}` } : {}) };
 }
 
 export async function profileStatus() {
