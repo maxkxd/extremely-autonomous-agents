@@ -127,9 +127,10 @@ async function launch(headless: boolean): Promise<Browser> {
 // profile and the agents share it, each run in its own window. It's the plain
 // browser, started with a debugging address on this computer and driven over it one
 // page at a time (cdp.ts). Agents' windows open on screen, behind what the person's
-// doing - they can watch, and click in, any of them. The first window, kept as the
-// anchor (a browser quits with its last window), is made off-screen. It closes a
-// minute after the last run.
+// doing - they can watch, and click in, any of them. It starts with no window at all
+// (--no-startup-window), and keeps running with none between runs: there used to be a
+// blank one kept off-screen so it wouldn't quit, which sat on the taskbar and couldn't
+// be opened. It closes a minute after the last run.
 //
 // The person signs in elsewhere: Google refuses a browser started with a debugging
 // address at all - attached to the page or not ("This browser or app may not be
@@ -144,8 +145,6 @@ type Shared = {
 };
 const shared = new Map<number, Promise<Shared>>();
 const IDLE_CLOSE_MS = 60_000;
-// The anchor window, out of sight.
-const OFF_SCREEN = { left: -10000, top: -10000, width: 1280, height: 900 };
 // Agents' windows one after another down and across, so each can be seen.
 let opened = 0;
 const agentBounds = (): Bounds => {
@@ -159,8 +158,7 @@ const PROFILE_FLAGS = [
   '--disable-backgrounding-occluded-windows',
   '--disable-renderer-backgrounding',
   '--disable-background-timer-throttling',
-  `--window-position=${OFF_SCREEN.left},${OFF_SCREEN.top}`,
-  `--window-size=${OFF_SCREEN.width},${OFF_SCREEN.height}`,
+  '--no-startup-window',
 ];
 
 const strayError = (n: number) =>
@@ -194,7 +192,7 @@ async function startProfile(n: number): Promise<Shared> {
   // The browser writes its debugging port (and its address) here once it's listening.
   const portFile = join(dir, 'DevToolsActivePort');
   await rm(portFile, { force: true });
-  const proc = spawn(exe, [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', ...PROFILE_FLAGS, 'about:blank'], { stdio: 'ignore', windowsHide: false });
+  const proc = spawn(exe, [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', ...PROFILE_FLAGS], { stdio: 'ignore', windowsHide: false });
   running.add(proc);
   let exited = false;
   proc.on('exit', () => {

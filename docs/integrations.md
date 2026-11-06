@@ -356,9 +356,10 @@ is forced under `agent/`. Approving a review is for people.
       page at a time over DevTools (`runner/cdp.ts`, no Playwright - as World
       Asset Register's runner does): only an agent's own window is ever
       attached. Every agent run gets its own window, on screen behind what the
-      person's doing, to watch or click in. The first window is the anchor (a
-      browser quits with its last window), off-screen; it closes a minute after
-      the last run, and with the app. A profile already open in a browser the
+      person's doing, to watch or click in. It starts with no window
+      (`--no-startup-window`) and keeps running with none between runs (checked
+      live on Edge) - no blank anchor window off-screen; it closes a minute
+      after the last run, and with the app. A profile already open in a browser the
       app didn't start is reported, not fought over.
     - **The person signs in in the plain browser alone** (`show_person`, the
       request button, Settings). Google refuses sign-in in a browser started
