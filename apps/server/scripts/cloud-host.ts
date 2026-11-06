@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream, existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -41,12 +41,17 @@ async function isHost() {
   }
 }
 
+// EAA_MOVE_IN_REPLACE=1 with EAA_MOVE_IN_URL: that bundle replaces the agency here
+// even when it's the host (a move done again from a better copy), once per address;
+// the agency it replaces is kept beside it (agency.replaced-<when>).
+const APPLIED = join(INCOMING, '.applied');
 async function moveIn() {
-  if (await isHost()) return;
+  const url = process.env.EAA_MOVE_IN_URL;
+  const replace = !!process.env.EAA_MOVE_IN_REPLACE && !!url && (await readFile(APPLIED, 'utf8').catch(() => '')) !== url;
+  if (!replace && (await isHost())) return;
   const existing = existsSync(join(DATA, 'agency.db'));
   await mkdir(INCOMING, { recursive: true });
-  const url = process.env.EAA_MOVE_IN_URL;
-  if (url && !(await readdir(INCOMING)).some(f => f.endsWith('.eaa'))) {
+  if (url && (replace || !(await readdir(INCOMING)).some(f => f.endsWith('.eaa')))) {
     log('Fetching the organization’s bundle.');
     const r = await fetch(url);
     if (!r.ok || !r.body) throw new Error(`Fetching the bundle: ${r.status}`);
@@ -71,7 +76,8 @@ async function moveIn() {
   await mkdir(into, { recursive: true });
   await unpackBundle(join(INCOMING, bundle), vaultKeyBytes(process.env.EAA_VAULT_KEY), into);
   await mkdir(ROOT, { recursive: true });
-  await rm(DATA, { recursive: true, force: true }); // none, or one that isn't the host (isHost)
+  if (replace && existsSync(join(DATA, 'agency.db'))) await rename(DATA, `${DATA}.replaced-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+  else await rm(DATA, { recursive: true, force: true }); // none, or one that isn't the host (isHost)
   await rename(join(into, 'agency'), DATA);
   if (existsSync(join(into, 'sidecars'))) {
     await mkdir(SIDECARS, { recursive: true });
@@ -79,7 +85,8 @@ async function moveIn() {
   }
   await rm(into, { recursive: true, force: true });
   await rm(join(INCOMING, bundle), { force: true });
-  log('Moved the organization in.');
+  if (url) await writeFile(APPLIED, url);
+  log(replace ? 'Moved the organization in again, over the agency here (kept beside it).' : 'Moved the organization in.');
 }
 
 const children = new Set<ChildProcess>();

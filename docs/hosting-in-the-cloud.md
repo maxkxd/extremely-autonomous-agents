@@ -47,6 +47,7 @@ agency and no bundle it waits for one to arrive in `/data/incoming`
 | `EAA_VAULT_KEY` | the container's vault key: 32 bytes, base64 |
 | `EAA_HOST_PERSON` | the owner's name, as on their computer |
 | `EAA_MOVE_IN_URL` | optional: where to fetch the bundle, instead of putting it in `/data/incoming` |
+| `EAA_MOVE_IN_REPLACE` | `1`: that bundle replaces the agency here even when it's already the host (moving in again from a better copy), once per address; the old agency is kept as `agency.replaced-<when>` |
 | `EAA_GOOGLE_CLIENT_ID`, `EAA_GOOGLE_CLIENT_SECRET` | the build's Google client, so Google sign-ins made with it keep renewing |
 
 Sidecars get the container's variables too, except `EAA_VAULT_KEY`.
