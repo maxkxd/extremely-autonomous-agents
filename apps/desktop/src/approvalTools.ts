@@ -179,13 +179,47 @@ export const APPROVAL_TOOLS = {
 
 export type ApprovalToolId = keyof typeof APPROVAL_TOOLS;
 
+// A card an integration's author wrote (the server's integration definition,
+// cards:), for a tool the app has no card of its own for.
+export type IntegrationCard = {
+  wants_to: string;
+  headers?: { label: string; value: string; optional?: boolean }[];
+  body?: string | null;
+  expires_after_hours?: number;
+};
+
+// Objects reach the card as their JSON (App.tsx), so {body.subject} parses it back.
+const parsed = (v: unknown): unknown => {
+  if (typeof v !== 'string' || !/^\s*[[{]/.test(v)) return v;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return v;
+  }
+};
+
+// {name} or {name.field.deeper}: undefined when any step isn't there.
+function lookup(args: ToolArgs, path: string): unknown {
+  let v: unknown = args;
+  for (const step of path.split('.')) {
+    v = parsed(v);
+    if (v === null || typeof v !== 'object') return undefined;
+    v = (v as Record<string, unknown>)[step];
+  }
+  return v;
+}
+
+const shown = (v: unknown): string =>
+  v === undefined || v === null ? '' : typeof v === 'object' ? (Array.isArray(v) && v.every(x => typeof x !== 'object') ? v.join(', ') : JSON.stringify(v)) : String(v);
+
 function fill(template: string, args: ToolArgs, tool: string): string {
-  return template.replace(/\{(\w+)\}/g, (_, name: string) => {
-    if (args[name] === undefined) {
-      console.warn(`Approval tool "${tool}": no "${name}" argument for "${template}"`);
+  return template.replace(/\{(\w+(?:\.\w+)*)\}/g, (_, path: string) => {
+    const v = lookup(args, path);
+    if (v === undefined) {
+      console.warn(`Approval tool "${tool}": no "${path}" argument for "${template}"`);
       return '?';
     }
-    return String(args[name]);
+    return shown(v);
   });
 }
 
@@ -195,28 +229,71 @@ const plainTool = (toolId: string) => {
   return w.charAt(0).toUpperCase() + w.slice(1);
 };
 
-// What an approval card shows, built from the tool's definition + the call's args.
-// A tool without its own card (an MCP server's, one the Agency Engineer added):
-// every argument as a line, the longest text as the body.
-function generic(toolId: string, args: ToolArgs): ApprovalTool {
+// "toAddress" / "to_address" -> "To", "contentType" -> "Content type": a field by what it is.
+function plainLabel(key: string): string {
+  const words = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim().toLowerCase().split(/\s+/);
+  // to / from / cc / bcc / reply to + address or email: just the first part.
+  const lead = ['to', 'from', 'cc', 'bcc', 'reply'].includes(words[0]) && /^(address|addresses|email|emails)$/.test(words[words.length - 1]);
+  const kept = lead ? words.slice(0, -1) : words;
+  const label = kept.join(' ');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+// Values that carry nothing for the person deciding: empty, or a request's
+// plumbing (an account id of "me", a content type, an encoding).
+const empty = (v: unknown) => v === undefined || v === null || v === '' || (typeof v === 'object' && Object.keys(v as object).length === 0);
+const plumbing = (key: string, v: unknown) => {
+  const k = key.toLowerCase().replace(/[_-]/g, '');
+  return /(contenttype|encoding|charset|mailformat)$/.test(k) || (/id$/.test(k) && typeof v === 'string' && /^(me|self|default|primary)$/i.test(v));
+};
+
+// Every leaf of the arguments, objects (or JSON in a string) unpacked, as a path
+// a template can use - {body.toAddress} - with nothing empty or plumbing.
+function leaves(args: ToolArgs): { path: string; key: string; value: unknown }[] {
+  const out: { path: string; key: string; value: unknown }[] = [];
+  const walk = (v: unknown, path: string, key: string, depth: number) => {
+    const p = parsed(v);
+    if (p !== null && typeof p === 'object' && !Array.isArray(p) && depth < 3) {
+      for (const [k, x] of Object.entries(p)) walk(x, `${path}.${k}`, k, depth + 1);
+      return;
+    }
+    if (empty(p) || plumbing(key, p)) return;
+    out.push({ path, key, value: p });
+  };
   // Keys starting "_" are the app's own (_why, shown apart), not the tool's.
-  const own = Object.entries(args).filter(([k]) => !k.startsWith('_'));
-  const long = own.filter(([, v]) => typeof v === 'string' && v.length > 120).sort((a, b) => String(b[1]).length - String(a[1]).length)[0]?.[0];
+  for (const [k, v] of Object.entries(args)) if (!k.startsWith('_')) walk(v, k, k, 0);
+  return out;
+}
+
+// What an approval card shows, built from the tool's definition + the call's args.
+// A tool without a card (an MCP server's, one the Agency Engineer added, and no card
+// written for it): every argument, unpacked, as a line; the longest text as the body.
+function generic(toolId: string, args: ToolArgs): ApprovalTool {
+  const all = leaves(args);
+  const long = all.filter(l => typeof l.value === 'string' && l.value.length > 120).sort((a, b) => String(b.value).length - String(a.value).length)[0]?.path;
+  // Two leaves with the same name (body.subject and query.subject): the full path tells them apart.
+  const named = (key: string) => all.filter(l => l.key === key).length > 1;
   return {
     wantsTo: `use its "${plainTool(toolId)}" tool`,
-    headers: own
-      .map(([k]) => k)
-      .filter(k => k !== long)
-      .map(k => ({ label: k.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()), value: `{${k}}` })),
+    headers: all.filter(l => l.path !== long).map(l => ({ label: named(l.key) ? plainLabel(l.path.replace(/\./g, ' ')) : plainLabel(l.key), value: `{${l.path}}` })),
     body: long ? `{${long}}` : null,
     expiresAfterHours: 24,
   };
 }
 
-const given = (template: string, args: ToolArgs) => [...template.matchAll(/\{(\w+)\}/g)].every(m => args[m[1]] !== undefined && args[m[1]] !== '');
+const fromIntegration = (card: IntegrationCard): ApprovalTool => ({
+  wantsTo: card.wants_to,
+  headers: card.headers ?? [],
+  body: card.body ?? null,
+  expiresAfterHours: card.expires_after_hours ?? 24,
+});
 
-export function renderApproval(toolId: string, args: ToolArgs) {
-  const tool: ApprovalTool = (APPROVAL_TOOLS as Record<string, ApprovalTool>)[toolId] ?? generic(toolId, args);
+const given = (template: string, args: ToolArgs) => [...template.matchAll(/\{(\w+(?:\.\w+)*)\}/g)].every(m => !empty(lookup(args, m[1])));
+
+// The app's own card first, then the one the integration's author wrote, then the generic one.
+export function renderApproval(toolId: string, args: ToolArgs, card?: IntegrationCard | null) {
+  const own = (APPROVAL_TOOLS as Record<string, ApprovalTool>)[toolId];
+  const tool: ApprovalTool = own ?? (card ? fromIntegration(card) : generic(toolId, args));
   return {
     action: `wants to ${fill(tool.wantsTo, args, toolId)}`,
     // The agent's own reason first, when it gave one.

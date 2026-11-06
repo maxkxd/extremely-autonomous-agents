@@ -21,7 +21,7 @@ import { stopStdioServer } from './mcp-stdio.js';
 import { preflight } from './preflight.js';
 import { reportFailure } from './report.js';
 import { oauthAccessToken, oauthCallback, oauthSecret, pendingSignIn, SIGN_IN_LIFE_MS, whenSignInEnded, oauthSignOut, oauthStart, setOAuthAccount, OAUTH_REDIRECT } from './oauth.js';
-import { Integration, type EventDefT, type HttpIntegration, type McpIntegration, type AuthDef } from './schema.js';
+import { Integration, type ApprovalCardDef, type EventDefT, type HttpIntegration, type McpIntegration, type AuthDef } from './schema.js';
 import { sharedClient } from './shared-clients.js';
 import { DATA_DIR } from '../paths.js';
 import { cleanKey, dropInvisible } from '../models/connections.js';
@@ -1039,6 +1039,29 @@ export async function integrationSource(id: string): Promise<{ yaml: string; cod
 }
 
 const toolsOf = (id: string) => [...providers()].filter(([, e]) => e.by.some(x => x.integration.id === id));
+
+// Each tool's input (what an agent passes) and whether its approval card is written:
+// for the Engineer, who writes cards from these. An MCP server's tools as it found them.
+export function toolInputsOf(id: string) {
+  const cards = find(id)?.cards ?? {};
+  return toolsOf(id).map(([toolId, e]) => ({
+    id: toolId,
+    tier: e.def.tier,
+    schema: e.def.schema,
+    card: !!(cards[toolId] ?? cards[toolId.slice(toolId.indexOf('.') + 1)]),
+  }));
+}
+
+// The approval card the integration's author wrote for a tool (schema.ts cards),
+// by its full id or, as tiers are, by the bare name its MCP server gives it.
+export function approvalCardOf(toolId: string): ApprovalCardDef | null {
+  const name = toolId.slice(toolId.indexOf('.') + 1);
+  for (const { integration } of providers(true).get(toolId)?.by ?? []) {
+    const card = integration.cards?.[toolId] ?? integration.cards?.[name];
+    if (card) return card;
+  }
+  return null;
+}
 
 // One tool of one integration, draft or live, called directly (the engineer testing).
 export async function testIntegrationTool(id: string, toolId: string, args: Record<string, unknown>): Promise<string> {

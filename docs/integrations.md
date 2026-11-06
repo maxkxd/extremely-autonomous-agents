@@ -37,6 +37,21 @@ a sign-in (`integrations/shared-clients.ts`). A scope added to one of
 those definitions has to be registered on our Google client, and with
 Google's verification, first: Google refuses the sign-in otherwise.
 
+**Approval cards** (`cards:`, any kind). How a T2 tool's call reads on the
+Approvals page, keyed like `tiers` (the tool's name as its server gives it, or
+its full id): `wants_to` (after "<Agent> wants to"), `headers` (the few lines
+needed to decide, each `{ label, value, optional? }`) and `body` (the long text
+being approved). Values are templates: `{arg}`, or `{arg.field}` to reach into
+an object or JSON in a string. An MCP server's tools often take the service's
+API as it is (`path_variables`, `query_params`, a JSON `body`), so for Zoho
+Mail's send: `To: {body.toAddress}`, `Subject: {body.subject}`, body
+`{body.content}`. The Agency Engineer writes them for every T2 tool, from the
+inputs `engineer.read_integration` lists, and adds or fixes one whenever a card
+would read badly. The app's own tools have their cards in
+`apps/desktop/src/approvalTools.ts`, which win. A tool with neither gets the
+generic card: every argument, objects unpacked, empty values and plumbing (a
+content type, an account id of `me`) left out, the longest text as the body.
+
 A tool either **provides a standard agency tool** - `web.web_search` - which
 several integrations can provide (agents use whichever is connected, so
 switching search service never touches an agent), or is the integration's

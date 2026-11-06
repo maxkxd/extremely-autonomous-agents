@@ -2,6 +2,7 @@ import { ACCOUNT, AGENTS, type Agent, type Department } from './data';
 import { agencyFetch, currentOrg } from './account';
 import { AGENT_PACKS } from './packs';
 import type { StampedEntry } from './AgentDM';
+import type { IntegrationCard } from './approvalTools';
 
 // Client side of the agent builder (docs/agent-creation.md). The server
 // (apps/server) does the thinking with Claude; the Charter, TOOLS.yaml and
@@ -358,7 +359,7 @@ export const startIntegrationSignIn = (id: string, client: { clientId?: string; 
   post<{ url: string }>('/api/integrations/sign-in', { id, ...client });
 
 // Approvals: real agents' T2 calls waiting on a person.
-export type LiveApproval = { id: string; agentId: string; agentName: string; owner: string | null; agentStopped: boolean; agencyStopped?: boolean; tool: string; args: Record<string, unknown>; createdAt: number; expiresAt: number };
+export type LiveApproval = { id: string; agentId: string; agentName: string; owner: string | null; agentStopped: boolean; agencyStopped?: boolean; tool: string; args: Record<string, unknown>; card?: IntegrationCard | null; createdAt: number; expiresAt: number };
 export const getLiveApprovals = () => request<{ approvals: LiveApproval[] }>('/api/runner/approvals').then(r => r.approvals);
 export const decideApproval = (id: string, decision: 'approved' | 'rejected', note?: string) =>
   post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note });

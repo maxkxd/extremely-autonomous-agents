@@ -1,4 +1,4 @@
-import type { ApprovalToolId, ToolArgs } from './approvalTools';
+import type { ApprovalToolId, IntegrationCard, ToolArgs } from './approvalTools';
 import { currentOrg, scoped, state } from './account';
 
 // Placeholder data for the UI only - not the real agency roster.
@@ -249,6 +249,7 @@ export type Approval = {
   agentId: string;
   tool: ApprovalToolId | string; // live ones can be any T2 tool
   args: ToolArgs;
+  card?: IntegrationCard | null; // live ones: the card its integration's author wrote, if any
   expiresAt?: number; // live ones: the server's deadline
   live?: boolean; // a real agent's queued call, decided on the server
   paused?: boolean; // its agent is stopped: shown greyed, can't be decided until it's resumed

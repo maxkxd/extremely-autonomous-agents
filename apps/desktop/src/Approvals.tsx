@@ -20,7 +20,7 @@ const agentOf = (a: Approval) => AGENTS.find(x => x.id === a.agentId)!;
 // expiry window.
 const loadedAt = Date.now();
 const raisedAt = (a: Approval) => a.createdAt ?? loadedAt - a.minutesAgo * 60_000;
-const deadlineOf = (a: Approval) => a.expiresAt ?? raisedAt(a) + renderApproval(a.tool, a.args).expiresAfterHours * 3_600_000;
+const deadlineOf = (a: Approval) => a.expiresAt ?? raisedAt(a) + renderApproval(a.tool, a.args, a.card).expiresAfterHours * 3_600_000;
 
 // Live countdown to an approval's expiry, e.g. 3:59:41 (or 4:07 under an hour).
 function Countdown({ deadline, onExpire }: { deadline: number; onExpire: () => void }) {
@@ -253,7 +253,7 @@ function ApprovalCard({
   const agent = agentOf(approval);
   const ownerAgent = AGENTS.find(x => x.id === (approval.forAgentId ?? approval.agentId))!;
   const DeptIcon = DEPARTMENT_ICON[agent.department];
-  const card = renderApproval(approval.tool, approval.args);
+  const card = renderApproval(approval.tool, approval.args, approval.card);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const off = useOffline(); // the host is offline: it can't be decided until it's back

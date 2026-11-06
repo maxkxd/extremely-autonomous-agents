@@ -154,6 +154,22 @@ export const HttpTool = z.object({
   response: Response,
 });
 
+// How a tool's call reads on the Approvals page, for a tool without a card of its
+// own in the app (approvalTools.ts): {name} fills in an argument, {body.subject}
+// reaches into one (an object, or JSON in a string). Keyed by the tool's id or,
+// as for tiers, by the name its MCP server gives it.
+const Placeholders = (t: string) => [...t.matchAll(/\{([^}]*)\}/g)].every(m => /^\w+(\.\w+)*$/.test(m[1]));
+export const ApprovalCard = z.object({
+  wants_to: z.string().min(1), // after "<Agent> wants to": "send an email"
+  headers: z
+    .array(z.object({ label: z.string().min(1), value: z.string().min(1).refine(Placeholders, 'placeholders are {arg} or {arg.field}'), optional: z.boolean().optional() }))
+    .default([]),
+  body: z.string().refine(Placeholders, 'placeholders are {arg} or {arg.field}').nullable().optional(),
+  expires_after_hours: z.number().positive().optional(),
+});
+export type ApprovalCardDef = z.infer<typeof ApprovalCard>;
+const Cards = z.record(z.string(), ApprovalCard).optional();
+
 export const Integration = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('http'),
@@ -174,6 +190,7 @@ export const Integration = z.discriminatedUnion('kind', [
     base_url: z.string().refine(u => URL.canParse(u.replace(/\{\{\w+\}\}/g, 'x')), 'base_url must be an address'),
     test: z.object({ tool: z.string(), args: z.record(z.string(), z.unknown()) }),
     tools: z.array(HttpTool).min(1),
+    cards: Cards,
   }),
   z.object({
     kind: z.literal('mcp'),
@@ -193,6 +210,7 @@ export const Integration = z.discriminatedUnion('kind', [
     env: z.record(z.string(), z.string()).optional(),
     local: z.boolean().optional(),
     tiers: z.record(z.string(), Tier).optional(), // overrides for discovered tools
+    cards: Cards,
   }),
   z.object({
     kind: z.literal('code'),
@@ -213,6 +231,7 @@ export const Integration = z.discriminatedUnion('kind', [
       .object({ read: z.array(z.string()).optional(), write: z.array(z.string()).optional(), commands: z.boolean().optional() })
       .optional(),
     test: z.object({ tool: z.string(), args: z.record(z.string(), z.unknown()) }),
+    cards: Cards,
   }),
 ]);
 

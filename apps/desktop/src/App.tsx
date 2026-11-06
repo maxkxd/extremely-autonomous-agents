@@ -192,6 +192,7 @@ function Agency() {
               tool: a.tool,
               // The card shows text: lists and objects as their JSON.
               args: Object.fromEntries(Object.entries(a.args).map(([k, v]) => [k, typeof v === 'string' || typeof v === 'number' ? v : JSON.stringify(v)])),
+              card: a.card ?? null,
               minutesAgo: 0,
               createdAt: a.createdAt,
               expiresAt: a.expiresAt,
