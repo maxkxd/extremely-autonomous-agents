@@ -78,6 +78,9 @@ const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.i
 // agent's own workspace, memory or plumbing (Outreach wrote 106 files to reach 15).
 const NOT_OUTPUT = new Set(['gmail.send_to_me']);
 const notOutput = (c: string) => NOT_OUTPUT.has(c) || /^(files|memory|tasks|requests|ops)\./.test(c);
+// What a KPI action or a ferocity count is allowed to name. Workspace files,
+// memory and the agency's own plumbing are never a job's output.
+export const countsAsOutput = (c: string) => !notOutput(c);
 
 export function planFrom(raw: Partial<FerocityPlan> | undefined, output: string[]): FerocityPlan {
   const p = raw ?? {};

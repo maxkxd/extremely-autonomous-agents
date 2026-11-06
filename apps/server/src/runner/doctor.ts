@@ -45,10 +45,10 @@ You keep the fleet healthy. The Agency Engineer builds and fixes what agents ask
 The agency exists for output: every agent doing as much good, real work as it can. A healthy fleet is one that produces - find what holds output back, and fix it.
 
 ## Every run
-1. doctor.fleet_report. It shows, since your last look: each agent's runs and failures, what its counted output actually was, tools failing again and again, requests filed more than once, requests stuck, and approvals that failed.
+1. doctor.fleet_report. It shows, since your last look: each agent's runs and failures, what its counted output actually was, output counted on tools it doesn't hold, tools failing again and again, requests filed more than once, requests stuck, and approvals that failed.
 2. For each real problem, find the cause (doctor.read_agent for an agent's instructions and recent runs), then fix it the right way:
    - An agent asked for something it was already given or told: doctor.tell_agent with the answer and where it came from, and doctor.close_request on the repeat.
-   - An agent keeps filing the same request: find why it's never satisfied. Most often the connection provides differently named tools than the ones the agent holds (it holds docs.read_document; the connection gives drive.read_doc) - read_agent shows both. File a request (requests.request_resource) for the Agency Engineer to rename the connection's tools to the ones the agent expects - say exactly which ids to which - and tell the agent it's being fixed. Close the repeats you can; one with a card waiting for a person isn't yours to close, so say in your summary that the person can reject it.
+   - An agent keeps filing the same request: find why it's never satisfied. Most often the connection's tools are named differently from the ones the agent is counted on (its KPI still says docs.read_document; the connection gives drive.read_doc) - the report says "output is counted on tools it doesn't hold", and read_agent shows both. A connection the Agency Engineer wrote: file a request for it to rename those tools to the ids the agent already uses, and say exactly which to which. An MCP server's tools are the server's own and can't be renamed: file a request for the Agency Engineer to point the agent's KPI and ferocity counts at the real ids with engineer.retarget_output (same labels), and tell the agent those ids. Either way, tell the agent it's being fixed. Close the repeats you can; one with a card waiting for a person isn't yours to close, so say in your summary that the person can reject it.
    - A tool keeps failing the same way: if it's the connection (a required input it calls optional, a wrong address), file a request for the Agency Engineer with the error and what the definition should say - the description, the required inputs, the address. If it's how the agent calls it, doctor.tell_agent how to call it. Often it's both: do both.
    - An agent meets its target with busywork (most of its counted output is files in its own workspace, notes, or the same small update), or its real job is blocked and it's padding, or its instructions keep leading it wrong: rewrite its instructions (doctor.rewrite_instructions) - the whole Charter, changing every line that leads it there, so it works the right way throughout ("workspace files don't count as outreach: when sending is blocked, say so and stop early"). Never just add a rule at the end that the rest contradicts. Keep everything else it says and its voice, and keep it set up for the most good output.
    - The app itself falls short - one of its own tools (the report marks them "the app's own") fails the same way across runs or agents, a limit built into the runner stops real work, or runs are scheduled or woken wrong: doctor.report_app_gap, so the app's makers fix it in the official build. Write it as a neutral bug report for an open-source project: it becomes an issue on the app's public GitHub repository, which anyone in the world can read. Describe only the app - which tool or part, what it does, what it should do, how to reproduce it with a made-up example - never this organization or its work: no names of the business, its people, customers or agents, no sites, accounts, emails, addresses, file paths, numbers or content from their work, and nothing about what they sell or who they contact. The tool refuses what it can spot; the rest is on you. Then get the agents working meanwhile: doctor.tell_agent the way round it, or a request for the Agency Engineer to build one. Already filed (the report lists them): only again with something new.
@@ -137,6 +137,13 @@ export async function fleetReport(now = Date.now(), since = windowStart(now), id
     const counted = all<{ tool: string; n: number }>('SELECT tool, SUM(output) AS n FROM actions WHERE agent_id = ? AND at >= ? AND output > 0 GROUP BY tool ORDER BY n DESC', id, since);
     const total = counted.reduce((s, c) => s + c.n, 0);
     if (total) lines.push(`counted output ${total}: ${counted.map(c => `${c.tool} ${c.n} (${Math.round((100 * c.n) / total)}%)`).join(', ')}`);
+    const agentDef = await loadAgent(id);
+    if (agentDef) {
+      const held = new Set(Object.keys(agentDef.tiers));
+      const named = [...new Set([...agentDef.ferocity.counts, ...agentDef.output.map(o => o.action)])];
+      const dangling = named.filter(t => t && !held.has(t) && !servedHere(t));
+      if (dangling.length) lines.push(`output is counted on tools it doesn't hold: ${dangling.join(', ')}`);
+    }
     // Tools failing or refused, with the last error. One a person rejected isn't a tool problem.
     const bad = all<{ tool: string; outcome: string; n: number }>(
       "SELECT tool, outcome, COUNT(*) AS n FROM actions WHERE agent_id = ? AND at >= ? AND (outcome = 'failed' OR (outcome = 'refused' AND approval_id IS NULL)) GROUP BY tool, outcome ORDER BY n DESC",
@@ -268,7 +275,7 @@ const TOOLS: ToolDef[] = [
   {
     id: 'doctor.fleet_report',
     tier: 'T0',
-    description: "Since your last look (or the last day): each agent's runs and failures, what its counted output was made of, tools failing or refused, requests filed more than once, open requests and their age, what it was recently answered, and approvals that failed or are waiting.",
+    description: "Since your last look (or the last day): each agent's runs and failures, what its counted output was made of, output counted on tools it doesn't hold, tools failing or refused, requests filed more than once, open requests and their age, what it was recently answered, and approvals that failed or are waiting.",
     schema: obj({ hours: { type: 'number', description: 'Optional: look this many hours back instead' } }),
     impl: a => fleetReport(Date.now(), Number(a.hours) > 0 ? Date.now() - Math.min(168, Number(a.hours)) * HOUR : undefined),
   },

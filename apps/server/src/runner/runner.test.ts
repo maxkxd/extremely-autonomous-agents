@@ -946,6 +946,10 @@ test('a batch counts per record, not per word: labels, tags and recipients are o
   assert.equal(actsIn({ rows: [['a', 1], ['b', 2], ['c', 3]] }), 3);
   assert.equal(actsIn({ leads: [{ company: 'A' }, { company: 'B' }] }), 2);
   assert.equal(actsIn({ to: ['a@x.com', 'b@x.com'], body: 'hi' }), 1);
+  // A service's own call wraps the records in body. One record's nested list is not the batch.
+  assert.equal(actsIn({ path_variables: {}, body: { data: [{ name: 'A' }, { name: 'B' }, { name: 'C' }, { name: 'D' }] } }), 4);
+  assert.equal(actsIn({ body: JSON.stringify({ data: [{ name: 'A' }, { name: 'B' }] }) }), 2);
+  assert.equal(actsIn({ body: { data: [{ name: 'A', sources: [{ u: '1' }, { u: '2' }, { u: '3' }] }] } }), 1);
 });
 
 test("a service's limit reached pauses its tools for every agent: not a failure, not a broken tool", async () => {

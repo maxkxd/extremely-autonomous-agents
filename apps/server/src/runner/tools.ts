@@ -615,8 +615,35 @@ export type CallOutcome = {
 
 // How many output acts one call is: a batch counts once per item - a list of
 // records or rows, not of words (an issue with 6 labels was counted as 6 issues).
+const isBatch = (v: unknown): v is unknown[] => Array.isArray(v) && v.length > 0 && v.every(x => x !== null && typeof x === 'object');
+// An MCP server's own call often wraps the records: body is { data: [ ... ] },
+// or that JSON in a string (path_variables beside it). One level, and only the
+// list the service treats as the records - not every array inside one record.
+function batchInBody(v: unknown): number | null {
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (!t.startsWith('{') && !t.startsWith('[')) return null;
+    try {
+      v = JSON.parse(t) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (isBatch(v)) return Math.min(v.length, 50);
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    for (const key of ['data', 'records', 'inputs']) {
+      const inner = (v as Record<string, unknown>)[key];
+      if (isBatch(inner)) return Math.min(inner.length, 50);
+    }
+  }
+  return null;
+}
 export function actsIn(args: Record<string, unknown>): number {
-  for (const v of Object.values(args)) if (Array.isArray(v) && v.length && v.every(x => x !== null && typeof x === 'object')) return Math.min(v.length, 50);
+  for (const v of Object.values(args)) if (isBatch(v)) return Math.min(v.length, 50);
+  if ('body' in args) {
+    const n = batchInBody(args.body);
+    if (n != null) return n;
+  }
   return 1;
 }
 

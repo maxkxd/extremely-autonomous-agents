@@ -35,6 +35,7 @@ import { askerMayChange, charterVersions, readCharterVersion, writeCharter } fro
 import { all, builtInLevels, getSetting, one, run as exec, setSetting } from './db.js';
 import { reportDefault, reportDefaultsForPrompt, setReportDefault } from './reports.js';
 import { appGapTool, fixedHereFor, resendUnsent } from './app-gaps.js';
+import { applyOutputMoves, retargetOutput, type OutputMove } from './output-names.js';
 import { fileRequest, heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
 
 // The Agency Engineer (docs/requests.md, docs/integrations.md): the built-in
@@ -63,6 +64,7 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'engineer.check_key': 'T0',
   'engineer.publish_integration': 'T2',
   'engineer.give_tools': 'T2',
+  'engineer.retarget_output': 'T1',
   'engineer.withdraw_proposal': 'T1',
   'engineer.give_events': 'T2',
   'engineer.set_report_default': 'T0',
@@ -108,7 +110,7 @@ What the person says on one request is true for all of them: one waiting on a qu
       - Next: a key the person copies from one settings page. When the service runs a remote MCP server that takes that key (its docs or an "AI integrations" / "connect to Claude" page give the address - Hunter's does), use that server: kind: mcp, auth: { type: bearer } (or the key where its docs say it goes) - the person pastes the same one key, and the agent gets the service's own tools, kept up to date by the service. Only with no MCP server, an HTTP definition (kind: http; a code plugin only when HTTP can't do it and plugins are allowed). Never rebuild a server's tools as HTTP or a plugin because it takes a key.
       - For a job on a website when its API needs a developer app or a review (their Etsy shop's orders, a supplier portal, LinkedIn): the agents' own browser (signed_in_browser.*) - every agent already holds it, nothing to give. An account the agent can make itself, it makes (signed_in_browser.make_password, then the sign-up form). When it must be the person's own account (their LinkedIn, their shop), ask them to sign in to it once, in a numbered step with the line "Open in signed-in browser: <the site's sign-in address>" on its own line - the app shows it as a button that opens the agents' browser at that page (never "go to Settings"). Its clicks and typing are logged, not approved; paying, posting publicly and starting a new business tool each wait for approval.
       - Last: anything that has them make a developer app, an OAuth client or a cloud project, or that only an admin can do. Say so plainly at the start of the steps, and roughly how long it takes.
-      Publishing only the tools the agent needs already holds it to those: a read-only job on a server that also has write tools is still a sign-in, and an agent that must never charge anyone still gets a full key - what it may do is set by the tools it's given and their tiers, never by a narrow key. A sign-in's tools are the server's own and aren't known until the person signs in: ask_for_connection first (the steps are just Settings > Connectors > <name> > Connect), and when you're woken, engineer.list_integrations shows them (named <id>.<tool>) - try the ones the agent will use with engineer.test_integration. Then set tiers in the definition for the ones the agent will use - the writes its instructions allow T1 when they're internal and reversible, anything else stays T2 - and publish only the tools it needs. Going live replaces the names the agent was built with for that service (its builder's guesses, or a catalogue stand-in like analytics.query) with the server's own, and tells the agent; if an agent still asks for a service that is live and working, close its request saying which tools do the job - never ask the person to edit an agent's tools or instructions. A person who would rather paste a key than sign in, where the server also takes one (PostHog's phx_ personal keys): keep the same MCP server with auth: { type: bearer } - one field, its tools found for them - rather than a plugin that also asks for ids or regions. A key-only MCP server's tools are found when the person saves the key, as a sign-in's are: ask_for_connection first, then list_integrations and test them.
+      Publishing only the tools the agent needs already holds it to those: a read-only job on a server that also has write tools is still a sign-in, and an agent that must never charge anyone still gets a full key - what it may do is set by the tools it's given and their tiers, never by a narrow key. A sign-in's tools are the server's own and aren't known until the person signs in: ask_for_connection first (the steps are just Settings > Connectors > <name> > Connect), and when you're woken, engineer.list_integrations shows them (named <id>.<tool>) - try the ones the agent will use with engineer.test_integration. Then set tiers in the definition for the ones the agent will use - the writes its instructions allow T1 when they're internal and reversible, anything else stays T2 - and publish only the tools it needs. Going live replaces the names the agent was built with for that service (its builder's guesses, or a catalogue stand-in like analytics.query) with the server's own, and tells the agent. It also points each KPI action and ferocity count that named a replaced tool at the server's own tool for the same action, when the names are the same job (create_record and the server's createrecords, one record or a batch). One it can't match is left, and you're woken to point it with engineer.retarget_output - keep the labels, use the real ids. An MCP server's names are its own: never rename them back to the old ids, and never leave the agent counted on a tool it no longer holds. If an agent still asks for a service that is live and working, close its request saying which tools do the job - never ask the person to edit an agent's tools or instructions. A person who would rather paste a key than sign in, where the server also takes one (PostHog's phx_ personal keys): keep the same MCP server with auth: { type: bearer } - one field, its tools found for them - rather than a plugin that also asks for ids or regions. A key-only MCP server's tools are found when the person saves the key, as a sign-in's are: ask_for_connection first, then list_integrations and test them.
    b. Write it with engineer.write_integration (YAML; to add a tool to a service that already has a connection - one you built or one a person added, but not a built-in - rewrite that same connection with the tool added, same id: never a second connection for the same service, and never ask the person to edit one. A built-in (github, gmail, drive) you can't rewrite: add to it with an extension - a new integration with key_from: <its id>, named "<Service> (more tools)", usually a code plugin calling the same API. It uses that connection's key: nothing to connect, never ask the person for the same key again, and it's connected the moment its parent is; engineer.read_integration shows the shipped ones - brave-search, github, gmail, drive - as examples of the format). Every http definition needs: kind, id, name, what, auth, base_url, test: { tool, args }, and each tool's id, tier, description, input (JSON schema) and request: { method, path } - leaving any out is refused. A request that names options ("a CRM (HubSpot, Zoho, Salesforce)") is naming examples: build the one the agent's instructions name (engineer.read_agent); none named, ask the person which they use before building. Give a tool only what the agent's instructions allow it to do (Bug Triage may change only status and tags: its update tool changes only those). One connection per service, named after the service ("DataForSEO", "Google Ads") - never after its tools: adding a tool later extends the same one, under the same name and id. Name each tool exactly the id the agent already expects, if it has one (its missing tools are listed with the request). Give the person what they need to connect it: key_url (where to make the key), key_help (which permissions/plan, one or two sentences), or for OAuth client_url and numbered client_help steps. A remote MCP server that has its own sign-in (the list in a.): \`auth: { type: mcp_oauth }\` - the app finds its sign-in and registers itself, so the person just signs in. Gmail, Google Drive (with Docs, Sheets and Slides: the docs.* tools), Google Calendar, YouTube, Google Search Console and Google Analytics are built in and sign in with the app's own Google client, nothing for the person to make - never write another connection for them, extend the built-in. Other Google connections (Ads...) all sign in at Google and share one OAuth client: the person makes it once, and every other Google connection reuses it - for those the steps are only to turn on that API in the same Google Cloud project (link straight to its page, e.g. https://console.cloud.google.com/apis/library/calendar-json.googleapis.com) and sign in; never have them make a second client or paste one again. Anything else a service takes - an id and a secret, an account and a key, a region, a client id + secret + refresh token the person already has: \`auth: { type: fields }\` with the fields to ask for (name, label, help, secret: false for ids and regions), put where the service wants them with {{name}} in headers, query or base_url, and token: { url, form, pick, expires_in } when they're swapped for a short-lived token ({{token}}). A field that goes in the host (a region) takes options: the exact values it may be, shown as a list - it is refused without them. Zoho, say: fields client_id, client_secret, refresh_token, region (secret: false, options [com, eu, in, com.au, jp, ca, sa, uk], default com); token url https://accounts.zoho.{{region}}/oauth/v2/token with form grant_type refresh_token; header authorization: "Zoho-oauthtoken {{token}}"; base_url https://www.zohoapis.{{region}}. A login and password sent as HTTP Basic (DataForSEO): fields login and password, and basic: { username: "{{login}}", password: "{{password}}" } - the app encodes it; never ask a person to encode, convert or combine anything. A code plugin on a fields sign-in gets its key as JSON: the fields, plus token when there is a token exchange - renewed and kept by the app, so use that token; never renew it in the plugin (services limit renewals: Zoho allows 10 in 10 minutes). When the person says what they have, shape the fields to that - never send them back to a different way of signing in. Pick tiers by the rules: reads T0, reversible internal writes T1, anything outside the organization or hard to undo T2. Then, for every T2 tool, write how its approval reads under cards: (keyed like tiers: the tool's name as its server gives it, or its full id) - the person decides from that card alone, and without one they see every raw argument, which for an MCP server is often the service's API as it is (path_variables, query_params, a body of JSON). A card is wants_to (what it does, after "<Agent> wants to": "send an email", "refund an order"), headers (only the few lines needed to decide - To, Subject, Amount, Customer - each { label, value }, optional: true for a line a call may leave out) and body (the one long text being approved, if there is one). Values are templates: {arg}, or {arg.field} to reach into an object or JSON in a string ({body.toAddress}, {body.content}). Leave out ids, formats and anything else that's only plumbing. engineer.read_integration lists each T2 tool's real inputs once it's saved and connected (an MCP server's are found then) - write from those, and save the definition again with the cards. Add or fix a card on any connection you can rewrite, whenever one would read badly - your call; a built-in has its own.
    c. It's saved as a draft: it shows in Settings > Connectors so the person can connect it, and no agent can call it. Then tell them it's ready with engineer.ask_for_connection - exact steps (including making an account, if it needs one), and that the key goes in Settings, never in the chat. You're woken the moment they connect it. Other agents' requests already waiting on the same connection (engineer.list_requests): one key serves them all. Ask for full access, always - more than any agent needs today: a key with every permission the service offers (or its full-access / admin kind), every scope ticked, every group ticked on a sign-in's consent page (Sentry's tool groups). Narrow keys had people making new keys over and over as agents needed slightly more (decided 2026-11-02); the agents are held to their jobs by the tools they're given and their tiers, not by the key. Say so in the steps ("tick everything - your agents only get the tools you approve").
    d. Test it like a careful person: the real call with real-looking inputs, then the edge cases - empty and missing inputs, a limit, nonsense - and read what an agent would see. Results must be clean, plain text; errors one readable line. Fix the definition and test again until they are. A code plugin not yet approved can be tried too, but only its silent (T0) tools, reading from its own service: try one before you propose it, so a wrong address, region or sign-in shows up now and not at go-live.
@@ -524,6 +526,9 @@ export async function ensureBrowserKit() {
 // builder gave that service - its guesses (sentry.list_issues), or the catalogue's
 // stand-in for the request (analytics.query) - give way to the real ones when it goes
 // live. Otherwise they show as missing for good, and the agent asks again every run.
+// What the agent is counted on (KPI, ferocity counts) is moved onto those real
+// tools by retargetOutput, in the same step. Dropping the names here is not enough:
+// a successful call of the real tool otherwise counts as nothing.
 export async function dropGuesses(agentId: string, servers: string[], provided: (id: string) => boolean) {
   const file = join(DATA, slug(agentId), 'TOOLS.yaml');
   const doc = parseDocument(await readFile(file, 'utf8'));
@@ -539,6 +544,30 @@ export async function dropGuesses(agentId: string, servers: string[], provided: 
   doc.set('tool_tiers', tiers);
   await writeFile(file, doc.toString());
   return dropped;
+}
+
+// Moves the count onto the tools just given. A name with no match wakes the
+// engineer; a failure does too, and is said, not dropped. Returns the sentence
+// for the agent (empty when nothing moved).
+async function pointOutput(agentId: string, toolIds: string[], wake: (agentId: string, trigger: string, task: string) => void): Promise<string> {
+  let moves: OutputMove[] = [];
+  let unmatched: string[] = [];
+  try {
+    const moved = await retargetOutput(agentId, toolIds);
+    moves = moved.moves;
+    unmatched = moved.unmatched;
+  } catch (e) {
+    wake(FLEET_ENGINEER, 'request', `${agentId} was given ${toolIds.join(', ')}, and pointing its output at those tools failed: ${(e as Error).message || 'it failed'}. Do it with engineer.retarget_output.`);
+    return '';
+  }
+  if (unmatched.length)
+    wake(
+      FLEET_ENGINEER,
+      'request',
+      `${agentId} is still counted on ${unmatched.join(', ')}, which aren't tools it holds. It now holds ${toolIds.join(', ')}. Point the count at the ones that do the same job with engineer.retarget_output - keep the labels. An MCP server's tool names stay as they are.`,
+    );
+  if (!moves.length) return '';
+  return ` Your output is counted on ${[...new Set(moves.flatMap(m => m.to))].join(', ')} now (was ${moves.map(m => m.from).join(', ')}).`;
 }
 
 const nameOf = async (agentId: string) => (await readMeta(agentId))?.name ?? agentId;
@@ -1126,11 +1155,12 @@ const TOOLS: ToolDef[] = [
         const replaced = isMcp
           ? await dropGuesses(g.for_agent, [String(a.integration_id), ...(service ? [service] : [])], id => out.tools.some(t => t.id === id) || servedHere(id))
           : [];
+        const counted = await pointOutput(g.for_agent, given.map(t => t.id), ctx.wake);
         // Its events: for the agent the card was made for (the ones grouped with it get tools).
         const events = i === 0 && g.for_agent === String(a.for_agent) ? await eventsFor(g.for_agent, String(a.integration_id), a.events) : [];
         if (events.length) await giveEvents(g.for_agent, events);
         const ids = [...given.map(t => t.id), ...events.map(e => `${e} (wakes it)`)].join(', ');
-        postToRequest(g.request_id, 'engineer', `${String(a.name ?? a.integration_id)} is live and given to ${await nameOf(g.for_agent)}.${tested}`);
+        postToRequest(g.request_id, 'engineer', `${String(a.name ?? a.integration_id)} is live and given to ${await nameOf(g.for_agent)}.${tested}${counted}`);
         // A request closes only once nothing its agent needs is missing; otherwise
         // it goes back to the engineer for the rest.
         const { missing } = await stillMissing(g.for_agent);
@@ -1141,7 +1171,7 @@ const TOOLS: ToolDef[] = [
           ctx.wake(FLEET_ENGINEER, 'request', `${ids} went live for ${g.for_agent}. Request #${g.request_id} still needs: ${rest}.`);
           // What it has now is usable now: it isn't left waiting on the rest (Market
           // Research got the Census tools and didn't touch them until its next scheduled run).
-          ctx.wake(g.for_agent, 'request done', `You now have ${ids} (request #${g.request_id} stays open for: ${rest}). Use them on your real work now.`);
+          ctx.wake(g.for_agent, 'request done', `You now have ${ids} (request #${g.request_id} stays open for: ${rest}).${counted} Use them on your real work now.`);
           said.push(`${g.for_agent} (request #${g.request_id} stays open for: ${rest})`);
           continue;
         }
@@ -1149,7 +1179,7 @@ const TOOLS: ToolDef[] = [
         // A gap in the app it got round (app-gaps.ts): reported fixed here, for the official build.
         await fixedHereFor(g.request_id, `${String(a.name ?? a.integration_id)} went live here: ${String(a.summary)}`).catch(() => []);
         // Woken to use them now: an agent that was blocked runs only as Steady (scheduler).
-        const instead = replaced.length ? ` They are the service's own, in place of the ones you were written with (${replaced.join(', ')}): use these.` : '';
+        const instead = `${replaced.length ? ` They are the service's own, in place of the ones you were written with (${replaced.join(', ')}).` : ''}${counted}`;
         ctx.wake(g.for_agent, 'request done', `Request #${g.request_id} is done - you now have ${ids}.${instead} Use them on your real work now.`);
         said.push(g.for_agent);
       }
@@ -1251,6 +1281,44 @@ const TOOLS: ToolDef[] = [
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", answer, Date.now(), r.id);
       postToRequest(r.id, 'engineer', `Given to ${await nameOf(String(a.for_agent))}.`);
       return `Gave ${tools.map(t => t.id).join(', ')} to ${a.for_agent}.`;
+    },
+  },
+  {
+    id: 'engineer.retarget_output',
+    tier: 'T1',
+    description:
+      "Point an agent's output at tools it actually holds, when a connection's own names replaced the ones it was built with. An MCP server's tools can't be renamed: move the KPI action and the ferocity count onto the real ids, and keep the label. One old id can move onto the single-record tool and its batch form. Past calls stay as recorded - their arguments aren't kept, so this doesn't invent a count for them. Then rewrite the lines of its Charter that still name the old ids (engineer.rewrite_instructions).",
+    schema: obj(
+      {
+        agent_id: str('The agent'),
+        moves: {
+          type: 'array',
+          description: 'Each move: the id it is counted on now, the real tool ids, and the label if it should change',
+          items: obj(
+            {
+              from: str('The id in its KPI or ferocity counts, e.g. crm.create_record'),
+              to: { type: 'array', items: { type: 'string' }, description: 'Real tool ids it holds that do that job' },
+              label: str('Optional: the pie label. Leave it out to keep the one it has'),
+            },
+            ['from', 'to'],
+          ),
+        },
+      },
+      ['agent_id', 'moves'],
+    ),
+    impl: async (a, ctx) => {
+      const agentId = String(a.agent_id ?? '');
+      const meta = await changeable(agentId, false);
+      const moves = (Array.isArray(a.moves) ? a.moves : []).map(m => {
+        const row = m as Record<string, unknown>;
+        const to = (Array.isArray(row.to) ? row.to : []).map(String).filter(Boolean);
+        return { from: String(row.from ?? ''), to, ...(typeof row.label === 'string' && row.label.trim() ? { label: row.label.trim() } : {}) };
+      });
+      if (!moves.length || moves.some(m => !m.from || !m.to.length)) throw new Error('Each move needs from and at least one real tool id.');
+      await applyOutputMoves(agentId, moves);
+      const said = moves.map(m => `${m.from} -> ${m.to.join(', ')}`).join('; ');
+      ctx.wake(agentId, 'request done', `What counts as your output now: ${said}. Use those tools. Your instructions still name the old ones where they do - they get rewritten to match.`);
+      return `${meta.name} is now counted on ${said}. Its past calls were not recounted. Rewrite any Charter lines that still name the old ids.`;
     },
   },
   appGapTool('engineer.report_app_gap'),

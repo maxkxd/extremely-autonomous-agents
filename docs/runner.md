@@ -72,8 +72,17 @@ high is the person's call; the builder still makes it do something useful:
 - What counts is the agent's output actions (KPI.yaml). An action counts **when
   the agent tries it**, including a T2 action that's now waiting in Approvals,
   and including one that fails. Batch actions count once per item (one
-  `queue_leads` with 5 leads = 5). A call refused by a natural limit doesn't
+  `queue_leads` with 5 leads = 5). A batch a service wraps in `body`
+  (`{ data: [ ...records ] }`, or that JSON in a string) counts once per
+  record too. A call refused by a natural limit doesn't
   count (see "When more of the main action isn't better").
+- The id in KPI.yaml is the tool that actually runs. A catalogue name
+  (`crm.create_record`) counts nothing once a connection's own tool
+  (`acme-crm.createrecords`) has replaced it. When an MCP server goes live,
+  a count whose name is that same action is moved onto the real tool; one
+  that doesn't match is left for the Agency Engineer
+  (`engineer.retarget_output`). An MCP server's tool names stay as the
+  server gave them.
 - When a run would end below its floor, the runner sends one more message in
   the same conversation, so nothing it already found is lost:
 

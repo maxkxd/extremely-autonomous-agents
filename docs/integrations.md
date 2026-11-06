@@ -104,7 +104,13 @@ a draft is the person's yes to the connection itself, so the card is about
 agents: "give Lead Research and Outreach Google Drive", with the tools each
 gets and the engineer's summary - every agent waiting on that connection on
 one card (`also`). Approved, it goes live, each agent gets its tools
-(TOOLS.yaml, the builder's tiers kept) and their requests close. No code is
+(TOOLS.yaml, the builder's tiers kept) and their requests close. An MCP
+server's tools keep the server's own ids. A KPI action or ferocity count
+that still names the catalogue stand-in (`crm.create_record`) is moved onto
+the real tool when it is the same action (`createrecords`, including a
+batch form). One that doesn't match is left, and the Agency Engineer is
+woken to point it with `engineer.retarget_output`. The old ids are not
+renamed back onto the server. No code is
 shown: a plugin's safety is the independent review and the sandbox, not a
 person reading it. Its `engineer.give_tools` gives an agent tools that
 already exist, also behind an approval. A request already on a waiting card

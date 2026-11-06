@@ -141,7 +141,7 @@ export function Donut({
             const len = (s.value / total) * C;
             const seg = (
               <circle
-                key={s.label}
+                key={`${i}-${s.label}`}
                 cx={SIZE / 2}
                 cy={SIZE / 2}
                 r={R}
