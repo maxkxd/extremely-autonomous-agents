@@ -25,11 +25,14 @@ ENV NODE_ENV=production \
     EAA_DATA_DIR=/data/agency \
     PORT=5185 \
     HOOKS_PORT=5186 \
+    EAA_CALLBACK_PORT=5175 \
     EAA_CLOUD_HOST=1 \
     DISPLAY=:99 \
     EAA_BROWSER=/usr/bin/google-chrome-stable \
     EAA_BROWSER_ARGS="--no-sandbox --password-store=basic --disable-dev-shm-usage"
 
 # Nothing listens outside the container: members reach it through the relay,
-# over the agency's own outbound connection.
+# over the agency's own outbound connection. Sign-ins (OAuth) come back to the
+# member's own app on 5175, the address registered with services, which hands
+# them on through the relay: EAA_CALLBACK_PORT, not the host's PORT.
 ENTRYPOINT ["/usr/bin/tini", "--", "/bin/sh", "/app/start.sh"]

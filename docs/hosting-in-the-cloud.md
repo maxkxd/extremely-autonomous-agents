@@ -95,8 +95,6 @@ an empty token forgets it). It's kept in the vault and given to Claude Code as
 
 ## Not yet
 
-- Sign-ins that come back to the app's port (OAuth integrations started from a
-  member's app) can't reach a container; connections moved in keep working.
 - A person can't see the container's screen: the agents' browser's live view
   in the app (a stream of its tabs through the relay) is next. Until then,
   CAPTCHAs and phone codes there wait.
