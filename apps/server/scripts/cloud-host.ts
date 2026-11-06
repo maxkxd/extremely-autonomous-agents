@@ -1,11 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream, existsSync } from 'node:fs';
-import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
-import { unpackBundle, vaultKeyBytes } from '../src/move.js';
+import { openSealed, unpackBundle, vaultKeyBytes } from '../src/move.js';
 
 // An organization's agency in a container (docs/hosting-in-the-cloud.md): what
 // the container runs. On its volume:
@@ -16,8 +16,8 @@ import { unpackBundle, vaultKeyBytes } from '../src/move.js';
 //   sidecars/    extra programs (*.mjs) run beside the agency, with EAA_URL set
 //                to it - started again a minute after they stop
 //
-// A bundle is only opened into an empty agency folder: one that already has an
-// agency is never overwritten. With neither, it waits for a bundle
+// A bundle is only opened where this organisation isn't hosted yet: an agency
+// that is its host (its vault has the host secret) is never overwritten. With neither, it waits for a bundle
 // (EAA_START_EMPTY=1: starts an empty agency instead).
 
 const DATA = resolve(process.env.EAA_DATA_DIR ?? '/data/agency');
@@ -28,8 +28,22 @@ const PORT = Number(process.env.PORT ?? 5185);
 const SERVER = fileURLToPath(new URL('../src/index.ts', import.meta.url));
 const log = (m: string) => console.log(`[cloud] ${m}`);
 
+// Already this organisation's host: its vault has the host secret (a bundle brings it).
+// An agency without one - started empty - may still be replaced by a bundle.
+async function isHost() {
+  if (!existsSync(join(DATA, 'agency.db'))) return false;
+  const org = process.env.EAA_HOSTED_ORG ?? '';
+  try {
+    const vault = JSON.parse(await readFile(join(DATA, 'vault.json'), 'utf8')) as Record<string, { iv: string; tag: string; data: string }>;
+    return !!vault[`hosting:${org}:secret`] && !!openSealed(vaultKeyBytes(process.env.EAA_VAULT_KEY ?? ''), vault[`hosting:${org}:secret`]);
+  } catch {
+    return false;
+  }
+}
+
 async function moveIn() {
-  if (existsSync(join(DATA, 'agency.db'))) return;
+  if (await isHost()) return;
+  const existing = existsSync(join(DATA, 'agency.db'));
   await mkdir(INCOMING, { recursive: true });
   const url = process.env.EAA_MOVE_IN_URL;
   if (url && !(await readdir(INCOMING)).some(f => f.endsWith('.eaa'))) {
@@ -40,7 +54,7 @@ async function moveIn() {
   }
   let bundle = (await readdir(INCOMING)).filter(f => f.endsWith('.eaa')).sort()[0];
   // A container is for an organisation moving in: it waits for it (EAA_START_EMPTY: a new one, empty).
-  if (!bundle && process.env.EAA_START_EMPTY) return log('No agency here yet: starting an empty one.');
+  if (!bundle && (existing || process.env.EAA_START_EMPTY)) return log(existing ? 'No bundle: carrying on with the agency here.' : 'No agency here yet: starting an empty one.');
   if (!bundle) log(`Waiting for the organisation's bundle in ${INCOMING}.`);
   while (!bundle) {
     await new Promise(r => setTimeout(r, 10_000));
@@ -57,7 +71,7 @@ async function moveIn() {
   await mkdir(into, { recursive: true });
   await unpackBundle(join(INCOMING, bundle), vaultKeyBytes(process.env.EAA_VAULT_KEY), into);
   await mkdir(ROOT, { recursive: true });
-  await rm(DATA, { recursive: true, force: true }); // empty: no agency.db above
+  await rm(DATA, { recursive: true, force: true }); // none, or one that isn't the host (isHost)
   await rename(join(into, 'agency'), DATA);
   if (existsSync(join(into, 'sidecars'))) {
     await mkdir(SIDECARS, { recursive: true });
