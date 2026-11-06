@@ -11,6 +11,13 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends /tmp/chrome.deb \
  && rm -rf /tmp/chrome.deb /var/lib/apt/lists/*
 
+# Python and uv: MCP servers the Agency Engineer adds often run with uvx or python,
+# as on anyone's computer (integrations/mcp-stdio.ts). npx comes with Node.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 python3-venv python3-pip \
+ && rm -rf /var/lib/apt/lists/* \
+ && curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh
+
 # Claude Code: agents on a Claude plan run through it, signed in with the plan's
 # long-lived token (claude setup-token), connected in the organization's Connectors.
 RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
