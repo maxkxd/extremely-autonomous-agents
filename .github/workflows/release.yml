@@ -37,7 +37,7 @@ jobs:
 
       - name: Set the version
         working-directory: apps/electron
-        run: npm version ${{ inputs.version }} --no-git-tag-version
+        run: npm version ${{ inputs.version }} --no-git-tag-version --allow-same-version
 
       - name: Stage the agency, the app and Node
         working-directory: apps/electron
