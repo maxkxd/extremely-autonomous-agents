@@ -1,0 +1,2 @@
+deploy/cloud/start.sh text eol=lf
+deploy/cloud/Dockerfile text eol=lf
