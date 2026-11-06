@@ -199,7 +199,17 @@ async function move() {
     const profilesDir = join(orgDir, 'browser-profiles');
     const profiles = existsSync(profilesDir) ? (await readdir(profilesDir, { withFileTypes: true })).filter(d => d.isDirectory() && /^\d+$/.test(d.name)).map(d => d.name) : [];
     for (const n of profiles) {
-      const cookies = await cookiesOf(join(profilesDir, n));
+      // Tried again: the agents' browser on it may still be closing from --stop.
+    let cookies: Record<string, unknown>[] = [];
+    for (let i = 1; ; i++) {
+      try {
+        cookies = await cookiesOf(join(profilesDir, n));
+        break;
+      } catch (e) {
+        if (i >= 4) throw e;
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    }
       next[`browser:${n}:carried-cookies`] = sealFor(toKey, cookies);
       await mkdir(join(agency, 'browser-profiles', n), { recursive: true });
       say(`Browser profile ${n}: ${cookies.length} cookies (${new Set(cookies.map(c => String(c.domain).replace(/^\./, ''))).size} sites).`);
