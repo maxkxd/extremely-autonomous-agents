@@ -1,7 +1,8 @@
-// Sign-ins to a service that come back to this computer for an organization hosted
-// elsewhere (oauth.ts: they come back to the app's own port on whatever computer the
-// browser is on). The host's agency started them, so this one can't finish them: they
-// wait here for this computer's app to send them to the host through the relay.
+// Sign-ins that come back to this computer for an organization hosted elsewhere
+// (oauth.ts: they come back to the app's own port on whatever computer the browser
+// is on — a service at /, or ChatGPT and OpenRouter at their own paths). The host's
+// agency started them, so this one can't finish them: they wait here for this
+// computer's app to send them to the host through the relay.
 
 // Held a minute at most: an app that is waiting collects them within seconds.
 const held = new Map<string, { query: string; at: number; claimed: boolean; result?: { ok: boolean; message: string } }>();

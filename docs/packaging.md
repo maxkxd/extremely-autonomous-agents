@@ -18,8 +18,10 @@ runs in development.
 - **Per-person data.** `%APPDATA%/Extremely Autonomous Agents/data`
   (`EAA_DATA_DIR`), logs beside it in `logs/agency.log`.
 - **Fixed ports: 5175, 5176, 5185.** 5175 is the sign-in callback people
-  register with Google, Zoho and the like, so it can't move. If they're taken
-  (another copy, a development server), the app says so and doesn't start.
+  register with Google, Zoho and the like, and where ChatGPT and OpenRouter
+  come back, including when the agency itself is in the cloud on another port.
+  It can't move. If they're taken (another copy, a development server), the
+  app says so and doesn't start.
 - **The window closes to the tray**: agents keep working. Quit is in the tray
   menu, as is "Start with Windows" (starts hidden). One copy at a time.
 - **The agency goes with the app** however it ends: it watches the app's

@@ -52,6 +52,8 @@ agency and no bundle it waits for one to arrive in `/data/incoming`
 
 Sidecars get the container's variables too, except `EAA_VAULT_KEY`.
 
+The platform sets `PORT` (often 8080). That is only the port the process listens on inside the container. A sign-in the person's browser completes — a service, ChatGPT, OpenRouter — comes back to the app on their computer, port 5175 (`EAA_CALLBACK_PORT` when that app is not the usual one). Their app sends the result to this host. Nothing on their computer is listening on the container's port.
+
 ## Moving an organisation in
 
 On the computer that hosts it, from `apps/server`:

@@ -25,6 +25,11 @@ export const callbackPort = (env: NodeJS.ProcessEnv = process.env) => Number(env
 const PORT = callbackPort();
 export const OAUTH_REDIRECT = `http://127.0.0.1:${PORT}`;
 export const LOCALHOST_REDIRECT = `http://localhost:${PORT}`;
+// Every sign-in the person's browser completes (a service, ChatGPT, OpenRouter)
+// comes back here. Not the port this process listens on: in the cloud that is
+// the platform's, and nothing on the person's computer is listening there.
+export const signInReturn = (path: string, host: '127.0.0.1' | 'localhost' = '127.0.0.1', env: NodeJS.ProcessEnv = process.env) =>
+  `http://${host}:${callbackPort(env)}${path.startsWith('/') ? path : `/${path}`}`;
 const redirectOf = (auth: OAuthDef) => (auth.loopback === 'localhost' ? LOCALHOST_REDIRECT : OAUTH_REDIRECT);
 
 export type OAuthSecret = {

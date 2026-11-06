@@ -94,6 +94,19 @@ async function callback(finish: () => Promise<void>) {
   }
 }
 
+// ChatGPT and OpenRouter come back to a path, not the root. Same three places
+// as GET /: this process started it, the organization hosted on this computer
+// did, or a host elsewhere did and this computer's app will send it on.
+async function returnedPlan(q: URLSearchParams, kind: 'chatgpt' | 'openrouter', path: string) {
+  if (conn.pendingPlan(q.get('state')) === kind)
+    return callback(() => (kind === 'chatgpt' ? conn.chatGptCallback(q) : conn.openRouterCallback(q)));
+  if (hostingStatus()?.running) {
+    const r = await fetch(`http://127.0.0.1:${HOSTED_PORT}${path}?${q.toString()}`).catch(() => null);
+    if (r) return new Html(await r.text());
+  }
+  return new Html(parkSignIn(q));
+}
+
 // Who you're talking to, the organization (null when they don't have one), and
 // what the fleet already has. The builder never waits on linking key people to
 // members: it uses the links as they stand and starts a check in the background
@@ -310,8 +323,8 @@ const routes: Record<string, Route> = {
     if (id === 'chatgpt') return { url: await conn.chatGptStart() };
     throw new ConnectError('That provider has no sign-in.');
   },
-  'GET /api/oauth/openrouter/callback': async (_req, q) => callback(() => conn.openRouterCallback(q)),
-  'GET /api/oauth/chatgpt/callback': async (_req, q) => callback(() => conn.chatGptCallback(q)),
+  'GET /api/oauth/openrouter/callback': async (_req, q) => returnedPlan(q, 'openrouter', '/api/oauth/openrouter/callback'),
+  'GET /api/oauth/chatgpt/callback': async (_req, q) => returnedPlan(q, 'chatgpt', '/api/oauth/chatgpt/callback'),
   // An integration's sign-in (Gmail...) lands on the root (oauth.ts says why);
   // it's tested before it counts as connected. One this agency didn't start is an
   // organization's: on the host, handed to the organization's agency; on a teammate's
@@ -327,9 +340,13 @@ const routes: Record<string, Route> = {
     return new Html(parkSignIn(q));
   },
   // An organization's sign-in, sent on by a teammate's app (or this computer's).
+  // A plan (ChatGPT, OpenRouter) is finished by the process that started it.
   'GET /api/oauth/finish': async (_req, q) => {
     try {
-      await finishSignIn(q);
+      const plan = conn.pendingPlan(q.get('state'));
+      if (plan === 'chatgpt') await conn.chatGptCallback(q);
+      else if (plan === 'openrouter') await conn.openRouterCallback(q);
+      else await finishSignIn(q);
       return { ok: true, message: 'You can close this window and go back to the app.' };
     } catch (e) {
       return { ok: false, message: e instanceof ConnectError ? e.message : 'Something went wrong. Try again from Settings.' };

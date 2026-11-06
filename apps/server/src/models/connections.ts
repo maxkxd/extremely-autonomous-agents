@@ -10,6 +10,7 @@ import { deleteSecret, getSecret, mask, setSecret } from '../vault.js';
 import { chatGptModels as chatGptList, isChatId, keepChat, knownModel, type ModelInfo, type Native } from './caps.js';
 import type { Effort } from './choice.js';
 import { ConnectError, PROVIDERS, provider, verify } from './providers.js';
+import { signInReturn } from '../integrations/oauth.js';
 import { DATA_DIR } from '../paths.js';
 
 // Model connections (docs/model-connections.md): what's connected, and the
@@ -19,7 +20,6 @@ import { DATA_DIR } from '../paths.js';
 const run = promisify(execFile);
 const DATA = DATA_DIR;
 const STATE = join(DATA, 'connections.json');
-const PORT = Number(process.env.PORT ?? 5175);
 
 // broken: a key that was saved but didn't check out, and why - kept so the
 // row can say so until it's fixed, retried or removed.
@@ -266,13 +266,19 @@ function remember(state: string, v: Omit<Parameters<typeof pending.set>[1], 'at'
   pending.set(state, { ...v, at: Date.now() });
 }
 
+// Which plan sign-in this state belongs to, if this process started it.
+export function pendingPlan(state: string | null): 'chatgpt' | 'openrouter' | null {
+  const p = pending.get(state ?? '');
+  return p?.provider === 'chatgpt' || p?.provider === 'openrouter' ? p.provider : null;
+}
+
 // --- OpenRouter: one click, and it hands back a key ---------------------------
 // https://openrouter.ai/docs/use-cases/oauth-pkce
 
 export function openRouterStart(): string {
   const { verifier, challenge } = pkce();
   const state = b64url(randomBytes(16));
-  const redirectUri = `http://localhost:${PORT}/api/oauth/openrouter/callback?state=${state}`;
+  const redirectUri = `${signInReturn('/api/oauth/openrouter/callback', 'localhost')}?state=${state}`;
   remember(state, { provider: 'openrouter', verifier, redirectUri });
   return `https://openrouter.ai/auth?${new URLSearchParams({ callback_url: redirectUri, code_challenge: challenge, code_challenge_method: 'S256' })}`;
 }
@@ -323,8 +329,9 @@ export async function chatGptStart(): Promise<string> {
   const { verifier, challenge } = pkce();
   const state = b64url(randomBytes(16));
   const nonce = b64url(randomBytes(16));
-  // Loopback on 127.0.0.1 - OpenAI requires that, not "localhost".
-  const redirectUri = `http://127.0.0.1:${PORT}/api/oauth/chatgpt/callback`;
+  // Loopback on 127.0.0.1 - OpenAI requires that, not "localhost". The app's
+  // port on the person's computer (signInReturn), never this process's PORT.
+  const redirectUri = signInReturn('/api/oauth/chatgpt/callback');
   remember(state, { provider: 'chatgpt', verifier, nonce, clientId, redirectUri });
   const params = new URLSearchParams({
     client_id: clientId,

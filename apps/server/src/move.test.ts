@@ -53,9 +53,13 @@ test('secrets sealed for the new machine are read by its vault', async () => {
 });
 
 test('in the cloud, sign-ins come back to the app on 5175, whatever port the platform gives the host', async () => {
-  const { callbackPort } = await import('./integrations/oauth.js');
+  const { callbackPort, signInReturn } = await import('./integrations/oauth.js');
   assert.equal(callbackPort({ EAA_CLOUD_HOST: '1', PORT: '8080' }), 5175);
   assert.equal(callbackPort({ EAA_CLOUD_HOST: '1', PORT: '8080', EAA_CALLBACK_PORT: '5199' }), 5199);
   assert.equal(callbackPort({ PORT: '5175' }), 5175);
   assert.equal(callbackPort({}), 5175);
+  const cloud = { EAA_CLOUD_HOST: '1', PORT: '8080' };
+  assert.equal(signInReturn('/api/oauth/chatgpt/callback', '127.0.0.1', cloud), 'http://127.0.0.1:5175/api/oauth/chatgpt/callback');
+  assert.equal(signInReturn('/api/oauth/openrouter/callback', 'localhost', cloud), 'http://localhost:5175/api/oauth/openrouter/callback');
+  assert.equal(signInReturn('/api/oauth/chatgpt/callback', '127.0.0.1', { PORT: '5175' }), 'http://127.0.0.1:5175/api/oauth/chatgpt/callback');
 });

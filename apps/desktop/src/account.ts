@@ -490,8 +490,8 @@ const linkTo = (o: OrgView) => {
 // organization this computer hosts through /hosted, as its owner (this computer)
 // or, for anyone else signed in here, with their org access token; one hosted
 // elsewhere through the relay, with your org access token inside it.
-// An organization hosted elsewhere: a sign-in to a service (Gmail, Notion...) comes back
-// to this computer's app (oauth.ts), which holds it; this app sends it to the host
+// An organization hosted elsewhere: a sign-in (Gmail, ChatGPT, OpenRouter...) comes
+// back to this computer's app (oauth.ts), which holds it; this app sends it to the host
 // through the relay and tells the waiting page how it went. Started with each sign-in,
 // for as long as the sign-in can last. (Hosted here: the server hands it over itself.)
 let handingOff: number | null = null;

@@ -14,7 +14,7 @@ import {
   type SimpleIcon,
 } from 'simple-icons';
 import { SkelRows } from './Skeleton';
-import { isAdmin } from './account';
+import { handOffSignIns, isAdmin } from './account';
 import {
   connectClaudeCode,
   connectKey,
@@ -124,6 +124,9 @@ export function ModelConnectors() {
   const [openId, setOpenId] = useState<string | null>(null);
   const watching = useRef<ReturnType<typeof setInterval>>();
   const watch = (id: string, popup?: Window | null) => {
+    // The browser comes back to this computer. When the agency is hosted
+    // elsewhere, this app sends that landing on to the host (account.ts).
+    handOffSignIns();
     clearInterval(watching.current);
     setWaiting(id);
     const until = Date.now() + SIGN_IN_WAIT_MS;
