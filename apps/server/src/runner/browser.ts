@@ -64,6 +64,16 @@ async function knownProfile(raw: unknown): Promise<number> {
   return n;
 }
 
+// Where the browser last left its window, if it's mostly on the screen it was saved
+// on. The hidden placeholder window the agents' browser once kept off to the left was
+// saved as the profile's spot, so the person's window opened there, 30px showing.
+type Placement = { left: number; top: number; right: number; bottom: number; work_area_left: number; work_area_top: number; work_area_right: number; work_area_bottom: number };
+export function onScreen(w: Placement) {
+  const across = Math.min(w.right, w.work_area_right) - Math.max(w.left, w.work_area_left);
+  const down = Math.min(w.bottom, w.work_area_bottom) - Math.max(w.top, w.work_area_top);
+  return across >= (w.right - w.left) / 2 && down >= (w.bottom - w.top) / 2 && w.top >= w.work_area_top - 20;
+}
+
 // Kept signed in across restarts: the browser restores its session cookies too
 // (sites whose sign-in has no "remember me" otherwise forget it on close), and it
 // never offers to save passwords - the store does that.
@@ -78,6 +88,8 @@ async function keepSignedIn(dir: string) {
   prefs.session = { ...(prefs.session ?? {}), restore_on_startup: 1 };
   prefs.profile = { ...(prefs.profile ?? {}), exit_type: 'Normal', exited_cleanly: true, password_manager_enabled: false };
   prefs.credentials_enable_service = false;
+  // Off the screen: forgotten, so the window opens where the browser places a new one.
+  if (prefs.browser?.window_placement && !onScreen(prefs.browser.window_placement)) delete prefs.browser.window_placement;
   await mkdir(join(dir, 'Default'), { recursive: true });
   await writeFile(file, JSON.stringify(prefs));
   // And it really quits when its window closes: Edge keeps running in the background

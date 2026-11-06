@@ -26,7 +26,10 @@ export type HarnessRun = {
   next: () => string | null; // after each reply: a nudge to send, or null to end
   signal?: AbortSignal;
 };
-export type HarnessResult = { text: string; usage: Usage };
+// usd: what the plan says the run would have cost on its API (Claude Code
+// reports it, cache reads at their own price); null when it can't be told;
+// left out, the runner prices the tokens itself.
+export type HarnessResult = { text: string; usage: Usage; usd?: number | null };
 export type Harness = (r: HarnessRun) => Promise<HarnessResult>;
 
 export function harnessFor(connection: string): Harness | null {
@@ -43,7 +46,7 @@ const LIMIT = /usage limit|rate limit|limit reached|overloaded|429|too many requ
 // own Claude sign-in or plan token (never the server's key, never billed by
 // mistake): claudeEnv in models/connections.ts.
 
-type ClaudeOut = { result?: string; is_error?: boolean; subtype?: string; session_id?: string; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } };
+type ClaudeOut = { result?: string; is_error?: boolean; subtype?: string; session_id?: string; total_cost_usd?: number; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } };
 
 // One `claude -p` call; the prompt goes in on stdin. Claude Code is found where
 // the connection check finds it (claudeCommand), not only on the PATH the app
@@ -105,6 +108,7 @@ const claudeCode: Harness = async run => {
       '--max-turns', '150',
     ];
     const usage: Usage = { input: 0, output: 0 };
+    let usd: number | null = 0;
     let session: string | undefined;
     let prompt: string | null = run.opening;
     let text = '';
@@ -117,10 +121,11 @@ const claudeCode: Harness = async run => {
       session = out.session_id ?? session;
       usage.input += (out.usage?.input_tokens ?? 0) + (out.usage?.cache_read_input_tokens ?? 0) + (out.usage?.cache_creation_input_tokens ?? 0);
       usage.output += out.usage?.output_tokens ?? 0;
+      usd = usd == null || !Number.isFinite(out.total_cost_usd) ? null : usd + out.total_cost_usd!;
       text = out.result?.trim() || text;
       prompt = run.next();
     }
-    return { text, usage };
+    return { text, usage, usd };
   } finally {
     bridge.close();
     await rm(cwd, { recursive: true, force: true }).catch(() => {});
@@ -171,7 +176,8 @@ const copilot: Harness = async run => {
       prompt = run.next();
     }
     await session.disconnect().catch(() => {});
-    return { text, usage: { input: 0, output: 0 } };
+    // Copilot doesn't say what a reply used: its cost is unknown, never $0.
+    return { text, usage: { input: 0, output: 0 }, usd: null };
   } finally {
     await client.stop().catch(() => {});
     await rm(cwd, { recursive: true, force: true }).catch(() => {});

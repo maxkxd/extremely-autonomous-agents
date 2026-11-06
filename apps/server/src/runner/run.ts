@@ -418,6 +418,9 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
             used = c;
             input += out.usage.input;
             output += out.usage.output;
+            // A plan's run is priced as the same model on its API (pricing.ts).
+            const usd = out.usd !== undefined ? out.usd : await deps.cost(c.connection, c.model, out.usage.input, out.usage.output);
+            cost = cost == null || usd == null ? null : cost + usd;
             if (out.text) summary = out.text;
             harnessDone = true;
           } catch (e) {

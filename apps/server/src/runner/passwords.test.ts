@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openDb, run as exec } from './db.js';
 import { ACCOUNTS_PER_SITE, deletePassword, listPasswords, makePassword, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
-import { SIGNED_IN_TOOLS } from './browser.js';
+import { onScreen, SIGNED_IN_TOOLS } from './browser.js';
 import { BASELINE, BROWSER_KIT } from '../catalog.js';
 
 openDb();
@@ -66,4 +66,12 @@ test("the agents' tools never hand a password back, and every agent holds the ki
   assert.equal(tier('signed_in_browser.click_to_post'), 'T2');
   assert.equal(tier('signed_in_browser.click_to_start_tool'), 'T2');
   exec('DELETE FROM passwords');
+});
+
+test("a browser window saved off its screen isn't opened there again", () => {
+  const screen = { work_area_left: 0, work_area_top: 0, work_area_right: 1920, work_area_bottom: 1032 };
+  assert.equal(onScreen({ ...screen, left: -1250, top: 0, right: 30, bottom: 900 }), false); // the old hidden placeholder's spot
+  assert.equal(onScreen({ ...screen, left: 120, top: 80, right: 1400, bottom: 980 }), true);
+  assert.equal(onScreen({ ...screen, left: 1500, top: 80, right: 2780, bottom: 980 }), false); // a second screen since unplugged
+  assert.equal(onScreen({ ...screen, left: 200, top: -400, right: 1480, bottom: 500 }), false); // title bar above the screen
 });
