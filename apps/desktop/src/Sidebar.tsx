@@ -31,7 +31,7 @@ import { useOffline } from './offline';
 import { useMoreBelow } from './moreBelow';
 import type { SettingsSection } from './Settings';
 
-export type View = 'dashboard' | 'approvals' | 'requests' | 'new-agent' | `agent:${string}`;
+export type View = 'dashboard' | 'approvals' | 'requests' | 'new-agent' | 'browser' | `agent:${string}`;
 
 // The only per-agent symbol: a small monochrome icon for the agent's department.
 export const DEPARTMENT_ICON: Record<Department, typeof Code> = {
@@ -368,6 +368,7 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
 
 export function viewLabel(view: View): string {
   if (view === 'new-agent') return 'New agent';
+  if (view === 'browser') return 'Agents’ browser';
   if (view.startsWith('agent:')) {
     const a = AGENTS.find(x => `agent:${x.id}` === view);
     return a ? a.name : 'Agent';

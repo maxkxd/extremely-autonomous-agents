@@ -34,6 +34,7 @@ import {
   type TimeRange,
 } from './data';
 import { Requests, requestItems, visibleRequests, type RequestResolution } from './Requests';
+import { AgentsBrowser } from './AgentsBrowser';
 import {
   Approvals,
   ApprovalsToolbar,
@@ -114,7 +115,15 @@ function Agency() {
   const offlineSince = useOfflineSince();
   // Your AI assistant's messages for an organization hosted elsewhere, carried while the app is open.
   useEffect(() => carryAssistantMessages(), []);
-  const [view, setView] = useState<View>('dashboard');
+  // #agents-browser: straight to the Agents' browser page (no menu item for it yet).
+  const [view, setView] = useState<View>(() => (location.hash === '#agents-browser' ? 'browser' : 'dashboard'));
+  // A page of the agents' browser opened for the person (in the cloud, builder.ts openAgentBrowser): shown on its page.
+  const [browserTab, setBrowserTab] = useState<string | null>(null);
+  useEffect(() => {
+    const on = (e: Event) => (setBrowserTab((e as CustomEvent<{ tab: string }>).detail.tab), setView('browser'));
+    window.addEventListener('eaa:agents-browser', on);
+    return () => window.removeEventListener('eaa:agents-browser', on);
+  }, []);
   const [dmStopped, setDmStopped] = useState(false); // the agent whose DM is open is stopped (LiveDM)
   useEffect(() => setDmStopped(false), [view]);
   const [range, setRange] = useState<TimeRange>('week');
@@ -767,6 +776,7 @@ function Agency() {
               }}
               onGone={id => setRequestGone(prev => ({ ...prev, [id]: true }))}
               onOpenApprovals={openApproval}
+              onOpenBrowser={() => setView('browser')}
               // A member opens only their own requests (someone else's showed as a link that did nothing).
               refs={{
                 onRequest: openRequest,
@@ -789,6 +799,8 @@ function Agency() {
               agencyStopped={agency === 'stopped'}
               agentsReady={realIds.size > 0}
             />
+          ) : view === 'browser' ? (
+            <AgentsBrowser openTab={browserTab} onOpened={() => setBrowserTab(null)} />
           ) : view.startsWith('agent:') ? (
             <LiveDM key={view} agentId={view.slice('agent:'.length)} approvalOutcomes={resolved} onOpenDashboard={() => setView('dashboard')} onStopped={setDmStopped} />
           ) : (

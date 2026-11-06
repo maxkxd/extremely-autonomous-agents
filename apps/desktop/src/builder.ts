@@ -365,7 +365,39 @@ export const decideApproval = (id: string, decision: 'approved' | 'rejected', no
   post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note });
 // One of the agents' browser profiles, in a window on this computer (at a page, if given).
 // From a request: its Engineer is told when the window closes.
-export const openAgentBrowser = (profile = 1, url?: string, request?: number) => post<{ ok: boolean }>('/api/browser/sign-in', { profile, url, request });
+// In the cloud there's no screen to open it on: the agency opens a page of the
+// person's own instead (live: its id), shown on the Agents' browser page (App.tsx).
+export const openAgentBrowser = async (profile = 1, url?: string, request?: number) => {
+  const r = await post<{ ok: boolean; live?: string }>('/api/browser/sign-in', { profile, url, request });
+  if (r.live) window.dispatchEvent(new CustomEvent('eaa:agents-browser', { detail: { tab: r.live } }));
+  return r;
+};
+
+// --- The agents' browser, live (AgentsBrowser.tsx; server runner/live-view.ts) ---
+export type LiveTab = {
+  id: string;
+  kind: 'agent' | 'person';
+  profile: number;
+  agent: { id: string; name: string } | null;
+  request: number | null;
+  since: number;
+  held: number | null; // since when the person has it (a person's own page: always)
+  url: string;
+  title: string;
+  thumb: string | null; // JPEG, base64
+};
+export type LiveNeed = { request: number; agent: { id: string; name: string }; what: string; url: string; site: string; profile: number; since: number };
+export type LiveFrame = { seq: number; data: string | null; width: number; height: number; held: number | null };
+export type PersonInput =
+  | { type: 'mouse'; action: 'mousePressed' | 'mouseReleased' | 'mouseMoved'; x: number; y: number; button?: 'left' | 'middle' | 'right' | 'none'; buttons?: number; clickCount?: number; modifiers?: number }
+  | { type: 'wheel'; x: number; y: number; deltaX: number; deltaY: number; modifiers?: number }
+  | { type: 'key'; action: 'down' | 'up'; key: string; code: string; keyCode: number; text?: string; modifiers?: number }
+  | { type: 'text'; text: string };
+export const liveBrowser = (thumbs: boolean) => request<{ profiles: number[]; needs: LiveNeed[]; tabs: LiveTab[] }>(`/api/browser/live${thumbs ? '?thumbs=1' : ''}`);
+export const liveFrame = (tab: string, after: number) => request<LiveFrame>(`/api/browser/live/frame?tab=${encodeURIComponent(tab)}&after=${after}`);
+export const liveInput = (tab: string, events: PersonInput[]) => post<{ ok: boolean }>('/api/browser/live/input', { tab, events });
+export const liveControl = (tab: string, action: 'take' | 'done' | 'handback') => post<{ ok: boolean }>('/api/browser/live/control', { tab, action });
+export const liveOpen = (profile: number, url: string) => post<{ tab: string }>('/api/browser/live/open', { profile, url });
 
 // The agents' password store (Settings > Connectors > Passwords): owners and admins.
 export type SavedPassword = { id: string; site: string; username: string; profile: number; agent_id: string | null; note: string | null; created_at: number };

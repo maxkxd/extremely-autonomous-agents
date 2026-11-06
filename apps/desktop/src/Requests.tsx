@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, Code2, Hammer, Hand, Loader2, Plug, SendHorizontal, User, X } from 'lucide-react';
+import { Check, ChevronRight, Code2, Globe, Hammer, Hand, Loader2, Plug, SendHorizontal, User, X } from 'lucide-react';
 import { siClaude, siCursor, type SimpleIcon } from 'simple-icons';
 import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { visibleApprovals, type ApprovalScope } from './Approvals';
-import { sendRequestMessage, sendToIde } from './builder';
+import { liveBrowser, sendRequestMessage, sendToIde } from './builder';
 import { RichText } from './RichText';
 import { Loading, Skel } from './Skeleton';
 import { useOffline } from './offline';
@@ -16,6 +16,25 @@ import { isAdmin } from './account';
 // A teammate's shared sign-in request a member sees but can't answer (visibleRequests).
 const theirsOf = (r: ResourceRequest) => !!ACCOUNT.org && !isAdmin() && !visibleApprovals([r], 'mine').length;
 const ownerOf = (r: ResourceRequest) => agentOf(r).owner || 'its owner';
+
+// How many requests wait on the person in the agents' browser (a CAPTCHA, a sign-in):
+// for admins, who are the ones who can take its pages over.
+function useBrowserWaiting() {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!isAdmin()) return;
+    let alive = true;
+    const tick = () =>
+      liveBrowser(false).then(
+        s => alive && setN(s.needs.length),
+        () => {},
+      );
+    void tick();
+    const t = setInterval(tick, 10_000);
+    return () => ((alive = false), clearInterval(t));
+  }, []);
+  return n;
+}
 
 export function visibleRequests(list: ResourceRequest[], scope: ApprovalScope): ResourceRequest[] {
   if (!ACCOUNT.org || scope === 'all') return list;
@@ -468,6 +487,7 @@ export function Requests({
   onDecide,
   onGone,
   onOpenApprovals,
+  onOpenBrowser,
   refs,
   focus,
   focusReply = false,
@@ -480,6 +500,7 @@ export function Requests({
   onDecide: (id: string, r: RequestResolution, note: string) => void;
   onGone: (id: string) => void;
   onOpenApprovals: (approvalId?: string | null) => void;
+  onOpenBrowser?: () => void; // the Agents' browser page
   refs: RequestRefs;
   focus: number | null; // the request to bring into view (its number)
   focusReply?: boolean; // and its reply box ready to type in (Suggest alternative on a setup item)
@@ -498,6 +519,15 @@ export function Requests({
   const arrived = oldestFirst.sort((a, b) => seen.current.get(a.id)! - seen.current.get(b.id)!);
   // Yours first; a teammate's shared ones after (they're theirs to answer).
   const shown = [...arrived.filter(r => !theirsOf(r)), ...arrived.filter(theirsOf)];
+  const browserWaiting = useBrowserWaiting();
+  const toBrowser =
+    browserWaiting > 0 && onOpenBrowser ? (
+      <button className="requests-browser" onClick={onOpenBrowser}>
+        <Globe size={15} />
+        {browserWaiting === 1 ? 'A page waits for you in the agents’ browser' : `${browserWaiting} pages wait for you in the agents’ browser`}
+        <ChevronRight size={15} />
+      </button>
+    ) : null;
 
   if (loading && shown.length === 0)
     return (
@@ -545,6 +575,7 @@ export function Requests({
   const placed = new Set<string>();
   return (
     <div className="requests">
+      {toBrowser}
       {shown.map(r => {
         if (folded(r, shown)) return null;
         if (!grouped.has(r.id)) return row(r);
