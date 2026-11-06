@@ -3,7 +3,7 @@ import { availableModels } from '../models/connections.js';
 import { allChoices, cleanChoices, type ModelChoice } from '../models/choice.js';
 import { isBenched, recordFailure, recordSuccess } from '../models/health.js';
 import { run as exec } from './db.js';
-import { harnessFor } from './harness.js';
+import { harnessFor, type HarnessResult } from './harness.js';
 import { costOf, isFree } from './pricing.js';
 import { adapterFor } from './providers.js';
 import { getHealth, newRunId, overSpend, postRun, putHealth, stateOf, type Trigger } from './run.js';
@@ -26,7 +26,7 @@ type Ask = {
   summary: (text: string) => string | Promise<string>;
 };
 
-async function call(c: ModelChoice, system: string, prompt: string, maxTokens: number) {
+async function call(c: ModelChoice, system: string, prompt: string, maxTokens: number): Promise<HarnessResult> {
   const adapter = adapterFor(c.connection);
   if (adapter) {
     const r = await adapter({ connection: c.connection, model: c.model, system, messages: [{ role: 'user', text: prompt }], tools: [], maxTokens });
@@ -56,7 +56,7 @@ export async function ask(agentId: string, a: Ask): Promise<string> {
     try {
       const r = await call(c, a.system, a.prompt, a.maxTokens ?? 2000);
       putHealth(recordSuccess(getHealth(), c));
-      const cost = await costOf(c.connection, c.model, r.usage.input, r.usage.output);
+      const cost = r.usd !== undefined ? r.usd : await costOf(c.connection, c.model, r.usage.input, r.usage.output);
       const summary = await Promise.resolve(a.summary(r.text)).catch(() => r.text.slice(0, 500));
       const endedAt = Date.now();
       exec(

@@ -182,12 +182,12 @@ opening says what it already did, so nothing is done twice.
   calendar month). Hitting one pauses that spending until the next month;
   plans and local models aren't affected.
 - **What a run cost**: OpenRouter's public price list, refreshed daily. A
-  run on Claude Code (the Claude plan, which runs the whole run itself) shows
-  $0.00: it isn't charged per run, and Settings > Usage says so. A run on the
-  ChatGPT plan is priced as the same model on an API would be - more than it
-  really costs, but it shows what the plan is worth. Copilot picks its own
-  model, so its runs are unknown; local models are free. Plans keep running
-  past a spend limit either way.
+  run on a plan is priced as the same model on an API would be - more than it
+  really costs, but it shows what the plan is worth, and it counts toward the
+  spend limits. Claude Code reports that figure itself (cache reads at their
+  own price); a ChatGPT plan run is priced from its tokens. Copilot doesn't
+  say what it used, so its runs are unknown; local models are free. Plans
+  keep running past a spend limit either way.
 - **Failure backoff**: an agent whose runs keep failing within seconds (broken
   model, broken tool) backs off instead of spinning, at every level.
 - **Going round in circles** (`loopGuard` in `runner/run.ts`): a run has no

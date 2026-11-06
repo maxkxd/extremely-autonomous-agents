@@ -1260,7 +1260,7 @@ function UsageSection() {
   const total = rows.reduce((s, r) => s + r.spend, 0);
   const runs = rows.reduce((s, r) => s + r.a.monthRuns, 0);
   const unknown = rows.reduce((s, r) => s + r.a.monthUnknownRuns, 0);
-  // Bars by spend; when it's all a cent or less (AI plans don't cost per run), by runs -
+  // Bars by spend; when it's all a cent or less (local models cost nothing), by runs -
   // a fraction of a cent drew the only bar while 7 runs drew none.
   const bySpend = rows.some(r => r.spend >= 0.01);
   const barOf = (spend: number, runs: number) => (bySpend ? spend / Math.max(...rows.map(r => r.spend)) : runs / Math.max(...rows.map(r => r.a.monthRuns), 1));
@@ -1294,8 +1294,6 @@ function UsageSection() {
           <span className="stile-value">{usage ? rows.length : <Skel w={24} h={24} />}</span>
         </div>
       </div>
-      {/* All on AI plans: nothing is charged per run, which "$0.00 over 18 runs" didn't say. */}
-      {usage && runs > 0 && total < 0.01 && <p className="slead">Runs on an AI plan aren't charged per run, so they show as $0.00.</p>}
       <div className="susage-cols">
         <h3>By agent</h3>
         <span className="susage-limit-head">Monthly limit</span>

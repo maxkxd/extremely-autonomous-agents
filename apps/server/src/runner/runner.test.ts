@@ -304,6 +304,21 @@ test('a model that fails mid-run hands over to the next one, and no action is re
   assert.ok(calls >= 2);
 });
 
+test("a plan's run is priced as its API would charge: the plan's own figure, else its tokens", async () => {
+  setLevel(CHILL);
+  const plan = (usd?: number | null) => async () => ({ text: 'Done on the plan.', usage: { input: 1000, output: 100 }, ...(usd === undefined ? {} : { usd }) });
+  const cost = async (_c: string, _m: string, input: number, output: number) => (input + output) / 1e6;
+  const costOf = async (usd?: number | null) => {
+    resetDbForTests();
+    const r = await runAgent(agent(), 'scheduled', null, deps(fake(0), { adapter: () => null, harness: () => plan(usd), cost }));
+    assert.equal(r.status, 'succeeded');
+    return one<{ cost_usd: number | null }>('SELECT cost_usd FROM runs WHERE id = ?', r.id)!.cost_usd;
+  };
+  assert.equal(await costOf(0.42), 0.42); // Claude Code says what it's worth
+  assert.equal(await costOf(), 0.0011); // otherwise priced from its tokens, never $0
+  assert.equal(await costOf(null), null); // Copilot can't say: unknown, not $0
+});
+
 test('every model failing fails the run, posts why, and backs the agent off', async () => {
   setLevel(CHILL);
   const down: Adapter = async () => {
