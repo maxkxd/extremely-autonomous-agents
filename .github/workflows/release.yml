@@ -69,7 +69,8 @@ jobs:
           SIGN=()
           if [ -n "$AZURE_CLIENT_ID" ]; then
             SIGN=(
-              "-c.win.azureSignOptions.publisherName=World Asset Register"
+              # The certificate's CN, exactly: electron-updater checks updates against it.
+              "-c.win.azureSignOptions.publisherName=WORLD ASSET REGISTER PTY LTD"
               "-c.win.azureSignOptions.endpoint=${{ vars.AZURE_SIGNING_ENDPOINT }}"
               "-c.win.azureSignOptions.codeSigningAccountName=${{ vars.AZURE_SIGNING_ACCOUNT }}"
               "-c.win.azureSignOptions.certificateProfileName=${{ vars.AZURE_CERTIFICATE_PROFILE }}"

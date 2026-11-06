@@ -123,7 +123,9 @@ people get no "unknown publisher" warning.
 
 ## Open
 
-- **Signing**: Azure Trusted Signing and Apple Developer applied for.
+- **Signing**: Azure Artifact Signing is set up (certificate profile
+  `eaa-public`, signed as WORLD ASSET REGISTER PTY LTD); it signs once the
+  `AZURE_*` secrets are in the `release` environment. Apple Developer applied for.
 - **Size**: about 130 MB, nearly all Electron.
 - The installer's name has no version in it (`Extremely-Autonomous-Agents-Setup.exe`), so
   `https://github.com/maxkxd/extremely-autonomous-agents/releases/latest/download/Extremely-Autonomous-Agents-Setup.exe`
