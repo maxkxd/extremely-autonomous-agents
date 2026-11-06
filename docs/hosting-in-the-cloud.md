@@ -7,6 +7,11 @@ container is the same server, registered as the organisation's host, with the
 same host key: members' apps reach it through the relay exactly as before and
 notice nothing.
 
+Everything here is part of the open-source product: anyone can build the image
+and run their organisation's agency on their own server or cloud account. Our
+hosted plan is this same container, run by us. What's ours alone is how we
+run it (accounts, keys, monitoring), which isn't in this repository.
+
 ## What runs in the container
 
 `deploy/cloud/Dockerfile`, built from the repository root:
