@@ -14,6 +14,7 @@ import { openSealed, packBundle, sealFor, vaultKeyBytes } from '../src/move.js';
 //   node --import tsx scripts/move-org.ts --to-key <the new machine's EAA_VAULT_KEY> --out org.eaa
 //        [--data <the app's data folder>] [--stop] [--sidecar file.mjs ...]
 //   node --import tsx scripts/move-org.ts --new-key      a new vault key for the new machine
+//   ... --check      everything but the move: finds and opens the keys and vaults, changes nothing
 //
 // The bundle has the organization's folder as it is (agents, runs, messages,
 // memories, connections), its vault opened here and sealed again with the new
@@ -153,55 +154,68 @@ const keyEntry = personalVault[`hosting:${orgId}:key`];
 const secretEntry = personalVault[`hosting:${orgId}:secret`];
 if (!keyEntry || !secretEntry) throw new Error('This computer has no host key or secret for that organization: it was never registered here.');
 
-if (await answers(HOSTED_PORT)) {
-  if (!flag('--stop')) throw new Error('The organization’s agency is running here. Run again with --stop to stop it (its folder must be still to move it).');
-  say('Stopping the organization’s agency here.');
-  await fetch(`http://127.0.0.1:${PERSONAL_PORT}/api/hosting/stop`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-  for (let i = 0; i < 40 && (await answers(HOSTED_PORT)); i++) await new Promise(r => setTimeout(r, 500));
-  if (await answers(HOSTED_PORT)) throw new Error('It didn’t stop.');
-  await new Promise(r => setTimeout(r, 2000)); // its browsers closing after it
-}
-
-const stage = await mkdtemp(join(tmpdir(), 'eaa-move-'));
-try {
-  const agency = join(stage, 'agency');
-  say('Copying its folder.');
-  await cp(orgDir, agency, {
-    recursive: true,
-    // Its vault is written again below; its profiles start empty there (cookies carried instead).
-    filter: src => {
-      const rel = src.slice(orgDir.length).replace(/\\/g, '/');
-      return !/^\/(vault\.json|vault\.key|vault\.json\.tmp)$/.test(rel) && !/^\/browser-profiles?\/.+\/./.test(rel) && !/^\/browser-profile\/./.test(rel);
-    },
-  });
-
+if (flag('--check')) {
   const orgKey = vaultKeyBytes((await readFile(join(orgDir, 'vault.key'), 'utf8')).trim());
   const orgVault = existsSync(join(orgDir, 'vault.json')) ? await readJson<Record<string, Sealed>>(join(orgDir, 'vault.json')) : {};
-  const next: Record<string, Sealed> = {};
-  for (const [id, sealed] of Object.entries(orgVault)) next[id] = sealFor(toKey, openSealed(orgKey, sealed));
-  next[`hosting:${orgId}:key`] = sealFor(toKey, openSealed(pKey, keyEntry));
-  next[`hosting:${orgId}:secret`] = sealFor(toKey, openSealed(pKey, secretEntry));
-  say(`Vault: ${Object.keys(orgVault).length} secrets, sealed again for the new machine, and the host's key and secret.`);
+  for (const sealed of Object.values(orgVault)) openSealed(orgKey, sealed);
+  openSealed(pKey, keyEntry);
+  openSealed(pKey, secretEntry);
+  const profiles = existsSync(join(orgDir, 'browser-profiles')) ? (await readdir(join(orgDir, 'browser-profiles'))).filter(n => /^\d+$/.test(n)) : [];
+  say(`Ready to move ${h?.orgName ?? orgId}: ${Object.keys(orgVault).length} secrets open, the host's key and secret open, ${profiles.length} browser profiles, browser ${browserExe() ?? 'not found'}.`);
+} else await move();
 
-  const profilesDir = join(orgDir, 'browser-profiles');
-  const profiles = existsSync(profilesDir) ? (await readdir(profilesDir, { withFileTypes: true })).filter(d => d.isDirectory() && /^\d+$/.test(d.name)).map(d => d.name) : [];
-  for (const n of profiles) {
-    const cookies = await cookiesOf(join(profilesDir, n));
-    next[`browser:${n}:carried-cookies`] = sealFor(toKey, cookies);
-    await mkdir(join(agency, 'browser-profiles', n), { recursive: true });
-    say(`Browser profile ${n}: ${cookies.length} cookies (${new Set(cookies.map(c => String(c.domain).replace(/^\./, ''))).size} sites).`);
-  }
-  await writeFile(join(agency, 'vault.json'), JSON.stringify(next), { mode: 0o600 });
-
-  const sidecars = opts('--sidecar');
-  if (sidecars.length) {
-    await mkdir(join(stage, 'sidecars'));
-    for (const f of sidecars) await cp(resolve(f), join(stage, 'sidecars', f.replace(/^.*[\\/]/, '')));
+// Stopped here, then everything copied, sealed again and packed.
+async function move() {
+  if (await answers(HOSTED_PORT)) {
+    if (!flag('--stop')) throw new Error('The organization’s agency is running here. Run again with --stop to stop it (its folder must be still to move it).');
+    say('Stopping the organization’s agency here.');
+    await fetch(`http://127.0.0.1:${PERSONAL_PORT}/api/hosting/stop`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    for (let i = 0; i < 40 && (await answers(HOSTED_PORT)); i++) await new Promise(r => setTimeout(r, 500));
+    if (await answers(HOSTED_PORT)) throw new Error('It didn’t stop.');
+    await new Promise(r => setTimeout(r, 2000)); // its browsers closing after it
   }
 
-  say('Packing and encrypting.');
-  await packBundle(stage, toKey, out);
-  say(`Done: ${out}. It opens only with the new machine's vault key.`);
-} finally {
-  await rm(stage, { recursive: true, force: true });
+  const stage = await mkdtemp(join(tmpdir(), 'eaa-move-'));
+  try {
+    const agency = join(stage, 'agency');
+    say('Copying its folder.');
+    await cp(orgDir, agency, {
+      recursive: true,
+      // Its vault is written again below; its profiles start empty there (cookies carried instead).
+      filter: src => {
+        const rel = src.slice(orgDir.length).replace(/\\/g, '/');
+        return !/^\/(vault\.json|vault\.key|vault\.json\.tmp)$/.test(rel) && !/^\/browser-profiles?\/.+\/./.test(rel) && !/^\/browser-profile\/./.test(rel);
+      },
+    });
+
+    const orgKey = vaultKeyBytes((await readFile(join(orgDir, 'vault.key'), 'utf8')).trim());
+    const orgVault = existsSync(join(orgDir, 'vault.json')) ? await readJson<Record<string, Sealed>>(join(orgDir, 'vault.json')) : {};
+    const next: Record<string, Sealed> = {};
+    for (const [id, sealed] of Object.entries(orgVault)) next[id] = sealFor(toKey, openSealed(orgKey, sealed));
+    next[`hosting:${orgId}:key`] = sealFor(toKey, openSealed(pKey, keyEntry));
+    next[`hosting:${orgId}:secret`] = sealFor(toKey, openSealed(pKey, secretEntry));
+    say(`Vault: ${Object.keys(orgVault).length} secrets, sealed again for the new machine, and the host's key and secret.`);
+
+    const profilesDir = join(orgDir, 'browser-profiles');
+    const profiles = existsSync(profilesDir) ? (await readdir(profilesDir, { withFileTypes: true })).filter(d => d.isDirectory() && /^\d+$/.test(d.name)).map(d => d.name) : [];
+    for (const n of profiles) {
+      const cookies = await cookiesOf(join(profilesDir, n));
+      next[`browser:${n}:carried-cookies`] = sealFor(toKey, cookies);
+      await mkdir(join(agency, 'browser-profiles', n), { recursive: true });
+      say(`Browser profile ${n}: ${cookies.length} cookies (${new Set(cookies.map(c => String(c.domain).replace(/^\./, ''))).size} sites).`);
+    }
+    await writeFile(join(agency, 'vault.json'), JSON.stringify(next), { mode: 0o600 });
+
+    const sidecars = opts('--sidecar');
+    if (sidecars.length) {
+      await mkdir(join(stage, 'sidecars'));
+      for (const f of sidecars) await cp(resolve(f), join(stage, 'sidecars', f.replace(/^.*[\\/]/, '')));
+    }
+
+    say('Packing and encrypting.');
+    await packBundle(stage, toKey, out);
+    say(`Done: ${out}. It opens only with the new machine's vault key.`);
+  } finally {
+    await rm(stage, { recursive: true, force: true });
+  }
 }

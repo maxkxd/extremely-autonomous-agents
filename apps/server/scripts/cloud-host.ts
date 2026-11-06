@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream, existsSync } from 'node:fs';
-import { mkdir, readdir, rename, rm } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -17,7 +17,8 @@ import { unpackBundle, vaultKeyBytes } from '../src/move.js';
 //                to it - started again a minute after they stop
 //
 // A bundle is only opened into an empty agency folder: one that already has an
-// agency is never overwritten.
+// agency is never overwritten. With neither, it waits for a bundle
+// (EAA_START_EMPTY=1: starts an empty agency instead).
 
 const DATA = resolve(process.env.EAA_DATA_DIR ?? '/data/agency');
 const ROOT = dirname(DATA);
@@ -37,8 +38,19 @@ async function moveIn() {
     if (!r.ok || !r.body) throw new Error(`Fetching the bundle: ${r.status}`);
     await pipeline(Readable.fromWeb(r.body as never), createWriteStream(join(INCOMING, 'fetched.eaa')));
   }
-  const bundle = (await readdir(INCOMING)).filter(f => f.endsWith('.eaa')).sort()[0];
-  if (!bundle) return log('No agency here yet and no bundle to move in: starting an empty one.');
+  let bundle = (await readdir(INCOMING)).filter(f => f.endsWith('.eaa')).sort()[0];
+  // A container is for an organisation moving in: it waits for it (EAA_START_EMPTY: a new one, empty).
+  if (!bundle && process.env.EAA_START_EMPTY) return log('No agency here yet: starting an empty one.');
+  if (!bundle) log(`Waiting for the organisation's bundle in ${INCOMING}.`);
+  while (!bundle) {
+    await new Promise(r => setTimeout(r, 10_000));
+    // Whole files only: an upload in progress isn't named .eaa yet, or is still growing.
+    const ready = (await readdir(INCOMING)).filter(f => f.endsWith('.eaa')).sort()[0];
+    if (!ready) continue;
+    const size = (await stat(join(INCOMING, ready))).size;
+    await new Promise(r => setTimeout(r, 3000));
+    if ((await stat(join(INCOMING, ready))).size === size) bundle = ready;
+  }
   if (!process.env.EAA_VAULT_KEY) throw new Error('EAA_VAULT_KEY is needed to open the bundle.');
   const into = join(INCOMING, 'opened');
   await rm(into, { recursive: true, force: true });

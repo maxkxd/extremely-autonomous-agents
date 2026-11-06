@@ -27,8 +27,10 @@ Nothing listens outside the container. Its volume, mounted at `/data`, holds:
 | `/data/incoming` | a bundle moving an organisation in |
 | `/data/sidecars` | extra programs (`*.mjs`) run beside the agency with `EAA_URL` set to it, started again a minute after they stop |
 
-`scripts/cloud-host.ts` runs it all: it opens a waiting bundle into an empty
-agency folder (never over an agency), starts the agency, then the sidecars.
+`scripts/cloud-host.ts` runs it all: it opens a bundle into an empty agency
+folder (never over an agency), starts the agency, then the sidecars. With no
+agency and no bundle it waits for one to arrive in `/data/incoming`
+(`EAA_START_EMPTY=1` starts an empty agency instead).
 
 ### Variables
 
