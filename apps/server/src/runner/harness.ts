@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { access, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { approveAll, CopilotClient, defineTool, ToolSet } from '@github/copilot-sdk';
 import { copilotConnection } from '../models/copilotRuntime.js';
@@ -68,11 +69,12 @@ export async function claudeOnce(args: string[], prompt: string, cwd: string, si
       void claudeCommand(true); // look again next time: it may have moved
       reject(new ModelError(`Couldn't start Claude Code: ${e.message}`, 'network'));
     });
-    child.on('close', code => {
+    child.on('close', (code, sig) => {
       const text = out.trim();
       try {
         resolve(JSON.parse(text.slice(text.indexOf('{'))) as ClaudeOut);
       } catch {
+        if (!signal?.aborted && crashed(code, sig, err)) return reject(new ClaudeCrash(`Claude Code crashed (${sig ?? `exit ${code}`})`));
         const why = (err || text || `exit ${code}`).slice(0, 300);
         reject(tooOld(why) ?? new ModelError(`Claude Code: ${why}`, LIMIT.test(why) ? 'rate' : 'server'));
       }
@@ -80,6 +82,26 @@ export async function claudeOnce(args: string[], prompt: string, cwd: string, si
     child.stdin.end(prompt);
   });
 }
+
+// Claude Code itself crashing mid-turn (killed by a signal, or its runtime
+// aborting: "Bun has crashed", exit 134) isn't the model failing: what the agent
+// did so far is in its session, so the turn carries on from there.
+export class ClaudeCrash extends ModelError {
+  constructor(message: string) {
+    super(message, 'server');
+  }
+}
+export const crashed = (code: number | null, sig: NodeJS.Signals | null, err: string) =>
+  sig != null || code === null || code === 134 || code === 139 || /Bun has crashed|panic\(/.test(err);
+const CRASH_RETRIES = 3;
+// Whether Claude Code wrote anything of this session before it stopped.
+async function sessionSaved(id: string) {
+  const projects = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects');
+  for (const dir of await readdir(projects).catch(() => [] as string[]))
+    if (await access(join(projects, dir, `${id}.jsonl`)).then(() => true, () => false)) return true;
+  return false;
+}
+const CARRY_ON = 'Claude Code stopped unexpectedly in the middle of your last turn. Carry on from where you were.';
 
 // Claude Code too old for the model: said plainly, and the Connectors row offers the update.
 const tooOld = (why: string) => {
@@ -109,11 +131,24 @@ const claudeCode: Harness = async run => {
     ];
     const usage: Usage = { input: 0, output: 0 };
     let usd: number | null = 0;
-    let session: string | undefined;
+    // Named up front, so a crash in the very first turn can still be resumed.
+    let session: string = randomUUID();
+    let started = false;
     let prompt: string | null = run.opening;
     let text = '';
+    let crashes = 0;
     while (prompt) {
-      const out = await claudeOnce(['-p', ...(session ? ['--resume', session] : []), ...isolate], prompt, cwd, run.signal);
+      let out: ClaudeOut;
+      try {
+        out = await claudeOnce(['-p', ...(started ? ['--resume', session] : ['--session-id', session]), ...isolate], prompt, cwd, run.signal);
+      } catch (e) {
+        if (!(e instanceof ClaudeCrash) || ++crashes > CRASH_RETRIES) throw e;
+        console.error(`[harness] ${e.message}; carrying on (${crashes}/${CRASH_RETRIES}).`);
+        // A crash before anything was saved leaves no session to resume: that turn starts again.
+        if (started || (await sessionSaved(session))) [started, prompt] = [true, CARRY_ON];
+        continue;
+      }
+      started = true;
       if (out.is_error) {
         const why = out.result || out.subtype || 'Claude Code failed';
         throw tooOld(why) ?? new ModelError(`Claude Code: ${why}`, LIMIT.test(why) ? 'rate' : 'server');
