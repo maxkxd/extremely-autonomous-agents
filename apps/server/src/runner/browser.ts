@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { lookup } from 'node:dns/promises';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, readlink, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -221,11 +221,13 @@ async function startProfile(n: number): Promise<Shared> {
   if (!exe) throw noBrowser();
   const dir = profileDir(n);
   await keepSignedIn(dir);
+  // The one before it, still shutting down, goes first: two on one folder is twice the memory.
+  await closing.get(n);
   await clearStaleLock(dir);
   // The browser writes its debugging port (and its address) here once it's listening.
   const portFile = join(dir, 'DevToolsActivePort');
   await rm(portFile, { force: true });
-  const proc = spawn(exe, [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', ...PROFILE_FLAGS, ...EXTRA_FLAGS], { stdio: 'ignore', windowsHide: false });
+  const proc = spawn(exe, [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', ...PROFILE_FLAGS, ...EXTRA_FLAGS], { stdio: 'ignore', windowsHide: false, detached: GROUPS });
   running.add(proc);
   let exited = false;
   proc.on('error', e => {
@@ -255,11 +257,39 @@ async function startProfile(n: number): Promise<Shared> {
   await addCarriedCookies(cdp, n);
   const s: Shared = { proc, cdp, runs: new Set() };
   proc.on('exit', () => {
-    if (shared.get(n) && s.proc === proc) shared.delete(n);
     clearTimeout(s.idle);
+    // Only this browser's entry: a newer one may have started since.
+    void shared.get(n)?.then(cur => cur === s && shared.delete(n), () => {});
   });
-  cdp.onClose(() => proc.kill());
+  cdp.onClose(() => void endBrowser(proc));
   return s;
+}
+
+// A browser asked to close that hasn't within CLOSE_DEADLINE_MS is ended, with
+// everything it started: one stuck shutting down kept its memory for hours while
+// the next run started another beside it. Off Windows each browser leads its own
+// process group, so its renderers and GPU process go with it.
+const GROUPS = process.platform !== 'win32';
+const CLOSE_DEADLINE_MS = 10_000;
+const closing = new Map<number, Promise<void>>();
+export async function endBrowser(proc: ChildProcess, ask?: () => Promise<unknown>, deadline = CLOSE_DEADLINE_MS) {
+  if (proc.exitCode !== null || proc.signalCode !== null) return;
+  const gone = new Promise<void>(r => proc.once('exit', () => r()));
+  if (ask) await Promise.race([ask().catch(() => proc.kill()), gone]);
+  else proc.kill();
+  const timer = new Promise<'late'>(r => setTimeout(() => r('late'), deadline).unref());
+  if ((await Promise.race([gone, timer])) !== 'late') return;
+  console.error(`[browser] A browser (pid ${proc.pid}) didn't close in ${deadline / 1000} s; ending it.`);
+  killTree(proc);
+  await Promise.race([gone, new Promise(r => setTimeout(r, 2_000).unref())]);
+}
+function killTree(proc: ChildProcess) {
+  try {
+    if (GROUPS && proc.pid) process.kill(-proc.pid, 'SIGKILL');
+    else proc.kill('SIGKILL');
+  } catch {
+    proc.kill('SIGKILL');
+  }
 }
 
 // Nobody's using it: close it a minute later, sign-ins kept.
@@ -268,18 +298,26 @@ function closeWhenIdle(n: number, s: Shared) {
   if (s.runs.size) return;
   s.idle = setTimeout(() => {
     if (s.runs.size) return;
-    if (shared.get(n)) shared.delete(n);
-    void (async () => {
+    void shared.get(n)?.then(cur => cur === s && shared.delete(n), () => {});
+    const done = endBrowser(s.proc, async () => {
       await keepSessionCookies(s.cdp, n).catch(e => console.error(`[browser] Profile ${n}: keeping the session before closing failed:`, (e as Error).message));
-      await s.cdp.send('Browser.close').catch(() => s.proc.kill());
-    })().catch(() => s.proc.kill());
+      await s.cdp.send('Browser.close');
+    });
+    closing.set(n, done);
+    void done.finally(() => closing.get(n) === done && closing.delete(n));
   }, IDLE_CLOSE_MS);
 }
 
 // The app quitting takes the profiles' browsers with it.
 const running = new Set<ChildProcess>();
 process.on('exit', () => {
-  for (const proc of running) proc.kill();
+  for (const proc of running)
+    try {
+      if (GROUPS && proc.pid) process.kill(-proc.pid, 'SIGTERM');
+      else proc.kill();
+    } catch {
+      proc.kill();
+    }
 });
 
 // Nothing a page asks for on this computer or its network.
@@ -335,6 +373,11 @@ function playwrightDriver(page: Page): Driver {
 type Session = { kind: 'blank' | 'profile'; runId: string; profile: number; browser?: Browser; page: Driver; cdp?: CdpPage; agent?: { id: string; name: string } };
 const sessions = new Map<string, Session>();
 
+// Two tool calls at once share one opening, and one that finishes after its run
+// ended closes again: either way a browser used to be left running with nobody's
+// run to close it.
+const sessionOpening = new Map<string, Promise<Session>>();
+const endedRuns = new Set<string>();
 async function session(ctx: RunCtx, kind: Session['kind'], profile = 1): Promise<Session> {
   const key = `${ctx.runId}:${kind}:${kind === 'profile' ? profile : 0}`;
   const existing = sessions.get(key);
@@ -342,6 +385,16 @@ async function session(ctx: RunCtx, kind: Session['kind'], profile = 1): Promise
     if (existing.cdp) await untilFree(existing.cdp);
     return existing;
   }
+  if (existing) await closeSession(key);
+  let p = sessionOpening.get(key);
+  if (!p) {
+    p = openSession(ctx, kind, profile, key);
+    sessionOpening.set(key, p);
+    void p.finally(() => sessionOpening.delete(key)).catch(() => {});
+  }
+  return p;
+}
+async function openSession(ctx: RunCtx, kind: Session['kind'], profile: number, key: string): Promise<Session> {
   let s: Session;
   if (kind === 'blank') {
     const browser = await launch(true);
@@ -363,6 +416,10 @@ async function session(ctx: RunCtx, kind: Session['kind'], profile = 1): Promise
     }
   }
   sessions.set(key, s);
+  if (endedRuns.has(ctx.runId)) {
+    await closeSession(key);
+    throw new Error('This run has ended.');
+  }
   return s;
 }
 
@@ -371,7 +428,7 @@ async function closeSession(key: string) {
   if (!s) return;
   sessions.delete(key);
   if (s.cdp) release(s.cdp.targetId);
-  if (s.kind === 'blank') return void (await s.browser?.close().catch(() => {}));
+  if (s.kind === 'blank') return void (await Promise.race([s.browser?.close().catch(() => {}), new Promise(r => setTimeout(r, CLOSE_DEADLINE_MS).unref())]));
   const sh = await shared.get(s.profile)?.catch(() => null);
   if (sh) await keepSessionCookies(sh.cdp, s.profile).catch(() => {});
   await s.page.close().catch(() => {});
@@ -501,7 +558,49 @@ async function carryBack(n: number) {
   console.log(`[browser] Profile ${n}: ${cookies.length} cookies from the person's window are in the agents' browser now.`);
 }
 
+// Leftovers, checked every few minutes where there's a `ps` (Linux: the cloud). A
+// browser on an agents' profile folder that isn't the one the app is using, or a
+// throwaway browser while no run has one open, is ended: nothing else would.
+export function leftoverBrowsers(ps: string, self: number, ours: Set<number>, blankInUse: boolean) {
+  const out: number[] = [];
+  for (const line of ps.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (!m) continue;
+    const [pid, ppid, args] = [Number(m[1]), Number(m[2]), m[3]];
+    if (ours.has(pid) || args.includes('--type=')) continue; // renderers and the like go with their browser
+    const dir = /--user-data-dir=(\S+)/.exec(args)?.[1];
+    if (!dir) continue;
+    const agents = dir.startsWith(PROFILES_DIR) && /^\d+$/.test(dir.slice(PROFILES_DIR.length + 1));
+    const blank = ppid === self && dir.includes('playwright_chromiumdev_profile') && !blankInUse;
+    if (agents || blank) out.push(pid);
+  }
+  return out;
+}
+const SWEEP_MS = 5 * 60_000;
+if (process.platform === 'linux')
+  setInterval(() => {
+    execFile('ps', ['-eo', 'pid=,ppid=,args='], { maxBuffer: 16 << 20 }, (err, ps) => {
+      if (err) return;
+      const ours = new Set<number>();
+      for (const p of running) if (p.pid) ours.add(p.pid);
+      for (const p of personProcs.values()) if (p.pid) ours.add(p.pid);
+      const blankInUse = [...sessions.values()].some(x => x.kind === 'blank') || [...sessionOpening.keys()].some(k => k.includes(':blank:'));
+      for (const pid of leftoverBrowsers(ps, process.pid, ours, blankInUse)) {
+        console.error(`[browser] Ending a leftover browser (pid ${pid}).`);
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {}
+        }
+      }
+    });
+  }, SWEEP_MS).unref();
+
 async function closeSessions(runId: string) {
+  endedRuns.add(runId);
+  setTimeout(() => endedRuns.delete(runId), 30 * 60_000).unref();
   for (const key of [...sessions.keys()]) if (key.startsWith(`${runId}:`)) await closeSession(key);
 }
 onRunEnd(closeSessions);
