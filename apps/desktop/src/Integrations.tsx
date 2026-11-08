@@ -875,10 +875,10 @@ function AgentBrowser({ status }: { status: IntegrationsView['profile'] }) {
               <Globe size={14} /> Profile {p.n}
             </span>
             <span className="sconn-what">
-              {p.open ? "Open on your screen - close the window when you're done" : p.inUse ? 'In use by an agent right now' : `${p.accounts} saved account${p.accounts === 1 ? '' : 's'}`}
+              {p.open ? "Open on your screen - close the window when you're done" : `${p.accounts} saved account${p.accounts === 1 ? '' : 's'}${p.inUse ? ' - agents are working in it too' : ''}`}
             </span>
             <span className="sint-actions">
-              <SpinButton spinning={busy === p.n} onClick={() => open(p.n)} disabled={p.inUse} title={p.inUse ? 'An agent is using it - try again in a minute' : undefined}>
+              <SpinButton spinning={busy === p.n} onClick={() => open(p.n)}>
                 Open
               </SpinButton>
             </span>
