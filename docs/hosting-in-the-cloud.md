@@ -21,7 +21,13 @@ run it (accounts, keys, monitoring), which isn't in this repository.
 - its own relay connection (`src/cloud.ts`, on with `EAA_CLOUD_HOST=1`): on a
   computer the person's own agency keeps it, here nothing else would;
 - Google Chrome for the agents' browser, on a virtual display (Xvfb), with
-  `EAA_BROWSER_ARGS="--no-sandbox --password-store=basic --disable-dev-shm-usage"`;
+  `EAA_BROWSER_ARGS="--no-sandbox --password-store=basic --disable-dev-shm-usage --renderer-process-limit=6 --disable-site-isolation-trials --disable-features=IsolateOrigins,site-per-process --js-flags=--single-threaded-gc --num-raster-threads=1"`.
+  A container can start a limited number of processes and threads (Railway's:
+  1,000), and Chrome sizes its thread pools to the host's cores, not the
+  container's share: unchecked, its renderers took over 700 and Claude Code
+  crashed when it couldn't start a thread. The last five flags hold it to a few
+  renderers with fewer threads each (with no sandbox, one renderer per site
+  protects little);
 - Claude Code, for agents on a Claude plan.
 
 Nothing listens outside the container. Its volume, mounted at `/data`, holds:
