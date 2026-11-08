@@ -123,12 +123,14 @@ export async function hostHealth(now = Date.now()): Promise<string> {
   const b = browsers;
   out.push(
     `## Browsers\n${[
-      ...b.agents.map(a => `- Agents' browser, profile ${a.profile} (pid ${a.pid}): ${a.runs} run${a.runs === 1 ? '' : 's'} using it`),
+      ...b.agents.map(a => `- Agents' browser, profile ${a.profile} (pid ${a.pid}): ${a.runs} run${a.runs === 1 ? '' : 's'} using it, ${a.pages} pages open${a.stray ? ` (${a.stray} no run is using - host.clean_up closes them)` : ''}`),
       ...b.personWindows.map(p => `- A person's sign-in window, profile ${p.profile} (pid ${p.pid})`),
       ...(b.throwaway ? [`- Throwaway browsers in runs: ${b.throwaway}`] : []),
       ...(b.leftovers.length ? [`- Leftovers nobody is using: ${b.leftovers.length} (pids ${b.leftovers.join(', ')}) - host.clean_up ends them`] : []),
     ].join('\n') || '- None open'}`,
   );
+  const strays = b.agents.reduce((n, a) => n + a.stray, 0);
+  if (strays >= 5) warn.push(`${strays} pages are open in the agents' browser that no run is using.`);
   if (b.leftovers.length) warn.push(`${b.leftovers.length} leftover browser${b.leftovers.length === 1 ? '' : 's'} nobody is using.`);
 
   const crashes = claudeCrashes.filter(c => c.at >= now - 24 * HOUR);
@@ -168,15 +170,15 @@ const TOOLS: ToolDef[] = [
     id: 'host.clean_up',
     tier: 'T1',
     description:
-      "Free the machine: ends leftover browsers nobody is using, and closes agents' browsers no run is using right now (sign-ins are kept; each starts again fresh when a run needs it). Never touches a run in progress or a person's window. Says what it did, with the numbers before and after.",
+      "Free the machine: closes pages in the agents' browser no run is using (a site's popups and tabs from runs that ended), ends leftover browsers nobody is using, and closes agents' browsers no run is using right now (sign-ins are kept; each starts again fresh when a run needs it). Never touches a run in progress or a person's window. Says what it did, with the numbers before and after.",
     schema: obj({}),
     impl: async () => {
       const before = await limits();
-      const { ended, closed } = await cleanUpBrowsers();
+      const { ended, closed, pages } = await cleanUpBrowsers();
       const after = await limits();
       const t = (x: Limits) => (x.tasks ? `${x.tasks.now} processes/threads, ` : '') + `${x.memory.nowMb} MB`;
-      if (!ended.length && !closed.length) return `Nothing to clear: no leftover browsers, and every agents' browser is in use by a run. Now ${t(after)}.`;
-      return `Ended ${ended.length} leftover browser${ended.length === 1 ? '' : 's'}; closed the agents' browser for profile${closed.length === 1 ? '' : 's'} ${closed.join(', ') || '-'}. Before: ${t(before)}. After: ${t(after)}.`;
+      if (!ended.length && !closed.length && !pages) return `Nothing to clear: no leftover browsers, and every agents' browser is in use by a run. Now ${t(after)}.`;
+      return `Closed ${pages} page${pages === 1 ? '' : 's'} no run was using; ended ${ended.length} leftover browser${ended.length === 1 ? '' : 's'}; closed the agents' browser for profile${closed.length === 1 ? '' : 's'} ${closed.join(', ') || '-'}. Before: ${t(before)}. After: ${t(after)}.`;
     },
   },
 ];
