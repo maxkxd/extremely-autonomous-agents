@@ -2,12 +2,12 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { lookup } from 'node:dns/promises';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, readlink, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { hostname } from 'node:os';
-import { join } from 'node:path';
+import { hostname, tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
 import { Cdp, CdpPage, type Bounds } from './cdp.js';
 import { checkUrl, isPrivateIp } from './net.js';
-import { onApprovalSettled, onRunEnd, registerTools, type RunCtx, type ToolDef } from './tools.js';
+import { inWorkspace, onApprovalSettled, onRunEnd, registerTools, type RunCtx, type ToolDef } from './tools.js';
 import { one } from './db.js';
 import { ACCOUNTS_PER_SITE, listPasswords, makePassword, passwordRow, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { DATA_DIR } from '../paths.js';
@@ -37,7 +37,7 @@ export const PROFILES_DIR = join(DATA_DIR, 'browser-profiles');
 const OLD_PROFILE_DIR = join(DATA_DIR, 'browser-profile'); // one profile, before there could be more
 const profileDir = (n: number) => join(PROFILES_DIR, String(n));
 const TEXT_CHARS = 8_000;
-const MAX_ELEMENTS = 80;
+const MAX_ELEMENTS = 100;
 
 // --- Profiles -----------------------------------------------------------------------
 
@@ -356,7 +356,12 @@ async function guard(context: BrowserContext) {
 // throwaway browser's page through Playwright, made to look the same.
 type Driver = Pick<CdpPage, 'isClosed' | 'close' | 'goto' | 'ready' | 'url' | 'evaluate' | 'back' | 'click' | 'fill' | 'pressEnter' | 'options' | 'select' | 'wheel'>;
 function playwrightDriver(page: Page): Driver {
+  // Found through the page view's finder first, so a control the page drew again keeps its number.
   const el = (ref: number) => page.locator(`[data-eaa-ref="${ref}"]`).first();
+  const found = async (ref: number) => {
+    await page.evaluate(`window.__eaa && window.__eaa.find(${Number(ref)})`).catch(() => {});
+    return el(ref);
+  };
   return {
     isClosed: () => page.isClosed(),
     close: () => page.close().catch(() => {}),
@@ -365,11 +370,11 @@ function playwrightDriver(page: Page): Driver {
     url: async () => page.url(),
     evaluate: async <T,>(expression: string) => (await page.evaluate(expression)) as T,
     back: async () => void (await page.goBack({ timeout: 15_000 }).catch(() => {})),
-    click: ref => el(ref).click({ timeout: 10_000 }),
-    fill: (ref, text) => el(ref).fill(text, { timeout: 10_000 }),
+    click: async ref => (await found(ref)).click({ timeout: 10_000 }),
+    fill: async (ref, text) => (await found(ref)).fill(text, { timeout: 10_000 }),
     pressEnter: () => page.keyboard.press('Enter'),
-    options: ref => el(ref).evaluate(e => (e instanceof HTMLSelectElement ? [...e.options].map(o => o.text.replace(/\s+/g, ' ').trim()) : null), null, { timeout: 10_000 }),
-    select: async (ref, index) => void (await el(ref).selectOption({ index }, { timeout: 10_000 })),
+    options: async ref => (await found(ref)).evaluate(e => (e instanceof HTMLSelectElement ? [...e.options].map(o => o.text.replace(/\s+/g, ' ').trim()) : null), null, { timeout: 10_000 }),
+    select: async (ref, index) => void (await (await found(ref)).selectOption({ index }, { timeout: 10_000 })),
     wheel: deltaY => page.mouse.wheel(0, deltaY),
   };
 }
@@ -706,60 +711,187 @@ onApprovalSettled(runId => closeParked(runId));
 
 // --- What the agent sees --------------------------------------------------------------
 
-// Runs in the page: numbers its visible buttons, links and fields, and reads
-// its text. Plain JavaScript in a string, because the TypeScript loader adds
-// helpers to compiled functions that don't exist inside the page.
-// (A password field's value is never read: it may be one from the store.)
-const SNAPSHOT_SCRIPT = `(() => {
-  const max = ${MAX_ELEMENTS}, chars = ${TEXT_CHARS};
-  document.querySelectorAll('[data-eaa-ref]').forEach(e => e.removeAttribute('data-eaa-ref'));
+// Runs in the page (installed once per document as window.__eaa): numbers its
+// visible controls and reads its text. Plain JavaScript in a string, because the
+// TypeScript loader adds helpers to compiled functions that don't exist inside the
+// page. (A password field's value is never read: it may be one from the store.)
+//
+// - A number stays with its control while the page changes around it, and one whose
+//   control the page drew again (a form re-rendering after each keystroke) is found
+//   again by what it was - its kind, label and name. Most "There's no [15] on the
+//   page now" failures were that.
+// - Every visible control is numbered; the list shows the ones nearest what's on
+//   screen and says how many more are further up or down, so a Submit past the
+//   first screenfuls is reached by scrolling (the list used to stop at the page's
+//   first 80, wherever you scrolled).
+// - A text field shows what's in it. Custom menus (comboboxes, their options, menu
+//   items) are listed like any control.
+const PAGE_HELPERS = `(() => {
+  if (window.__eaa) return window.__eaa;
+  const textOf = s => (s || '').replace(/\\s+/g, ' ').trim();
   const visible = e => {
     const r = e.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return false;
     const s = getComputedStyle(e);
-    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+    return s.visibility !== 'hidden' && s.display !== 'none';
   };
-  const tickable = e => e && e.tagName === 'INPUT' && (e.type === 'radio' || e.type === 'checkbox');
+  const tickable = e => !!e && e.tagName === 'INPUT' && (e.type === 'radio' || e.type === 'checkbox');
+  const isFile = e => !!e && e.tagName === 'INPUT' && e.type === 'file';
   const isSelect = e => e.tagName === 'SELECT';
-  const label = e => (e.getAttribute('aria-label') || e.placeholder || e.getAttribute('title') || ((tickable(e) || isSelect(e)) && e.labels && e.labels[0] ? e.labels[0].innerText : '') || (isSelect(e) ? '' : e.innerText) || (e.type === 'password' || tickable(e) || isSelect(e) ? '' : e.value) || e.getAttribute('name') || '')
-    .replace(/\\s+/g, ' ').trim().slice(0, 80);
-  const items = [];
-  let n = 0;
-  // A radio button or checkbox is often hidden behind a styled label: then its label
-  // is what's listed, and clicking it ticks the box.
-  for (const e of document.querySelectorAll('a[href], button, input:not([type=hidden]), textarea, select, label, [role=button], [role=link], [role=tab], [role=checkbox], [role=radio], [contenteditable=true]')) {
-    if (n >= max || !visible(e)) continue;
+  const typable = e => (e.tagName === 'INPUT' && !tickable(e) && !['button', 'submit', 'reset', 'image', 'file', 'range', 'color'].includes(e.type)) || e.tagName === 'TEXTAREA' || e.isContentEditable;
+  const labelOf = e => (e.labels && e.labels[0] ? e.labels[0].innerText : '');
+  const label = e => textOf(
+    e.getAttribute('aria-label') || e.placeholder ||
+    (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA' || isSelect(e) ? labelOf(e) : '') ||
+    e.getAttribute('title') ||
+    (isSelect(e) || typable(e) ? '' : e.innerText) ||
+    (e.tagName === 'INPUT' && ['button', 'submit', 'reset'].includes(e.type) ? e.value : '') ||
+    e.getAttribute('name') || ''
+  ).slice(0, 80);
+  const SEL = 'a[href], button, input:not([type=hidden]), textarea, select, label, summary, [role=button], [role=link], [role=tab], [role=checkbox], [role=radio], [role=switch], [role=combobox], [role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=treeitem], [aria-haspopup=listbox], [contenteditable=true], [contenteditable=""]';
+  const kindOf = e => {
     const tag = e.tagName.toLowerCase();
-    const control = tag === 'label' ? e.control : null;
-    if (tag === 'label' && !(tickable(control) && !visible(control))) continue;
-    n++;
-    e.setAttribute('data-eaa-ref', String(n));
-    const box = control || (tickable(e) ? e : null);
     const role = e.getAttribute('role');
-    const kind = box ? (box.type === 'radio' ? 'radio option' : 'checkbox') + (box.checked ? ' (ticked)' : '')
-      : role === 'radio' || role === 'checkbox' ? role + (e.getAttribute('aria-checked') === 'true' ? ' (ticked)' : '')
-      : tag === 'a' || role === 'link' ? 'link'
-      : tag === 'input' ? (e.type || 'text') + ' field'
-      : tag === 'textarea' || e.getAttribute('contenteditable') === 'true' ? 'text box'
-      : tag === 'select' ? 'dropdown' : 'button';
+    const box = tag === 'label' ? (tickable(e.control) ? e.control : null) : tickable(e) ? e : null;
+    const on = v => (v ? ' (ticked)' : '');
+    if (box) return (box.type === 'radio' ? 'radio option' : 'checkbox') + on(box.checked);
+    if (tag === 'label' && isFile(e.control)) return 'file upload';
+    if (role === 'radio' || role === 'checkbox' || role === 'switch') return role + on(e.getAttribute('aria-checked') === 'true');
+    if (role === 'option' || role === 'treeitem') return 'option' + (e.getAttribute('aria-selected') === 'true' ? ' (selected)' : '');
+    if (role === 'menuitem' || role === 'menuitemradio' || role === 'menuitemcheckbox') return 'menu item' + on(e.getAttribute('aria-checked') === 'true');
+    if (tag === 'select') return 'dropdown';
+    if (role === 'combobox' || e.getAttribute('aria-haspopup') === 'listbox') return 'dropdown (opens a list: choose picks from it)';
+    if (tag === 'a' || role === 'link') return 'link';
+    if (tag === 'input' && e.type === 'file') return 'file upload';
+    if (tag === 'input') return (e.type || 'text') + ' field';
+    if (tag === 'textarea' || e.isContentEditable) return 'text box';
+    return 'button';
+  };
+  const keyOf = e => kindOf(e).replace(/ \\((ticked|selected)\\)$/, '') + '|' + label(e) + '|' + (e.getAttribute('name') || '');
+  const st = { next: 0, keys: {} };
+  const controls = () => {
+    const out = [];
+    for (const e of document.querySelectorAll(SEL)) {
+      if (!visible(e)) continue;
+      // A radio button, checkbox or file input hidden behind a styled label: the label
+      // is what's listed (clicking it ticks the box; upload_file fills the input).
+      if (e.tagName === 'LABEL' && !((tickable(e.control) || isFile(e.control)) && !visible(e.control))) continue;
+      out.push(e);
+    }
+    return out;
+  };
+  const number = all => {
+    for (const e of all) {
+      let ref = e.getAttribute('data-eaa-ref');
+      // Copied with an element the page cloned: not this one's.
+      if (ref && document.querySelectorAll('[data-eaa-ref="' + ref + '"]').length > 1 && st.keys[ref] !== keyOf(e)) ref = null;
+      if (!ref) {
+        ref = String(++st.next);
+        e.setAttribute('data-eaa-ref', ref);
+      }
+      st.keys[ref] = keyOf(e);
+    }
+  };
+  // The control a number stands for - the same element, or the one the page drew in
+  // its place (same kind, label and name, not numbered yet).
+  const find = ref => {
+    const e = document.querySelector('[data-eaa-ref="' + ref + '"]');
+    if (e && e.isConnected) return e;
+    const key = st.keys[ref];
+    if (!key) return null;
+    const same = controls().filter(x => !x.getAttribute('data-eaa-ref') && keyOf(x) === key);
+    if (same.length !== 1) return null;
+    same[0].setAttribute('data-eaa-ref', String(ref));
+    return same[0];
+  };
+  const shown = e => {
+    if (e.tagName === 'INPUT' && e.type === 'password') return e.value ? ' (filled in)' : '';
+    const file = isFile(e) ? e : e.tagName === 'LABEL' && isFile(e.control) ? e.control : null;
+    if (file) return file.files && file.files.length ? ' = "' + [...file.files].map(f => f.name).join(', ') + '"' : '';
+    if (!typable(e)) return '';
+    const v = textOf(e.isContentEditable ? e.innerText : e.value);
+    return v ? ' = "' + (v.length > 70 ? v.slice(0, 70) + '...' : v) + '"' : '';
+  };
+  const describe = (e, ref) => {
+    const tag = e.tagName.toLowerCase();
     const href = tag === 'a' ? ' -> ' + e.href : '';
-    // A dropdown shows what's picked and what it offers (choose picks one).
-    const opts = tag === 'select' ? [...e.options].map(o => o.text.replace(/\\s+/g, ' ').trim()).filter(Boolean) : [];
-    const picked = tag === 'select' && e.selectedOptions[0] ? e.selectedOptions[0].text.replace(/\\s+/g, ' ').trim() : '';
-    const choices = tag === 'select' ? ' = "' + picked + '"; options: ' + opts.slice(0, 15).map(o => '"' + o.slice(0, 40) + '"').join(', ') + (opts.length > 15 ? ' (+' + (opts.length - 15) + ' more)' : '') : '';
-    items.push('[' + n + '] ' + kind + ' "' + label(e) + '"' + href + choices);
-  }
-  const text = ((document.body && document.body.innerText) || '').replace(/\\n{3,}/g, '\\n\\n').trim();
-  return { title: document.title, text: text.length > chars ? text.slice(0, chars) + '\\n[page text cut off - scroll to see more]' : text, items };
+    let choices = '';
+    if (tag === 'select') {
+      const opts = [...e.options].map(o => textOf(o.text)).filter(Boolean);
+      const picked = e.selectedOptions[0] ? textOf(e.selectedOptions[0].text) : '';
+      choices = ' = "' + picked + '"; options: ' + opts.slice(0, 15).map(o => '"' + o.slice(0, 40) + '"').join(', ') + (opts.length > 15 ? ' (+' + (opts.length - 15) + ' more)' : '');
+    }
+    return '[' + ref + '] ' + kindOf(e) + ' "' + label(e) + '"' + shown(e) + href + choices;
+  };
+  const view = (max, chars) => {
+    const all = controls();
+    number(all);
+    const h = innerHeight;
+    const far = e => { const r = e.getBoundingClientRect(); return r.bottom < 0 ? -r.bottom : r.top > h ? r.top - h : 0; };
+    const order = new Map(all.map((e, i) => [e, i]));
+    const near = [...all].sort((a, b) => far(a) - far(b)).slice(0, max);
+    const picked = new Set(near);
+    let above = 0, below = 0;
+    for (const e of all) if (!picked.has(e)) { if (e.getBoundingClientRect().bottom < 0) above++; else below++; }
+    const items = near.sort((a, b) => order.get(a) - order.get(b)).map(e => describe(e, e.getAttribute('data-eaa-ref')));
+    if (above) items.unshift('(' + above + ' more further up the page: scroll up to see them)');
+    if (below) items.push('(' + below + ' more further down the page: scroll down to see them)');
+    const text = ((document.body && document.body.innerText) || '').replace(/\\n{3,}/g, '\\n\\n').trim();
+    return { title: document.title, text: text.length > chars ? text.slice(0, chars) + '\\n[page text cut off - scroll to see more]' : text, items };
+  };
+  // A list a custom dropdown opened: the option matching want, numbered - or what's offered.
+  const OPTION_SEL = '[role=option], [role=menuitem], [role=menuitemradio], [role=treeitem], [cmdk-item], [data-radix-collection-item], li';
+  const pickOption = want => {
+    const w = textOf(want).toLowerCase();
+    const opts = [...document.querySelectorAll(OPTION_SEL)].filter(e => visible(e) && textOf(e.innerText) && textOf(e.innerText).length < 120);
+    const texts = opts.map(e => textOf(e.innerText));
+    let i = texts.findIndex(t => t.toLowerCase() === w);
+    if (i < 0) i = texts.findIndex(t => t.toLowerCase().includes(w));
+    if (i < 0) return { offered: [...new Set(texts)].slice(0, 30) };
+    number([opts[i]]);
+    return { ref: Number(opts[i].getAttribute('data-eaa-ref')) };
+  };
+  // The file input a control stands for: itself, its label's, or the one beside it.
+  const fileInput = ref => {
+    const e = find(ref);
+    if (!e) return null;
+    if (isFile(e)) return e;
+    if (e.tagName === 'LABEL' && isFile(e.control)) return e.control;
+    let p = e;
+    for (let i = 0; i < 5 && p; i++, p = p.parentElement) {
+      const inside = p.querySelectorAll('input[type=file]');
+      if (inside.length === 1) return inside[0];
+      if (inside.length > 1) break;
+    }
+    const all = document.querySelectorAll('input[type=file]');
+    return all.length === 1 ? all[0] : null;
+  };
+  // Until the page stops changing for quiet ms, and min ms have gone by (at most cap):
+  // a page that draws itself after it loads (most apps) is read once it has.
+  const settle = (quiet, cap, min) => new Promise(done => {
+    const start = Date.now();
+    let t = setTimeout(end, quiet);
+    const o = new MutationObserver(() => { clearTimeout(t); t = setTimeout(end, quiet); });
+    const hard = setTimeout(stop, cap);
+    function end() { if (Date.now() - start < (min || 0)) { t = setTimeout(end, (min || 0) - (Date.now() - start)); return; } stop(); }
+    function stop() { o.disconnect(); clearTimeout(t); clearTimeout(hard); done(true); }
+    o.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  });
+  return (window.__eaa = { view, find, pickOption, fileInput, settle });
 })()`;
+// Each call installs the helpers first if this document doesn't have them yet.
+export const inPage = (call: string) => `${PAGE_HELPERS}.${call}`;
 
-// The page's text and its numbered interactive elements.
+// The page's text and its numbered controls.
 async function snapshot(page: Driver): Promise<string> {
   await page.ready();
-  const view = await page.evaluate<{ title: string; text: string; items: string[] }>(SNAPSHOT_SCRIPT);
+  const view = await page.evaluate<{ title: string; text: string; items: string[] }>(inPage(`view(${MAX_ELEMENTS}, ${TEXT_CHARS})`));
   return [`Title: ${view.title || '(none)'}`, `URL: ${await page.url()}`, '', view.text || '(no text)', '', view.items.length ? `What you can use (by number):\n${view.items.join('\n')}` : 'Nothing to click on this page.'].join('\n');
 }
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+// After something that changes the page: until it has finished changing (cap ms at most).
+const settle = (page: Driver, cap = 3_000, min = 0) => page.evaluate(inPage(`settle(400, ${cap}, ${min})`)).catch(() => wait(300));
 
 // --- The tools ------------------------------------------------------------------------
 
@@ -772,7 +904,8 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
   const click = async (a: Record<string, unknown>, ctx: RunCtx) => {
     const s = await open(ctx, a);
     await s.page.click(Number(a.ref));
-    await wait(800);
+    await wait(150);
+    await settle(s.page);
     return snapshot(s.page);
   };
   return [
@@ -784,6 +917,9 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
       impl: async (a, ctx) => {
         const s = await open(ctx, a);
         await s.page.goto(checkUrl(String(a.url ?? '')).toString());
+        // An app draws itself after the page loads (fetching who's signed in, say): read
+        // it once it has - quiet for a moment, and never sooner than 1.5 s.
+        await settle(s.page, 5_000, 1_500);
         return snapshot(s.page);
       },
     },
@@ -806,20 +942,21 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
         const s = await open(ctx, a);
         await s.page.fill(Number(a.ref), String(a.text ?? ''));
         if (a.submit) await s.page.pressEnter();
-        await wait(a.submit ? 1200 : 200);
+        await wait(150);
+        await settle(s.page, a.submit ? 4_000 : 1_500);
         return snapshot(s.page);
       },
     },
     {
       id: `${prefix}.choose`,
       tier: actTier,
-      description: `Pick an option in a numbered dropdown on the current page in ${where}: the option as the page lists it (an exact match, or the one that contains what you give).`,
+      description: `Pick an option in a numbered dropdown on the current page in ${where}: the option as the page lists it (an exact match, or the one that contains what you give). Works on custom dropdowns too (a button or field that opens a list): it opens the list, types to search it if it has to, and clicks the option.`,
       schema: obj(withProfile({ ref: { type: 'number' }, option: { type: 'string', description: 'The option to pick, as listed' } }), ['ref', 'option']),
       impl: async (a, ctx) => {
         const s = await open(ctx, a);
         const want = String(a.option ?? '').trim().toLowerCase();
         const options = await s.page.options(Number(a.ref));
-        if (!options) throw new Error(`[${String(a.ref)}] isn't a dropdown. Click it instead, then click the option.`);
+        if (!options) return chooseFromList(s.page, Number(a.ref), String(a.option ?? ''));
         const index = [options.findIndex(o => o.toLowerCase() === want), options.findIndex(o => o.toLowerCase().includes(want))].find(i => i >= 0);
         if (index == null) throw new Error(`No option like "${String(a.option)}". It has: ${options.slice(0, 30).map(o => `"${o}"`).join(', ')}`);
         await s.page.select(Number(a.ref), index);
@@ -835,7 +972,8 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
       impl: async (a, ctx) => {
         const s = await open(ctx, a);
         await s.page.wheel(a.direction === 'up' ? -1600 : 1600);
-        await wait(500);
+        await wait(300);
+        await settle(s.page, 1_500);
         return snapshot(s.page);
       },
     },
@@ -854,6 +992,72 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
   ];
 }
 
+// Files to upload: one from the agent's workspace, or one from the public web, kept
+// for the run in a folder of its own (the browser reads it from there).
+const UPLOAD_MAX_MB = 10;
+async function workspaceFile(agentId: string, path: unknown) {
+  const full = inWorkspace(agentId, path);
+  const st = await stat(full).catch(() => null);
+  if (!st?.isFile()) throw new Error(`No file at ${String(path)} in your workspace.`);
+  if (st.size > UPLOAD_MAX_MB * 1_048_576) throw new Error(`${String(path)} is over ${UPLOAD_MAX_MB} MB.`);
+  return full;
+}
+async function download(raw: string, runId: string) {
+  const url = checkUrl(raw);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('url is a web address, https://...');
+  if (!(await allowUrl()(url.toString()))) throw new Error("That address isn't on the public web.");
+  const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30_000) }).catch(e => {
+    throw new Error(`Couldn't download ${url}: ${(e as Error).message}`);
+  });
+  if (!r.ok) throw new Error(`Couldn't download ${url}: it answered ${r.status}.`);
+  if (Number(r.headers.get('content-length') ?? 0) > UPLOAD_MAX_MB * 1_048_576) throw new Error(`${url} is over ${UPLOAD_MAX_MB} MB.`);
+  const body = Buffer.from(await r.arrayBuffer());
+  if (body.length > UPLOAD_MAX_MB * 1_048_576) throw new Error(`${url} is over ${UPLOAD_MAX_MB} MB.`);
+  const type = (r.headers.get('content-type') ?? '').split(';')[0].trim();
+  const ext = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/svg+xml': '.svg', 'image/webp': '.webp', 'image/gif': '.gif', 'application/pdf': '.pdf' }[type] ?? '';
+  let name = basename(url.pathname).replace(/[^\w.-]/g, '_') || 'file';
+  if (ext && !name.toLowerCase().endsWith(ext) && !/\.\w{2,4}$/.test(name)) name += ext;
+  const dir = join(tmpdir(), `eaa-upload-${runId.replace(/\W/g, '')}`);
+  await mkdir(dir, { recursive: true });
+  const file = join(dir, name);
+  await writeFile(file, body);
+  return file;
+}
+
+// A custom dropdown: a button or field that opens a list of page elements (no
+// <select> to set). Open it, find the option - typing to search the list when it's
+// a search box and the option isn't showing - and click it as a person would.
+async function chooseFromList(page: Driver, ref: number, option: string): Promise<string> {
+  const want = option.trim();
+  if (!want) throw new Error('Say which option to pick.');
+  type Found = { ref?: number; offered?: string[] };
+  const look = () => page.evaluate<Found>(inPage(`pickOption(${JSON.stringify(want)})`));
+  await page.click(ref);
+  await wait(150);
+  await settle(page, 1_500);
+  let found = await look();
+  if (found.ref == null) {
+    // A searchable list: what's typed narrows it (and some only show options once you type).
+    await page.fill(ref, want).catch(() => {});
+    await wait(150);
+    await settle(page, 2_000);
+    found = await look();
+  }
+  if (found.ref == null)
+    throw new Error(
+      found.offered?.length
+        ? `No option like "${want}" in the list [${ref}] opened. It has: ${found.offered.map(o => `"${o}"`).join(', ')}`
+        : `[${ref}] didn't open a list of options. Click it and look at the page, then click the option by its number.`,
+    );
+  await page.click(found.ref);
+  await wait(150);
+  await settle(page, 1_500);
+  return snapshot(page);
+}
+
+// For tests: the page view and its steps, on a page made there.
+export const pageViewForTests = { snapshot: (p: CdpPage) => snapshot(p), choose: (p: CdpPage, ref: number, option: string) => chooseFromList(p, ref, option), settle: (p: CdpPage, cap?: number, min?: number) => settle(p, cap, min) };
+
 // The clicks that always wait for a person (unless they lower them on the Tools page),
 // the password store, and opening a profile on the person's screen.
 function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
@@ -865,6 +1069,31 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
     impl: click,
   });
   return [
+    {
+      id: 'signed_in_browser.upload_file',
+      tier: 'T1',
+      description: `Attach a file to a numbered upload field in ${where} - or to the button or label that opens one ("Upload logo"): a file from your workspace (path), or one on the public web (url, e.g. the logo on your website). Up to ${UPLOAD_MAX_MB} MB.`,
+      schema: obj(
+        {
+          ref: { type: 'number', description: 'The upload field, or the button that opens it, from the last page you saw' },
+          path: { type: 'string', description: 'A file in your workspace, e.g. "kit/logo.svg"' },
+          url: { type: 'string', description: 'Or a file on the public web, https://...' },
+          profile: PROFILE_ARG,
+        },
+        ['ref'],
+      ),
+      impl: async (a, ctx) => {
+        const s = await session(ctx, 'profile', await knownProfile(a.profile));
+        if (!s.cdp) throw new Error('Uploading works in the signed-in browser only.');
+        const file = a.path ? await workspaceFile(ctx.agent.id, a.path) : a.url ? await download(String(a.url), ctx.runId) : null;
+        if (!file) throw new Error('Give path (a file in your workspace) or url (a file on the public web).');
+        if (!(await s.cdp.setFiles(inPage(`fileInput(${Number(a.ref)})`), [file])))
+          throw new Error(`[${String(a.ref)}] isn't an upload field, and there's no single one beside it. Look at the page again: a "file upload" in the list is the field itself.`);
+        await wait(150);
+        await settle(s.page, 3_000);
+        return `Attached ${basename(file)}.\n\n${await snapshot(s.page)}`;
+      },
+    },
     decisive('click_to_pay', 'spends money (a purchase, a paid plan, a subscription)'),
     decisive('click_to_post', 'posts something publicly as the business (a post, a public reply, a review)'),
     decisive('click_to_start_tool', 'starts using a new business tool - a CRM, a help desk, an email platform - rather than an account to do your job'),

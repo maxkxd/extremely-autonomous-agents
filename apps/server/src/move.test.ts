@@ -63,3 +63,12 @@ test('in the cloud, sign-ins come back to the app on 5175, whatever port the pla
   assert.equal(signInReturn('/api/oauth/openrouter/callback', 'localhost', cloud), 'http://localhost:5175/api/oauth/openrouter/callback');
   assert.equal(signInReturn('/api/oauth/chatgpt/callback', '127.0.0.1', { PORT: '5175' }), 'http://127.0.0.1:5175/api/oauth/chatgpt/callback');
 });
+
+test("in the cloud, the app's anonymous reports go to the backend it already uses", async () => {
+  const { reportBackend } = await import('./integrations/report.js');
+  assert.equal(reportBackend('{"url":"https://api.example.test/"}', {}), 'https://api.example.test');
+  assert.equal(reportBackend(null, { EAA_CLOUD_HOST: '1', EAA_TOKEN_ISSUER: 'https://api.example.test' }), 'https://api.example.test');
+  assert.equal(reportBackend(null, { EAA_TOKEN_ISSUER: 'https://api.example.test' }), null, 'a development copy on a computer sends nothing');
+  assert.equal(reportBackend(null, { EAA_CLOUD_HOST: '1', EAA_TOKEN_ISSUER: 'http://localhost:8787' }), null);
+  assert.equal(reportBackend(null, { EAA_REPORT_URL: 'https://reports.example.test' }), 'https://reports.example.test');
+});
