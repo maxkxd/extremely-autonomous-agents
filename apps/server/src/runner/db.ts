@@ -321,8 +321,13 @@ export function getSetting<T>(key: string, fallback: T): T {
   const row = one<{ value: string }>('SELECT value FROM settings WHERE key = ?', key);
   return row ? (JSON.parse(row.value) as T) : fallback;
 }
-export const setSetting = (key: string, value: unknown) =>
+export const setSetting = (key: string, value: unknown) => {
   run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value));
+  for (const fn of settingWritten) fn(key);
+};
+// For a setting kept in memory by its owner (integrations/index.ts): told whenever it's written.
+const settingWritten = new Set<(key: string) => void>();
+export const onSettingWritten = (fn: (key: string) => void) => void settingWritten.add(fn);
 
 // The level a person set for a built-in agent's own action (Settings > Tools):
 // its files are rewritten on every start, so the choice is kept here and laid
