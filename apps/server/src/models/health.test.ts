@@ -2,7 +2,7 @@ import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { cleanChoices, type ModelChoice } from './choice.js';
-import { benchFor, FIRST_BENCH_MS, MAX_BENCH_MS, pickModel, recordFailure, recordSuccess, type Health } from './health.js';
+import { benchFor, brokenModel, FIRST_BENCH_MS, MAX_BENCH_MS, pickModel, recordFailure, recordSuccess, type Health } from './health.js';
 
 const a: ModelChoice = { connection: 'claude-code', model: 'claude-sonnet-5-5', effort: 'medium' };
 const b: ModelChoice = { connection: 'chatgpt', model: 'gpt-6-luna', effort: 'high' };
@@ -59,4 +59,17 @@ test('cleanChoices drops junk and duplicates, keeps at most three', () => {
   const out = cleanChoices([a, a, { connection: '', model: 'm' }, null, b, { ...c, effort: 'bogus' }, { connection: 'z', model: 'z' }]);
   assert.deepEqual(out.map(x => x.model), ['claude-sonnet-5-5', 'gpt-6-luna', 'x/y']);
   assert.equal(out[2].effort, 'medium');
+});
+
+test('a model check that passes after its failures means it works again', () => {
+  const c = { connection: 'claude-code', model: 'claude-sonnet-5-5' } as ModelChoice;
+  let h: Health = {};
+  const t = 1_000_000;
+  for (let i = 0; i < 4; i++) h = recordFailure(h, c, t + i * 1000, 'server');
+  const last = t + 3000;
+  assert.equal(brokenModel(h, c), true); // no check passed
+  assert.equal(brokenModel(h, c, last - 1), true); // passed before the last failure
+  assert.equal(brokenModel(h, c, last + 60_000), false); // passed after it
+  const busy = recordFailure(recordFailure(recordFailure({}, c, t, 'rate'), c, t, 'rate'), c, t, 'rate');
+  assert.equal(brokenModel(busy, c), false); // busy is never broken
 });

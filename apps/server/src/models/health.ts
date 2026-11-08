@@ -27,9 +27,18 @@ export function recordFailure(h: Health, c: ModelChoice, now = Date.now(), kind?
   return { ...h, [key]: { failures, benchedUntil: now + benchFor(failures), ...(kind ? { kind } : {}) } };
 }
 
+// When the last failure in a row happened: its bench started then.
+export const lastFailedAt = (e: Health[string]) => e.benchedUntil - benchFor(e.failures);
+
 // Failing for real: 3 in a row, the last not just busy (a rate limit shared by
-// eight runs at once read as three failures in seconds).
-export const brokenModel = (h: Health, c: Pick<ModelChoice, 'connection' | 'model'>) => (h[choiceKey(c)]?.failures ?? 0) >= 3 && h[choiceKey(c)]?.kind !== 'rate';
+// eight runs at once read as three failures in seconds). passedAt: when the
+// model's own check last passed - a pass after the last failure means it works
+// again, even though no run on it has succeeded yet (an agent moved off a
+// model never runs on it, so a run alone could never clear it).
+export function brokenModel(h: Health, c: Pick<ModelChoice, 'connection' | 'model'>, passedAt = 0): boolean {
+  const e = h[choiceKey(c)];
+  return !!e && e.failures >= 3 && e.kind !== 'rate' && passedAt <= lastFailedAt(e);
+}
 
 export function recordSuccess(h: Health, c: ModelChoice): Health {
   const key = choiceKey(c);
