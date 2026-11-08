@@ -32,3 +32,17 @@ test('a browser that ignores being asked to close is ended after the deadline', 
   assert.notEqual(proc.signalCode ?? proc.exitCode, null, 'it was ended');
   assert.ok(Date.now() - started < 4_000);
 });
+
+test("pages no run is driving are stray; a running run's own page and its popups aren't", async () => {
+  const { strayPages } = await import('./browser.js');
+  const targets = [
+    { targetId: 'run-a', type: 'page' }, // a run's own page
+    { targetId: 'google-popup', type: 'page', openerId: 'run-a' }, // its sign-in popup, still in use
+    { targetId: 'old-popup', type: 'page', openerId: 'ended-run' }, // a popup left by a run that ended
+    { targetId: 'old-tab', type: 'page' }, // a site's new tab, nobody's
+    { targetId: 'omnibox', type: 'browser_ui' },
+    { targetId: 'sw', type: 'service_worker' },
+  ];
+  assert.deepEqual(strayPages(targets, new Set(['run-a'])), ['old-popup', 'old-tab']);
+  assert.deepEqual(strayPages(targets, new Set()), ['run-a', 'google-popup', 'old-popup', 'old-tab']);
+});

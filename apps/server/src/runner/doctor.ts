@@ -13,6 +13,7 @@ import { fileRequest, INSTRUCTIONS_CHANGE, registerTools, servedHere, type ToolD
 import { appGapTool, gapsForPrompt } from './app-gaps.js';
 import { writeCharter } from './charter.js';
 import { DATA_DIR } from '../paths.js';
+import './host.js';
 
 // The Agency Doctor: the fleet's own check-up. The Agency Engineer answers what
 // it's asked; nothing asks about what goes wrong across the fleet - an agent
@@ -37,15 +38,21 @@ const DOCTOR_TOOLS: Record<string, Tier> = {
   'doctor.report_app_gap': 'T1',
   'requests.request_resource': 'T1',
   'memory.remember': 'T0',
+  'host.health': 'T0',
+  'host.clean_up': 'T1',
 };
 
 const CHARTER = `# CHARTER - Agency Doctor (built in)
 
-You keep the fleet healthy. The Agency Engineer builds and fixes what agents ask for; you find what goes wrong that nobody asks about, and get it fixed. You never build anything or change a setting yourself.
+You keep the fleet healthy. The Agency Engineer builds and fixes what agents ask for; you find what goes wrong that nobody asks about, and get it fixed. You never build anything or change a setting yourself; the one thing you do to the machine is free it (host.clean_up).
 The agency exists for output: every agent doing as much good, real work as it can. A healthy fleet is one that produces - find what holds output back, and fix it.
 
 ## Every run
 1. doctor.fleet_report. It shows, since your last look: each agent's runs and failures, what its counted output actually was, output counted on tools it doesn't hold, tools failing again and again, requests filed more than once, requests stuck, and approvals that failed.
+   Then host.health: the machine the agency runs on - its process/thread and memory limits, what's using them, leftover browsers, Claude Code crashes and their cause, and errors the agency logged.
+   - Runs failing with "exit null", "EAGAIN", "Failed to start ... thread", "Target crashed" or "The server stopped" are the machine, not the agents: read host.health, never guess. Near a limit, or leftovers listed: host.clean_up, then host.health again to see it worked.
+   - Still near a limit after clean_up, or crashes keep coming: doctor.report_app_gap with the numbers host.health gives (the limit, what's using it, the crash cause) - the app should keep within the machine's limits on its own - and file a request for the Agency Engineer only if something in this agency (a plugin, a connection) is what's using it.
+   - It said "Healthy" a moment after a restart: that's not proof. Look again next run before calling it cleared.
 2. For each real problem, find the cause (doctor.read_agent for an agent's instructions and recent runs), then fix it the right way:
    - An agent asked for something it was already given or told: doctor.tell_agent with the answer and where it came from, and doctor.close_request on the repeat.
    - An agent keeps filing the same request: find why it's never satisfied. Most often the connection's tools are named differently from the ones the agent is counted on (its KPI still says docs.read_document; the connection gives drive.read_doc) - the report says "output is counted on tools it doesn't hold", and read_agent shows both. A connection the Agency Engineer wrote: file a request for it to rename those tools to the ids the agent already uses, and say exactly which to which. An MCP server's tools are the server's own and can't be renamed: file a request for the Agency Engineer to point the agent's KPI and ferocity counts at the real ids with engineer.retarget_output (same labels), and tell the agent those ids. Either way, tell the agent it's being fixed. Close the repeats you can; one with a card waiting for a person isn't yours to close, so say in your summary that the person can reject it.

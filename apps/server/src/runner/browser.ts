@@ -178,6 +178,7 @@ type Shared = {
   cdp: Cdp;
   runs: Set<string>; // runs with a window open in it
   idle?: ReturnType<typeof setTimeout>;
+  opening?: number; // agents' pages being made right now
 };
 const shared = new Map<number, Promise<Shared>>();
 const IDLE_CLOSE_MS = 60_000;
@@ -297,15 +298,19 @@ function closeWhenIdle(n: number, s: Shared) {
   clearTimeout(s.idle);
   if (s.runs.size) return;
   s.idle = setTimeout(() => {
-    if (s.runs.size) return;
-    void shared.get(n)?.then(cur => cur === s && shared.delete(n), () => {});
-    const done = endBrowser(s.proc, async () => {
-      await keepSessionCookies(s.cdp, n).catch(e => console.error(`[browser] Profile ${n}: keeping the session before closing failed:`, (e as Error).message));
-      await s.cdp.send('Browser.close');
-    });
-    closing.set(n, done);
-    void done.finally(() => closing.get(n) === done && closing.delete(n));
+    if (!s.runs.size) closeShared(n, s);
   }, IDLE_CLOSE_MS);
+}
+function closeShared(n: number, s: Shared) {
+  clearTimeout(s.idle);
+  void shared.get(n)?.then(cur => cur === s && shared.delete(n), () => {});
+  const done = endBrowser(s.proc, async () => {
+    await keepSessionCookies(s.cdp, n).catch(e => console.error(`[browser] Profile ${n}: keeping the session before closing failed:`, (e as Error).message));
+    await s.cdp.send('Browser.close');
+  });
+  closing.set(n, done);
+  void done.finally(() => closing.get(n) === done && closing.delete(n));
+  return done;
 }
 
 // The app quitting takes the profiles' browsers with it.
@@ -405,8 +410,9 @@ async function openSession(ctx: RunCtx, kind: Session['kind'], profile: number, 
     const sh = await profileBrowser(profile);
     clearTimeout(sh.idle);
     sh.runs.add(ctx.runId);
+    sh.opening = (sh.opening ?? 0) + 1;
     try {
-      const page = await CdpPage.open(sh.cdp, agentBounds());
+      const page = await CdpPage.open(sh.cdp, agentBounds()).finally(() => sh.opening!--);
       await page.guard(allowUrl());
       s = { kind, runId: ctx.runId, profile, page, cdp: page, agent: { id: ctx.agent.id, name: ctx.agent.name } };
     } catch (e) {
@@ -434,7 +440,27 @@ async function closeSession(key: string) {
   await s.page.close().catch(() => {});
   if (!sh) return;
   sh.runs.delete(s.runId);
+  await closeStrayPages(s.profile, sh).catch(() => 0);
   closeWhenIdle(s.profile, sh);
+}
+
+// Pages no run is driving: a site's popup or new tab ("Sign in with Google", a
+// link that opens a window), left after the run that caused it ended. Each kept a
+// renderer - and its memory - for as long as the browser ran, which with agents
+// always working was for ever: twenty of them held 2.5 GB in the cloud. A popup
+// whose run is still going stays (a sign-in completing in it). Checked when a run
+// ends and with the leftovers sweep.
+export function strayPages(targets: { targetId: string; type: string; openerId?: string }[], live: Set<string>) {
+  return targets.filter(t => t.type === 'page' && !live.has(t.targetId) && !(t.openerId && live.has(t.openerId))).map(t => t.targetId);
+}
+async function closeStrayPages(n: number, sh: Shared) {
+  if (sh.opening) return 0; // a page being made isn't a run's yet: next time
+  const { targetInfos } = await sh.cdp.send<{ targetInfos: { targetId: string; type: string; openerId?: string }[] }>('Target.getTargets');
+  if (sh.opening) return 0;
+  const live = new Set([...sessions.values()].filter(x => x.profile === n && x.cdp && !x.cdp.isClosed()).map(x => x.cdp!.targetId));
+  const stray = strayPages(targetInfos, live);
+  for (const targetId of stray) await sh.cdp.send('Target.closeTarget', { targetId }).catch(() => {});
+  return stray.length;
 }
 
 // A sign-in without "remember me" lives in session cookies, which the browser drops
@@ -577,26 +603,70 @@ export function leftoverBrowsers(ps: string, self: number, ours: Set<number>, bl
   return out;
 }
 const SWEEP_MS = 5 * 60_000;
-if (process.platform === 'linux')
-  setInterval(() => {
-    execFile('ps', ['-eo', 'pid=,ppid=,args='], { maxBuffer: 16 << 20 }, (err, ps) => {
-      if (err) return;
-      const ours = new Set<number>();
-      for (const p of running) if (p.pid) ours.add(p.pid);
-      for (const p of personProcs.values()) if (p.pid) ours.add(p.pid);
-      const blankInUse = [...sessions.values()].some(x => x.kind === 'blank') || [...sessionOpening.keys()].some(k => k.includes(':blank:'));
-      for (const pid of leftoverBrowsers(ps, process.pid, ours, blankInUse)) {
-        console.error(`[browser] Ending a leftover browser (pid ${pid}).`);
-        try {
-          process.kill(-pid, 'SIGKILL');
-        } catch {
-          try {
-            process.kill(pid, 'SIGKILL');
-          } catch {}
-        }
-      }
-    });
-  }, SWEEP_MS).unref();
+const psList = () => new Promise<string>(r => execFile('ps', ['-eo', 'pid=,ppid=,args='], { maxBuffer: 16 << 20 }, (err, out) => r(err ? '' : out)));
+async function findLeftovers() {
+  if (process.platform !== 'linux') return [];
+  const ps = await psList();
+  const ours = new Set<number>();
+  for (const p of running) if (p.pid) ours.add(p.pid);
+  for (const p of personProcs.values()) if (p.pid) ours.add(p.pid);
+  const blankInUse = [...sessions.values()].some(x => x.kind === 'blank') || [...sessionOpening.keys()].some(k => k.includes(':blank:'));
+  return leftoverBrowsers(ps, process.pid, ours, blankInUse);
+}
+async function endLeftovers() {
+  const pids = await findLeftovers();
+  for (const pid of pids) {
+    console.error(`[browser] Ending a leftover browser (pid ${pid}).`);
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {}
+    }
+  }
+  return pids;
+}
+setInterval(() => {
+  if (process.platform === 'linux') void endLeftovers();
+  for (const [n, p] of shared) void p.then(sh => closeStrayPages(n, sh), () => 0).catch(() => 0);
+}, SWEEP_MS).unref();
+
+// What the Doctor and the Agency Engineer see of the browsers, and can clear (host.ts).
+export async function browserCensus() {
+  const agents: { profile: number; pid?: number; runs: number; pages: number; stray: number }[] = [];
+  for (const [n, p] of shared) {
+    const s = await p.catch(() => null);
+    if (!s) continue;
+    const { targetInfos } = await s.cdp.send<{ targetInfos: { targetId: string; type: string; openerId?: string }[] }>('Target.getTargets').catch(() => ({ targetInfos: [] }));
+    const live = new Set([...sessions.values()].filter(x => x.profile === n && x.cdp && !x.cdp.isClosed()).map(x => x.cdp!.targetId));
+    agents.push({ profile: n, pid: s.proc.pid, runs: s.runs.size, pages: targetInfos.filter(t => t.type === 'page').length, stray: strayPages(targetInfos, live).length });
+  }
+  return {
+    agents,
+    personWindows: [...personProcs.entries()].map(([profile, p]) => ({ profile, pid: p.pid })),
+    throwaway: [...sessions.values()].filter(x => x.kind === 'blank').length,
+    leftovers: await findLeftovers(),
+  };
+}
+// Leftovers ended, and agents' browsers no run is using closed now (sign-ins kept):
+// each starts again fresh, with its memory back, when a run next needs it.
+export async function cleanUpBrowsers() {
+  const ended = await endLeftovers();
+  const closed: number[] = [];
+  let pages = 0;
+  for (const [n, p] of [...shared]) {
+    const s = await p.catch(() => null);
+    if (!s) continue;
+    if (s.runs.size) {
+      pages += await closeStrayPages(n, s).catch(() => 0);
+      continue;
+    }
+    await closeShared(n, s);
+    closed.push(n);
+  }
+  return { ended, closed, pages };
+}
 
 async function closeSessions(runId: string) {
   endedRuns.add(runId);
