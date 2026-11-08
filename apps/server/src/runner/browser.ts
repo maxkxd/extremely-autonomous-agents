@@ -205,14 +205,6 @@ const strayError = (n: number) =>
   new Error(`Browser profile ${n} is open in a browser window the app didn't start (one left from before an update, say). Close that window and try again.`);
 
 async function profileBrowser(n: number): Promise<Shared> {
-  // The person has it open in their own window (signing in): wait for them.
-  const theirs = personOpen.get(n);
-  if (theirs) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const done = await Promise.race([theirs.then(() => true), new Promise<false>(r => (timer = setTimeout(() => r(false), PERSON_WAIT_MS)))]);
-    clearTimeout(timer);
-    if (!done) throw new Error(`Browser profile ${n} is still open in the person's own window (they're signing in). Try it again later - other work first.`);
-  }
   let p = shared.get(n);
   if (!p) {
     p = startProfile(n);
@@ -420,6 +412,93 @@ async function addCarriedCookies(cdp: Cdp, n: number) {
     for (const c of cookies) await cdp.send('Storage.setCookies', { cookies: [c] }).catch(() => {});
   });
   await deleteSecret(carriedKey(n));
+}
+
+// --- The person's window has a folder of its own ----------------------------------------
+//
+// A profile's folder opens in one browser at a time, and Google won't sign anyone in
+// to the agents' (it has a debugging connection). So the person's plain window runs
+// on a copy - person-<n> beside the profile - seeded with the agents' sign-ins when
+// it opens, and what they signed in to goes back to the agents' browser when it
+// closes. The agents carry on meanwhile.
+export const personDir = (n: number) => join(PROFILES_DIR, `person-${n}`);
+const cookieParams = (c: Record<string, unknown>) => {
+  const { name, value, domain, path, expires, httpOnly, secure, sameSite, priority, sourceScheme, sourcePort, partitionKey, session } = c;
+  return {
+    name,
+    value,
+    domain,
+    path,
+    httpOnly,
+    secure,
+    ...(sameSite ? { sameSite } : {}),
+    ...(priority ? { priority } : {}),
+    ...(sourceScheme ? { sourceScheme } : {}),
+    ...(typeof sourcePort === 'number' ? { sourcePort } : {}),
+    ...(partitionKey ? { partitionKey } : {}),
+    ...(session || typeof expires !== 'number' || expires < 0 ? {} : { expires }),
+  };
+};
+async function setAll(cdp: Cdp, cookies: Record<string, unknown>[]) {
+  if (!cookies.length) return;
+  // One at a time past a batch that's refused, so one odd cookie doesn't lose the rest.
+  await cdp.send('Storage.setCookies', { cookies }).catch(async () => {
+    for (const c of cookies) await cdp.send('Storage.setCookies', { cookies: [c] }).catch(() => {});
+  });
+}
+// The folder in a browser of its own for a moment: no window, a debugging address on this computer.
+async function withHeadless<T>(dir: string, fn: (cdp: Cdp) => Promise<T>): Promise<T> {
+  const exe = browserExe();
+  if (!exe) throw noBrowser();
+  await mkdir(dir, { recursive: true });
+  await clearStaleLock(dir);
+  const portFile = join(dir, 'DevToolsActivePort');
+  await rm(portFile, { force: true });
+  const proc = spawn(exe, [`--user-data-dir=${dir}`, '--headless=new', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', '--no-first-run', '--no-default-browser-check', ...EXTRA_FLAGS, 'about:blank'], {
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  running.add(proc);
+  try {
+    let found = '';
+    for (let i = 0; i < 150 && !/^\d+\n\/devtools\//.test(found); i++) {
+      if (proc.exitCode !== null) throw new Error(`The browser on ${dir} closed straight away.`);
+      found = (await readFile(portFile, 'utf8').catch(() => '')).replace(/\r/g, '');
+      await sleep(100);
+    }
+    const [port, path] = found.split('\n').map(l => l.trim());
+    if (!path) throw new Error(`The browser on ${dir} didn't start.`);
+    const cdp = await Cdp.connect(`ws://127.0.0.1:${port}${path}`);
+    try {
+      return await fn(cdp);
+    } finally {
+      await cdp.send('Browser.close').catch(() => {});
+    }
+  } finally {
+    const gone = new Promise<void>(r => (proc.exitCode !== null ? r() : proc.once('exit', () => r())));
+    await Promise.race([gone, sleep(5_000)]);
+    if (proc.exitCode === null) proc.kill();
+    running.delete(proc);
+  }
+}
+// Opening: the agents' sign-ins into the person's folder.
+async function seedPersonDir(n: number) {
+  const sh = await profileBrowser(n);
+  const { cookies } = await sh.cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies');
+  closeWhenIdle(n, sh);
+  await withHeadless(personDir(n), cdp => setAll(cdp, cookies.map(cookieParams)));
+  return cookies.length;
+}
+// Closed: what they signed in to, into the agents' browser - straight in when it's
+// open, or added the next time it opens.
+async function carryBack(n: number) {
+  const cookies = (await withHeadless(personDir(n), async cdp => (await cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies')).cookies)).map(cookieParams);
+  const sh = await shared.get(n)?.catch(() => null);
+  if (sh && !sh.cdp.closed) {
+    await setAll(sh.cdp, cookies);
+    await keepSessionCookies(sh.cdp, n).catch(() => {});
+  } else await setSecret(carriedKey(n), [...((await getSecret<Record<string, unknown>[]>(carriedKey(n)).catch(() => null)) ?? []), ...cookies]);
+  console.log(`[browser] Profile ${n}: ${cookies.length} cookies from the person's window are in the agents' browser now.`);
 }
 
 async function closeSessions(runId: string) {
@@ -634,7 +713,7 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       id: 'signed_in_browser.show_person',
       tier: 'T0',
       description:
-        "Open a browser profile in a window on the person's screen, at a page - for what only a person can do: a CAPTCHA, or a code sent to their phone. Then file a request saying what they need to do, with a line \"Open in signed-in browser: <address>\" (and \" (profile N)\" if not 1) so they get a button. While their window is open, that profile is theirs: your own window on it closes, and browser tools on it wait until they close theirs - so file the request and get on with other work. What they sign in to is signed in for you too.",
+        "Open a browser profile in a window on the person's screen, at a page - for what only a person can do: a CAPTCHA, or a code sent to their phone. Then file a request saying what they need to do, with a line \"Open in signed-in browser: <address>\" (and \" (profile N)\" if not 1) so they get a button. Your own browser on that profile carries on meanwhile - file the request and get on with other work. What they sign in to is signed in for you too once they close their window.",
       schema: obj({ url: { type: 'string', description: 'The page to open' }, profile: PROFILE_ARG }, ['url']),
       impl: async a => {
         const n = await knownProfile(a.profile);
@@ -818,12 +897,12 @@ const watchers = new Map<number, ReturnType<typeof setInterval>>();
 
 // --- A profile on the person's screen ------------------------------------------------------
 
-// The person's window: the plain browser on the profile, nothing attached and no
-// debugging address, where Google signs them in. A profile opens in one browser at a
-// time, so the agents' browser on it closes first (their sign-ins kept) and runs
-// needing it wait until the person's window has closed - then it opens again with
-// what they signed in to. onClosed: once it has closed (opened from a request, its
-// Engineer is told) - once per key however often it's opened meanwhile.
+// The person's window: the plain browser, nothing attached and no debugging address,
+// where Google signs them in - on its own copy of the profile (personDir), so the
+// agents' browser stays open and its runs carry on. It opens with the agents' sign-ins
+// and, once closed, what they signed in to goes to the agents (carryBack).
+// onClosed: once it has closed (opened from a request, its Engineer is told) - once
+// per key however often it's opened meanwhile.
 const whenClosed = new Map<number, Map<string, () => void>>();
 function personGone(n: number) {
   const then = whenClosed.get(n);
@@ -838,7 +917,6 @@ function personGone(n: number) {
 }
 const personOpen = new Map<number, Promise<void>>();
 const personRelease = new Map<number, () => void>();
-const PERSON_WAIT_MS = 20 * 60_000;
 const PERSON_FLAGS = ['--no-first-run', '--no-default-browser-check'];
 const personArgs = (dir: string, target: string, display: string | null) => [
   `--user-data-dir=${dir}`,
@@ -859,10 +937,10 @@ function forgetPerson(n: number, tell = true) {
   personOpen.delete(n);
   // A window that never opened isn't "closed": the caller already got the error.
   if (!tell) whenClosed.delete(n);
-  // What they signed in to is in the profile now; the copy kept for the agents'
-  // browser is older, and put back it would undo it.
-  void deleteSecret(sessionKey(n)).catch(e => console.error(`[browser] Profile ${n}: clearing the saved session failed:`, (e as Error).message));
-  personGone(n);
+  // What they signed in to, to the agents' browser - before the request is told it's done.
+  void (tell ? carryBack(n) : Promise.resolve())
+    .catch(e => console.error(`[browser] Profile ${n}: copying the person's sign-ins to the agents failed:`, (e as Error).message))
+    .finally(() => personGone(n));
   const release = personRelease.get(n);
   personRelease.delete(n);
   release?.();
@@ -891,7 +969,7 @@ function adopt(n: number, pid: number): PersonBrowser {
     if (watchers.get(n) === timer) watchers.delete(n);
     void withProfile(n, async () => {
       if (personProcs.get(n) !== browser) return;
-      const holder = singletonPid(await readlink(join(profileDir(n), 'SingletonLock')).catch(() => null));
+      const holder = singletonPid(await readlink(join(personDir(n), 'SingletonLock')).catch(() => null));
       if (holder && personWindowAfterExit(pid, holder, pidAlive(holder)) === 'keep') {
         console.error(`[browser] Profile ${n}: pid ${pid} exited and Chrome kept the profile as pid ${holder}. Still streaming that screen.`);
         personProcs.set(n, adopt(n, holder));
@@ -912,7 +990,27 @@ export function closePersonWindow(n: number, done: boolean) {
   if (!proc || proc.exited()) return false;
   if (!done) whenClosed.delete(n);
   console.log(`[browser] Profile ${n}: closing the signed-in browser (${done ? 'done' : 'handed back'}).`);
-  proc.kill();
+  const sc = screens.get(n);
+  if (!sc) {
+    proc.kill();
+    return true;
+  }
+  // Closed the way a person closes it, so Chrome shuts down cleanly and writes its
+  // cookies: killed, it loses the newest ones - a sign-in made a moment ago.
+  void (async () => {
+    for (let i = 0; i < 6 && !proc.exited(); i++) {
+      await new Promise<void>(r => {
+        const x = spawn('xdotool', ['key', 'ctrl+shift+w'], { env: { ...process.env, DISPLAY: sc.display }, stdio: 'ignore' });
+        x.on('close', () => r());
+        x.on('error', () => r());
+      });
+      await sleep(1_000);
+    }
+    if (!proc.exited()) {
+      console.error(`[browser] Profile ${n}: the window didn't close; stopping it.`);
+      proc.kill();
+    }
+  })();
   return true;
 }
 
@@ -969,7 +1067,7 @@ export async function openProfileWindow(profile = 1, url = 'https://www.google.c
 }
 
 async function openPersonWindow(n: number, exe: string, target: string, onClosed?: { key: string; run: () => void }, request?: number) {
-  const dir = profileDir(n);
+  const dir = personDir(n);
   const remember = () => onClosed && whenClosed.set(n, (whenClosed.get(n) ?? new Map()).set(onClosed.key, onClosed.run));
   const cur = personProcs.get(n);
   if (personOpen.has(n) && cur && !cur.exited()) {
@@ -991,32 +1089,13 @@ async function openPersonWindow(n: number, exe: string, target: string, onClosed
     console.error(`[browser] Profile ${n} was marked open with no browser running. Clearing it.`);
     forgetPerson(n);
   }
-  // Theirs from now: a run starting meanwhile waits rather than reopening the agents' browser.
+  // Open from now (the agents' browser carries on beside it).
   let release = () => {};
   personOpen.set(n, new Promise<void>(r => (release = r)));
   personRelease.set(n, release);
   try {
-    const agents = await shared.get(n)?.catch(e => {
-      console.error(`[browser] Profile ${n}: the agents' browser failed:`, (e as Error).message);
-      return null;
-    });
-    if (agents) {
-      shared.delete(n);
-      clearTimeout(agents.idle);
-      await keepSessionCookies(agents.cdp, n).catch(e => console.error(`[browser] Profile ${n}: keeping the session before the person's window failed:`, (e as Error).message));
-      const gone = new Promise<void>(r => (agents.proc.exitCode !== null ? r() : agents.proc.once('exit', () => r())));
-      await agents.cdp.send('Browser.close').catch(e => {
-        console.error(`[browser] Profile ${n}: closing the agents' browser failed:`, (e as Error).message);
-        agents.proc.kill();
-      });
-      await Promise.race([gone, sleep(10_000)]);
-      if (agents.proc.exitCode === null) {
-        console.error(`[browser] Profile ${n}: the agents' browser didn't close; killing it.`);
-        agents.proc.kill('SIGKILL');
-        await Promise.race([gone, sleep(2_000)]);
-      }
-      if (agents.proc.exitCode === null) throw new Error(`Browser profile ${n} is still open in the agents' browser, so yours can't open.`);
-    }
+    const seeded = await seedPersonDir(n);
+    console.log(`[browser] Profile ${n}: the person's window starts with the agents' ${seeded} cookies.`);
     remember();
     await keepSignedIn(dir);
     await clearStaleLock(dir);
