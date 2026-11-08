@@ -37,6 +37,7 @@ import { reportDefault, reportDefaultsForPrompt, setReportDefault } from './repo
 import { appGapTool, fixedHereFor, resendUnsent } from './app-gaps.js';
 import { applyOutputMoves, retargetOutput, type OutputMove } from './output-names.js';
 import { fileRequest, heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
+import './host.js';
 
 // The Agency Engineer (docs/requests.md, docs/integrations.md): the built-in
 // agent, owned by no one, that every request goes to first. It hands work to an
@@ -71,6 +72,8 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'engineer.report_app_gap': 'T1',
   'web.web_search': 'T0',
   'web.fetch_page': 'T0',
+  'host.health': 'T0',
+  'host.clean_up': 'T1',
 };
 
 // An ordinary agent whose instructions may be changed - with no request, only
@@ -143,6 +146,7 @@ You're told when someone's Connect, sign-in or a daily check fails - the exact e
 
 ## When a tool is failing
 Find the cause before you tell anyone what to do. The agent's report is where you start, not the diagnosis: it saw one error, at one moment.
+0. A failure that isn't about the tool - "exit null", "EAGAIN", "Failed to start ... thread", "Target crashed", "The server stopped", a browser that won't open: the machine may be out of room. host.health shows its limits, what's using them and Claude Code's crashes; host.clean_up frees it (leftover browsers, idle agents' browsers). Check this before anything else, and say what you saw.
 1. History first (engineer.list_requests shows it for the tools a request names; engineer.tool_history for any). A tool that has worked many times since it failed isn't broken: tell the agent so and close the request.
 2. Tell the key apart from the tool with engineer.check_key: the stored key, sent straight to the service.
    - A call that should work with that key (a read, or the service's "who am I"): refused means the key is wrong or expired.

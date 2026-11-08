@@ -297,15 +297,19 @@ function closeWhenIdle(n: number, s: Shared) {
   clearTimeout(s.idle);
   if (s.runs.size) return;
   s.idle = setTimeout(() => {
-    if (s.runs.size) return;
-    void shared.get(n)?.then(cur => cur === s && shared.delete(n), () => {});
-    const done = endBrowser(s.proc, async () => {
-      await keepSessionCookies(s.cdp, n).catch(e => console.error(`[browser] Profile ${n}: keeping the session before closing failed:`, (e as Error).message));
-      await s.cdp.send('Browser.close');
-    });
-    closing.set(n, done);
-    void done.finally(() => closing.get(n) === done && closing.delete(n));
+    if (!s.runs.size) closeShared(n, s);
   }, IDLE_CLOSE_MS);
+}
+function closeShared(n: number, s: Shared) {
+  clearTimeout(s.idle);
+  void shared.get(n)?.then(cur => cur === s && shared.delete(n), () => {});
+  const done = endBrowser(s.proc, async () => {
+    await keepSessionCookies(s.cdp, n).catch(e => console.error(`[browser] Profile ${n}: keeping the session before closing failed:`, (e as Error).message));
+    await s.cdp.send('Browser.close');
+  });
+  closing.set(n, done);
+  void done.finally(() => closing.get(n) === done && closing.delete(n));
+  return done;
 }
 
 // The app quitting takes the profiles' browsers with it.
@@ -577,26 +581,59 @@ export function leftoverBrowsers(ps: string, self: number, ours: Set<number>, bl
   return out;
 }
 const SWEEP_MS = 5 * 60_000;
-if (process.platform === 'linux')
-  setInterval(() => {
-    execFile('ps', ['-eo', 'pid=,ppid=,args='], { maxBuffer: 16 << 20 }, (err, ps) => {
-      if (err) return;
-      const ours = new Set<number>();
-      for (const p of running) if (p.pid) ours.add(p.pid);
-      for (const p of personProcs.values()) if (p.pid) ours.add(p.pid);
-      const blankInUse = [...sessions.values()].some(x => x.kind === 'blank') || [...sessionOpening.keys()].some(k => k.includes(':blank:'));
-      for (const pid of leftoverBrowsers(ps, process.pid, ours, blankInUse)) {
-        console.error(`[browser] Ending a leftover browser (pid ${pid}).`);
-        try {
-          process.kill(-pid, 'SIGKILL');
-        } catch {
-          try {
-            process.kill(pid, 'SIGKILL');
-          } catch {}
-        }
-      }
-    });
-  }, SWEEP_MS).unref();
+const psList = () => new Promise<string>(r => execFile('ps', ['-eo', 'pid=,ppid=,args='], { maxBuffer: 16 << 20 }, (err, out) => r(err ? '' : out)));
+async function findLeftovers() {
+  if (process.platform !== 'linux') return [];
+  const ps = await psList();
+  const ours = new Set<number>();
+  for (const p of running) if (p.pid) ours.add(p.pid);
+  for (const p of personProcs.values()) if (p.pid) ours.add(p.pid);
+  const blankInUse = [...sessions.values()].some(x => x.kind === 'blank') || [...sessionOpening.keys()].some(k => k.includes(':blank:'));
+  return leftoverBrowsers(ps, process.pid, ours, blankInUse);
+}
+async function endLeftovers() {
+  const pids = await findLeftovers();
+  for (const pid of pids) {
+    console.error(`[browser] Ending a leftover browser (pid ${pid}).`);
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {}
+    }
+  }
+  return pids;
+}
+if (process.platform === 'linux') setInterval(() => void endLeftovers(), SWEEP_MS).unref();
+
+// What the Doctor and the Agency Engineer see of the browsers, and can clear (host.ts).
+export async function browserCensus() {
+  const agents: { profile: number; pid?: number; runs: number }[] = [];
+  for (const [n, p] of shared) {
+    const s = await p.catch(() => null);
+    if (s) agents.push({ profile: n, pid: s.proc.pid, runs: s.runs.size });
+  }
+  return {
+    agents,
+    personWindows: [...personProcs.entries()].map(([profile, p]) => ({ profile, pid: p.pid })),
+    throwaway: [...sessions.values()].filter(x => x.kind === 'blank').length,
+    leftovers: await findLeftovers(),
+  };
+}
+// Leftovers ended, and agents' browsers no run is using closed now (sign-ins kept):
+// each starts again fresh, with its memory back, when a run next needs it.
+export async function cleanUpBrowsers() {
+  const ended = await endLeftovers();
+  const closed: number[] = [];
+  for (const [n, p] of [...shared]) {
+    const s = await p.catch(() => null);
+    if (!s || s.runs.size) continue;
+    await closeShared(n, s);
+    closed.push(n);
+  }
+  return { ended, closed };
+}
 
 async function closeSessions(runId: string) {
   endedRuns.add(runId);

@@ -74,7 +74,10 @@ export async function claudeOnce(args: string[], prompt: string, cwd: string, si
       try {
         resolve(JSON.parse(text.slice(text.indexOf('{'))) as ClaudeOut);
       } catch {
-        if (!signal?.aborted && crashed(code, sig, err)) return reject(new ClaudeCrash(`Claude Code crashed (${sig ?? `exit ${code}`})`));
+        if (!signal?.aborted && crashed(code, sig, err)) {
+          noteCrash(err, sig ?? `exit ${code}`);
+          return reject(new ClaudeCrash(`Claude Code crashed (${sig ?? `exit ${code}`})`));
+        }
         const why = (err || text || `exit ${code}`).slice(0, 300);
         reject(tooOld(why) ?? new ModelError(`Claude Code: ${why}`, LIMIT.test(why) ? 'rate' : 'server'));
       }
@@ -94,6 +97,20 @@ export class ClaudeCrash extends ModelError {
 export const crashed = (code: number | null, sig: NodeJS.Signals | null, err: string) =>
   sig != null || code === null || code === 134 || code === 139 || /Bun has crashed|panic\(/.test(err);
 const CRASH_RETRIES = 3;
+// The last day's crashes, for the Doctor and the Agency Engineer (host.ts): why
+// they happened is in what Claude Code said as it fell over.
+export const claudeCrashes: { at: number; why: string }[] = [];
+export const crashCause = (err: string, how: string) =>
+  /EAGAIN|Resource temporarily unavailable|Failed to start .*thread|pthread_create/i.test(err)
+    ? "couldn't start a thread or process: the machine's limit is reached"
+    : /out of memory|heap limit|ENOMEM/i.test(err)
+      ? 'out of memory'
+      : `crashed (${how})`;
+function noteCrash(err: string, how: string) {
+  const now = Date.now();
+  claudeCrashes.push({ at: now, why: crashCause(err, how) });
+  while (claudeCrashes.length && (claudeCrashes[0].at < now - 24 * 3_600_000 || claudeCrashes.length > 500)) claudeCrashes.shift();
+}
 // Whether Claude Code wrote anything of this session before it stopped.
 async function sessionSaved(id: string) {
   const projects = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects');
