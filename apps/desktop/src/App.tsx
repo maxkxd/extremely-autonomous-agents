@@ -40,6 +40,7 @@ import {
   ApprovalsToolbar,
   DecisionTally,
   visibleApprovals,
+  type ApprovalFailure,
   type ApprovalScope,
   type Resolution,
 } from './Approvals';
@@ -182,6 +183,7 @@ function Agency() {
   // `resolved` records a decision the moment it's made (so counters react
   // straight away); `gone` drops the card once its exit animation has played.
   const [resolved, setResolved] = useState<Record<string, Resolution>>({});
+  const [approvalFailures, setApprovalFailures] = useState<ApprovalFailure[]>([]);
   const [gone, setGone] = useState<Record<string, true>>({});
   // Real agents' T2 calls waiting on you (docs/runner.md), decided on the server.
   const [liveApprovals, setLiveApprovals] = useState<Approval[]>([]);
@@ -751,7 +753,12 @@ function Agency() {
                 if (live) decidedLive.current.set(id, live);
                 if (live && r !== 'expired')
                   decideApproval(id, r, note || undefined).then(
-                    out => !out.ok && window.alert(out.result ?? 'It was approved, but running it failed.'),
+                    out =>
+                      !out.ok &&
+                      setApprovalFailures(prev => [
+                        ...prev.filter(f => f.id !== id),
+                        { id, agentId: live.agentId, why: String(out.result ?? '').replace(/^Approved, but it failed:\s*/, '') },
+                      ]),
                     e => {
                       window.alert((e as Error).message);
                       // Not decided after all: bring the card back.
@@ -762,6 +769,8 @@ function Agency() {
                   );
               }}
               onGone={id => setGone(prev => ({ ...prev, [id]: true }))}
+              failures={approvalFailures}
+              onDismissFailure={id => setApprovalFailures(prev => prev.filter(f => f.id !== id))}
             />
           ) : view === 'requests' ? (
             <Requests

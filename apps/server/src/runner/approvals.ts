@@ -6,7 +6,7 @@ import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { DOCTOR } from './doctor.js';
 import { all, one, run as exec } from './db.js';
 import { agencyStopped, stateOf } from './run.js';
-import { runApproved } from './tools.js';
+import { approvalSettled, runApproved } from './tools.js';
 
 // Approvals (docs/runner.md): a T2 call is queued with the exact arguments
 // the agent gave and the run carries on. A person approves or rejects it on
@@ -79,6 +79,7 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
     settleAction(id, 'refused');
     // A go-live turned down: its draft goes too.
     const gone = a.tool === 'engineer.publish_integration' && (await discardDraft(String(args.integration_id)).catch(() => false));
+    void approvalSettled(a.run_id);
     wake(a.agent_id, 'approval', `A person REJECTED your queued ${what}. It did not happen.${gone ? ' Its draft was discarded (if a version of it was live before, that one is back).' : ''}${why} Take that into account - don't queue the same thing again unchanged.`);
     return { ok: true, ran: false, result: null };
   }
@@ -87,11 +88,12 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
   let ok = true;
   try {
     if (!agent) throw new Error('The agent no longer exists.');
-    result = await runApproved({ agent, runId: a.run_id, level: 0, now: () => Date.now(), fleet: async () => [], wake: (id, t, task) => wake(id, t as 'request', task) }, a.tool, args);
+    result = await runApproved({ agent, runId: a.run_id, level: 0, now: () => Date.now(), fleet: async () => [], wake: (id, t, task) => wake(id, t as 'request', task), approved: true }, a.tool, args);
   } catch (e) {
     ok = false;
     result = `Approved, but it failed: ${(e as Error).message}`;
   }
+  await approvalSettled(a.run_id);
   exec('UPDATE approvals SET result = ? WHERE id = ?', result.slice(0, 2000), id);
   settleAction(id, ok ? 'ok' : 'failed');
   wake(
@@ -115,6 +117,7 @@ export function expireApprovals(now: number, wake: Wake) {
   for (const a of due) {
     exec("UPDATE approvals SET status = 'expired', decided_at = ? WHERE id = ? AND status = 'pending'", now, a.id);
     settleAction(a.id, 'refused');
+    void approvalSettled(a.run_id);
     wake(a.agent_id, 'approval', `Your queued ${a.tool} (${argsLine(JSON.parse(a.args))}) EXPIRED: nobody decided in time, so it did not happen. Queue it again only if it still matters.`);
   }
   return due.length;
