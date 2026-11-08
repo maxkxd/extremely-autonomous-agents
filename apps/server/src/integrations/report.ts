@@ -14,15 +14,25 @@ import { fileURLToPath } from 'node:url';
 
 const FILE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'backend.json');
 let backend: string | null | undefined;
+// A container hosting an organization (docs/hosting-in-the-cloud.md) has no
+// backend.json - it's built from the repository - but it's given our backend's
+// address for its relay and tokens (EAA_TOKEN_ISSUER), and reports there. Without
+// this its app-gap reports were kept and never sent.
+export function reportBackend(file: string | null, env: NodeJS.ProcessEnv = process.env): string | null {
+  const https = (u: string | undefined) => (u && /^https:\/\//.test(u) ? u.replace(/\/$/, '') : null);
+  let url: string | undefined;
+  try {
+    url = file ? (JSON.parse(file) as { url?: string }).url : undefined;
+  } catch {}
+  return https(url) ?? https(env.EAA_REPORT_URL) ?? (env.EAA_CLOUD_HOST ? https(env.EAA_TOKEN_ISSUER) : null);
+}
 const backendUrl = () => {
   if (backend !== undefined) return backend;
+  let file: string | null = null;
   try {
-    const url = (JSON.parse(readFileSync(FILE, 'utf8')) as { url?: string }).url ?? '';
-    backend = /^https:\/\//.test(url) ? url.replace(/\/$/, '') : null;
-  } catch {
-    backend = null;
-  }
-  return backend;
+    file = readFileSync(FILE, 'utf8');
+  } catch {}
+  return (backend = reportBackend(file));
 };
 
 // "Gmail answered 400: Precondition check failed." -> "400 gmail answered precondition check failed".

@@ -77,6 +77,9 @@ export type PersonInput =
   | { type: 'key'; action: 'down' | 'up'; key: string; code: string; keyCode: number; text?: string; modifiers?: number }
   | { type: 'text'; text: string };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+// A numbered control in the page: through the page view's finder (browser.ts), which
+// also finds one the page drew again since it was numbered.
+const EL = (ref: number) => `(window.__eaa ? window.__eaa.find(${Number(ref)}) : document.querySelector('[data-eaa-ref="${Number(ref)}"]'))`;
 
 // One page an agent works in: its own window, attached to it alone.
 export class CdpPage {
@@ -153,6 +156,14 @@ export class CdpPage {
 
   async goto(url: string, ms = 30_000) {
     const r = await this.send<{ errorText?: string }>('Page.navigate', { url });
+    // "Aborted" also means the site sent the browser on somewhere else as it loaded (a
+    // redirect, a sign-in hop): the page it landed on is what was asked for.
+    if (r.errorText && /ERR_ABORTED/.test(r.errorText)) {
+      await sleep(1_000);
+      await this.ready(ms);
+      const at = await this.url().catch(() => '');
+      if (at && !/^(about:blank|chrome-error:)/.test(at)) return;
+    }
     if (r.errorText) throw new Error(`Couldn't open ${url}: ${r.errorText}`);
     await sleep(150);
     await this.ready(ms);
@@ -173,7 +184,7 @@ export class CdpPage {
   // The middle of a numbered element, scrolled into view.
   private async point(ref: number) {
     const p = await this.evaluate<{ x: number; y: number } | null>(
-      `(() => { const e = document.querySelector('[data-eaa-ref="${ref}"]'); if (!e) return null; e.scrollIntoView({ block: 'center', inline: 'center' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`,
+      `(() => { const e = ${EL(ref)}; if (!e) return null; e.scrollIntoView({ block: 'center', inline: 'center' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`,
     );
     if (!p) throw new Error(`There's no [${ref}] on the page now - look at it again (scroll, or open it) and use a number from what you see.`);
     return p;
@@ -189,7 +200,7 @@ export class CdpPage {
   // Replaces what's in a field, typed in as a person would (so the page sees input).
   async fill(ref: number, text: string) {
     const ok = await this.evaluate<boolean>(
-      `(() => { const e = document.querySelector('[data-eaa-ref="${ref}"]'); if (!e) return false; e.scrollIntoView({ block: 'center' }); e.focus();
+      `(() => { const e = ${EL(ref)}; if (!e) return false; e.scrollIntoView({ block: 'center' }); e.focus();
         if (typeof e.select === 'function') e.select();
         else { const r = document.createRange(); r.selectNodeContents(e); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
         return true; })()`,
@@ -207,14 +218,24 @@ export class CdpPage {
   // A dropdown's options, or null when it isn't one.
   options(ref: number) {
     return this.evaluate<string[] | null>(
-      `(() => { const e = document.querySelector('[data-eaa-ref="${ref}"]'); return e instanceof HTMLSelectElement ? [...e.options].map(o => o.text.replace(/\\s+/g, ' ').trim()) : null; })()`,
+      `(() => { const e = ${EL(ref)}; return e instanceof HTMLSelectElement ? [...e.options].map(o => o.text.replace(/\\s+/g, ' ').trim()) : null; })()`,
     );
   }
 
   async select(ref: number, index: number) {
     await this.evaluate(
-      `(() => { const e = document.querySelector('[data-eaa-ref="${ref}"]'); e.selectedIndex = ${index}; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+      `(() => { const e = ${EL(ref)}; e.selectedIndex = ${index}; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); })()`,
     );
+  }
+
+  // Attaches files (paths on this computer) to an upload field: the one the number
+  // is, or the hidden file input behind the button or label it is (findInput: the
+  // page view's own lookup, an expression returning that input or null).
+  async setFiles(findInput: string, files: string[]) {
+    const r = await this.send<{ result: { objectId?: string; subtype?: string } }>('Runtime.evaluate', { expression: findInput, returnByValue: false });
+    if (!r.result.objectId || r.result.subtype === 'null') return false;
+    await this.send('DOM.setFileInputFiles', { files, objectId: r.result.objectId });
+    return true;
   }
 
   // --- Watched by a person (live-view.ts) ---------------------------------------------

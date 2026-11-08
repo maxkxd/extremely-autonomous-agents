@@ -242,7 +242,7 @@ export const WORKSPACES = join(DATA_DIR, 'workspaces');
 const MAX_FILE = 200_000;
 
 // A path inside the agent's own workspace, or an error.
-function inWorkspace(agentId: string, path: unknown): string {
+export function inWorkspace(agentId: string, path: unknown): string {
   const p = String(path ?? '').trim().replace(/\\/g, '/');
   if (!p || p.startsWith('/') || /^[a-z]:/i.test(p)) throw new Error('Give a relative path, like "ideas/2026-11.md".');
   const root = join(WORKSPACES, agentId);
@@ -703,7 +703,7 @@ const FAILS_PER_RUN = 3;
 // the browser - clicking, typing, signing in - which is how a browser job gets done
 // at all: one sign-up form is ten fields (Directory Submitter was cut off mid-form).
 const REPEATS_PER_RUN = 10;
-const BROWSER_STEPS = /^(signed_in_browser|browser)\.(click|type|choose|type_password|scroll|back|open)$/;
+const BROWSER_STEPS = /^(signed_in_browser|browser)\.(click|type|choose|type_password|scroll|back|open|upload_file)$/;
 const repeatsInRun = new Map<string, number>();
 const failedInRun = new Map<string, { n: number; last: string }>();
 // A service that says its limit is reached (429, "rate limit"): its tools pause for

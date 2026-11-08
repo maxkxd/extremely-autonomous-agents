@@ -49,7 +49,7 @@ agency and no bundle it waits for one to arrive in `/data/incoming`
 |---|---|
 | `EAA_HOSTED_ORG` | the organisation's id |
 | `EAA_ORG_NAME` | its name, for the logs |
-| `EAA_TOKEN_ISSUER` | our backend's https address (the relay and org tokens) |
+| `EAA_TOKEN_ISSUER` | our backend's https address (the relay and org tokens; the app's anonymous reports of its own gaps and connection failures go there too, or to `EAA_REPORT_URL`) |
 | `EAA_VAULT_KEY` | the container's vault key: 32 bytes, base64 |
 | `EAA_HOST_PERSON` | the owner's name, as on their computer |
 | `EAA_MOVE_IN_URL` | optional: where to fetch the bundle, instead of putting it in `/data/incoming` |
