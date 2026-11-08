@@ -156,6 +156,14 @@ export class CdpPage {
 
   async goto(url: string, ms = 30_000) {
     const r = await this.send<{ errorText?: string }>('Page.navigate', { url });
+    // "Aborted" also means the site sent the browser on somewhere else as it loaded (a
+    // redirect, a sign-in hop): the page it landed on is what was asked for.
+    if (r.errorText && /ERR_ABORTED/.test(r.errorText)) {
+      await sleep(1_000);
+      await this.ready(ms);
+      const at = await this.url().catch(() => '');
+      if (at && !/^(about:blank|chrome-error:)/.test(at)) return;
+    }
     if (r.errorText) throw new Error(`Couldn't open ${url}: ${r.errorText}`);
     await sleep(150);
     await this.ready(ms);
