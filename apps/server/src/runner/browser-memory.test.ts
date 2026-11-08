@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { endBrowser, leftoverBrowsers, PROFILES_DIR } from './browser.js';
+import { endBrowser, leftoverBrowsers, PROFILES_DIR, pagesToLetGo } from './browser.js';
 
 // In the cloud a second agents' browser ran beside the first on the same profile
 // for hours, and a throwaway browser outlived its run: about 1.5 GB between them.
@@ -45,4 +45,18 @@ test("pages no run is driving are stray; a running run's own page and its popups
   ];
   assert.deepEqual(strayPages(targets, new Set(['run-a'])), ['old-popup', 'old-tab']);
   assert.deepEqual(strayPages(targets, new Set()), ['run-a', 'google-popup', 'old-popup', 'old-tab']);
+});
+
+// A queued click's page is set aside for it; these are let go.
+test('set-aside pages for waiting clicks: decided, unclaimed, day-old and over-the-limit ones go', () => {
+  const now = 10 * 3_600_000;
+  const min = 60_000;
+  const pending = (id: string) => id !== 'decided' && id !== 'never-queued';
+  // Just queued: kept even before its approval row is checked.
+  assert.deepEqual(pagesToLetGo([{ id: 'never-queued', since: now - 10_000 }], pending, now), []);
+  assert.deepEqual(pagesToLetGo([{ id: 'never-queued', since: now - 3 * min }], pending, now), ['never-queued']);
+  assert.deepEqual(pagesToLetGo([{ id: 'decided', since: now - 3 * min }, { id: 'a', since: now - 3 * min }], pending, now), ['decided']);
+  assert.deepEqual(pagesToLetGo([{ id: 'old', since: now - 25 * 3_600_000 }], pending, now + 0), ['old']);
+  const seven = Array.from({ length: 7 }, (_, i) => ({ id: `p${i}`, since: now - (10 - i) * min }));
+  assert.deepEqual(pagesToLetGo(seven, pending, now).sort(), ['p0', 'p1']);
 });

@@ -819,7 +819,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     let stored: Record<string, unknown> = typeof why === 'string' && why.trim() ? { ...call.args, _why: why.trim().slice(0, 600) } : call.args;
     if (impl.preview)
       try {
-        stored = { ...call.args, ...(await impl.preview(call.args, ctx)) };
+        stored = { ...stored, ...(await impl.preview(call.args, ctx)) };
       } catch (e) {
         return record({ content: (e as Error).message, error: true, outcome: 'refused', counted: 0 });
       }

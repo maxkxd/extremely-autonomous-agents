@@ -678,36 +678,67 @@ export async function cleanUpBrowsers() {
   return { ended, closed, pages };
 }
 
-// A click waiting for a person (click_to_pay, _post, _start_tool) keeps its page past
-// the run that queued it - the form filled in, the numbers it was given - so the
-// approved click lands where it was meant to. It closes once every one of that
-// run's clicks is decided, or after a day.
-const PARKED_MAX_MS = 24 * 3_600_000;
-const PARKED_MAX = 5;
-const waitingClick = (runId: string) =>
-  !!one("SELECT 1 FROM approvals WHERE run_id = ? AND status = 'pending' AND tool LIKE 'signed_in_browser.click_to_%' LIMIT 1", runId);
-const parked = new Map<string, ReturnType<typeof setTimeout>>();
+// A click waiting for a person (click_to_pay, _post, _start_tool) gets its page to
+// itself. Queueing it sets the run's page aside - the form filled in, the numbers it
+// was given - and the agent's next browser step opens a fresh page, so carrying on
+// can't move the page under the waiting click. (Kept on the run's own page, an
+// approved "Create pull request" clicked whatever the agent had opened since: four
+// approved GitHub posts landed on a license link on another repository.) The page
+// closes once its click is decided, after a day, or if no approval took it.
+const WAIT_MAX_MS = 24 * 3_600_000;
+const WAIT_MAX = 5;
+const UNCLAIMED_MS = 2 * 60_000;
+type Waiting = { key: string; runId: string; since: number };
+const waitingPages = new Map<string, Waiting>(); // by page id (the approval's _page)
+const pendingFor = (pageId: string) =>
+  !!one("SELECT 1 FROM approvals WHERE status = 'pending' AND tool LIKE 'signed_in_browser.click_to_%' AND json_extract(args, '$._page') = ? LIMIT 1", pageId);
+
+// Which set-aside pages to close: decided (or never queued) ones, ones past a day,
+// and past WAIT_MAX the oldest - each holds memory. Approved after that, its agent
+// hears to redo the steps.
+export function pagesToLetGo(waits: { id: string; since: number }[], pending: (id: string) => boolean, now: number, max = WAIT_MAX, maxMs = WAIT_MAX_MS, unclaimedMs = UNCLAIMED_MS) {
+  const go = new Set<string>();
+  for (const w of waits) if (now - w.since > maxMs || (now - w.since > unclaimedMs && !pending(w.id))) go.add(w.id);
+  const kept = waits.filter(w => !go.has(w.id)).sort((a, b) => a.since - b.since);
+  for (const w of kept.slice(0, Math.max(0, kept.length - max))) go.add(w.id);
+  return [...go];
+}
+async function letGoOf(ids: string[]) {
+  for (const id of ids) {
+    const w = waitingPages.get(id);
+    waitingPages.delete(id);
+    if (w) await closeSession(w.key);
+  }
+}
+const checkWaiting = () => letGoOf(pagesToLetGo([...waitingPages.entries()].map(([id, w]) => ({ id, since: w.since })), pendingFor, Date.now()));
+
+// The run's page in this profile, set aside for a click being queued on it.
+async function setAside(ctx: RunCtx, profile: number, ref: number) {
+  const key = `${ctx.runId}:profile:${profile}`;
+  const s = sessions.get(key);
+  if (!s || !s.cdp || s.page.isClosed()) throw new Error('There is no page open in the browser to click on. Open the page, fill it in, then queue the click.');
+  if (!(await s.page.evaluate<boolean>(inPage(`find(${ref}) !== null`)))) throw new Error(`There's no [${ref}] on the page now - look at it again (scroll, or open it) and use a number from what you see.`);
+  const id = `wp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+  const own = `wait:${id}`;
+  sessions.delete(key);
+  // Its own user of the shared browser, so the run ending doesn't close the browser under it.
+  sessions.set(own, { ...s, runId: own });
+  const sh = await shared.get(profile)?.catch(() => null);
+  sh?.runs.add(own);
+  waitingPages.set(id, { key: own, runId: ctx.runId, since: Date.now() });
+  setTimeout(() => void checkWaiting(), UNCLAIMED_MS + 1_000).unref();
+  void checkWaiting();
+  return { _page: id, _url: await s.page.url() };
+}
+
 async function closeSessions(runId: string) {
   endedRuns.add(runId);
   setTimeout(() => endedRuns.delete(runId), 30 * 60_000).unref();
-  if (waitingClick(runId)) {
-    if (!parked.has(runId)) parked.set(runId, setTimeout(() => void closeParked(runId, true), PARKED_MAX_MS).unref());
-    // Kept pages hold nobody up - the agent's next run opens its own page, and
-    // nothing waits on an approval - but each holds memory: at most PARKED_MAX,
-    // the oldest let go first (approved later, its agent hears to redo the steps).
-    while (parked.size > PARKED_MAX) void closeParked(parked.keys().next().value!, true);
-    return;
-  }
   for (const key of [...sessions.keys()]) if (key.startsWith(`${runId}:`)) await closeSession(key);
 }
 onRunEnd(closeSessions);
-async function closeParked(runId: string, anyway = false) {
-  if (!parked.has(runId) || (!anyway && waitingClick(runId))) return;
-  clearTimeout(parked.get(runId));
-  parked.delete(runId);
-  for (const key of [...sessions.keys()]) if (key.startsWith(`${runId}:`)) await closeSession(key);
-}
-onApprovalSettled(runId => closeParked(runId));
+onApprovalSettled(() => checkWaiting());
+setInterval(() => void checkWaiting(), SWEEP_MS).unref();
 
 // --- What the agent sees --------------------------------------------------------------
 
@@ -1064,9 +1095,22 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
   const decisive = (id: string, what: string): ToolDef => ({
     id: `signed_in_browser.${id}`,
     tier: 'T2',
-    description: `The click that ${what}, in ${where}: a numbered button on the current page. Waits for the person's approval, unless they lowered it.`,
+    description: `The click that ${what}, in ${where}: a numbered button on the current page. Waits for the person's approval, unless they lowered it. The page stays as it is for that click, and your next browser step starts on a new page - open the next address you need; nothing you do after can move the waiting click.`,
     schema: obj({ ref: { type: 'number', description: 'The number from the last page you saw' }, what: { type: 'string', description: 'For the person approving, in a sentence: exactly what this click does (the plan and price, the post, the tool)' }, profile: PROFILE_ARG }, ['ref', 'what']),
-    impl: click,
+    // Queued: its page is set aside for it (setAside). Approved: the click runs there.
+    preview: async (a, ctx) => setAside(ctx, await knownProfile(a.profile), Number(a.ref)),
+    impl: async (a, ctx) => {
+      if (!a._page) return click(a, ctx); // the person lowered it: no approval, no page set aside
+      const w = waitingPages.get(String(a._page));
+      const s = w && sessions.get(w.key);
+      if (!s || s.page.isClosed())
+        throw new Error("The page this click was on closed before it was approved (the agency restarted, the page was closed, or it waited too long), so nothing was clicked. Open the page again, redo the steps, and queue the click once more.");
+      if (s.cdp) await untilFree(s.cdp);
+      await s.page.click(Number(a.ref));
+      await wait(150);
+      await settle(s.page);
+      return snapshot(s.page);
+    },
   });
   return [
     {
