@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse, stringify } from 'yaml';
 import type { Tier } from '../catalog.js';
-import { all, getSetting, setSetting } from '../runner/db.js';
+import { all, getSetting, onSettingWritten, setSetting } from '../runner/db.js';
 import { registerTools, type ToolDef, unregisterTools } from '../runner/tools.js';
 import { deleteSecret, getSecret, setSecret } from '../vault.js';
 import { authParts, callHttp, at, baseFor, errorText, putFields, redact } from './http.js';
@@ -56,7 +56,14 @@ type State = {
   repair?: { at: number; message: string }; // it failed and the Agency Engineer is on it
 };
 const STATE_KEY = 'integrations';
-const states = () => getSetting<Record<string, State>>(STATE_KEY, {});
+// Read once and kept: it holds every connection's tool list (an MCP server's can be
+// hundreds of tools with their schemas, megabytes in all), and it's asked for dozens
+// of times a request - read from the database each time, that pinned a whole CPU.
+// Read again after any write of it (putState, or anything else). Callers never change
+// what they read in place; they put a new state.
+let statesNow: Record<string, State> | null = null;
+const states = () => (statesNow ??= getSetting<Record<string, State>>(STATE_KEY, {}));
+onSettingWritten(key => key === STATE_KEY && (statesNow = null));
 const putState = (id: string, s: State | null) => {
   const all = states();
   if (s) all[id] = s;
