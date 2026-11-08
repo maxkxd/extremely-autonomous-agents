@@ -377,6 +377,7 @@ function ApprovalCard({
   );
 }
 
+export type ApprovalFailure = { id: string; agentId: string; why: string };
 export function Approvals({
   pending,
   scope,
@@ -385,8 +386,12 @@ export function Approvals({
   onFocused = () => {},
   onDecide,
   onGone,
+  failures = [],
+  onDismissFailure = () => {},
   loading = false,
 }: {
+  failures?: ApprovalFailure[]; // approved, but it didn't go through: said here, not in a pop-up
+  onDismissFailure?: (id: string) => void;
   loading?: boolean; // the list isn't in yet: placeholders, not "nothing waiting"
   pending: Approval[];
   scope: ApprovalScope;
@@ -423,6 +428,21 @@ export function Approvals({
         ))}
       </div>
     );
+  const failed = failures.length ? (
+    <div className="approval-failures">
+      {failures.map(f => (
+        <div key={f.id} className="approval-failed" role="alert">
+          <span>
+            <b>{AGENTS.find(x => x.id === f.agentId)?.name ?? 'The agent'}</b>: approved, but it didn't go through. {f.why} It's been told, and will sort it out.
+          </span>
+          <button type="button" className="approval-failed-x" aria-label="Dismiss" onClick={() => onDismissFailure(f.id)}>
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+    </div>
+  ) : null;
+  if (shown.length === 0 && failed) return <div className="approvals">{failed}</div>;
   if (shown.length === 0) {
     return (
       <div className="main-empty">
@@ -435,6 +455,7 @@ export function Approvals({
 
   return (
     <div className="approvals">
+      {failed}
       {shown.map(a => (
         <ApprovalCard
           key={a.id}

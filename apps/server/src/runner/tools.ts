@@ -35,6 +35,8 @@ export type RunCtx = {
   wake: (agentId: string, trigger: string, task: string) => void;
   // The person whose message this run answers (the Agency Engineer acts for them).
   person?: string | null;
+  // Running what a person approved, after the run that queued it.
+  approved?: boolean;
 };
 
 type Impl = (args: Record<string, unknown>, ctx: RunCtx) => Promise<string> | string;
@@ -522,6 +524,14 @@ const runEndHooks: ((runId: string) => Promise<void> | void)[] = [];
 export const onRunEnd = (fn: (runId: string) => Promise<void> | void) => void runEndHooks.push(fn);
 export async function runEnded(runId: string) {
   for (const fn of runEndHooks) await Promise.resolve(fn(runId)).catch(() => {});
+}
+// A queued action decided (approved and run, rejected, or expired): what was kept
+// for it can go (browser.ts keeps the page a click waits on).
+const approvalHooks: ((runId: string) => Promise<void> | void)[] = [];
+export const onApprovalSettled = (fn: (runId: string) => Promise<void> | void) => void approvalHooks.push(fn);
+export async function approvalSettled(runId: string | null) {
+  if (!runId) return;
+  for (const fn of approvalHooks) await Promise.resolve(fn(runId)).catch(() => {});
 }
 const find = (id: string) => BUILTIN.find(t => t.id === id) ?? REGISTERED.get(id);
 

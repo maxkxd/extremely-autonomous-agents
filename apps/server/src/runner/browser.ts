@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
 import { Cdp, CdpPage, type Bounds } from './cdp.js';
 import { checkUrl, isPrivateIp } from './net.js';
-import { onRunEnd, registerTools, type RunCtx, type ToolDef } from './tools.js';
+import { onApprovalSettled, onRunEnd, registerTools, type RunCtx, type ToolDef } from './tools.js';
+import { one } from './db.js';
 import { ACCOUNTS_PER_SITE, listPasswords, makePassword, passwordRow, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { DATA_DIR } from '../paths.js';
 import { deleteSecret, getSecret, setSecret } from '../vault.js';
@@ -391,6 +392,10 @@ async function session(ctx: RunCtx, kind: Session['kind'], profile = 1): Promise
     return existing;
   }
   if (existing) await closeSession(key);
+  // A click a person approved runs on the page it was queued on, kept for it. With
+  // that page gone a blank one would only fail ("no [13] on the page") - say why.
+  if (ctx.approved)
+    throw new Error("The page this click was on closed before it was approved (the agency restarted, or the page was closed), so nothing was clicked. Open the page again, redo the steps, and queue the click once more.");
   let p = sessionOpening.get(key);
   if (!p) {
     p = openSession(ctx, kind, profile, key);
@@ -668,12 +673,31 @@ export async function cleanUpBrowsers() {
   return { ended, closed, pages };
 }
 
+// A click waiting for a person (click_to_pay, _post, _start_tool) keeps its page past
+// the run that queued it - the form filled in, the numbers it was given - so the
+// approved click lands where it was meant to. It closes once every one of that
+// run's clicks is decided, or after a day.
+const PARKED_MAX_MS = 24 * 3_600_000;
+const waitingClick = (runId: string) =>
+  !!one("SELECT 1 FROM approvals WHERE run_id = ? AND status = 'pending' AND tool LIKE 'signed_in_browser.click_to_%' LIMIT 1", runId);
+const parked = new Map<string, ReturnType<typeof setTimeout>>();
 async function closeSessions(runId: string) {
   endedRuns.add(runId);
   setTimeout(() => endedRuns.delete(runId), 30 * 60_000).unref();
+  if (waitingClick(runId)) {
+    if (!parked.has(runId)) parked.set(runId, setTimeout(() => void closeParked(runId, true), PARKED_MAX_MS).unref());
+    return;
+  }
   for (const key of [...sessions.keys()]) if (key.startsWith(`${runId}:`)) await closeSession(key);
 }
 onRunEnd(closeSessions);
+async function closeParked(runId: string, anyway = false) {
+  if (!parked.has(runId) || (!anyway && waitingClick(runId))) return;
+  clearTimeout(parked.get(runId));
+  parked.delete(runId);
+  for (const key of [...sessions.keys()]) if (key.startsWith(`${runId}:`)) await closeSession(key);
+}
+onApprovalSettled(runId => closeParked(runId));
 
 // --- What the agent sees --------------------------------------------------------------
 

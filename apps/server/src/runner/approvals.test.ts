@@ -5,7 +5,7 @@ import { DEFAULT_PLAN, type AgentDef } from './agent.js';
 import { decideApproval, expireApprovals, pendingApprovals } from './approvals.js';
 import { one, resetDbForTests, run as exec } from './db.js';
 import { stateOf } from './run.js';
-import { execute, registerTools } from './tools.js';
+import { execute, onApprovalSettled, registerTools } from './tools.js';
 
 const agent: AgentDef = {
   id: 'zz-approvals-test',
@@ -27,6 +27,9 @@ const agent: AgentDef = {
 };
 
 let sent: unknown[] = [];
+const approvedCtx: boolean[] = [];
+const settled: string[] = [];
+onApprovalSettled(runId => void settled.push(runId));
 let fail = false;
 registerTools([
   {
@@ -34,8 +37,9 @@ registerTools([
     tier: 'T2',
     description: 'send',
     schema: { type: 'object', properties: { to: { type: 'string' }, body: { type: 'string' } }, required: ['to', 'body'] },
-    impl: async args => {
+    impl: async (args, ctx) => {
       if (fail) throw new Error('mailbox full');
+      approvedCtx.push(!!ctx.approved);
       sent.push(args);
       return 'Sent.';
     },
@@ -57,6 +61,8 @@ beforeEach(() => {
   resetDbForTests();
   sent = [];
   woken.length = 0;
+  settled.length = 0;
+  approvedCtx.length = 0;
   fail = false;
 });
 
@@ -156,4 +162,20 @@ test('the same proposal twice in one turn makes one card, not two (its preview t
   ]);
   assert.deepEqual(outs.map(o => o.outcome).sort(), ['queued', 'refused']);
   assert.equal(one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE tool = 'zz.publish'")!.n, 1);
+});
+
+// A browser click waiting for a person keeps its page past its run (browser.ts);
+// it closes when the click is decided, whichever way. The approved call runs
+// knowing it's an approved one, so a page that's gone is said plainly.
+test("however it's decided, the run's kept page is let go; an approved call knows it is one", async () => {
+  await decideApproval(await queue(), 'approved', null, wake, Date.now(), async () => agent);
+  assert.deepEqual(approvedCtx, [true]);
+  resetDbForTests();
+  await decideApproval(await queue(), 'rejected', null, wake, Date.now(), async () => agent);
+  resetDbForTests();
+  const now = Date.now();
+  await queue(now);
+  expireApprovals(now + 2 * 3_600_000, wake);
+  await new Promise(r => setImmediate(r));
+  assert.deepEqual(settled, ['r1', 'r1', 'r1']);
 });
