@@ -92,7 +92,7 @@ const MOVED_OFF = 'models_moved_off';
 export async function fillBuiltInModels() {
   const avail = await availableModels().catch(() => []);
   if (!avail.length) return;
-  const checks = await allChecks().catch(() => ({}) as Record<string, { ok: boolean }>);
+  const checks = await allChecks().catch(() => ({}) as Record<string, { ok: boolean; unsure?: boolean; at: number }>);
   const health = getSetting<Health>('model_health', {});
   const has = (c: Pick<ModelChoice, 'connection' | 'model'>) => !!avail.find(a => a.connection === c.connection)?.models.includes(c.model);
   // One out of its allowance (a free Gemini key's quota) still answers, so it never
@@ -107,7 +107,12 @@ export async function fillBuiltInModels() {
     Date.now() - 24 * 3_600_000,
   );
   const spent = new Set(all<{ service: string }>("SELECT service FROM requests WHERE what LIKE ? AND status = 'open' AND service IS NOT NULL", `${ALLOWANCE_WHAT}%`).map(r => r.service));
-  const works = (c: Pick<ModelChoice, 'connection' | 'model'>) => has(c) && !spent.has(c.connection) && checks[choiceKey(c)]?.ok !== false && !brokenModel(health, c);
+  // A check that really answered (not just "couldn't check") and passed.
+  const passedAt = (c: Pick<ModelChoice, 'connection' | 'model'>) => {
+    const k = checks[choiceKey(c)];
+    return k?.ok && !k.unsure ? k.at : 0;
+  };
+  const works = (c: Pick<ModelChoice, 'connection' | 'model'>) => has(c) && !spent.has(c.connection) && checks[choiceKey(c)]?.ok !== false && !brokenModel(health, c, passedAt(c));
   // One that's back: its notice closes.
   for (const r of openLost())
     if (avail.some(a => a.connection === r.service))
