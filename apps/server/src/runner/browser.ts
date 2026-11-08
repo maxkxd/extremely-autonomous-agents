@@ -678,6 +678,7 @@ export async function cleanUpBrowsers() {
 // approved click lands where it was meant to. It closes once every one of that
 // run's clicks is decided, or after a day.
 const PARKED_MAX_MS = 24 * 3_600_000;
+const PARKED_MAX = 5;
 const waitingClick = (runId: string) =>
   !!one("SELECT 1 FROM approvals WHERE run_id = ? AND status = 'pending' AND tool LIKE 'signed_in_browser.click_to_%' LIMIT 1", runId);
 const parked = new Map<string, ReturnType<typeof setTimeout>>();
@@ -686,6 +687,10 @@ async function closeSessions(runId: string) {
   setTimeout(() => endedRuns.delete(runId), 30 * 60_000).unref();
   if (waitingClick(runId)) {
     if (!parked.has(runId)) parked.set(runId, setTimeout(() => void closeParked(runId, true), PARKED_MAX_MS).unref());
+    // Kept pages hold nobody up - the agent's next run opens its own page, and
+    // nothing waits on an approval - but each holds memory: at most PARKED_MAX,
+    // the oldest let go first (approved later, its agent hears to redo the steps).
+    while (parked.size > PARKED_MAX) void closeParked(parked.keys().next().value!, true);
     return;
   }
   for (const key of [...sessions.keys()]) if (key.startsWith(`${runId}:`)) await closeSession(key);
