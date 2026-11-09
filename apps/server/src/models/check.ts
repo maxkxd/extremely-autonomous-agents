@@ -68,6 +68,16 @@ export async function checkModel(connection: string, model: string, force = fals
   return p;
 }
 
+// Failed checks due again: a model out of its plan's limit, or a key fixed since,
+// works again without anyone opening a model picker. Nothing else checks again.
+export const RECHECK_MS = 60 * 60_000;
+export function dueForRecheck(all: Record<string, Check>, now = Date.now()): { connection: string; model: string }[] {
+  return Object.entries(all)
+    .filter(([, c]) => c.ok === false && now - c.at >= RECHECK_MS)
+    .map(([key]) => ({ connection: key.slice(0, key.indexOf('/')), model: key.slice(key.indexOf('/') + 1) }))
+    .filter(x => x.connection && x.model);
+}
+
 // --- What a provider's answer means -------------------------------------------
 
 type Answer = { status: number; message: string; headers?: Headers };
@@ -88,6 +98,9 @@ export function classify(a: Answer): { reason: string; unsure?: boolean } {
   if (/labs model|not enabled|enable them|not available on your plan/.test(m)) return { reason: 'Not enabled for this account' };
   if (/no longer available|does not exist|not found|deprecated|decommissioned|retired|invalid model|not supported with the responses api|is a video model|is an image model/.test(m) || a.status === 404)
     return { reason: 'No longer available' };
+  // A plan's own limit (ChatGPT: "reached their Subscription Sharing usage limit ...
+  // try again after ..."): out for now, not for good - checked again hourly.
+  if (a.status !== 429 && /usage limit|try again after/.test(m)) return { reason: "Hit this account's usage limit for now" };
   if (a.status === 429) {
     // A plan that allows no requests at all isn't "busy".
     const limit = a.headers?.get('x-ratelimit-limit-req-minute') ?? a.headers?.get('x-ratelimit-limit-requests');

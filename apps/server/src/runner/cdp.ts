@@ -182,9 +182,11 @@ export class CdpPage {
   }
 
   // The middle of a numbered element, scrolled into view.
+  // behavior 'instant': on a page set to scroll smoothly (scroll-behavior: smooth) the
+  // box is still on its way when measured, and the click lands where it was.
   private async point(ref: number) {
     const p = await this.evaluate<{ x: number; y: number } | null>(
-      `(() => { const e = ${EL(ref)}; if (!e) return null; e.scrollIntoView({ block: 'center', inline: 'center' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`,
+      `(() => { const e = ${EL(ref)}; if (!e) return null; e.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`,
     );
     if (!p) throw new Error(`There's no [${ref}] on the page now - look at it again (scroll, or open it) and use a number from what you see.`);
     return p;
@@ -200,7 +202,7 @@ export class CdpPage {
   // Replaces what's in a field, typed in as a person would (so the page sees input).
   async fill(ref: number, text: string) {
     const ok = await this.evaluate<boolean>(
-      `(() => { const e = ${EL(ref)}; if (!e) return false; e.scrollIntoView({ block: 'center' }); e.focus();
+      `(() => { const e = ${EL(ref)}; if (!e) return false; e.scrollIntoView({ block: 'center', behavior: 'instant' }); e.focus();
         if (typeof e.select === 'function') e.select();
         else { const r = document.createRange(); r.selectNodeContents(e); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
         return true; })()`,

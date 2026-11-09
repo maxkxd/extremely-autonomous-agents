@@ -113,3 +113,17 @@ test('a logo goes into the hidden file input behind its button', { skip }, async
   assert.equal(await p.setFiles(inPage('fileInput(9999)'), [file]), false);
   await p.close();
 });
+
+test('a click lands on a page that scrolls smoothly (aiagentsdirectory.com, 2026-11-09)', { skip }, async () => {
+  // Radio buttons far down a page with scroll-behavior: smooth: measured mid-scroll,
+  // every click missed and the agent handed the form to a person.
+  const p = await page(`<style>html{scroll-behavior:smooth}</style><div style="height:2500px">Top</div>
+    <label><input type=radio name=access value="Open Source"><span>Open Source</span></label>
+    <label><input type=checkbox name=category value="AI Agents Platform"><span>AI Agents Platform</span></label><div style="height:1500px"></div>`);
+  const s = await view.snapshot(p);
+  await p.click(refOf(s, 'radio option', 'Open Source'));
+  await p.click(refOf(s, 'checkbox', 'AI Agents Platform'));
+  assert.equal(await p.evaluate("document.querySelector('input[name=access]').checked"), true);
+  assert.equal(await p.evaluate("document.querySelector('input[name=category]').checked"), true);
+  await p.close();
+});

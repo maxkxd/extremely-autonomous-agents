@@ -1,7 +1,7 @@
 import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { classify, levelsFromError } from './check.js';
+import { classify, dueForRecheck, levelsFromError, RECHECK_MS } from './check.js';
 
 // Real error messages each provider returned on 2026-10-28.
 const reason = (status: number, message: string, headers?: Record<string, string>) => classify({ status, message, headers: headers && new Headers(headers) });
@@ -33,4 +33,23 @@ test("reads OpenAI's list of the levels a model takes", () => {
   assert.deepEqual(levelsFromError("Unsupported value: 'none' is not supported with the 'gpt-5.5-pro' model. Supported values are: 'medium', 'high', and 'xhigh'."), ['medium', 'high', 'xhigh']);
   assert.deepEqual(levelsFromError("Unsupported value: 'none' is not supported with the 'gpt-5-pro' model. Supported values are: 'high'."), ['high']);
   assert.equal(levelsFromError("Unsupported parameter: 'reasoning.effort' is not supported with this model."), null);
+});
+
+test("a plan's usage limit is out for now, and failed checks are run again hourly", () => {
+  const chatgpt = 'The ChatGPT user has reached their Subscription Sharing usage limit. Ask the user to try again after their usage limit resets.';
+  assert.deepEqual(reason(400, chatgpt), { reason: "Hit this account's usage limit for now" });
+  const now = 10 * RECHECK_MS;
+  const due = dueForRecheck(
+    {
+      'chatgpt/gpt-6-luna': { ok: false, reason: 'x', at: now - RECHECK_MS }, // an hour old: due
+      'chatgpt/gpt-5.6-luna': { ok: false, reason: 'x', at: now - 60_000 }, // a minute old: not yet
+      'claude-code/claude-sonnet-5-5': { ok: true, at: 0 }, // works: never
+      'openrouter/meta-llama/llama-4': { ok: false, at: 0 }, // a model name with a slash
+    },
+    now,
+  );
+  assert.deepEqual(due, [
+    { connection: 'chatgpt', model: 'gpt-6-luna' },
+    { connection: 'openrouter', model: 'meta-llama/llama-4' },
+  ]);
 });
