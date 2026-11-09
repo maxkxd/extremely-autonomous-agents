@@ -127,3 +127,17 @@ test('a click lands on a page that scrolls smoothly (aiagentsdirectory.com, 2026
   assert.equal(await p.evaluate("document.querySelector('input[name=category]').checked"), true);
   await p.close();
 });
+
+test('a click on a control under a pop-up says so, instead of landing on the pop-up', { skip }, async () => {
+  // aiagentsdirectory.com opens "Add Your Product" over its form a moment after loading.
+  const p = await page(`<label><input type=radio name=access value="Open Source"><span>Open Source</span></label>
+    <div id=pop style="position:fixed;inset:0;background:#0009"><div style="background:#fff;margin:40px;padding:20px"><button onclick="pop.remove()">✕</button> Add Your Product</div></div>`);
+  const s = await view.snapshot(p);
+  const box = refOf(s, 'radio option', 'Open Source');
+  await assert.rejects(p.click(box), /Something is on top of \[\d+\].*Add Your Product/);
+  assert.equal(await p.evaluate("document.querySelector('input').checked"), false);
+  await p.click(refOf(await view.snapshot(p), 'button', '✕'));
+  await p.click(box);
+  assert.equal(await p.evaluate("document.querySelector('input').checked"), true);
+  await p.close();
+});
