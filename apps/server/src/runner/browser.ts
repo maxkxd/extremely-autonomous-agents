@@ -924,9 +924,42 @@ const PAGE_HELPERS = `(() => {
     function stop() { o.disconnect(); clearTimeout(t); clearTimeout(hard); done(true); }
     o.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
   });
+  // What the page copies (a Copy button): kept, so the agent can be told. The
+  // clipboard itself can't be read here, and may refuse a page that isn't in front -
+  // the page is still told it worked, or it shows "Copy failed".
+  const remember = t => { if (typeof t === 'string' && t) st.copied = t; };
+  if (window.Clipboard) {
+    const C = Clipboard.prototype;
+    const writeText = C.writeText;
+    if (writeText) C.writeText = function (t) { remember(String(t)); return writeText.call(this, t).catch(() => undefined); };
+    const write = C.write;
+    if (write) C.write = function (items) {
+      for (const item of items || []) {
+        const type = item.types.includes('text/plain') ? 'text/plain' : item.types.find(x => x.startsWith('text/'));
+        if (type) item.getType(type).then(b => b.text()).then(remember).catch(() => {});
+      }
+      return write.call(this, items).catch(() => undefined);
+    };
+  }
+  const execCommand = document.execCommand;
+  document.execCommand = function (c) {
+    const copy = String(c).toLowerCase() === 'copy';
+    if (copy) {
+      const a = document.activeElement;
+      remember(a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT') ? a.value.slice(a.selectionStart, a.selectionEnd) : String(getSelection()));
+    }
+    return execCommand.apply(this, arguments) || copy;
+  };
+  // A page that fills in the copy itself, in its copy event.
+  const setData = DataTransfer.prototype.setData;
+  DataTransfer.prototype.setData = function (type, value) {
+    if (window.event && window.event.type === 'copy' && /text/.test(type)) remember(String(value));
+    return setData.call(this, type, value);
+  };
+  const takeCopied = () => { const c = st.copied || null; st.copied = ''; return c; };
   // The numbered controls inside an element (a pop-up in the way of a click).
   const listIn = c => { const all = controls().filter(x => c.contains(x)); number(all); return all.slice(0, 12).map(x => describe(x, x.getAttribute('data-eaa-ref'))); };
-  return (window.__eaa = { view, find, pickOption, fileInput, settle, listIn });
+  return (window.__eaa = { view, find, pickOption, fileInput, settle, listIn, takeCopied });
 })()`;
 // Each call installs the helpers first if this document doesn't have them yet.
 export const inPage = (call: string) => `${PAGE_HELPERS}.${call}`;
@@ -942,6 +975,19 @@ const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 // After something that changes the page: until it has finished changing (cap ms at most).
 const settle = (page: Driver, cap = 3_000, min = 0) => page.evaluate(inPage(`settle(400, ${cap}, ${min})`)).catch(() => wait(300));
 
+// A click, and the page after it - first what it copied, when it was a Copy button.
+const MAX_COPIED = 20_000;
+async function clickAndLook(page: Driver, ref: number): Promise<string> {
+  await page.click(ref);
+  await wait(150);
+  await settle(page);
+  const copied = await page.evaluate<string | null>(inPage('takeCopied()')).catch(() => null);
+  const after = await snapshot(page);
+  if (!copied) return after;
+  const cut = copied.length > MAX_COPIED ? `${copied.slice(0, MAX_COPIED)}\n[cut off - ${copied.length} characters in all]` : copied;
+  return `That click copied this to the clipboard:\n${cut}\n\n${after}`;
+}
+
 // --- The tools ------------------------------------------------------------------------
 
 const obj = (properties: Record<string, unknown>, required: string[]) => ({ type: 'object', properties, required });
@@ -952,10 +998,7 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
   const open = (ctx: RunCtx, a: Record<string, unknown>) => (kind === 'profile' ? knownProfile(a.profile).then(n => session(ctx, kind, n)) : session(ctx, kind));
   const click = async (a: Record<string, unknown>, ctx: RunCtx) => {
     const s = await open(ctx, a);
-    await s.page.click(Number(a.ref));
-    await wait(150);
-    await settle(s.page);
-    return snapshot(s.page);
+    return clickAndLook(s.page, Number(a.ref));
   };
   return [
     {
@@ -977,8 +1020,8 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
       tier: actTier,
       description:
         kind === 'profile'
-          ? `Click a numbered button or link on the current page in ${where}. Not the click that pays, posts publicly as the business, or starts a new business tool: those are click_to_pay, click_to_post and click_to_start_tool.`
-          : `Click a numbered button or link on the current page in ${where}. Returns the page after the click.`,
+          ? `Click a numbered button or link on the current page in ${where}. Not the click that pays, posts publicly as the business, or starts a new business tool: those are click_to_pay, click_to_post and click_to_start_tool. On a Copy button, the result starts with what it copied.`
+          : `Click a numbered button or link on the current page in ${where}. Returns the page after the click; on a Copy button, it starts with what was copied.`,
       schema: obj(withProfile({ ref: { type: 'number', description: 'The number from the last page you saw' } }), ['ref']),
       impl: click,
     },
@@ -1105,7 +1148,7 @@ async function chooseFromList(page: Driver, ref: number, option: string): Promis
 }
 
 // For tests: the page view and its steps, on a page made there.
-export const pageViewForTests = { snapshot: (p: CdpPage) => snapshot(p), choose: (p: CdpPage, ref: number, option: string) => chooseFromList(p, ref, option), settle: (p: CdpPage, cap?: number, min?: number) => settle(p, cap, min) };
+export const pageViewForTests = { click: (p: CdpPage, ref: number) => clickAndLook(p, ref), snapshot: (p: CdpPage) => snapshot(p), choose: (p: CdpPage, ref: number, option: string) => chooseFromList(p, ref, option), settle: (p: CdpPage, cap?: number, min?: number) => settle(p, cap, min) };
 
 // The clicks that always wait for a person (unless they lower them on the Tools page),
 // the password store, and opening a profile on the person's screen.
