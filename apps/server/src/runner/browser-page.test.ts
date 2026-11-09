@@ -144,6 +144,25 @@ test('a click on a control under a pop-up says so, instead of landing on the pop
   await p.close();
 });
 
+test("a styled dropdown's own face isn't a pop-up in the way, but another control's menu is", { skip }, async () => {
+  // Bowora's "Select...": the words sit on top of the numbered input, and clicking them opens the list.
+  const p = await page(`<div onmousedown="out.textContent='opened'" style="position:relative;width:300px;height:38px;border:1px solid">
+      <div style="position:absolute;inset:0;padding:8px;z-index:1">Select...</div>
+      <input role=combobox aria-label=Team style="position:absolute;left:140px;top:9px;width:20px;height:20px;border:0;background:none"></div>
+    <div style="position:relative;width:300px;height:38px;margin-top:20px"><button type=button onclick="out2.textContent='opened'" style="position:absolute;inset:0;z-index:1">Choose</button>
+      <select aria-label=Stage style="position:absolute;left:100px;top:9px;width:60px;height:20px"><option>One</select></div>
+    <p id=out></p><p id=out2></p>
+    <div style="position:relative;height:40px;margin-top:20px"><input aria-label=First style="position:absolute;left:0;top:0;width:200px"><input aria-label=Second style="position:absolute;left:220px;top:0;width:200px">
+      <div style="position:absolute;left:0;top:0;width:420px;height:30px;background:#fff;z-index:2">Menu item</div></div>`);
+  const s = await view.snapshot(p);
+  await p.click(refOf(s, 'dropdown (opens a list: choose picks from it)', 'Team'));
+  assert.equal(await p.evaluate('out.textContent'), 'opened');
+  await p.click(refOf(s, 'dropdown', 'Stage'));
+  assert.equal(await p.evaluate('out2.textContent'), 'opened');
+  await assert.rejects(p.click(refOf(s, 'text field', 'First')), /Something is on top of \[\d+\].*"Menu item"/);
+  await p.close();
+});
+
 test("a pop-up's icon-only close button is named, and listed when it's in the way", { skip }, async () => {
   // aiagentsdirectory.com's newsletter pop-up: its only way out is an SVG X with no text.
   const p = await page(`<label><input type=checkbox name=category value="AI Agents Platform"><span>AI Agents Platform</span></label>
