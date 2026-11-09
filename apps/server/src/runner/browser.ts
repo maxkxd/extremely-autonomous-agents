@@ -771,13 +771,29 @@ const PAGE_HELPERS = `(() => {
   const isSelect = e => e.tagName === 'SELECT';
   const typable = e => (e.tagName === 'INPUT' && !tickable(e) && !['button', 'submit', 'reset', 'image', 'file', 'range', 'color'].includes(e.type)) || e.tagName === 'TEXTAREA' || e.isContentEditable;
   const labelOf = e => (e.labels && e.labels[0] ? e.labels[0].innerText : '');
+  // A button that's only an icon: what the icon is (a pop-up's close button is often
+  // just an X drawn in SVG - listed as button "" it read as nothing to click).
+  const X_PATH = /M6 18L18 6M6 6l12 12|M18 6 6 18|m6 6 12 12|M18 6L6 18M6 6l12 12/i;
+  const iconOf = e => {
+    if (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA' || e.tagName === 'SELECT') return '';
+    const img = e.querySelector('img[alt]');
+    if (img && img.alt.trim()) return img.alt;
+    const svg = e.querySelector('svg');
+    if (!svg) return '';
+    const t = svg.querySelector('title');
+    if (t && t.textContent.trim()) return t.textContent;
+    const lucide = /lucide-([a-z0-9-]+)/.exec(svg.getAttribute('class') || '');
+    const name = lucide ? lucide[1].replace(/-/g, ' ') : '';
+    if (name === 'x' || name === 'circle x' || [...svg.querySelectorAll('path')].some(d => X_PATH.test(d.getAttribute('d') || ''))) return 'close (x icon)';
+    return name ? name + ' (icon)' : '';
+  };
   const label = e => textOf(
     e.getAttribute('aria-label') || e.placeholder ||
     (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA' || isSelect(e) ? labelOf(e) : '') ||
     e.getAttribute('title') ||
     (isSelect(e) || typable(e) ? '' : e.innerText) ||
     (e.tagName === 'INPUT' && ['button', 'submit', 'reset'].includes(e.type) ? e.value : '') ||
-    e.getAttribute('name') || ''
+    e.getAttribute('name') || iconOf(e) || ''
   ).slice(0, 80);
   const SEL = 'a[href], button, input:not([type=hidden]), textarea, select, label, summary, [role=button], [role=link], [role=tab], [role=checkbox], [role=radio], [role=switch], [role=combobox], [role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=treeitem], [aria-haspopup=listbox], [contenteditable=true], [contenteditable=""]';
   const kindOf = e => {
@@ -908,7 +924,9 @@ const PAGE_HELPERS = `(() => {
     function stop() { o.disconnect(); clearTimeout(t); clearTimeout(hard); done(true); }
     o.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
   });
-  return (window.__eaa = { view, find, pickOption, fileInput, settle });
+  // The numbered controls inside an element (a pop-up in the way of a click).
+  const listIn = c => { const all = controls().filter(x => c.contains(x)); number(all); return all.slice(0, 12).map(x => describe(x, x.getAttribute('data-eaa-ref'))); };
+  return (window.__eaa = { view, find, pickOption, fileInput, settle, listIn });
 })()`;
 // Each call installs the helpers first if this document doesn't have them yet.
 export const inPage = (call: string) => `${PAGE_HELPERS}.${call}`;

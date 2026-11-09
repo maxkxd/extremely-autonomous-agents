@@ -186,23 +186,23 @@ export class CdpPage {
   // box is still on its way when measured, and the click lands where it was.
   // covered: the text of what's on top of it there (a pop-up the page opened), if anything.
   private async point(ref: number) {
-    const p = await this.evaluate<{ x: number; y: number; covered?: string } | null>(
+    const p = await this.evaluate<{ x: number; y: number; covered?: string; controls?: string[] } | null>(
       `(() => { const e = ${EL(ref)}; if (!e) return null; e.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect();
         const x = r.x + r.width / 2, y = r.y + r.height / 2, h = document.elementFromPoint(x, y);
         if (!h || h === e || e.contains(h) || h.contains(e) || (e.labels && [...e.labels].some(l => l.contains(h)))) return { x, y };
         let c = h; while (c.parentElement && c.parentElement !== document.body && !c.parentElement.contains(e)) c = c.parentElement;
-        return { x, y, covered: (c.innerText || c.getAttribute('aria-label') || c.tagName.toLowerCase()).replace(/\\s+/g, ' ').trim().slice(0, 160) }; })()`,
+        return { x, y, covered: (c.innerText || c.getAttribute('aria-label') || c.tagName.toLowerCase()).replace(/\\s+/g, ' ').trim().slice(0, 160), controls: window.__eaa && window.__eaa.listIn ? window.__eaa.listIn(c) : [] }; })()`,
     );
     if (!p) throw new Error(`There's no [${ref}] on the page now - look at it again (scroll, or open it) and use a number from what you see.`);
     return p;
   }
 
   async click(ref: number) {
-    const { x, y, covered } = await this.point(ref);
+    const { x, y, covered, controls } = await this.point(ref);
     // The click would land on that instead, and say nothing (aiagentsdirectory.com's
     // "Add Your Product" pop-up over its form read as boxes that won't tick).
     if (covered != null)
-      throw new Error(`Something is on top of [${ref}], so the click would land on it instead: "${covered}". Most likely a pop-up or banner the page opened: close it or deal with it first (look at the page again for its buttons), then click [${ref}] again.`);
+      throw new Error(`Something is on top of [${ref}], so the click would land on it instead: "${covered}". Most likely a pop-up or banner the page opened: close it or deal with it first, then click [${ref}] again.${controls?.length ? ` What's on it:\n${controls.join('\n')}` : ''}`);
     await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
     await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
     await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });

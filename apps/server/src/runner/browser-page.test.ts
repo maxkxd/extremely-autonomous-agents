@@ -141,3 +141,21 @@ test('a click on a control under a pop-up says so, instead of landing on the pop
   assert.equal(await p.evaluate("document.querySelector('input').checked"), true);
   await p.close();
 });
+
+test("a pop-up's icon-only close button is named, and listed when it's in the way", { skip }, async () => {
+  // aiagentsdirectory.com's newsletter pop-up: its only way out is an SVG X with no text.
+  const p = await page(`<label><input type=checkbox name=category value="AI Agents Platform"><span>AI Agents Platform</span></label>
+    <div id=pop style="position:fixed;inset:0;background:#0009"><div style="background:#fff;margin:40px;padding:20px">
+      <button onclick="pop.remove()"><svg width=20 height=20 viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke="#000"/></svg></button>
+      <p>EXCLUSIVE ACCESS Agent Pulse Newsletter</p><button>Subscribe Free</button></div></div>`);
+  const box = refOf(await view.snapshot(p), 'checkbox', 'AI Agents Platform');
+  const err = await p.click(box).then(() => null, (e: Error) => e.message);
+  assert.match(err ?? '', /EXCLUSIVE ACCESS/);
+  const close = /\[(\d+)\] button "close \(x icon\)"/.exec(err ?? '');
+  assert.ok(close, `no close button listed in: ${err}`);
+  assert.match(err ?? '', /button "Subscribe Free"/);
+  await p.click(Number(close[1]));
+  await p.click(box);
+  assert.equal(await p.evaluate("document.querySelector('input').checked"), true);
+  await p.close();
+});
