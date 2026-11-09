@@ -5,7 +5,7 @@ import { FLEET_ENGINEER } from './agent.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { fileRequest } from './tools.js';
 import { availableModels } from '../models/connections.js';
-import { allChecks } from '../models/check.js';
+import { allChecks, checkModel, dueForRecheck, type Check } from '../models/check.js';
 import { brokenModel, choiceKey, type Health } from '../models/health.js';
 import { pickDefaults, type Want } from './defaults.js';
 import { DOCTOR } from './doctor.js';
@@ -92,7 +92,9 @@ const MOVED_OFF = 'models_moved_off';
 export async function fillBuiltInModels() {
   const avail = await availableModels().catch(() => []);
   if (!avail.length) return;
-  const checks = await allChecks().catch(() => ({}) as Record<string, { ok: boolean; unsure?: boolean; at: number }>);
+  const checks = await allChecks().catch(() => ({}) as Record<string, Check>);
+  // A failed check an hour old is run again (in the background: the next tick sees it).
+  for (const c of dueForRecheck(checks)) if (avail.some(a => a.connection === c.connection && a.models.includes(c.model))) void checkModel(c.connection, c.model, true).catch(() => {});
   const health = getSetting<Health>('model_health', {});
   const has = (c: Pick<ModelChoice, 'connection' | 'model'>) => !!avail.find(a => a.connection === c.connection)?.models.includes(c.model);
   // One out of its allowance (a free Gemini key's quota) still answers, so it never
