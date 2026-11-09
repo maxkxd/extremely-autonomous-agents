@@ -1,6 +1,8 @@
 import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -158,4 +160,27 @@ test("a pop-up's icon-only close button is named, and listed when it's in the wa
   await p.click(box);
   assert.equal(await p.evaluate("document.querySelector('input').checked"), true);
   await p.close();
+});
+
+test('a Copy button: the click says what was copied, however the page copies it', { skip }, async () => {
+  // Tulimoa gives its badge code only through a Copy button. The clipboard API exists
+  // only on a secure page, so this one is served from localhost.
+  const html = `<button onclick="navigator.clipboard.writeText('<a href=x>badge</a>').then(() => (out.textContent = 'Copied!'), () => (out.textContent = 'Copy failed'))">Copy API</button>
+    <button onclick="const t = document.createElement('textarea'); t.value = 'from a textarea'; document.body.append(t); t.select(); document.execCommand('copy'); t.remove()">Copy old</button>
+    <button onclick="document.addEventListener('copy', e => { e.clipboardData.setData('text/plain', 'set in the event'); e.preventDefault(); }, { once: true }); document.execCommand('copy')">Copy event</button>
+    <button>Plain</button><p id=out></p>`;
+  const server = createServer((_, res) => res.setHeader('content-type', 'text/html').end(html));
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+  const p = await CdpPage.open(cdp, { left: 0, top: 0, width: 1200, height: 800 });
+  await p.goto(`http://localhost:${(server.address() as AddressInfo).port}/`);
+  const s = await view.snapshot(p);
+  const after = await view.click(p, refOf(s, 'button', 'Copy API'));
+  assert.ok(after.startsWith('That click copied this to the clipboard:\n<a href=x>badge</a>\n'), after);
+  assert.match(after, /Copied!/); // the page is told it worked
+  assert.match(await view.click(p, refOf(s, 'button', 'Copy old')), /^That click copied this to the clipboard:\nfrom a textarea\n/);
+  assert.match(await view.click(p, refOf(s, 'button', 'Copy event')), /^That click copied this to the clipboard:\nset in the event\n/);
+  // Told once, and not for a click that copied nothing.
+  assert.doesNotMatch(await view.click(p, refOf(s, 'button', 'Plain')), /copied this/);
+  await p.close();
+  server.close();
 });
