@@ -185,11 +185,16 @@ export class CdpPage {
   // behavior 'instant': on a page set to scroll smoothly (scroll-behavior: smooth) the
   // box is still on its way when measured, and the click lands where it was.
   // covered: the text of what's on top of it there (a pop-up the page opened), if anything.
+  // Not a part of the same control: a styled dropdown's "Select..." sits over its input,
+  // or its visible button over a hidden <select>, and a click there is the right click.
   private async point(ref: number) {
     const p = await this.evaluate<{ x: number; y: number; covered?: string; controls?: string[] } | null>(
       `(() => { const e = ${EL(ref)}; if (!e) return null; e.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect();
         const x = r.x + r.width / 2, y = r.y + r.height / 2, h = document.elementFromPoint(x, y);
         if (!h || h === e || e.contains(h) || h.contains(e) || (e.labels && [...e.labels].some(l => l.contains(h)))) return { x, y };
+        let a = h; while (a && !a.contains(e)) a = a.parentElement;
+        if (a && a !== document.body && a !== document.documentElement && a.getBoundingClientRect().height < 200
+          && [...a.querySelectorAll('a[href], button, input:not([type=hidden]), textarea, select, [role=button], [role=link], [role=combobox]')].every(o => o === e || e.contains(o) || o.contains(e) || o.contains(h) || h.contains(o))) return { x, y };
         let c = h; while (c.parentElement && c.parentElement !== document.body && !c.parentElement.contains(e)) c = c.parentElement;
         return { x, y, covered: (c.innerText || c.getAttribute('aria-label') || c.tagName.toLowerCase()).replace(/\\s+/g, ' ').trim().slice(0, 160), controls: window.__eaa && window.__eaa.listIn ? window.__eaa.listIn(c) : [] }; })()`,
     );
