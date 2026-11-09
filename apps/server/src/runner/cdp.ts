@@ -191,7 +191,7 @@ export class CdpPage {
         const x = r.x + r.width / 2, y = r.y + r.height / 2, h = document.elementFromPoint(x, y);
         if (!h || h === e || e.contains(h) || h.contains(e) || (e.labels && [...e.labels].some(l => l.contains(h)))) return { x, y };
         let c = h; while (c.parentElement && c.parentElement !== document.body && !c.parentElement.contains(e)) c = c.parentElement;
-        return { x, y, covered: (c.innerText || c.getAttribute('aria-label') || c.tagName.toLowerCase()).replace(/\s+/g, ' ').trim().slice(0, 160) }; })()`,
+        return { x, y, covered: (c.innerText || c.getAttribute('aria-label') || c.tagName.toLowerCase()).replace(/\\s+/g, ' ').trim().slice(0, 160) }; })()`,
     );
     if (!p) throw new Error(`There's no [${ref}] on the page now - look at it again (scroll, or open it) and use a number from what you see.`);
     return p;
