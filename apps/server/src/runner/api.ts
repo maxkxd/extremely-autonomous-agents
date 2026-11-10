@@ -662,7 +662,7 @@ export const runnerRoutes: Record<string, Route> = {
         : undefined;
     // The page the agent filled in and kept for this: straight to it.
     const kept = b.url ? takeKeptPage(b.profile ?? 1, b.url, r?.id, onClosed?.run) : null;
-    if (kept) return { ok: true, profile: b.profile ?? 1, already: true, live: kept };
+    if (kept) return { ok: true, profile: b.profile ?? 1, already: true, ...kept };
     return openProfileWindow(b.profile ?? 1, b.url || undefined, onClosed, r?.id);
   },
 

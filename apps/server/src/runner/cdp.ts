@@ -168,6 +168,11 @@ export class CdpPage {
     return this.closedFlag || this.cdp.closed;
   }
 
+  // In front of the person's other windows.
+  bringToFront() {
+    return this.send('Page.bringToFront');
+  }
+
   async close() {
     await this.cdp.send('Target.closeTarget', { targetId: this.targetId }).catch(() => {});
     this.closedFlag = true;

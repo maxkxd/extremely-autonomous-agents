@@ -783,6 +783,8 @@ async function keepForPerson(ctx: RunCtx, profile: number, url: string) {
   return true;
 }
 // The request's button: the page kept for it, in the person's hands, if there is one.
+// In the cloud it's shown in the app (live: the tab). On their own computer it's a real
+// window on their screen, brought forward; closing it is them being done.
 export function takeKeptPage(profile: number, url: string, request?: number, onDone?: () => void) {
   const site = siteOfUrl(url);
   const kept = [...waitingPages.values()]
@@ -792,8 +794,18 @@ export function takeKeptPage(profile: number, url: string, request?: number, onD
   const s = sessions.get(kept.key)!;
   Object.assign(kept.person!, { request: request ?? kept.person!.request, onDone: onDone ?? kept.person!.onDone });
   s.request = kept.person!.request;
-  hold(s.cdp!.targetId);
-  return s.cdp!.targetId;
+  const id = s.cdp!.targetId;
+  hold(id);
+  if (CLOUD) return { live: id };
+  void s.cdp!.bringToFront().catch(() => {});
+  const watch = setInterval(() => {
+    if (![...waitingPages.values()].includes(kept)) return clearInterval(watch);
+    if (!s.page.isClosed()) return;
+    clearInterval(watch);
+    void finishKeptPage(id).catch(e => console.error('[browser] Finishing a kept page:', (e as Error).message));
+  }, 1_000);
+  watch.unref();
+  return {};
 }
 // They pressed Done on it: it's closed (sign-ins kept), and its request hears.
 export async function finishKeptPage(targetId: string) {
