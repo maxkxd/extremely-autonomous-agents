@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import { DEFAULT_PLAN, type AgentDef } from './agent.js';
 import { decideApproval, expireApprovals, pendingApprovals } from './approvals.js';
+import { setKeptPageCheck } from './kept-pages.js';
 import { one, resetDbForTests, run as exec } from './db.js';
 import { stateOf } from './run.js';
 import { execute, onApprovalSettled, registerTools } from './tools.js';
@@ -178,4 +179,21 @@ test("however it's decided, the run's kept page is let go; an approved call know
   expireApprovals(now + 2 * 3_600_000, wake);
   await new Promise(r => setImmediate(r));
   assert.deepEqual(settled, ['r1', 'r1', 'r1']);
+});
+
+test("a browser click whose kept page has closed is withdrawn, and its agent told", () => {
+  const now = Date.now();
+  const add = (id: string, page: string) =>
+    exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES (?, ?, 'r1', 'signed_in_browser.click_to_post', ?, ?, ?)", id, agent.id, JSON.stringify({ ref: 4, what: 'Post it', _page: page }), now, now + 86_400_000);
+  add('kept', 'wp_alive');
+  add('gone', 'wp_closed');
+  setKeptPageCheck(page => page === 'wp_alive');
+  try {
+    assert.equal(expireApprovals(now, wake), 1);
+    assert.equal(one<{ status: string }>("SELECT status FROM approvals WHERE id = 'gone'")?.status, 'expired');
+    assert.equal(one<{ status: string }>("SELECT status FROM approvals WHERE id = 'kept'")?.status, 'pending');
+    assert.match(woken.at(-1)!.task, /WITHDRAWN: the page it was waiting on closed/);
+  } finally {
+    setKeptPageCheck(() => true);
+  }
 });

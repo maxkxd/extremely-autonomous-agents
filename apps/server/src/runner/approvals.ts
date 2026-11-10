@@ -7,6 +7,7 @@ import { DOCTOR } from './doctor.js';
 import { all, one, run as exec } from './db.js';
 import { agencyStopped, stateOf } from './run.js';
 import { approvalSettled, runApproved } from './tools.js';
+import { keptPageAlive } from './kept-pages.js';
 
 // Approvals (docs/runner.md): a T2 call is queued with the exact arguments
 // the agent gave and the run carries on. A person approves or rejects it on
@@ -111,8 +112,25 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
 const settleAction = (approvalId: string, outcome: 'ok' | 'failed' | 'refused') =>
   exec("UPDATE actions SET outcome = ? WHERE approval_id = ? AND outcome = 'queued'", outcome, approvalId);
 
+// A browser click waits on the page kept for it (browser.ts). Once that page is gone -
+// the agency restarted, or more clicks were waiting than it keeps open - approving it
+// could only fail ("The page this click was on closed"), so it's withdrawn and its agent
+// told, instead of waiting on the person's Approvals page to fail when they press it.
+function withdrawClosedPages(now: number, wake: Wake) {
+  const waiting = all<ApprovalRow>("SELECT * FROM approvals WHERE status = 'pending' AND tool LIKE 'signed_in_browser.click_to_%' AND json_extract(args, '$._page') IS NOT NULL");
+  const gone = waiting.filter(a => keptPageAlive(String(JSON.parse(a.args)._page)) === false);
+  for (const a of gone) {
+    exec("UPDATE approvals SET status = 'expired', decided_at = ?, note = ? WHERE id = ? AND status = 'pending'", now, 'Its page closed before anyone decided.', a.id);
+    settleAction(a.id, 'refused');
+    void approvalSettled(a.run_id);
+    wake(a.agent_id, 'approval', `Your queued ${a.tool} (${argsLine(JSON.parse(a.args))}) was WITHDRAWN: the page it was waiting on closed (the agency restarted, or more clicks were waiting than it keeps open), so it could never run. If it still matters, open the page again, redo the steps and queue it once more.`);
+  }
+  return gone.length;
+}
+
 // Anything nobody decided in time doesn't happen; its agent hears so.
 export function expireApprovals(now: number, wake: Wake) {
+  const withdrawn = withdrawClosedPages(now, wake);
   const due = all<ApprovalRow>("SELECT * FROM approvals WHERE status = 'pending' AND expires_at <= ?", now);
   for (const a of due) {
     exec("UPDATE approvals SET status = 'expired', decided_at = ? WHERE id = ? AND status = 'pending'", now, a.id);
@@ -120,5 +138,5 @@ export function expireApprovals(now: number, wake: Wake) {
     void approvalSettled(a.run_id);
     wake(a.agent_id, 'approval', `Your queued ${a.tool} (${argsLine(JSON.parse(a.args))}) EXPIRED: nobody decided in time, so it did not happen. Queue it again only if it still matters.`);
   }
-  return due.length;
+  return due.length + withdrawn;
 }

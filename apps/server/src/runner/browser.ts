@@ -9,6 +9,7 @@ import { Cdp, CdpPage, FRAME_BASE, type Bounds } from './cdp.js';
 import { checkUrl, isPrivateIp } from './net.js';
 import { inWorkspace, onApprovalSettled, onRunEnd, registerTools, type RunCtx, type ToolDef } from './tools.js';
 import { one } from './db.js';
+import { setKeptPageCheck } from './kept-pages.js';
 import { ACCOUNTS_PER_SITE, listPasswords, makePassword, passwordRow, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { DATA_DIR } from '../paths.js';
 import { deleteSecret, getSecret, setSecret } from '../vault.js';
@@ -716,12 +717,13 @@ export async function cleanUpBrowsers() {
 // approved GitHub posts landed on a license link on another repository.) The page
 // closes once its click is decided, after a day, or if no approval took it.
 const WAIT_MAX_MS = 24 * 3_600_000;
-const WAIT_MAX = 5;
+const WAIT_MAX = 8;
 const UNCLAIMED_MS = 2 * 60_000;
 // person: kept for a person to finish (a CAPTCHA, then Submit), found by its site when
 // they press the request's button. The rest wait for an approval.
 type Waiting = { key: string; runId: string; since: number; person?: { profile: number; site: string; request?: number; onDone?: () => void } };
 const waitingPages = new Map<string, Waiting>(); // by page id (the approval's _page)
+setKeptPageCheck(id => waitingPages.has(id));
 const pendingFor = (pageId: string) =>
   !!one("SELECT 1 FROM approvals WHERE status = 'pending' AND tool LIKE 'signed_in_browser.click_to_%' AND json_extract(args, '$._page') = ? LIMIT 1", pageId);
 
