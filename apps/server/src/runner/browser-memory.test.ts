@@ -57,6 +57,7 @@ test('set-aside pages for waiting clicks: decided, unclaimed, day-old and over-t
   assert.deepEqual(pagesToLetGo([{ id: 'never-queued', since: now - 3 * min }], pending, now), ['never-queued']);
   assert.deepEqual(pagesToLetGo([{ id: 'decided', since: now - 3 * min }, { id: 'a', since: now - 3 * min }], pending, now), ['decided']);
   assert.deepEqual(pagesToLetGo([{ id: 'old', since: now - 25 * 3_600_000 }], pending, now + 0), ['old']);
-  const seven = Array.from({ length: 7 }, (_, i) => ({ id: `p${i}`, since: now - (10 - i) * min }));
-  assert.deepEqual(pagesToLetGo(seven, pending, now).sort(), ['p0', 'p1']);
+  // Over the limit (8): the oldest go.
+  const ten = Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, since: now - (12 - i) * min }));
+  assert.deepEqual(pagesToLetGo(ten, pending, now).sort(), ['p0', 'p1']);
 });
