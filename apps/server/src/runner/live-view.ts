@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { readMeta } from '../files.js';
 import type { PersonInput } from './cdp.js';
 import { all } from './db.js';
-import { closePersonWindow, heldSince, hold, listProfiles, liveTabs, openProfileWindow, personScreens, release, screenSize, type LiveTab } from './browser.js';
+import { closePersonWindow, finishKeptPage, heldSince, hold, listProfiles, liveTabs, openProfileWindow, personScreens, release, screenSize, type LiveTab } from './browser.js';
 
 // The agents' browser, live in the app (the Agents' browser page): every agent's page
 // in the profiles' browsers, small and about once a second; the one the person
@@ -141,7 +141,7 @@ function sources(): Source[] {
     kind: 'agent',
     profile: t.profile,
     agent: t.agent,
-    request: null,
+    request: t.request ?? null,
     since: t.since,
     held: heldSince(t.id),
     url: () => t.page.url().catch(() => ''),
@@ -299,8 +299,10 @@ export async function control(id: string, action: unknown) {
   if (action === 'take') {
     if (s.kind === 'agent') hold(id);
   } else if (action === 'done' || action === 'handback') {
-    if (s.kind === 'agent') release(id);
-    else closePersonWindow(s.profile, action === 'done');
+    if (s.kind === 'agent') {
+      release(id);
+      if (action === 'done') await finishKeptPage(id);
+    } else closePersonWindow(s.profile, action === 'done');
   } else throw new Error('action: take, done or handback.');
   return { ok: true };
 }

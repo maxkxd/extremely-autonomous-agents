@@ -24,7 +24,7 @@ import { answerRemoteMcp, isRemoteMcpUrl, remoteMcpUrl, takeRemoteMcp } from './
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals } from './approvals.js';
-import { listProfiles, openProfileWindow, profileStatus } from './browser.js';
+import { listProfiles, openProfileWindow, profileStatus, takeKeptPage } from './browser.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
 import { deletePassword, listPasswords, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
@@ -660,6 +660,9 @@ export const runnerRoutes: Record<string, Route> = {
             },
           }
         : undefined;
+    // The page the agent filled in and kept for this: straight to it.
+    const kept = b.url ? takeKeptPage(b.profile ?? 1, b.url, r?.id, onClosed?.run) : null;
+    if (kept) return { ok: true, profile: b.profile ?? 1, already: true, live: kept };
     return openProfileWindow(b.profile ?? 1, b.url || undefined, onClosed, r?.id);
   },
 

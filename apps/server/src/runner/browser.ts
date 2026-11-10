@@ -386,7 +386,7 @@ function playwrightDriver(page: Page): Driver {
 // cdp/agent: a profile's page, as the live view sees it (live-view.ts).
 // openers: when it's working in a window a site opened, the pages behind it, oldest first.
 type Windows = { page: Driver; cdp?: CdpPage; openers?: CdpPage[]; followed?: Set<string>; windowClosed?: boolean };
-type Session = Windows & { kind: 'blank' | 'profile'; runId: string; profile: number; browser?: Browser; agent?: { id: string; name: string } };
+type Session = Windows & { kind: 'blank' | 'profile'; runId: string; profile: number; browser?: Browser; agent?: { id: string; name: string }; request?: number };
 const sessions = new Map<string, Session>();
 
 // Two tool calls at once share one opening, and one that finishes after its run
@@ -587,13 +587,26 @@ async function seedPersonDir(n: number) {
   const sh = await profileBrowser(n);
   const { cookies } = await sh.cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies');
   closeWhenIdle(n, sh);
-  await withHeadless(personDir(n), cdp => setAll(cdp, cookies.map(cookieParams)));
+  // Only these: what an earlier window left here is older than the agents' own.
+  await withHeadless(personDir(n), async cdp => {
+    await cdp.send('Storage.clearCookies');
+    await setAll(cdp, cookies.map(cookieParams));
+  });
+  seeded.set(n, new Map(cookies.map(c => [cookieKey(c), String(c.value)])));
   return cookies.length;
+}
+// What the person's window changed. The rest is the copy it was given, and the agents'
+// browser has moved on since: a site that renewed its sign-in while the window was open
+// was put back to the old one, which it no longer accepts, and the agent was signed out.
+const seeded = new Map<number, Map<string, string>>();
+const cookieKey = (c: Record<string, unknown>) => `${String(c.domain)}|${String(c.path)}|${String(c.name)}`;
+export function changedCookies<T extends Record<string, unknown>>(all: T[], given?: Map<string, string>) {
+  return given ? all.filter(c => given.get(cookieKey(c)) !== String(c.value)) : all;
 }
 // Closed: what they signed in to, into the agents' browser - straight in when it's
 // open, or added the next time it opens.
 async function carryBack(n: number) {
-  const cookies = (await withHeadless(personDir(n), async cdp => (await cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies')).cookies)).map(cookieParams);
+  const cookies = changedCookies((await withHeadless(personDir(n), async cdp => (await cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies')).cookies)).map(cookieParams), seeded.get(n));
   const sh = await shared.get(n)?.catch(() => null);
   if (sh && !sh.cdp.closed) {
     await setAll(sh.cdp, cookies);
@@ -696,7 +709,9 @@ export async function cleanUpBrowsers() {
 const WAIT_MAX_MS = 24 * 3_600_000;
 const WAIT_MAX = 5;
 const UNCLAIMED_MS = 2 * 60_000;
-type Waiting = { key: string; runId: string; since: number };
+// person: kept for a person to finish (a CAPTCHA, then Submit), found by its site when
+// they press the request's button. The rest wait for an approval.
+type Waiting = { key: string; runId: string; since: number; person?: { profile: number; site: string; request?: number; onDone?: () => void } };
 const waitingPages = new Map<string, Waiting>(); // by page id (the approval's _page)
 const pendingFor = (pageId: string) =>
   !!one("SELECT 1 FROM approvals WHERE status = 'pending' AND tool LIKE 'signed_in_browser.click_to_%' AND json_extract(args, '$._page') = ? LIMIT 1", pageId);
@@ -718,7 +733,11 @@ async function letGoOf(ids: string[]) {
     if (w) await closeSession(w.key);
   }
 }
-const checkWaiting = () => letGoOf(pagesToLetGo([...waitingPages.entries()].map(([id, w]) => ({ id, since: w.since })), pendingFor, Date.now()));
+const inPersonsHands = (w: Waiting) => {
+  const id = sessions.get(w.key)?.cdp?.targetId;
+  return !!id && heldSince(id) != null;
+};
+const checkWaiting = () => letGoOf(pagesToLetGo([...waitingPages.entries()].filter(([, w]) => !inPersonsHands(w)).map(([id, w]) => ({ id, since: w.since })), id => !!waitingPages.get(id)?.person || pendingFor(id), Date.now()));
 
 // The run's page in this profile, set aside for a click being queued on it.
 async function setAside(ctx: RunCtx, profile: number, ref: number) {
@@ -726,6 +745,10 @@ async function setAside(ctx: RunCtx, profile: number, ref: number) {
   const s = sessions.get(key);
   if (!s || !s.cdp || s.page.isClosed()) throw new Error('There is no page open in the browser to click on. Open the page, fill it in, then queue the click.');
   if (!(await s.cdp.evaluateFor<boolean>(ref, inPage(`find(${ref}) !== null`)))) throw new Error(`There's no [${ref}] on the page now - look at it again (scroll, or open it) and use a number from what you see.`);
+  const id = await moveAside(ctx, key, s, profile);
+  return { _page: id, _url: await s.page.url() };
+}
+async function moveAside(ctx: RunCtx, key: string, s: Session, profile: number, person?: Waiting['person']) {
   const id = `wp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   const own = `wait:${id}`;
   sessions.delete(key);
@@ -733,10 +756,51 @@ async function setAside(ctx: RunCtx, profile: number, ref: number) {
   sessions.set(own, { ...s, runId: own });
   const sh = await shared.get(profile)?.catch(() => null);
   sh?.runs.add(own);
-  waitingPages.set(id, { key: own, runId: ctx.runId, since: Date.now() });
+  waitingPages.set(id, { key: own, runId: ctx.runId, since: Date.now(), person });
   setTimeout(() => void checkWaiting(), UNCLAIMED_MS + 1_000).unref();
   void checkWaiting();
-  return { _page: id, _url: await s.page.url() };
+  return id;
+}
+
+// What only a person can do on a form the agent has filled in (a CAPTCHA): the page
+// itself waits for them, so they do the check and press Submit and nothing else. It
+// used to be a fresh window at the same address, with the whole form to fill in again.
+// Not Google's own sign-in: Google refuses this browser, so that takes the person's window.
+const siteOfUrl = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return '';
+  }
+};
+async function keepForPerson(ctx: RunCtx, profile: number, url: string) {
+  const key = `${ctx.runId}:profile:${profile}`;
+  const s = sessions.get(key);
+  if (!s?.cdp || s.page.isClosed()) return false;
+  const site = siteOfUrl(await s.page.url().catch(() => ''));
+  if (!site || site !== siteOfUrl(url) || site === 'accounts.google.com') return false;
+  await moveAside(ctx, key, s, profile, { profile, site });
+  return true;
+}
+// The request's button: the page kept for it, in the person's hands, if there is one.
+export function takeKeptPage(profile: number, url: string, request?: number, onDone?: () => void) {
+  const site = siteOfUrl(url);
+  const kept = [...waitingPages.values()]
+    .filter(w => w.person?.profile === profile && w.person.site === site && (w.person.request == null || w.person.request === request) && sessions.get(w.key)?.cdp && !sessions.get(w.key)!.page.isClosed())
+    .sort((a, b) => b.since - a.since)[0];
+  if (!kept) return null;
+  const s = sessions.get(kept.key)!;
+  Object.assign(kept.person!, { request: request ?? kept.person!.request, onDone: onDone ?? kept.person!.onDone });
+  s.request = kept.person!.request;
+  hold(s.cdp!.targetId);
+  return s.cdp!.targetId;
+}
+// They pressed Done on it: it's closed (sign-ins kept), and its request hears.
+export async function finishKeptPage(targetId: string) {
+  const found = [...waitingPages.entries()].find(([, w]) => w.person && sessions.get(w.key)?.cdp?.targetId === targetId);
+  if (!found) return;
+  await letGoOf([found[0]]);
+  found[1].person!.onDone?.();
 }
 
 async function closeSessions(runId: string) {
@@ -1372,10 +1436,12 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       id: 'signed_in_browser.show_person',
       tier: 'T0',
       description:
-        "Open a browser profile in a window on the person's screen, at a page - for what only a person can do: a CAPTCHA, or a code sent to their phone. Then file a request saying what they need to do, with a line \"Open in signed-in browser: <address>\" (and \" (profile N)\" if not 1) so they get a button. Your own browser on that profile carries on meanwhile - file the request and get on with other work. What they sign in to is signed in for you too once they close their window.",
+        "For what only a person can do: a CAPTCHA, or a code sent to their phone. Fill in everything else first and call this while you're still on that page, with url its address: the page itself is kept for them exactly as it is, so they do the check and press Submit, and your next browser step starts on a new page. From anywhere else it opens a browser profile in a window on the person's screen, at that address. Then file a request saying what they need to do, with a line \"Open in signed-in browser: <address>\" (and \" (profile N)\" if not 1) so they get a button. Your own browser on that profile carries on meanwhile - file the request and get on with other work. What they sign in to is signed in for you too once they close their window.",
       schema: obj({ url: { type: 'string', description: 'The page to open' }, profile: PROFILE_ARG }, ['url']),
-      impl: async a => {
+      impl: async (a, ctx) => {
         const n = await knownProfile(a.profile);
+        if (await keepForPerson(ctx, n, String(a.url ?? '')))
+          return `This page is kept for the person exactly as it is, in profile ${n}: file the request now. Your next browser step starts on a new page.`;
         await openProfileWindow(n, String(a.url ?? ''));
         return `Opened profile ${n} on the person's screen at ${String(a.url)}.`;
       },
@@ -1411,7 +1477,7 @@ export function liveTabs(): LiveTab[] {
     if (!s.cdp || s.cdp.isClosed()) continue;
     const id = s.cdp.targetId;
     if (!opening.has(id)) opening.set(id, Date.now());
-    tabs.push({ id, kind: 'agent', profile: s.profile, agent: s.agent ?? null, page: s.cdp, since: opening.get(id)! });
+    tabs.push({ id, kind: 'agent', profile: s.profile, agent: s.agent ?? null, page: s.cdp, since: opening.get(id)!, request: s.request });
   }
   return tabs;
 }
