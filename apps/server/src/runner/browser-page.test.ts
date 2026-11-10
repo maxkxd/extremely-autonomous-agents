@@ -203,3 +203,84 @@ test('a Copy button: the click says what was copied, however the page copies it'
   await p.close();
   server.close();
 });
+
+// Pages on localhost; a frame on 127.0.0.1 is another site, so another process.
+const serve = async (pages: Record<string, string>) => {
+  const server = createServer((req, res) => res.setHeader('content-type', 'text/html').end(pages[req.url ?? ''] ?? 'none'));
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+  return { server, port: (server.address() as AddressInfo).port };
+};
+const open = async (url: string) => {
+  const p = await CdpPage.open(cdp, { left: 0, top: 0, width: 1200, height: 800 });
+  await p.goto(url);
+  return p;
+};
+
+test('a window the site opens: the agent goes into it, and is back when it closes', { skip }, async () => {
+  const { server, port } = await serve({
+    '/': `<button onclick="window.open('/pop', 'signin', 'width=500,height=500')">Sign in</button><a href="/tab" target="_blank">Terms</a><p id=out>signed out</p>`,
+    '/pop': `<p>Allow this site?</p><button onclick="opener.document.getElementById('out').textContent = 'signed in'; window.close()">Authorize</button>`,
+    '/tab': `<h1>The terms</h1>`,
+  });
+  const p = await open(`http://localhost:${port}/`);
+  const s: { page: CdpPage; cdp: CdpPage; openers?: CdpPage[] } = { page: p, cdp: p };
+  const first = await view.snapshot(p);
+  const inside = await view.clickIn(s, refOf(first, 'button', 'Sign in'));
+  assert.match(inside, /^That click opened a new window/);
+  assert.match(inside, /Allow this site\?/);
+  assert.notEqual(s.page, p);
+  const back = await view.clickIn(s, refOf(inside, 'button', 'Authorize'));
+  assert.match(back, /^That window closed/);
+  assert.match(back, /signed in/);
+  assert.equal(s.page, p);
+  // A link to a new tab goes the same way (it has no opener to reach, and still counts).
+  const tab = await view.clickIn(s, refOf(back, 'link', 'Terms'));
+  assert.match(tab, /The terms/);
+  await s.page.close();
+  await p.close();
+  server.close();
+});
+
+test('a frame on the page: another site\'s form is read and used by its numbers', { skip }, async () => {
+  view.allowAllFrames();
+  const frame = (host: string, path: string, h: number) => `<iframe src="http://${host}${path}" style="width:600px;height:${h}px;border:8px solid;padding:4px"></iframe>`;
+  const form = `<p>Embedded form</p><label>Name <input name=who></label>
+    <select aria-label=Plan><option>Free<option>Paid</select>
+    <button onclick="document.querySelector('p').textContent = 'Sent ' + document.querySelector('input').value + ' ' + document.querySelector('select').value">Send</button>`;
+  const { server, port } = await serve({ '/': '', '/form': form, '/inner': `<button onclick="this.textContent='Pressed'">Deep</button>` });
+  const pages: Record<string, string> = {};
+  const { server: site, port: sitePort } = await serve(pages);
+  // Cross-site (another process), far down the page; same-site; and a security check.
+  pages['/'] = `<div style="height:1400px">Top of the page</div>${frame(`127.0.0.1:${port}`, '/form', 200)}${frame(`localhost:${sitePort}`, '/same', 120)}${frame(`127.0.0.1:${port}`, '/recaptcha/api2/anchor', 80)}`;
+  pages['/same'] = form.replace('Embedded form', 'Same-site form');
+  const p = await open(`http://localhost:${sitePort}/`);
+  await new Promise(r => setTimeout(r, 800));
+  let s = await view.snapshot(p);
+  assert.match(s, /In a frame on this page \(127\.0\.0\.1:\d+\):\nEmbedded form/);
+  assert.match(s, /security check \(CAPTCHA\)/);
+  const inFrame = (snap: string, kind: string, label: string, after: string) => refOf(snap.slice(snap.indexOf(after)), kind, label);
+  for (const title of ['Embedded form', 'Same-site form']) {
+    const field = inFrame(s, 'text field', 'Name', title);
+    assert.ok(field > 10_000, `numbered with its frame: ${field}`);
+    await p.fill(field, 'Max');
+    await p.select(inFrame(s, 'dropdown', 'Plan', title), 1);
+    s = await view.click(p, inFrame(s, 'button', 'Send', title));
+    assert.match(s, new RegExp(`Sent Max Paid`), s);
+    s = await view.snapshot(p);
+  }
+  await p.close();
+  server.close();
+  site.close();
+});
+
+test('a pop-up over a frame says so, instead of clicking it', { skip }, async () => {
+  view.allowAllFrames();
+  const { server, port } = await serve({ '/': `<iframe srcdoc="<button>Inside</button>" style="width:400px;height:100px"></iframe>
+    <div style="position:fixed;inset:0;background:#0009"><button>Accept cookies</button></div>` });
+  const p = await open(`http://localhost:${port}/`);
+  await new Promise(r => setTimeout(r, 300));
+  const s = await view.snapshot(p);
+  await assert.rejects(p.click(refOf(s, 'button', 'Inside')), /Something is on top of \[\d+\].*Accept cookies/);
+  await p.close();
+  server.close();
+});

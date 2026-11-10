@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, readlink, rename, rm, stat, writeFile } from 
 import { hostname, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
-import { Cdp, CdpPage, type Bounds } from './cdp.js';
+import { Cdp, CdpPage, FRAME_BASE, type Bounds } from './cdp.js';
 import { checkUrl, isPrivateIp } from './net.js';
 import { inWorkspace, onApprovalSettled, onRunEnd, registerTools, type RunCtx, type ToolDef } from './tools.js';
 import { one } from './db.js';
@@ -354,7 +354,7 @@ async function guard(context: BrowserContext) {
 
 // What the tools drive: a profile's page over DevTools (cdp.ts), or a blank
 // throwaway browser's page through Playwright, made to look the same.
-type Driver = Pick<CdpPage, 'isClosed' | 'close' | 'goto' | 'ready' | 'url' | 'evaluate' | 'back' | 'click' | 'fill' | 'pressEnter' | 'options' | 'select' | 'wheel'>;
+type Driver = Pick<CdpPage, 'isClosed' | 'close' | 'goto' | 'ready' | 'url' | 'evaluate' | 'back' | 'click' | 'fill' | 'pressEnter' | 'options' | 'select' | 'wheel'> & Partial<Pick<CdpPage, 'frames' | 'evaluateInFrame' | 'evaluateFor'>>;
 function playwrightDriver(page: Page): Driver {
   // Found through the page view's finder first, so a control the page drew again keeps its number.
   const el = (ref: number) => page.locator(`[data-eaa-ref="${ref}"]`).first();
@@ -369,7 +369,10 @@ function playwrightDriver(page: Page): Driver {
     ready: async () => void (await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {})),
     url: async () => page.url(),
     evaluate: async <T,>(expression: string) => (await page.evaluate(expression)) as T,
-    back: async () => void (await page.goBack({ timeout: 15_000 }).catch(() => {})),
+    back: async () => {
+      await page.goBack({ timeout: 15_000 }).catch(() => {});
+      return true;
+    },
     click: async ref => (await found(ref)).click({ timeout: 10_000 }),
     fill: async (ref, text) => (await found(ref)).fill(text, { timeout: 10_000 }),
     pressEnter: () => page.keyboard.press('Enter'),
@@ -381,7 +384,9 @@ function playwrightDriver(page: Page): Driver {
 
 // blank: its own throwaway browser. profile: its own window in the profile's shared browser.
 // cdp/agent: a profile's page, as the live view sees it (live-view.ts).
-type Session = { kind: 'blank' | 'profile'; runId: string; profile: number; browser?: Browser; page: Driver; cdp?: CdpPage; agent?: { id: string; name: string } };
+// openers: when it's working in a window a site opened, the pages behind it, oldest first.
+type Windows = { page: Driver; cdp?: CdpPage; openers?: CdpPage[]; followed?: Set<string>; windowClosed?: boolean };
+type Session = Windows & { kind: 'blank' | 'profile'; runId: string; profile: number; browser?: Browser; agent?: { id: string; name: string } };
 const sessions = new Map<string, Session>();
 
 // Two tool calls at once share one opening, and one that finishes after its run
@@ -392,6 +397,7 @@ const endedRuns = new Set<string>();
 async function session(ctx: RunCtx, kind: Session['kind'], profile = 1): Promise<Session> {
   const key = `${ctx.runId}:${kind}:${kind === 'profile' ? profile : 0}`;
   const existing = sessions.get(key);
+  if (existing && backFromClosedWindow(existing)) existing.windowClosed = true;
   if (existing && !existing.page.isClosed()) {
     if (existing.cdp) await untilFree(existing.cdp);
     return existing;
@@ -448,6 +454,7 @@ async function closeSession(key: string) {
   const sh = await shared.get(s.profile)?.catch(() => null);
   if (sh) await keepSessionCookies(sh.cdp, s.profile).catch(() => {});
   await s.page.close().catch(() => {});
+  for (const o of s.openers ?? []) await o.close().catch(() => {});
   if (!sh) return;
   sh.runs.delete(s.runId);
   await closeStrayPages(s.profile, sh).catch(() => 0);
@@ -463,11 +470,12 @@ async function closeSession(key: string) {
 export function strayPages(targets: { targetId: string; type: string; openerId?: string }[], live: Set<string>) {
   return targets.filter(t => t.type === 'page' && !live.has(t.targetId) && !(t.openerId && live.has(t.openerId))).map(t => t.targetId);
 }
+const liveTargets = (n: number) => new Set([...sessions.values()].filter(x => x.profile === n).flatMap(x => [x.cdp, ...(x.openers ?? [])]).filter((p): p is CdpPage => !!p && !p.isClosed()).map(p => p.targetId));
 async function closeStrayPages(n: number, sh: Shared) {
   if (sh.opening) return 0; // a page being made isn't a run's yet: next time
   const { targetInfos } = await sh.cdp.send<{ targetInfos: { targetId: string; type: string; openerId?: string }[] }>('Target.getTargets');
   if (sh.opening) return 0;
-  const live = new Set([...sessions.values()].filter(x => x.profile === n && x.cdp && !x.cdp.isClosed()).map(x => x.cdp!.targetId));
+  const live = liveTargets(n);
   const stray = strayPages(targetInfos, live);
   for (const targetId of stray) await sh.cdp.send('Target.closeTarget', { targetId }).catch(() => {});
   return stray.length;
@@ -649,7 +657,7 @@ export async function browserCensus() {
     const s = await p.catch(() => null);
     if (!s) continue;
     const { targetInfos } = await s.cdp.send<{ targetInfos: { targetId: string; type: string; openerId?: string }[] }>('Target.getTargets').catch(() => ({ targetInfos: [] }));
-    const live = new Set([...sessions.values()].filter(x => x.profile === n && x.cdp && !x.cdp.isClosed()).map(x => x.cdp!.targetId));
+    const live = liveTargets(n);
     agents.push({ profile: n, pid: s.proc.pid, runs: s.runs.size, pages: targetInfos.filter(t => t.type === 'page').length, stray: strayPages(targetInfos, live).length });
   }
   return {
@@ -717,7 +725,7 @@ async function setAside(ctx: RunCtx, profile: number, ref: number) {
   const key = `${ctx.runId}:profile:${profile}`;
   const s = sessions.get(key);
   if (!s || !s.cdp || s.page.isClosed()) throw new Error('There is no page open in the browser to click on. Open the page, fill it in, then queue the click.');
-  if (!(await s.page.evaluate<boolean>(inPage(`find(${ref}) !== null`)))) throw new Error(`There's no [${ref}] on the page now - look at it again (scroll, or open it) and use a number from what you see.`);
+  if (!(await s.cdp.evaluateFor<boolean>(ref, inPage(`find(${ref}) !== null`)))) throw new Error(`There's no [${ref}] on the page now - look at it again (scroll, or open it) and use a number from what you see.`);
   const id = `wp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   const own = `wait:${id}`;
   sessions.delete(key);
@@ -815,7 +823,7 @@ const PAGE_HELPERS = `(() => {
     return 'button';
   };
   const keyOf = e => kindOf(e).replace(/ \\((ticked|selected)\\)$/, '') + '|' + label(e) + '|' + (e.getAttribute('name') || '');
-  const st = { next: 0, keys: {} };
+  const st = { next: window.__eaaBase || 0, keys: {} };
   const controls = () => {
     const out = [];
     for (const e of document.querySelectorAll(SEL)) {
@@ -968,19 +976,125 @@ export const inPage = (call: string) => `${PAGE_HELPERS}.${call}`;
 async function snapshot(page: Driver): Promise<string> {
   await page.ready();
   const view = await page.evaluate<{ title: string; text: string; items: string[] }>(inPage(`view(${MAX_ELEMENTS}, ${TEXT_CHARS})`));
-  return [`Title: ${view.title || '(none)'}`, `URL: ${await page.url()}`, '', view.text || '(no text)', '', view.items.length ? `What you can use (by number):\n${view.items.join('\n')}` : 'Nothing to click on this page.'].join('\n');
+  return [`Title: ${view.title || '(none)'}`, `URL: ${await page.url()}`, '', view.text || '(no text)', '', view.items.length ? `What you can use (by number):\n${view.items.join('\n')}` : 'Nothing to click on this page.', ...(await frameSections(page))].join('\n');
+}
+
+// What's in the page's embedded frames (a form or an editor hosted elsewhere), each
+// numbered with the rest. Not a security check: those stop an agent and go to a
+// person, so one is only mentioned. Not a card field, an ad or a video either.
+const CAPTCHA_FRAME = /challenges\.cloudflare\.com|\/recaptcha\/|recaptcha\.net|hcaptcha\.com|arkoselabs\.com|funcaptcha\.com|geetest\.com/i;
+const UNUSED_FRAME = /js\.stripe\.com|checkout\.stripe\.com|paypal\.com|doubleclick\.net|googlesyndication\.com|googletagmanager\.com|youtube(-nocookie)?\.com\/embed|player\.vimeo\.com|facebook\.com\/plugins|platform\.twitter\.com/i;
+const MAX_FRAMES = 8;
+const FRAME_ELEMENTS = 50;
+const FRAME_CHARS = 2_000;
+const FRAME_WAIT_MS = 2_500;
+let frameAllow = () => allowUrl();
+type PageView = { title: string; text: string; items: string[] };
+async function frameSections(page: Driver): Promise<string[]> {
+  if (!page.frames || !page.evaluateInFrame) return [];
+  const all = await page.frames().catch(() => []);
+  const allow = frameAllow();
+  const usable = (await Promise.all(all.map(async f => (!CAPTCHA_FRAME.test(f.url) && !UNUSED_FRAME.test(f.url) && (!/^https?:/.test(f.url) || (await allow(f.url).catch(() => false))) ? f : null)))).filter(f => !!f).slice(0, MAX_FRAMES);
+  const read = (no: number) => {
+    const look = () => page.evaluateInFrame!<(PageView & { size: number }) | null>(no, `Object.assign(${inPage(`view(${FRAME_ELEMENTS}, ${FRAME_CHARS})`)}, { size: innerWidth * innerHeight })`);
+    return Promise.race([
+      (async () => {
+        const first = await look();
+        if (first && (first.text || first.items.length)) return first;
+        // Still loading, most likely: frames fill in after the page has.
+        await page.evaluateInFrame!(no, inPage('settle(300, 1500, 800)'));
+        return look();
+      })().catch(() => null),
+      wait(FRAME_WAIT_MS).then(() => null),
+    ]);
+  };
+  const views = await Promise.all(usable.map(async f => ({ url: f.url, view: await read(f.no) })));
+  const out = all.some(f => CAPTCHA_FRAME.test(f.url)) ? ['', 'This page has a security check (CAPTCHA) in a frame. It stays with a person.'] : [];
+  for (const { url, view } of views) {
+    if (!view || view.size < 400 || (!view.text && !view.items.length)) continue;
+    const host = /^https?:/.test(url) ? new URL(url).host : 'this site';
+    out.push('', `In a frame on this page (${host}):`, view.text || '(no text)', '', view.items.length ? `What you can use in that frame (by number):\n${view.items.join('\n')}` : 'Nothing to click in that frame.');
+  }
+  return out;
 }
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 // After something that changes the page: until it has finished changing (cap ms at most).
 const settle = (page: Driver, cap = 3_000, min = 0) => page.evaluate(inPage(`settle(400, ${cap}, ${min})`)).catch(() => wait(300));
+// The same, watching the frame a number is in when it's in one.
+const settleAt = (page: Driver, ref: number, cap = 3_000) => (ref >= FRAME_BASE && page.evaluateFor ? Promise.resolve().then(() => page.evaluateFor!(ref, inPage(`settle(400, ${cap}, 0)`))).catch(() => wait(300)) : settle(page, cap));
+const evalAt = <T,>(page: Driver, ref: number, expression: string) => (page.evaluateFor ? page.evaluateFor<T>(ref, expression) : page.evaluate<T>(expression));
+
+// Windows a site opens: a "Sign in with..." pop-up, a link that opens a new tab. The
+// agent goes where the click went, and comes back when the window closes.
+function backFromClosedWindow(s: Windows) {
+  let back = false;
+  while (s.cdp?.isClosed() && s.openers?.length) {
+    s.cdp = s.openers.pop()!;
+    s.page = s.cdp;
+    back = true;
+  }
+  return back;
+}
+async function leaveWindows(s: Windows) {
+  while (s.openers?.length) {
+    await s.cdp!.close();
+    release(s.cdp!.targetId);
+    s.cdp = s.openers.pop()!;
+    s.page = s.cdp;
+  }
+  s.windowClosed = false;
+}
+async function followNewWindow(s: Windows, allow: (url: string) => Promise<boolean>): Promise<string> {
+  if (!s.cdp) return '';
+  const followed = (s.followed ??= new Set());
+  const fresh = (await s.cdp.popups().catch(() => [])).filter(id => !followed.has(id));
+  if (!fresh.length) return '';
+  for (const id of fresh) followed.add(id);
+  const win = await s.cdp.adopt(fresh[fresh.length - 1]).catch(() => null);
+  if (!win) return '';
+  await win.guard(allow);
+  await win.ready(10_000);
+  await settle(win, 3_000, 1_000);
+  const at = await win.url().catch(() => '');
+  if (/^https?:/.test(at) && !(await allow(at).catch(() => false))) {
+    await win.close();
+    return "That click opened a window on an address that isn't on the public web, so it was closed.";
+  }
+  (s.openers ??= []).push(s.cdp);
+  s.cdp = win;
+  s.page = win;
+  return "That click opened a new window, and you're in it now: what you do next happens there. When it closes you're back on the page that opened it; open, or back with nowhere further back to go, leaves it.";
+}
+async function windowNote(s: Windows, allow: (url: string) => Promise<boolean>) {
+  if (backFromClosedWindow(s)) {
+    await settle(s.page, 3_000, 800);
+    return "That window closed, so you're back on the page that opened it.";
+  }
+  return followNewWindow(s, allow);
+}
+// A window can close between two steps (a sign-in finishing): the numbers the agent
+// has are from that window, so they mustn't be used on the page behind it.
+async function stopIfWindowClosed(s: Windows) {
+  if (!s.windowClosed) return;
+  s.windowClosed = false;
+  throw new Error(`The window you were working in closed (a sign-in finishing, usually), so nothing was done. You're back on the page that opened it:\n\n${await snapshot(s.page)}`);
+}
 
 // A click, and the page after it - first what it copied, when it was a Copy button.
 const MAX_COPIED = 20_000;
-async function clickAndLook(page: Driver, ref: number): Promise<string> {
-  await page.click(ref);
+async function clickAndLook(page: Driver, ref: number, s?: Windows, allow = allowUrl()): Promise<string> {
+  try {
+    await page.click(ref);
+  } catch (e) {
+    if (!s?.openers?.length || !page.isClosed()) throw e; // a click that closes its own window
+  }
   await wait(150);
-  await settle(page);
+  await settleAt(page, ref);
+  if (s) {
+    const note = await windowNote(s, allow);
+    if (note) return `${note}\n\n${await snapshot(s.page)}`;
+  }
   const copied = await page.evaluate<string | null>(inPage('takeCopied()')).catch(() => null);
   const after = await snapshot(page);
   if (!copied) return after;
@@ -995,10 +1109,15 @@ const PROFILE_ARG = { type: 'number', description: 'Which browser profile (1 unl
 
 function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', where: string): ToolDef[] {
   const withProfile = (props: Record<string, unknown>) => (kind === 'profile' ? { ...props, profile: PROFILE_ARG } : props);
-  const open = (ctx: RunCtx, a: Record<string, unknown>) => (kind === 'profile' ? knownProfile(a.profile).then(n => session(ctx, kind, n)) : session(ctx, kind));
+  const current = (ctx: RunCtx, a: Record<string, unknown>) => (kind === 'profile' ? knownProfile(a.profile).then(n => session(ctx, kind, n)) : session(ctx, kind));
+  const open = async (ctx: RunCtx, a: Record<string, unknown>) => {
+    const s = await current(ctx, a);
+    await stopIfWindowClosed(s);
+    return s;
+  };
   const click = async (a: Record<string, unknown>, ctx: RunCtx) => {
     const s = await open(ctx, a);
-    return clickAndLook(s.page, Number(a.ref));
+    return clickAndLook(s.page, Number(a.ref), s);
   };
   return [
     {
@@ -1007,7 +1126,8 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
       description: `Open a web address in ${where}. Returns the page's text and its buttons, links and fields, numbered.`,
       schema: obj(withProfile({ url: { type: 'string', description: 'The full address, starting http:// or https://' } }), ['url']),
       impl: async (a, ctx) => {
-        const s = await open(ctx, a);
+        const s = await current(ctx, a);
+        await leaveWindows(s);
         await s.page.goto(checkUrl(String(a.url ?? '')).toString());
         // An app draws itself after the page loads (fetching who's signed in, say): read
         // it once it has - quiet for a moment, and never sooner than 1.5 s.
@@ -1035,7 +1155,8 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
         await s.page.fill(Number(a.ref), String(a.text ?? ''));
         if (a.submit) await s.page.pressEnter();
         await wait(150);
-        await settle(s.page, a.submit ? 4_000 : 1_500);
+        await settleAt(s.page, Number(a.ref), a.submit ? 4_000 : 1_500);
+        if (backFromClosedWindow(s)) return `That window closed, so you're back on the page that opened it.\n\n${await snapshot(s.page)}`;
         return snapshot(s.page);
       },
     },
@@ -1072,11 +1193,15 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
     {
       id: `${prefix}.back`,
       tier: 'T0',
-      description: `Go back to the previous page in ${where}.`,
+      description: `Go back to the previous page in ${where}. In a window the site opened, with nothing further back, this closes it and returns to the page that opened it.`,
       schema: obj(withProfile({}), []),
       impl: async (a, ctx) => {
         const s = await open(ctx, a);
-        await s.page.back().catch(() => {});
+        const moved = await s.page.back().catch(() => true);
+        if (!moved && s.openers?.length) {
+          await s.cdp!.close();
+          backFromClosedWindow(s);
+        }
         return snapshot(s.page);
       },
     },
@@ -1123,16 +1248,16 @@ async function chooseFromList(page: Driver, ref: number, option: string): Promis
   const want = option.trim();
   if (!want) throw new Error('Say which option to pick.');
   type Found = { ref?: number; offered?: string[] };
-  const look = () => page.evaluate<Found>(inPage(`pickOption(${JSON.stringify(want)})`));
+  const look = () => evalAt<Found>(page, ref, inPage(`pickOption(${JSON.stringify(want)})`));
   await page.click(ref);
   await wait(150);
-  await settle(page, 1_500);
+  await settleAt(page, ref, 1_500);
   let found = await look();
   if (found.ref == null) {
     // A searchable list: what's typed narrows it (and some only show options once you type).
     await page.fill(ref, want).catch(() => {});
     await wait(150);
-    await settle(page, 2_000);
+    await settleAt(page, ref, 2_000);
     found = await look();
   }
   if (found.ref == null)
@@ -1143,12 +1268,12 @@ async function chooseFromList(page: Driver, ref: number, option: string): Promis
     );
   await page.click(found.ref);
   await wait(150);
-  await settle(page, 1_500);
+  await settleAt(page, ref, 1_500);
   return snapshot(page);
 }
 
 // For tests: the page view and its steps, on a page made there.
-export const pageViewForTests = { click: (p: CdpPage, ref: number) => clickAndLook(p, ref), snapshot: (p: CdpPage) => snapshot(p), choose: (p: CdpPage, ref: number, option: string) => chooseFromList(p, ref, option), settle: (p: CdpPage, cap?: number, min?: number) => settle(p, cap, min) };
+export const pageViewForTests = { allowAllFrames: () => void (frameAllow = () => async () => true), clickIn: (s: { page: CdpPage; cdp: CdpPage; openers?: CdpPage[] }, ref: number) => clickAndLook(s.page, ref, s as Windows, async () => true), click: (p: CdpPage, ref: number) => clickAndLook(p, ref), snapshot: (p: CdpPage) => snapshot(p), choose: (p: CdpPage, ref: number, option: string) => chooseFromList(p, ref, option), settle: (p: CdpPage, cap?: number, min?: number) => settle(p, cap, min) };
 
 // The clicks that always wait for a person (unless they lower them on the Tools page),
 // the password store, and opening a profile on the person's screen.
@@ -1192,7 +1317,8 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
         if (!s.cdp) throw new Error('Uploading works in the signed-in browser only.');
         const file = a.path ? await workspaceFile(ctx.agent.id, a.path) : a.url ? await download(String(a.url), ctx.runId) : null;
         if (!file) throw new Error('Give path (a file in your workspace) or url (a file on the public web).');
-        if (!(await s.cdp.setFiles(inPage(`fileInput(${Number(a.ref)})`), [file])))
+        await stopIfWindowClosed(s);
+        if (!(await s.cdp.setFiles(inPage(`fileInput(${Number(a.ref)})`), [file], Number(a.ref))))
           throw new Error(`[${String(a.ref)}] isn't an upload field, and there's no single one beside it. Look at the page again: a "file upload" in the list is the field itself.`);
         await wait(150);
         await settle(s.page, 3_000);
@@ -1225,6 +1351,7 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       impl: async (a, ctx) => {
         const row = passwordRow(String(a.password_id ?? ''));
         const s = await session(ctx, 'profile', await knownProfile(a.profile ?? row?.profile));
+        await stopIfWindowClosed(s);
         await s.page.fill(Number(a.ref), await readPassword(String(a.password_id ?? '')));
         if (a.submit) await s.page.pressEnter();
         await wait(a.submit ? 1500 : 200);
