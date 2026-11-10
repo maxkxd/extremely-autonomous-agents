@@ -303,7 +303,7 @@ export class CdpPage {
   }
 
   // A numbered control in a frame, on the screen - or what's over the frame there.
-  private async pointInFrame(f: Frame, ref: number): Promise<{ x: number; y: number; covered?: string; controls?: string[] }> {
+  private async pointInFrame(f: Frame, ref: number): Promise<{ x: number; y: number; covered?: string; controls?: string[]; inside?: { session: string; x: number; y: number } }> {
     await this.offset(f, true);
     const p = await this.inFrame<{ x: number; y: number; covered?: string; controls?: string[] } | null>(f, this.pointExpr(ref));
     if (!p) throw new Error(gone(ref));
@@ -320,7 +320,9 @@ export class CdpPage {
         let c = h; while (c.parentElement && c.parentElement !== document.body && !c.parentElement.querySelector('iframe, frame')) c = c.parentElement;
         return { covered: (c.innerText || c.getAttribute('aria-label') || c.tagName.toLowerCase()).replace(/\\s+/g, ' ').trim().slice(0, 160), controls: window.__eaa && window.__eaa.listIn ? window.__eaa.listIn(c) : [] }; })()`,
     );
-    return { x, y, ...over };
+    // A frame in another process gets the click itself, at its own coordinates: sent to
+    // the page, one straight after a scroll often stopped at the <iframe> and never reached it.
+    return { x, y, ...over, ...(f.session !== this.session ? { inside: { session: f.session, x: p.x, y: p.y } } : {}) };
   }
 
   // Until the page's document has been read (or the time's up - a page that never
@@ -389,14 +391,17 @@ export class CdpPage {
   }
 
   async click(ref: number) {
-    const { x, y, covered, controls } = await this.point(ref);
+    const pt = await this.point(ref);
+    const { covered, controls } = pt;
     // The click would land on that instead, and say nothing (aiagentsdirectory.com's
     // "Add Your Product" pop-up over its form read as boxes that won't tick).
     if (covered != null)
       throw new Error(`Something is on top of [${ref}], so the click would land on it instead: "${covered}". Most likely a pop-up or banner the page opened: close it or deal with it first, then click [${ref}] again.${controls?.length ? ` What's on it:\n${controls.join('\n')}` : ''}`);
-    await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-    await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
-    await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+    const inside = (pt as { inside?: { session: string; x: number; y: number } }).inside;
+    const { session, x, y } = inside ?? { session: this.session, x: pt.x, y: pt.y };
+    await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }, session);
+    await this.cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }, session);
+    await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }, session);
   }
 
   // Replaces what's in a field, typed in as a person would (so the page sees input).

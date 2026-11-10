@@ -16,3 +16,9 @@ test('with no record of what the window was given, everything goes back', () => 
   const now = [cookie('session', 'old')];
   assert.deepEqual(changedCookies(now, undefined), now);
 });
+
+test("Google's own sign-in never goes to the agents' browser; other sites' do", async () => {
+  const { googleCookie } = await import('./browser.js');
+  for (const d of ['.google.com', 'accounts.google.com', '.youtube.com', '.google.com.au', 'lh3.googleusercontent.com']) assert.equal(googleCookie({ domain: d }), true, d);
+  for (const d of ['.fazier.com', 'notgoogle.com', '.github.com', 'google.example.com']) assert.equal(googleCookie({ domain: d }), false, d);
+});

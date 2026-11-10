@@ -587,14 +587,23 @@ async function seedPersonDir(n: number) {
   const sh = await profileBrowser(n);
   const { cookies } = await sh.cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies');
   closeWhenIdle(n, sh);
-  // Only these: what an earlier window left here is older than the agents' own.
+  // Only these: what an earlier window left here is older than the agents' own - except
+  // the person's own Google sign-in, which only ever lives here (googleCookie).
+  const given = cookies.filter(c => !googleCookie(c));
   await withHeadless(personDir(n), async cdp => {
+    const { cookies: own } = await cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies');
     await cdp.send('Storage.clearCookies');
-    await setAll(cdp, cookies.map(cookieParams));
+    await setAll(cdp, [...given, ...own.filter(googleCookie)].map(cookieParams));
   });
-  seeded.set(n, new Map(cookies.map(c => [cookieKey(c), String(c.value)])));
-  return cookies.length;
+  seeded.set(n, new Map(given.map(c => [cookieKey(c), String(c.value)])));
+  return given.length;
 }
+// Google's own sign-in stays in the person's window and never goes to the agents'
+// browser. Google refuses that browser, and a Google session seen there is signed out -
+// in the person's window too, so they had to sign in again each time. "Sign in with
+// Google" on another site is done in the person's window; that site's own sign-in is
+// what comes back to the agents.
+export const googleCookie = (c: Record<string, unknown>) => /(^|\.)(google\.[a-z]{2,3}(\.[a-z]{2})?|youtube\.com|googleusercontent\.com)$/i.test(String(c.domain ?? '').replace(/^\./, ''));
 // What the person's window changed. The rest is the copy it was given, and the agents'
 // browser has moved on since: a site that renewed its sign-in while the window was open
 // was put back to the old one, which it no longer accepts, and the agent was signed out.
@@ -606,7 +615,7 @@ export function changedCookies<T extends Record<string, unknown>>(all: T[], give
 // Closed: what they signed in to, into the agents' browser - straight in when it's
 // open, or added the next time it opens.
 async function carryBack(n: number) {
-  const cookies = changedCookies((await withHeadless(personDir(n), async cdp => (await cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies')).cookies)).map(cookieParams), seeded.get(n));
+  const cookies = changedCookies((await withHeadless(personDir(n), async cdp => (await cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies')).cookies)).map(cookieParams), seeded.get(n)).filter(c => !googleCookie(c));
   const sh = await shared.get(n)?.catch(() => null);
   if (sh && !sh.cdp.closed) {
     await setAll(sh.cdp, cookies);
@@ -1140,6 +1149,8 @@ async function followNewWindow(s: Windows, allow: (url: string) => Promise<boole
   (s.openers ??= []).push(s.cdp);
   s.cdp = win;
   s.page = win;
+  if (siteOfUrl(at) === 'accounts.google.com')
+    return "That click opened Google's sign-in, which refuses this browser. Go back (it closes the window), then call signed_in_browser.show_person with sign_in true at this site's sign-in page and file one request: the person presses \"Sign in with Google\" in their own window, and the site's sign-in comes over to you when they close it.";
   return "That click opened a new window, and you're in it now: what you do next happens there. When it closes you're back on the page that opened it; open, or back with nowhere further back to go, leaves it.";
 }
 async function windowNote(s: Windows, allow: (url: string) => Promise<boolean>) {
@@ -1449,10 +1460,17 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       tier: 'T0',
       description:
         "For what only a person can do: a CAPTCHA, or a code sent to their phone. Fill in everything else first and call this while you're still on that page, with url its address: the page itself is kept for them exactly as it is, so they do the check and press Submit, and your next browser step starts on a new page. From anywhere else it opens a browser profile in a window on the person's screen, at that address. Then file a request saying what they need to do, with a line \"Open in signed-in browser: <address>\" (and \" (profile N)\" if not 1) so they get a button. Your own browser on that profile carries on meanwhile - file the request and get on with other work. What they sign in to is signed in for you too once they close their window.",
-      schema: obj({ url: { type: 'string', description: 'The page to open' }, profile: PROFILE_ARG }, ['url']),
+      schema: obj(
+        {
+          url: { type: 'string', description: 'The page to open' },
+          sign_in: { type: 'boolean', description: "True when the person is to sign in there (\"Sign in with Google\", Apple, Microsoft, a phone code): it opens their own plain window at url, the site's sign-in page, since Google refuses the agents' browser. Their sign-in to that site comes over to your browser when they close it." },
+          profile: PROFILE_ARG,
+        },
+        ['url'],
+      ),
       impl: async (a, ctx) => {
         const n = await knownProfile(a.profile);
-        if (await keepForPerson(ctx, n, String(a.url ?? '')))
+        if (!a.sign_in && (await keepForPerson(ctx, n, String(a.url ?? ''))))
           return `This page is kept for the person exactly as it is, in profile ${n}: file the request now. Your next browser step starts on a new page.`;
         await openProfileWindow(n, String(a.url ?? ''));
         return `Opened profile ${n} on the person's screen at ${String(a.url)}.`;
