@@ -24,7 +24,7 @@ import {
   writeDraftIntegration,
 } from '../integrations/index.js';
 import { pluginsAllowed, writePlugin } from '../integrations/plugins.js';
-import { installProgram, listPrograms, npmRelease, parseReleaseUrl, pypiRelease, releaseChecksum, verifyPrograms, type InstallSpec } from '../integrations/programs.js';
+import { addPending, clearStaging, dropPending, installProgram, listPrograms, npmRelease, pendingInstalls, parseReleaseUrl, pypiRelease, releaseChecksum, verifyPrograms, type InstallSpec, type PendingInstall } from '../integrations/programs.js';
 import { checkEvent } from './events.js';
 import { hooksBase } from './hooks.js';
 import { reviewPlugin } from '../integrations/review.js';
@@ -594,7 +594,7 @@ export function hostName(): string {
   if (process.env.EAA_SELF_HOSTED === '1') return "the organization's server";
   if (process.env.EAA_HOSTED_ORG) {
     const who = getSetting<string | null>('host_person', null)?.trim();
-    return who ? `${who}'s computer, which hosts the organization` : "the computer hosting the organization";
+    return who ? `${who}'s computer` : "the computer hosting the organization";
   }
   return 'this computer';
 }
@@ -604,8 +604,9 @@ const PRETTY: Record<string, string> = { ffmpeg: 'FFmpeg', ffprobe: 'FFprobe', p
 export const programTitle = (name: string, version: string) => `${PRETTY[name] ?? name} ${version}`;
 // Where it comes from, in words: "yt-dlp on GitHub", "python-build-standalone by astral-sh, on GitHub".
 export function fromLine(src: InstallSpec['source']): string {
-  if (src.kind === 'pypi') return 'PyPI, the Python package library';
-  if (src.kind === 'npm') return 'npm, the JavaScript package library';
+  // The package by its own name: what's installed is the package, whatever the program is called.
+  if (src.kind === 'pypi') return `${src.package} on PyPI, the Python package library`;
+  if (src.kind === 'npm') return `${src.package} on npm, the JavaScript package library`;
   const [owner, repo] = src.repo.split('/');
   return owner.toLowerCase() === repo.toLowerCase() ? `${repo} on GitHub` : `${repo} by ${owner}, on GitHub`;
 }
@@ -1395,7 +1396,7 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.install_program',
     tier: 'T2',
     description:
-      "Propose installing a program a code plugin needs (ffmpeg, yt-dlp, Python, a PyPI package) on the computer this agency runs on - a person approves. From a pinned GitHub release (its checksum read from the release, and checked on download) or from PyPI into the Python installed here. Approved, it's downloaded, checked, unpacked into the agency's data folder (kept across restarts and redeploys) and put on the PATH of plugin processes: plugins run it by its command name (with commands: true).",
+      "Propose installing a program a code plugin needs (ffmpeg, yt-dlp, Python, a PyPI or npm package - any program from those sources) on the computer this agency runs on - a person approves. From a pinned GitHub release (its checksum read from the release, and checked on download), from PyPI into the Python installed here, or from npm. Approved, it's installed in the background into the agency's data folder (kept across restarts and redeploys) - you're woken when it's done - and plugins with commands: true start it with kit.command('<command>').",
     schema: obj(
       {
         for_agent: str('The agent whose plugin needs it (its owner approves)'),
@@ -1410,7 +1411,8 @@ const TOOLS: ToolDef[] = [
         check_args: { type: 'array', items: { type: 'string' }, description: 'How to ask the first command its version, to show it runs (default ["--version"]; ffmpeg: ["-version"])' },
         why: str('One plain sentence for the person: what the agent does with it ("Video Studio cuts its clips with it"). No file names, versions, commands or code words'),
       },
-      ['for_agent', 'request_id', 'name', 'version', 'source', 'bins', 'why'],
+      // name first: one card per program waits at a time (tools.ts), however many requests need it.
+      ['name', 'for_agent', 'request_id', 'version', 'source', 'bins', 'why'],
     ),
     preview: async a => {
       openRequest(a.request_id);
@@ -1423,7 +1425,7 @@ const TOOLS: ToolDef[] = [
       if (spec.source.kind === 'github_release') {
         const sum = await releaseChecksum(spec.source, spec.sha256);
         card.sha256 = sum.sha256;
-        card.checked = 'Against the copy its makers published';
+        card.checked = /^given/.test(sum.how) ? "Against a checksum the Agency Engineer found - the release publishes none" : 'Against the copy its makers published';
       } else if (spec.source.kind === 'npm') {
         const rel = await npmRelease(spec.source.package, spec.version);
         const missing = spec.bins.filter(b => !rel.bins.includes(b));
@@ -1441,25 +1443,14 @@ const TOOLS: ToolDef[] = [
       };
     },
     impl: async (a, ctx) => {
-      // The checksum on the card is the one the download must have.
       const spec = installSpecOf(a);
-      // Lowered from T2 on the Tools page, it ran without a card: its checksum is read from the release now.
-      if (spec.source.kind === 'github_release' && !spec.sha256) spec.sha256 = (await releaseChecksum(spec.source)).sha256;
-      if (installing.has(spec.name)) return `${spec.name} is already being installed: you're woken when it's done.`;
+      if (installing.has(spec.name)) throw new Error(`${spec.name} is being installed right now. Once you're told it's done, propose it again if this one is still needed.`);
+      // The checksum on the card is the one the download must have, and it's checked against
+      // the release once more. Lowered from T2 on the Tools page, there was no card: read from the release now.
+      if (spec.source.kind === 'github_release') spec.sha256 = (await releaseChecksum(spec.source, spec.sha256)).sha256;
       const r = Number(a.request_id);
       // A download can take minutes: the person's approve click doesn't wait for it.
-      installing.add(spec.name);
-      void installProgram(spec, ctx.agent.id)
-        .then(p => {
-          if (Number.isFinite(r)) postToRequest(r, 'engineer', `${programTitle(p.name, p.version)} is installed.`);
-          ctx.wake(FLEET_ENGINEER, 'request', `Installed ${p.name} ${p.version} (request #${r}): plugins start ${p.bins.join(', ') || '(no commands)'} with kit.command('${p.bins[0] ?? p.name}') - the plugin needs commands: true${p.check ? `. It says: ${p.check}` : ''}. Now write, or test, the plugin that uses it.`);
-        })
-        .catch(e => {
-          // The details are for the Engineer; the person hears it's being handled.
-          if (Number.isFinite(r)) postToRequest(r, 'engineer', `Installing ${programTitle(spec.name, spec.version)} didn't work, so nothing was installed. I'm looking into it.`);
-          ctx.wake(FLEET_ENGINEER, 'request', `Installing ${spec.name} ${spec.version} (request #${r}) FAILED, nothing was installed: ${(e as Error).message} Work out why (the wrong build for this computer?) and propose it again.`);
-        })
-        .finally(() => installing.delete(spec.name));
+      await startInstall({ id: `${spec.name}-${Date.now().toString(36)}`, spec, by: ctx.agent.id, requestId: Number.isFinite(r) ? r : null, at: Date.now() }, (id, t, task) => ctx.wake(id, t, task));
       return `Installing ${spec.name} ${spec.version} now: you're woken when it's done (or if it fails).`;
     },
   },
@@ -1493,9 +1484,38 @@ export async function movedToBuiltIns(book: (agentId: string, trigger: 'request'
   setSetting('drafts-covered-told', told);
 }
 
+// An approved install, run in the background and remembered on disk until it ends:
+// the person's request and the Engineer hear how it went.
+export async function startInstall(p: PendingInstall, wake: (agentId: string, trigger: 'request', task: string) => void) {
+  const { spec, requestId: r } = p;
+  installing.add(spec.name);
+  await addPending(p);
+  void installProgram(spec, p.by)
+    .then(done => {
+      if (r != null) postToRequest(r, 'engineer', `${programTitle(done.name, done.version)} is installed.`);
+      const gone = done.dropped?.length ? ` The old Python's packages went with it - install them again: ${done.dropped.join(', ')}.` : '';
+      wake(FLEET_ENGINEER, 'request', `Installed ${done.name} ${done.version}${r != null ? ` (request #${r})` : ''}: plugins start ${done.bins.join(', ') || '(no commands)'} with kit.command('${done.bins[0] ?? done.name}') - the plugin needs commands: true${done.check ? `. It says: ${done.check}` : ''}.${gone} Now write, or test, the plugin that uses it.`);
+    })
+    .catch(e => {
+      // The details are for the Engineer; the person hears it's being handled.
+      if (r != null) postToRequest(r, 'engineer', `Installing ${programTitle(spec.name, spec.version)} didn't work, so nothing was installed. I'm looking into it.`);
+      wake(FLEET_ENGINEER, 'request', `Installing ${spec.name} ${spec.version}${r != null ? ` (request #${r})` : ''} FAILED, nothing was installed: ${(e as Error).message} Work out why (the wrong build for this computer?) and propose it again.`);
+    })
+    .finally(() => {
+      installing.delete(spec.name);
+      void dropPending(p.id).catch(() => {});
+    });
+}
+
 // Installed programs (programs.ts), checked against what was installed. One that
-// changed stays off plugins' PATH, and the Engineer hears once per install.
+// changed stays off plugins' PATH, and the Engineer hears once per install. And
+// installs a person approved that a restart cut short pick up again - the approval stands.
 export async function checkPrograms(book: (agentId: string, trigger: 'request', task: string) => void) {
+  await clearStaging();
+  for (const p of await pendingInstalls()) {
+    if (p.requestId != null) postToRequest(p.requestId, 'engineer', `The agency restarted while ${programTitle(p.spec.name, p.spec.version)} was being installed, so it's starting again.`);
+    await startInstall(p, book).catch(e => console.error('Resuming an install failed:', (e as Error).message));
+  }
   const told = getSetting<string[]>('programs-changed-told', []);
   const now: string[] = [];
   await verifyPrograms((name, why) => now.push(`${name}: ${why}`));

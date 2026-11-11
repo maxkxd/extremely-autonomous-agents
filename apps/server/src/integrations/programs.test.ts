@@ -2,7 +2,7 @@ import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, copyFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, copyFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -34,7 +34,7 @@ const work = mkdtempSync(join(tmpdir(), 'eaa-programs-'));
 type Rel = { tag: string; files: Record<string, Buffer>; digests?: boolean };
 let releases: Rel[] = [];
 const served: string[] = [];
-setProgramFetcher(async url => {
+const fakeGitHub = async (url: string) => {
   served.push(url);
   const api = url.match(/^https:\/\/api\.github\.com\/repos\/([^/]+\/[^/]+)\/releases\/tags\/(.+)$/);
   if (api) {
@@ -51,7 +51,8 @@ setProgramFetcher(async url => {
   const dl = url.match(/^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\/([^/]+)\/([^/]+)$/);
   const body = dl && releases.find(x => x.tag === decodeURIComponent(dl[1]))?.files[decodeURIComponent(dl[2])];
   return { res: body ? new Response(new Uint8Array(body)) : new Response('nope', { status: 404 }) };
-});
+};
+setProgramFetcher(fakeGitHub);
 after(() => setProgramFetcher(null));
 
 test('only a pinned GitHub release download is a source', () => {
@@ -123,15 +124,22 @@ test('an archive is unpacked, its command found, every file recorded - and a cha
   assert.ok(Object.keys(p.files).some(f => f.endsWith('pkg/doc/README')));
   assert.equal(p.pathDirs[0], 'packed/7/pkg/bin');
 
-  // Python's compiled files don't count as a change.
-  mkdirSync(join(programsRoot(), 'packed', '7', 'pkg', '__pycache__'), { recursive: true });
-  writeFileSync(join(programsRoot(), 'packed', '7', 'pkg', '__pycache__', 'x.cpython-312.pyc'), 'x');
+  // Unchanged, it stays.
   const told: string[] = [];
   await verifyPrograms(name => told.push(name));
   assert.deepEqual(told, []);
   assert.ok(programPathDirs().some(d => d.endsWith(join('pkg', 'bin'))));
 
-  // An added file, or one edited, does.
+  // A compiled Python file appearing counts (Python could run a planted one): programs
+  // run with PYTHONDONTWRITEBYTECODE, so none appears by itself.
+  mkdirSync(join(programsRoot(), 'packed', '7', 'pkg', '__pycache__'), { recursive: true });
+  writeFileSync(join(programsRoot(), 'packed', '7', 'pkg', '__pycache__', 'x.cpython-312.pyc'), 'x');
+  const told1: string[] = [];
+  await verifyPrograms(name => void told1.push(name));
+  assert.deepEqual(told1, ['packed']);
+  rmSync(join(programsRoot(), 'packed', '7', 'pkg', '__pycache__'), { recursive: true });
+
+  // An edited file does too.
   appendFileSync(join(programsRoot(), 'packed', '7', 'pkg', 'doc', 'README'), ' and more');
   const told2: string[] = [];
   await verifyPrograms(name => void told2.push(name));
@@ -186,7 +194,7 @@ test('the card names the computer it installs on, for whoever approves it', asyn
     process.env.EAA_HOSTED_ORG = 'org_1';
     assert.equal(hostName(), 'the computer hosting the organization');
     setSetting('host_person', 'Sam Lee');
-    assert.equal(hostName(), "Sam Lee's computer, which hosts the organization", 'teammates elsewhere see whose PC it is');
+    assert.equal(hostName(), "Sam Lee's computer", 'teammates elsewhere see whose PC it is');
     process.env.EAA_SELF_HOSTED = '1';
     assert.equal(hostName(), "the organization's server");
     process.env.EAA_CLOUD_HOST = '1';
@@ -210,7 +218,7 @@ test('npm: an exact version that exists, with the commands named; deprecated one
     await assert.rejects(npmRelease('old-tool', '1.0.0'), /deprecated/);
     await assert.rejects(npmRelease('no-such', '1.0.0'), /npm has no no-such 1.0.0/);
   } finally {
-    setProgramFetcher(null);
+    setProgramFetcher(fakeGitHub);
   }
   const spec = (version: string, pkg = 'prettier') => ({ name: 'prettier', version, source: { kind: 'npm' as const, package: pkg }, bins: [] });
   checkSpec(spec('3.3.3'));
@@ -227,4 +235,64 @@ export default { tools: [
   const file = await buildPlugin('zz-kit-command', code, 'cafe'.repeat(16));
   const out = await runSandboxed(file, { read: [], write: [], commands: true }, { op: 'run', tool: 'x.cmd', args: {} });
   assert.equal(out.result, `${process.version} ["not-installed"]`);
+});
+
+test("a program's check never sees the server's keys", async () => {
+  process.env.ANTHROPIC_API_KEY = 'sk-test-must-not-leak';
+  releases = [{ tag: 'e1', files: { 'envprog': NODE }, digests: true }];
+  const p = await installProgram({ name: 'envprog', version: '1', source: parseReleaseUrl('https://github.com/o/p/releases/download/e1/envprog'), sha256: sha(NODE), bins: ['envprog'], checkArgs: ['-p', 'process.env.ANTHROPIC_API_KEY'] });
+  assert.equal(p.check, 'undefined');
+  await removeProgram('envprog');
+});
+
+test('two installs at once both end up recorded', async () => {
+  releases = [{ tag: 'c1', files: { 'one': NODE, 'two': NODE }, digests: true }];
+  const url = (f: string) => parseReleaseUrl(`https://github.com/o/p/releases/download/c1/${f}`);
+  await Promise.all([
+    installProgram({ name: 'one', version: '1', source: url('one'), sha256: sha(NODE), bins: ['one'] }),
+    installProgram({ name: 'two', version: '1', source: url('two'), sha256: sha(NODE), bins: ['two'] }),
+  ]);
+  const names = (await listPrograms()).map(x => x.name);
+  assert.ok(names.includes('one') && names.includes('two'), names.join(','));
+  await removeProgram('one');
+  await removeProgram('two');
+});
+
+test("installing Python again drops the old one's packages from the record, and says which", async () => {
+  releases = [{ tag: 'py1', files: { 'python': NODE }, digests: true }];
+  const spec = { name: 'python', version: '3.12.1', source: parseReleaseUrl('https://github.com/o/p/releases/download/py1/python'), sha256: sha(NODE), bins: ['python'], checkArgs: ['--version'] };
+  await installProgram(spec);
+  // A package pip put in it (written as pip's install records it).
+  const manifest = join(programsRoot(), 'programs.json');
+  const m = JSON.parse(readFileSync(manifest, 'utf8'));
+  m.programs['yt-dlp'] = { name: 'yt-dlp', version: '2026.10.26', source: { kind: 'pypi', package: 'yt-dlp' }, sha256: null, bins: ['yt-dlp'], pathDirs: [], dir: null, files: {}, installedAt: 1, by: null, check: null };
+  writeFileSync(manifest, JSON.stringify(m));
+  const again = await installProgram({ ...spec, version: '3.12.2' });
+  assert.deepEqual(again.dropped, ['yt-dlp']);
+  assert.equal((await listPrograms()).find(x => x.name === 'yt-dlp'), undefined);
+  await removeProgram('python');
+});
+
+test('an approved install a restart cut short starts again, and the Engineer hears how it went', async () => {
+  const { addPending, pendingInstalls } = await import('./programs.js');
+  const { checkPrograms } = await import('../runner/engineer.js');
+  releases = [{ tag: 'r1', files: { 'resumed': NODE }, digests: true }];
+  await addPending({ id: 'resumed-x', spec: { name: 'resumed', version: '1', source: parseReleaseUrl('https://github.com/o/p/releases/download/r1/resumed'), sha256: sha(NODE), bins: ['resumed'] }, by: 'fleet', requestId: null, at: Date.now() });
+  // Left behind by the restart.
+  mkdirSync(join(programsRoot(), '.staging', 'resumed-old'), { recursive: true });
+  const woken: string[] = [];
+  await checkPrograms((_agent, _t, task) => void woken.push(task));
+  for (let i = 0; i < 100 && !woken.length; i++) await new Promise(r => setTimeout(r, 100));
+  assert.match(woken[0] ?? '', /^Installed resumed 1/);
+  assert.equal((await listPrograms()).find(x => x.name === 'resumed')?.state, 'ok');
+  for (let i = 0; i < 20 && (await pendingInstalls()).length; i++) await new Promise(r => setTimeout(r, 50));
+  assert.deepEqual(await pendingInstalls(), [], 'no longer pending');
+  await removeProgram('resumed');
+});
+
+test('the card names the package actually installed, and where its checksum came from', async () => {
+  const { fromLine } = await import('../runner/engineer.js');
+  assert.equal(fromLine({ kind: 'pypi', package: 'yt-dlp-tools' }), 'yt-dlp-tools on PyPI, the Python package library');
+  assert.equal(fromLine({ kind: 'npm', package: '@mermaid-js/mermaid-cli' }), '@mermaid-js/mermaid-cli on npm, the JavaScript package library');
+  assert.equal(fromLine(parseReleaseUrl('https://github.com/yt-dlp/yt-dlp/releases/download/1/x')), 'yt-dlp on GitHub');
 });

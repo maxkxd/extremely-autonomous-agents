@@ -205,15 +205,21 @@ website, and not system installers or package managers (apt, winget, brew,
      or `.tar.xz` of one; `bins` names its commands.
    - `pypi`: an exact version of a PyPI package, installed with `pip` into the
      Python the agency installed (program `python`, from
-     astral-sh/python-build-standalone). Only wheels (`--only-binary`), with
-     the packages it needs. Those dependencies aren't pinned or
-     checksum-checked - pip's TLS to pypi.org is the check - the card says
-     "with the packages it needs".
+     astral-sh/python-build-standalone). Only wheels (`--only-binary`), only
+     from pypi.org (`--isolated --index-url`: no pip.ini/pip.conf or `PIP_`
+     setting of the computer's can point it elsewhere), with the packages it
+     needs. Those dependencies aren't pinned or checksum-checked - pip's TLS
+     to pypi.org is the check. A new Python has none of the old one's
+     packages: installing Python again drops them from the record, and the
+     Engineer is told which to install again.
    - `npm`: an exact version (`3.3.3`, never a range) of a package from the
      npm registry - JavaScript command-line tools (`@mermaid-js/mermaid-cli`,
-     `prettier`). Installed with npm into its own folder; npm checks every
+     `prettier`). Installed with npm into its own folder, only from
+     registry.npmjs.org (no `.npmrc` of the computer's); npm checks every
      download against the registry's sha512 fingerprint, and its install
-     scripts run (some packages fetch their own binaries that way). A
+     scripts run (some packages fetch their own binaries that way - a
+     browser, say: caches go to `programs/.cache`, so on the cloud host they
+     stay in the volume; they're not part of what's checked on start). A
      deprecated version is refused. npm is the one beside this computer's
      Node; the desktop app runs on Electron's Node, which has none, so npm
      itself (a pinned version) is fetched from the registry the first time,
@@ -227,19 +233,29 @@ website, and not system installers or package managers (apt, winget, brew,
 2. **The card** (the existing Approvals card, filled from a server-side card
    in `runner/approvals.ts` - no new UI), in plain words: "Agency Engineer
    wants to install FFmpeg 8.1 on the organization's cloud host", then For
-   (the agent), From ("FFmpeg-Builds on GitHub", "PyPI, the Python package
-   library"), Checked ("Against the copy its makers published"), and a
+   (the agent), From ("FFmpeg-Builds on GitHub", "yt-dlp on PyPI, the Python
+   package library" - always the package itself, whatever the program is
+   called), Checked ("Against the copy its makers published", or that the
+   Agency Engineer found the checksum when the release publishes none), and a
    Heads-up: programs aren't sandboxed, so once installed agents' tools can
    use it to do anything this agency can there. The Engineer's one-sentence
    why is the quote. File names, release tags and the checksum stay off the
    card (the checksum is kept with the call; it's what the download must
-   match). The owner of the agent it's for decides, as for `give_tools`.
+   match). The maker of the agent it's for decides (or an owner or admin), as
+   for `give_tools` - also for an organization hosted on someone's PC, where a
+   teammate may approve an install onto that PC (kept so by the owner,
+   2026-11-11: the same trust as approving a plugin that runs commands). One
+   card per program waits at a time.
    Requests say it plainly too ("FFmpeg 8.1 is installed"; a failure is "didn't
    work, nothing was installed, I'm looking into it", with the details going
    to the Engineer).
 3. **Approved**: installed in the background - the approve click doesn't
    wait on a 150 MB download; the Engineer is woken when it's done or failed,
-   and the request says so. Downloaded (public addresses only, through the safe
+   and the request says so. One install at a time. An approved install is
+   kept in `programs/pending.json` until it ends, so a restart or redeploy
+   mid-download starts it again (the request says so) instead of losing it.
+   Everything the installer starts - the check, pip, npm, install scripts -
+   gets a cut-down environment, never the server's own (its keys). Downloaded (public addresses only, through the safe
    fetcher; 1 GB at most), its SHA-256 checked against the one on the card -
    a mismatch installs nothing - unpacked with the system's own `tar`
    (`unzip` for a .zip on Linux), its commands found, tried once
@@ -260,8 +276,11 @@ website, and not system installers or package managers (apt, winget, brew,
    `--version` do.
 5. **Checked again on every start** (`checkPrograms` in `runner/engineer.ts`):
    every file hashed against the record - anything changed, missing or added
-   (Python's `__pycache__` aside) takes that program off the PATH, and the
-   Engineer is told once to propose it again.
+   takes that program off the PATH, and the Engineer is told once to propose
+   it again. Compiled Python files count too: installed programs run with
+   `PYTHONDONTWRITEBYTECODE`, so none appear by themselves. Plugins wait for
+   this check before they start, so none gets another copy of a command off
+   the PATH meanwhile.
 
 Where they live: `<data>/programs/<name>/<version>/`. On the cloud host that
 is the volume (`EAA_DATA_DIR=/data/agency`), so programs survive redeploys;
@@ -287,7 +306,7 @@ Where it works: wherever the agency runs, installed on that computer.
 - **Self-hosted** organizations: the same, on their server.
 
 Who approves sees which computer: "this computer" on a person's own agency;
-"Sam's computer, which hosts the organization" when an organization is hosted
+"Sam's computer" when an organization is hosted
 on someone's PC (teammates approving from elsewhere aren't at it); "the
 organization's cloud host" or "the organization's server" otherwise. The
 Engineer's `engineer.list_programs` says the same, plus the system and

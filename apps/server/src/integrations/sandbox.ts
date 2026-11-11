@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transform } from 'esbuild';
 import { safeFetch } from '../runner/net.js';
 import { DATA_DIR } from '../paths.js';
-import { programCommands, withProgramsOnPath } from './programs.js';
+import { programCommands, programEnv, programsChecked } from './programs.js';
 
 // Where code plugins run (docs/integrations.md): a separate Node process under
 // Node's permission model, allowed only what the plugin declared - the folders
@@ -56,17 +56,9 @@ export async function buildPlugin(module: string, code: string, hash: string): P
 }
 
 // Only what programs need to run - never the server's own environment, which
-// holds keys (ANTHROPIC_API_KEY...) and its TypeScript loader.
-const PASS = ['PATH', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'windir', 'ComSpec', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'HOMEDRIVE', 'HOMEPATH', 'USERNAME', 'LANG', 'TZ', 'ELECTRON_RUN_AS_NODE'];
-// The programs the agency installed (programs.ts) come first on its PATH.
-const sandboxEnv = () => {
-  const env: Record<string, string> = Object.fromEntries(PASS.filter(k => process.env[k] !== undefined).map(k => [k, process.env[k]!]));
-  // Windows spells it Path; a child process sees one.
-  const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH';
-  delete env.PATH;
-  env[pathKey] = withProgramsOnPath(process.env[pathKey]);
-  return env;
-};
+// holds keys (ANTHROPIC_API_KEY...) and its TypeScript loader. The same one the
+// programs the agency installed run with (programs.ts), those first on the PATH.
+const sandboxEnv = () => programEnv();
 
 type Done = { result?: string; error?: string; tools?: { id: string; tier: string; description: string; input: unknown; run: string }[] };
 
@@ -74,10 +66,23 @@ type Done = { result?: string; error?: string; tools?: { id: string; tier: strin
 // to its own service's hosts, so its key can't be sent anywhere else.
 export type FetchLimits = { hosts: Set<string>; readOnly: true };
 
-export function runSandboxed(
+export async function runSandboxed(
   file: string,
   perms: Permissions,
   msg: { op: 'describe' } | { op: 'run'; tool: string; args: unknown; token?: string },
+  limits?: FetchLimits,
+): Promise<Done> {
+  // Installed programs checked first (on start), then how to start each (kit.command).
+  await programsChecked();
+  const commands = await programCommands().catch(() => ({}));
+  return runChild(file, perms, msg, commands, limits);
+}
+
+function runChild(
+  file: string,
+  perms: Permissions,
+  msg: { op: 'describe' } | { op: 'run'; tool: string; args: unknown; token?: string },
+  commands: Record<string, string[]>,
   limits?: FetchLimits,
 ): Promise<Done> {
   for (const d of perms.write) void mkdir(d, { recursive: true }).catch(() => {});
@@ -133,10 +138,6 @@ export function runSandboxed(
     );
     // How it starts the programs the agency installed (kit.command): a program's own
     // file, or this agency's Node and an npm package's script.
-    void programCommands()
-      .catch(() => ({}))
-      .then(commands => {
-        if (!settled && child.connected) child.send({ ...msg, commands, file: pathToFileURL(file).href });
-      });
+    child.send({ ...msg, commands, file: pathToFileURL(file).href });
   });
 }

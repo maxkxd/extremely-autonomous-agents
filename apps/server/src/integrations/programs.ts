@@ -234,8 +234,6 @@ async function refreshPath() {
   pathDirs = [...new Set(Object.values(m.programs).filter(p => verified.get(p.name) === true).flatMap(p => p.pathDirs.map(d => join(ROOT, d))))];
 }
 
-// Python writes its compiled files beside the code as it runs: not part of what was approved.
-const ignored = (rel: string) => rel.split(/[\\/]/).includes('__pycache__') || rel.endsWith('.pyc');
 
 async function hashFile(file: string): Promise<string> {
   const h = createHash('sha256');
@@ -248,7 +246,6 @@ async function hashTree(dir: string): Promise<Record<string, string>> {
     for (const e of await readdir(d, { withFileTypes: true })) {
       const full = join(d, e.name);
       const rel = relative(ROOT, full).split(sep).join('/');
-      if (ignored(rel)) continue;
       if (e.isDirectory()) await walk(full);
       else if (e.isFile()) out[rel] = await hashFile(full);
       // A link is recorded by where it points.
@@ -271,7 +268,17 @@ async function changed(p: Installed): Promise<string | null> {
 
 // On start: every program checked against what was installed. One that changed
 // stays off the PATH; told is how the Agency Engineer hears.
-export async function verifyPrograms(told?: (name: string, why: string) => void): Promise<void> {
+let firstCheck: Promise<void> | null = null;
+// Plugins wait for this (sandbox.ts): until programs are checked, none is offered,
+// and a plugin would quietly get another copy of the same command from the PATH.
+export const programsChecked = (): Promise<void> => (firstCheck ??= verifyPrograms().catch(() => {}));
+
+export function verifyPrograms(told?: (name: string, why: string) => void): Promise<void> {
+  const check = verifyNow(told);
+  firstCheck ??= check.catch(() => {});
+  return check;
+}
+async function verifyNow(told?: (name: string, why: string) => void): Promise<void> {
   const m = await readManifest();
   // A PyPI package lives in Python's folder: it's as good as Python.
   for (const p of Object.values(m.programs).filter(p => p.dir)) {
@@ -362,7 +369,7 @@ async function findBins(dir: string, bins: string[]): Promise<Map<string, string
   return found;
 }
 
-async function tryIt(bin: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
+async function tryIt(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
   try {
     const { stdout, stderr } = await run(bin, args, { timeout: 60_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true, env });
     return (stdout || stderr).trim().split('\n')[0]?.slice(0, 200) ?? '';
@@ -380,21 +387,58 @@ async function tryIt(bin: string, args: string[], env?: NodeJS.ProcessEnv): Prom
 
 // Python's folder for console commands (pip puts yt-dlp's there).
 async function scriptsDir(python: string): Promise<string> {
-  const { stdout } = await run(python, ['-c', "import sysconfig; print(sysconfig.get_path('scripts'))"], { timeout: 30_000, windowsHide: true });
+  const { stdout } = await run(python, ['-c', "import sysconfig; print(sysconfig.get_path('scripts'))"], { timeout: 30_000, windowsHide: true, env: plainEnv() });
   return stdout.trim();
 }
 
-const plainEnv = (): NodeJS.ProcessEnv => {
-  const keep = ['PATH', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'windir', 'ComSpec', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'LANG', 'TZ'];
-  return Object.fromEntries(keep.filter(k => process.env[k] !== undefined).map(k => [k, process.env[k]!]));
-};
+// What every program the agency installed runs with - its check, pip, npm and its
+// install scripts here, and plugins' programs (sandbox.ts) - never the server's own
+// environment, which holds its keys:
+// - the system's basics, and the installed programs first on the PATH;
+// - this agency's Node as "node" (the desktop app's is Electron's, with no node command);
+// - caches (a browser npm tools fetch, say) kept with the programs - on the cloud host,
+//   in the volume - not in a home folder a redeploy wipes;
+// - Python writing no compiled files, so every file stays as installed and checked.
+const CACHE = join(ROOT, '.cache');
+const NODE_SHIM = join(ROOT, '.node');
+export function programEnv(): Record<string, string> {
+  const keep = ['PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'windir', 'ComSpec', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'HOMEDRIVE', 'HOMEPATH', 'USERNAME', 'LANG', 'TZ', 'ELECTRON_RUN_AS_NODE'];
+  const env: Record<string, string> = Object.fromEntries(keep.filter(k => process.env[k] !== undefined).map(k => [k, process.env[k]!]));
+  const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH';
+  env[pathKey] = [...(process.env.ELECTRON_RUN_AS_NODE ? [NODE_SHIM] : []), ...pathDirs, ...(process.env[pathKey] ? [process.env[pathKey]!] : [])].join(delimiter);
+  return { ...env, XDG_CACHE_HOME: CACHE, PUPPETEER_CACHE_DIR: join(CACHE, 'puppeteer'), PLAYWRIGHT_BROWSERS_PATH: join(CACHE, 'ms-playwright'), PYTHONDONTWRITEBYTECODE: '1' };
+}
+const plainEnv = (): NodeJS.ProcessEnv => programEnv();
+// "node" for scripts that start it by name, on the desktop app (Electron's Node).
+async function nodeShim() {
+  if (!process.env.ELECTRON_RUN_AS_NODE) return;
+  await mkdir(NODE_SHIM, { recursive: true });
+  if (WIN) await writeFile(join(NODE_SHIM, 'node.cmd'), `@set ELECTRON_RUN_AS_NODE=1\r\n@"${process.execPath}" %*\r\n`);
+  else {
+    await writeFile(join(NODE_SHIM, 'node'), `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec "${process.execPath}" "$@"\n`);
+    await chmod(join(NODE_SHIM, 'node'), 0o755);
+  }
+}
 
 // Installs what a person approved (engineer.install_program): downloaded and
 // checked against the approved checksum, unpacked into its own folder, its
 // files recorded, tried once. A version already there is replaced only once
 // the new one works.
-export async function installProgram(spec: InstallSpec, by: string | null = null): Promise<Installed> {
+let queue: Promise<unknown> = Promise.resolve();
+// One install (or removal) at a time: each reads the record, works for minutes and
+// writes it back, so two at once would lose one's changes.
+function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
+  const next = queue.then(fn, fn);
+  queue = next.catch(() => {});
+  return next;
+}
+
+export type InstallResult = Installed & { dropped?: string[] };
+export function installProgram(spec: InstallSpec, by: string | null = null): Promise<InstallResult> {
   checkSpec(spec);
+  return oneAtATime(() => installNow(spec, by));
+}
+async function installNow(spec: InstallSpec, by: string | null): Promise<InstallResult> {
   const m = await readManifest();
   await mkdir(ROOT, { recursive: true });
   if (spec.source.kind === 'pypi') return installPypi(spec, m, by);
@@ -412,7 +456,7 @@ export async function installProgram(spec: InstallSpec, by: string | null = null
     const unpacked = join(staging, 'files');
     await unpack(file, src.asset, unpacked, spec.bins[0]);
     const bins = await findBins(unpacked, spec.bins);
-    const check = await tryIt(bins.get(spec.bins[0])!, spec.checkArgs ?? ['--version']);
+    const check = await tryIt(bins.get(spec.bins[0])!, spec.checkArgs ?? ['--version'], plainEnv());
     // Into place.
     const final = join(ROOT, dirRel);
     await rm(final, { recursive: true, force: true });
@@ -444,11 +488,17 @@ export async function installProgram(spec: InstallSpec, by: string | null = null
     }
     const old = m.programs[spec.name];
     m.programs[spec.name] = entry;
+    // A new Python has none of the old one's packages: they're gone with it, and said so.
+    const dropped = spec.name === 'python' && old ? Object.values(m.programs).filter(p => p.source.kind === 'pypi').map(p => p.name) : [];
+    for (const d of dropped) {
+      delete m.programs[d];
+      verified.delete(d);
+    }
     await writeManifest(m);
     if (old?.dir && old.dir !== dirRel) await rm(join(ROOT, old.dir), { recursive: true, force: true }).catch(() => {});
     verified.set(spec.name, true);
     await refreshPath();
-    return entry;
+    return dropped.length ? { ...entry, dropped } : entry;
   } finally {
     await rm(staging, { recursive: true, force: true }).catch(() => {});
   }
@@ -460,9 +510,10 @@ async function installPypi(spec: InstallSpec, m: Manifest, by: string | null): P
   if (!python?.dir || verified.get('python') !== true) throw new Error('Python isn\'t installed (or changed since): install the program "python" first (engineer.install_program).');
   const pyExe = await locate(python.pathDirs.map(d => join(ROOT, d)), python.bins[0]);
   if (!pyExe) throw new Error('The Python program is missing: install the program "python" again.');
-  const env = { ...plainEnv(), PATH: withProgramsOnPath(process.env.PATH), PIP_DISABLE_PIP_VERSION_CHECK: '1', PIP_NO_INPUT: '1', PYTHONDONTWRITEBYTECODE: '1' };
+  const env = plainEnv();
   try {
-    await run(pyExe, ['-m', 'pip', 'install', '--no-cache-dir', '--only-binary=:all:', `${pkg}==${spec.version}`], { timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env });
+    // --isolated: no pip.ini/pip.conf or PIP_ settings of this computer's - only pypi.org, as approved.
+    await run(pyExe, ['-m', 'pip', 'install', '--isolated', '--index-url', 'https://pypi.org/simple', '--disable-pip-version-check', '--no-input', '--no-cache-dir', '--only-binary=:all:', `${pkg}==${spec.version}`], { timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env });
   } catch (e) {
     const err = e as { stderr?: string; message: string };
     // pip may have left part of it: Python's record is taken again either way.
@@ -522,12 +573,7 @@ async function npmCli(): Promise<string> {
 }
 
 // Runs this agency's Node: the packaged desktop app's is Electron's, which needs to be told.
-const nodeEnv = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
-  ...plainEnv(),
-  ...(process.env.ELECTRON_RUN_AS_NODE ? { ELECTRON_RUN_AS_NODE: process.env.ELECTRON_RUN_AS_NODE } : {}),
-  PATH: withProgramsOnPath(process.env.PATH),
-  ...extra,
-});
+const nodeEnv = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({ ...plainEnv(), ...extra });
 
 async function installNpm(spec: InstallSpec, m: Manifest, by: string | null): Promise<Installed> {
   const pkg = (spec.source as { package: string }).package;
@@ -537,10 +583,13 @@ async function installNpm(spec: InstallSpec, m: Manifest, by: string | null): Pr
   await mkdir(staging, { recursive: true });
   try {
     const cli = await npmCli();
-    const env = nodeEnv({ npm_config_cache: join(ROOT, '.npm-cache'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' });
+    await nodeShim();
+    // No .npmrc of this computer's (another registry, tokens): only registry.npmjs.org, as approved.
+    // Two different files that don't exist (npm refuses one file loaded as both).
+    const env = nodeEnv({ npm_config_cache: join(ROOT, '.npm-cache'), npm_config_userconfig: join(ROOT, '.npmrc-user-none'), npm_config_globalconfig: join(ROOT, '.npmrc-global-none'), npm_config_registry: 'https://registry.npmjs.org/', npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' });
     await writeFile(join(staging, 'package.json'), '{ "private": true }\n');
     try {
-      await run(process.execPath, [cli, 'install', `${pkg}@${spec.version}`, '--prefix', staging, '--omit=dev', '--no-audit', '--no-fund', '--save-exact'], { timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env });
+      await run(process.execPath, [cli, 'install', `${pkg}@${spec.version}`, '--prefix', staging, '--registry=https://registry.npmjs.org/', '--omit=dev', '--no-audit', '--no-fund', '--save-exact'], { timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env });
     } catch (e) {
       const err = e as { stderr?: string; message: string };
       throw new Error(`npm couldn't install ${pkg} ${spec.version}: ${(err.stderr?.trim().split('\n').filter(l => /ERR/.test(l)).slice(-3).join(' ') || err.message).slice(0, 400)}`);
@@ -581,7 +630,8 @@ async function locate(dirs: string[], bin: string): Promise<string | null> {
 }
 
 // Gone from the PATH and the data folder.
-export async function removeProgram(name: string): Promise<boolean> {
+export const removeProgram = (name: string) => oneAtATime(() => removeNow(name));
+async function removeNow(name: string): Promise<boolean> {
   const m = await readManifest();
   const p = m.programs[name];
   if (!p) return false;
@@ -594,3 +644,23 @@ export async function removeProgram(name: string): Promise<boolean> {
 }
 
 export const programsRoot = () => ROOT;
+
+// Installs a person approved that haven't finished: kept on disk, so a restart
+// (a redeploy mid-download) picks them back up instead of losing them.
+const PENDING = join(ROOT, 'pending.json');
+export type PendingInstall = { id: string; spec: InstallSpec; by: string | null; requestId: number | null; at: number };
+export async function pendingInstalls(): Promise<PendingInstall[]> {
+  return JSON.parse(await readFile(PENDING, 'utf8').catch(() => '[]')) as PendingInstall[];
+}
+let pendingWrites: Promise<unknown> = Promise.resolve();
+const editPending = (fn: (l: PendingInstall[]) => PendingInstall[]) =>
+  (pendingWrites = pendingWrites.then(async () => {
+    await mkdir(ROOT, { recursive: true });
+    const next = fn(await pendingInstalls());
+    await writeFile(`${PENDING}.tmp`, JSON.stringify(next, null, 2));
+    await rename(`${PENDING}.tmp`, PENDING);
+  }));
+export const addPending = (p: PendingInstall) => editPending(l => [...l.filter(x => x.id !== p.id), p]);
+export const dropPending = (id: string) => editPending(l => l.filter(x => x.id !== id));
+// Half-done downloads from before a restart.
+export const clearStaging = () => rm(join(ROOT, '.staging'), { recursive: true, force: true }).catch(() => {});
