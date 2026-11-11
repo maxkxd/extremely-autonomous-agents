@@ -178,7 +178,7 @@ Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't d
 
 ## Programs a plugin runs
 A plugin that needs a program this computer doesn't have (ffmpeg to edit video, yt-dlp to fetch clips, Python and its packages): install it yourself - never ask the person to install it, and never download it from inside a plugin. engineer.list_programs says what's installed and which computer this is (system, processor). Then engineer.install_program, one program per card, with the person approving (unless they lowered its level on the Tools page):
-- From a release on GitHub, pinned to its tag (never "latest"): the project's own release, or the build its official site links to. The build for this computer: Linux x64 on the cloud host, Windows x64 on a person's PC. yt-dlp: github.com/yt-dlp/yt-dlp, the single file yt-dlp_linux (or yt-dlp.exe), bins ["yt-dlp"]. ffmpeg: the static builds ffmpeg.org links to, github.com/FFmpeg-Builds/FFmpeg-Builds (once BtbN/FFmpeg-Builds) - a dated autobuild-... release (not "latest"), the linux64-gpl .tar.xz (or win64-gpl .zip) of a numbered version (ffmpeg-n8.1.3-...-linux64-gpl-8.1.tar.xz, never the N-... master builds), bins ["ffmpeg", "ffprobe"], check_args ["-version"]. Python: github.com/astral-sh/python-build-standalone, the cpython-<version>+<date>-x86_64-unknown-linux-gnu-install_only.tar.gz (or -x86_64-pc-windows-msvc-install_only.tar.gz), name "python", bins ["python3"] (Windows ["python"]). Read the release's file list first (web.fetch_page on https://api.github.com/repos/<owner>/<repo>/releases/tags/<tag>) for the exact file name. The checksum is read from the release; one that publishes none needs sha256 from the project.
+- From a release on GitHub, pinned to its tag (never "latest"): the project's own release, or the build its official site links to. The build for the computer this agency runs on, which engineer.list_programs names: the cloud host (Linux x64), or a person's own computer - their personal agency, or an organization hosted on their PC - which is usually Windows x64, sometimes Windows on ARM (winarm64), a Mac (Apple silicon arm64 or Intel) or Linux. It installs there just the same; only the build differs. yt-dlp: github.com/yt-dlp/yt-dlp, the single file yt-dlp_linux (or yt-dlp.exe), bins ["yt-dlp"]. ffmpeg: the static builds ffmpeg.org links to, github.com/FFmpeg-Builds/FFmpeg-Builds (once BtbN/FFmpeg-Builds) - a dated autobuild-... release (not "latest"), the linux64-gpl .tar.xz (or win64-gpl .zip) of a numbered version (ffmpeg-n8.1.3-...-linux64-gpl-8.1.tar.xz, never the N-... master builds), bins ["ffmpeg", "ffprobe"], check_args ["-version"]. Those builds have no Mac version: on a Mac, ffmpeg can't be installed this way yet - say so on the request (engineer.reply_to_request) rather than guessing another source. yt-dlp on a Mac: yt-dlp_macos. Python: github.com/astral-sh/python-build-standalone, the cpython-<version>+<date>-x86_64-unknown-linux-gnu-install_only.tar.gz (Windows: -x86_64-pc-windows-msvc-install_only.tar.gz; Mac: -aarch64-apple-darwin- or -x86_64-apple-darwin-install_only.tar.gz), name "python", bins ["python3"] (Windows ["python"]). Read the release's file list first (web.fetch_page on https://api.github.com/repos/<owner>/<repo>/releases/tags/<tag>) for the exact file name. The checksum is read from the release; one that publishes none needs sha256 from the project.
 - From PyPI, into that Python (install "python" first): source pypi, an exact version, bins for its commands.
 Approved, it's downloaded, checked against the checksum on the card, unpacked into the agency's data folder - kept across restarts and the cloud host's redeploys - and put on plugins' PATH: a plugin runs it by its command name (execFile('ffmpeg', [...]) with commands: true), and declares the folders it reads and writes as usual. Installing happens when it's approved; write the plugin meanwhile. Each program is checked again on start: one whose files changed is taken off the PATH and you're told, to propose it again. Installed programs aren't sandboxed (the card tells the person), so only well-known ones, from where their project says.
 
@@ -585,7 +585,17 @@ async function pointOutput(agentId: string, toolIds: string[], wake: (agentId: s
 
 // engineer.install_program: where it goes, what the card warns, and its arguments as programs.ts takes them.
 const installing = new Set<string>();
-const hostName = () => (process.env.EAA_CLOUD_HOST ? "the organization's cloud host" : 'this computer');
+// Which computer, as the person approving says it: an organization hosted on
+// someone's PC is approved by teammates who aren't at it, so it's named.
+export function hostName(): string {
+  if (process.env.EAA_CLOUD_HOST) return "the organization's cloud host";
+  if (process.env.EAA_SELF_HOSTED === '1') return "the organization's server";
+  if (process.env.EAA_HOSTED_ORG) {
+    const who = getSetting<string | null>('host_person', null)?.trim();
+    return who ? `${who}'s computer, which hosts the organization` : "the computer hosting the organization";
+  }
+  return 'this computer';
+}
 export const PROGRAM_WARNING = (where: string) => `Programs aren't sandboxed. Once it's installed, agents' tools can use it to do anything this agency can on ${where}.`;
 // How people see a program's name on cards and requests: "FFmpeg 8.1", not "ffmpeg 8.1".
 const PRETTY: Record<string, string> = { ffmpeg: 'FFmpeg', ffprobe: 'FFprobe', python: 'Python', python3: 'Python', node: 'Node.js', imagemagick: 'ImageMagick', pandoc: 'Pandoc', sox: 'SoX' };
@@ -1366,7 +1376,8 @@ const TOOLS: ToolDef[] = [
     schema: obj({}),
     impl: async () => {
       const list = await listPrograms();
-      const here = `This agency runs on ${hostName()}: ${process.platform} ${process.arch}${process.env.EAA_CLOUD_HOST ? ' (Debian Linux, glibc)' : ''}.`;
+      const system = ({ win32: 'Windows', darwin: 'macOS', linux: 'Linux' } as Record<string, string>)[process.platform] ?? process.platform;
+      const here = `This agency runs on ${hostName()}: ${system}, ${process.arch}${process.env.EAA_CLOUD_HOST ? ' (Debian, glibc)' : ''}. Programs install here, into this agency's own data folder.`;
       if (!list.length) return `${here}\nNo programs installed yet.`;
       return `${here}\n${list
         .map(

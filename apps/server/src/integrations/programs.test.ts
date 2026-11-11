@@ -173,3 +173,25 @@ test("the Engineer's arguments and the card the person sees", () => {
   const filled = ['program', 'where', 'for_agent_name', 'source_line', 'checked', 'heads_up', 'why'];
   for (const t of [card.wants_to, card.body ?? '', ...card.headers.map(h => h.value)]) for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(filled.includes(m[1]), m[1]);
 });
+
+test('the card names the computer it installs on, for whoever approves it', async () => {
+  const { setSetting } = await import('../runner/db.js');
+  const { hostName } = await import('../runner/engineer.js');
+  const keep = { cloud: process.env.EAA_CLOUD_HOST, self: process.env.EAA_SELF_HOSTED, org: process.env.EAA_HOSTED_ORG };
+  try {
+    delete process.env.EAA_CLOUD_HOST;
+    delete process.env.EAA_SELF_HOSTED;
+    delete process.env.EAA_HOSTED_ORG;
+    assert.equal(hostName(), 'this computer', "a person's own agency, on their own computer");
+    process.env.EAA_HOSTED_ORG = 'org_1';
+    assert.equal(hostName(), 'the computer hosting the organization');
+    setSetting('host_person', 'Sam Lee');
+    assert.equal(hostName(), "Sam Lee's computer, which hosts the organization", 'teammates elsewhere see whose PC it is');
+    process.env.EAA_SELF_HOSTED = '1';
+    assert.equal(hostName(), "the organization's server");
+    process.env.EAA_CLOUD_HOST = '1';
+    assert.equal(hostName(), "the organization's cloud host");
+  } finally {
+    for (const [k, v] of [['EAA_CLOUD_HOST', keep.cloud], ['EAA_SELF_HOSTED', keep.self], ['EAA_HOSTED_ORG', keep.org]] as const) v === undefined ? delete process.env[k] : (process.env[k] = v);
+  }
+});

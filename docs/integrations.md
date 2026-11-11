@@ -244,12 +244,28 @@ option. The image adds only `xz-utils` and `unzip`, to unpack them. (Its
 `ffmpeg` is the browser live view's, in `/usr/bin`; an installed one comes
 first on plugins' PATH.)
 
-Where it works: the cloud host (Linux x64) - what it was built for. The
-Windows desktop app too (tested on Windows 11: unpacking with Windows' own
-`tar.exe`, which also takes .zip; Windows 10 1803 or later) - the Engineer
-picks the win64 build. macOS: the same code paths (bsdtar), not tested yet.
-A program is installed per agency: a person's own agency and an organization
-it hosts each have their own.
+Where it works: wherever the agency runs, installed on that computer.
+- **The cloud host** (Linux x64): into its volume, kept across redeploys.
+- **A person's own computer**: their personal agency, or an organization
+  hosted on their PC (the second agency `hosting.ts` starts, with its own
+  data folder). Each agency installs its own; one installed for the
+  organization isn't on the person's own agency's PATH, or the other way round.
+  - Windows (tested on Windows 11): unpacked with Windows' own `tar.exe`,
+    which also takes .zip (Windows 10 1803 or later). x64 and ARM builds
+    exist for ffmpeg, yt-dlp and Python.
+  - Mac (Apple silicon or Intel): the same code (bsdtar), not tested yet.
+    yt-dlp (`yt-dlp_macos`) and Python have Mac builds; ffmpeg's static
+    builds on GitHub don't, so on a Mac the Engineer says so on the request
+    instead of installing it.
+  - Linux: as on the cloud host; `.tar.xz` needs `xz` on the computer.
+- **Self-hosted** organizations: the same, on their server.
+
+Who approves sees which computer: "this computer" on a person's own agency;
+"Sam's computer, which hosts the organization" when an organization is hosted
+on someone's PC (teammates approving from elsewhere aren't at it); "the
+organization's cloud host" or "the organization's server" otherwise. The
+Engineer's `engineer.list_programs` says the same, plus the system and
+processor, so it picks the right build.
 
 ## When a connection fails
 
