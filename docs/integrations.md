@@ -174,6 +174,75 @@ wallpaper one) downloaded with plain `fetch`, which an agent could have aimed
 at the person's router - normal code anywhere else, dangerous here, and its
 author couldn't see it.
 
+### Programs a plugin runs (2026-11-11)
+
+A plugin with `commands: true` can start programs, but only ones the computer
+has. Rather than the app (or the cloud host's image) shipping ffmpeg, yt-dlp,
+Python and whatever else agents turn out to need, **the agency fetches its
+own, one person's approval each** (`integrations/programs.ts`). Any
+organization's agency can acquire the tools its work needs; nobody has to
+rebuild the image.
+
+1. **The Engineer proposes it** - `engineer.install_program` (T2; never a
+   lower level, it isn't in the Tools page's list): name, exact version, and
+   the source. Two kinds:
+   - `github_release`: one file of a GitHub release,
+     `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>` and
+     nothing else - no "latest", no other host. The checksum is read from the
+     release itself (GitHub's digest of the file, else a checksum file
+     published with it: `SHA2-256SUMS`, `checksums.sha256`...); a release
+     with none needs `sha256` from the project, and one given that differs
+     from the release's is refused. A single program, or a `.zip`, `.tar.gz`
+     or `.tar.xz` of one; `bins` names its commands.
+   - `pypi`: an exact version of a PyPI package, installed with `pip` into the
+     Python the agency installed (program `python`, from
+     astral-sh/python-build-standalone). Only wheels (`--only-binary`), with
+     the packages it needs. Those dependencies aren't pinned or
+     checksum-checked - pip's TLS to pypi.org is the check - the card says
+     "with the packages it needs".
+   `engineer.list_programs` tells it what's installed and which computer this
+   is (system, processor), to pick the right build. The Engineer's prompt
+   names the usual sources: yt-dlp's own releases, the static ffmpeg builds
+   ffmpeg.org links to (github.com/FFmpeg-Builds/FFmpeg-Builds), Python from
+   python-build-standalone.
+2. **The card** (the existing Approvals card, filled from a server-side card
+   in `runner/approvals.ts` - no new UI): "wants to install the program
+   ffmpeg 8.1 on the organization's cloud host", for which agent, from where
+   (repository, release, file, size), the checksum and where it came from,
+   the Engineer's why, and plainly: *installed programs are not sandboxed - a
+   plugin that runs one can do whatever this agency can on this computer.*
+   The owner of the agent it's for decides, as for `give_tools`.
+3. **Approved**: installed in the background - the approve click doesn't
+   wait on a 150 MB download; the Engineer is woken when it's done or failed,
+   and the request says so. Downloaded (public addresses only, through the safe
+   fetcher; 1 GB at most), its SHA-256 checked against the one on the card -
+   a mismatch installs nothing - unpacked with the system's own `tar`
+   (`unzip` for a .zip on Linux), its commands found, tried once
+   (`--version`, or `check_args`), and only then moved into place, replacing
+   an older version. Every file's SHA-256 is recorded in
+   `<data>/programs/programs.json`.
+4. **On plugins' PATH**: `sandbox.ts` puts the folders of the installed
+   programs first on the PATH it gives plugin processes - only them, not the
+   server or agents' other tools. A plugin runs `execFile('ffmpeg', [...])`.
+5. **Checked again on every start** (`checkPrograms` in `runner/engineer.ts`):
+   every file hashed against the record - anything changed, missing or added
+   (Python's `__pycache__` aside) takes that program off the PATH, and the
+   Engineer is told once to propose it again.
+
+Where they live: `<data>/programs/<name>/<version>/`. On the cloud host that
+is the volume (`EAA_DATA_DIR=/data/agency`), so programs survive redeploys;
+the container runs as the unprivileged `node` user, so `apt` was never an
+option. The image adds only `xz-utils` and `unzip`, to unpack them. (Its
+`ffmpeg` is the browser live view's, in `/usr/bin`; an installed one comes
+first on plugins' PATH.)
+
+Where it works: the cloud host (Linux x64) - what it was built for. The
+Windows desktop app too (tested on Windows 11: unpacking with Windows' own
+`tar.exe`, which also takes .zip; Windows 10 1803 or later) - the Engineer
+picks the win64 build. macOS: the same code paths (bsdtar), not tested yet.
+A program is installed per agency: a person's own agency and an organization
+it hosts each have their own.
+
 ## When a connection fails
 
 Nobody has to report a broken connection. Each of these goes to the Agency

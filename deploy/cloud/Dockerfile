@@ -1,11 +1,15 @@
 # An organization's agency in the cloud (docs/hosting-in-the-cloud.md): the
 # agency server, Google Chrome for the agents' browser on a virtual display,
-# and Claude Code for a Claude plan. Built from the repository root:
+# and Claude Code for a Claude plan. Programs for code plugins (yt-dlp, Python...)
+# are not baked in: the agency installs its own, each approved by a person, into
+# its volume (engineer.install_program, docs/integrations.md) - xz-utils and unzip
+# are only there to unpack them. (ffmpeg here is the browser live view's.)
+# Built from the repository root:
 #   docker build -f deploy/cloud/Dockerfile .
 FROM node:24-bookworm-slim
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl xvfb xauth tini git ffmpeg xdotool\
+ && apt-get install -y --no-install-recommends ca-certificates curl xvfb xauth tini git ffmpeg xdotool xz-utils unzip \
       fonts-liberation fonts-noto-color-emoji fonts-noto-cjk \
  && curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
  && apt-get install -y --no-install-recommends /tmp/chrome.deb \

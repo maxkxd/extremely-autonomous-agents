@@ -24,6 +24,7 @@ import {
   writeDraftIntegration,
 } from '../integrations/index.js';
 import { pluginsAllowed, writePlugin } from '../integrations/plugins.js';
+import { installProgram, listPrograms, parseReleaseUrl, pypiRelease, releaseChecksum, verifyPrograms, type InstallSpec } from '../integrations/programs.js';
 import { checkEvent } from './events.js';
 import { hooksBase } from './hooks.js';
 import { reviewPlugin } from '../integrations/review.js';
@@ -70,6 +71,8 @@ const ENGINEER_TOOLS: Record<string, Tier> = {
   'engineer.give_events': 'T2',
   'engineer.set_report_default': 'T0',
   'engineer.report_app_gap': 'T1',
+  'engineer.list_programs': 'T0',
+  'engineer.install_program': 'T2',
   'web.web_search': 'T0',
   'web.fetch_page': 'T0',
   'host.health': 'T0',
@@ -173,6 +176,12 @@ Poll first: it needs nothing from the person but the key. This app runs on the p
 ## Code plugins
 Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't do - an action on this computer, a file format to build. A plugin is a TypeScript module: \`export default { tools: [{ id, tier, description, input, run: async (args, token, kit) => string }] }\` (token is the key, if the integration takes one; return text the agent reads; throw an Error with a one-line message on failure). Node built-ins only (node:fs, node:child_process...). The network only through \`await kit.fetch(url, { method, headers, body })\`, which returns a Response and refuses this computer and its network - never fetch(), node:http(s), or downloading from a shell; writing the plugin is refused if it does. Pair it with a kind: code definition naming the module, and declare in it exactly what the plugin touches: \`permissions: { write: [folders], read: [folders], commands: true|false }\` (absolute paths or ~/...; a whole drive or the whole home folder is refused). It runs in a sandbox that allows nothing else - no other files, no programs unless commands is true, and no network but kit.fetch. Before you can propose it, an independent security review reads it: inputs agents choose must never reach commands, scripts or paths unchecked (pass them as data, e.g. environment variables, never built into a command line). If the review sends it back, fix what it says. Its code never runs before a person approves giving it to an agent, so you can't test it first: write it carefully, and test it as soon as it's live; if it fails, fix it and propose again.
 
+## Programs a plugin runs
+A plugin that needs a program this computer doesn't have (ffmpeg to edit video, yt-dlp to fetch clips, Python and its packages): install it yourself - never ask the person to install it, and never download it from inside a plugin. engineer.list_programs says what's installed and which computer this is (system, processor). Then engineer.install_program, one program per card, with the person approving:
+- From a release on GitHub, pinned to its tag (never "latest"): the project's own release, or the build its official site links to. The build for this computer: Linux x64 on the cloud host, Windows x64 on a person's PC. yt-dlp: github.com/yt-dlp/yt-dlp, the single file yt-dlp_linux (or yt-dlp.exe), bins ["yt-dlp"]. ffmpeg: the static builds ffmpeg.org links to, github.com/FFmpeg-Builds/FFmpeg-Builds (once BtbN/FFmpeg-Builds) - a dated autobuild-... release (not "latest"), the linux64-gpl .tar.xz (or win64-gpl .zip) of a numbered version (ffmpeg-n8.1.3-...-linux64-gpl-8.1.tar.xz, never the N-... master builds), bins ["ffmpeg", "ffprobe"], check_args ["-version"]. Python: github.com/astral-sh/python-build-standalone, the cpython-<version>+<date>-x86_64-unknown-linux-gnu-install_only.tar.gz (or -x86_64-pc-windows-msvc-install_only.tar.gz), name "python", bins ["python3"] (Windows ["python"]). Read the release's file list first (web.fetch_page on https://api.github.com/repos/<owner>/<repo>/releases/tags/<tag>) for the exact file name. The checksum is read from the release; one that publishes none needs sha256 from the project.
+- From PyPI, into that Python (install "python" first): source pypi, an exact version, bins for its commands.
+Approved, it's downloaded, checked against the checksum on the card, unpacked into the agency's data folder - kept across restarts and the cloud host's redeploys - and put on plugins' PATH: a plugin runs it by its command name (execFile('ffmpeg', [...]) with commands: true), and declares the folders it reads and writes as usual. Installing happens when it's approved; write the plugin meanwhile. Each program is checked again on start: one whose files changed is taken off the PATH and you're told, to propose it again. Installed programs aren't sandboxed (the card tells the person), so only well-known ones, from where their project says.
+
 ## When a person turns a request down
 A no to the way you picked (HubSpot) is rarely a no to what the agent needs (somewhere to keep its leads). Never let one leave an agent stuck with nothing to do.
 1. They said why: act on it. They use something else (Zoho, not HubSpot)? Build or connect that instead. They don't want it at all? Tell the agent with tasks.delegate_task to carry on without it, and how (keep leads in a file in its workspace, say).
@@ -237,7 +246,7 @@ export async function ensureFleetEngineer() {
     // And the agents' browser kit: it signs up for and into services itself (catalog.ts).
     tools_allowed: [...Object.keys(ENGINEER_TOOLS), ...BROWSER_KIT.map(t => t.id)],
     tool_tiers: { ...ENGINEER_TOOLS, ...Object.fromEntries(BROWSER_KIT.map(t => [t.id, t.tier])), ...builtInLevels(FLEET_ENGINEER) },
-    approval_windows: { 'engineer.publish_integration': { window_seconds: 7 * 86400 }, 'engineer.give_tools': { window_seconds: 7 * 86400 }, 'engineer.give_events': { window_seconds: 7 * 86400 } },
+    approval_windows: { 'engineer.install_program': { window_seconds: 7 * 86400 }, 'engineer.publish_integration': { window_seconds: 7 * 86400 }, 'engineer.give_tools': { window_seconds: 7 * 86400 }, 'engineer.give_events': { window_seconds: 7 * 86400 } },
     new_tools: [],
     // It runs when there's work (requests, connections, replies); a daily look otherwise.
     ferocity: { every_hours: [24, 24, 24, 24], soft_floor: 0, floor: 0, apocalyptic_floor: 0, counts: [], hint: '', extra_effort: '' },
@@ -572,6 +581,23 @@ async function pointOutput(agentId: string, toolIds: string[], wake: (agentId: s
     );
   if (!moves.length) return '';
   return ` Your output is counted on ${[...new Set(moves.flatMap(m => m.to))].join(', ')} now (was ${moves.map(m => m.from).join(', ')}).`;
+}
+
+// engineer.install_program: where it goes, what the card warns, and its arguments as programs.ts takes them.
+const installing = new Set<string>();
+const hostName = () => (process.env.EAA_CLOUD_HOST ? "the organization's cloud host" : 'this computer');
+export const PROGRAM_WARNING = (where: string) =>
+  `Installed programs are not sandboxed: a plugin that runs one can do whatever this agency can on ${where}. Approve only a program you'd install yourself, from where it says.`;
+export function installSpecOf(a: Record<string, unknown>): InstallSpec {
+  const name = String(a.name ?? '').trim().toLowerCase();
+  const version = String(a.version ?? '').trim();
+  const bins = Array.isArray(a.bins) ? a.bins.map(String) : [];
+  const checkArgs = Array.isArray(a.check_args) ? a.check_args.map(String) : undefined;
+  const sha256 = typeof a.sha256 === 'string' && a.sha256.trim() ? a.sha256.trim().toLowerCase() : undefined;
+  if (a.source === 'pypi') return { name, version, source: { kind: 'pypi', package: String(a.package || name).trim() }, bins, checkArgs };
+  if (a.source !== 'github_release') throw new Error('source is github_release or pypi.');
+  if (typeof a.url !== 'string' || !a.url.trim()) throw new Error('A github_release needs its url.');
+  return { name, version, source: parseReleaseUrl(a.url.trim()), sha256, bins, checkArgs };
 }
 
 const nameOf = async (agentId: string) => (await readMeta(agentId))?.name ?? agentId;
@@ -1325,6 +1351,92 @@ const TOOLS: ToolDef[] = [
       return `${meta.name} is now counted on ${said}. Its past calls were not recounted. Rewrite any Charter lines that still name the old ids.`;
     },
   },
+  {
+    id: 'engineer.list_programs',
+    tier: 'T0',
+    description: "The programs this agency installed for its code plugins (engineer.install_program): each one's version, where it came from, its commands, and whether it checked out on start. Also says which computer it runs on (system and processor), to pick the right download.",
+    schema: obj({}),
+    impl: async () => {
+      const list = await listPrograms();
+      const here = `This agency runs on ${hostName()}: ${process.platform} ${process.arch}${process.env.EAA_CLOUD_HOST ? ' (Debian Linux, glibc)' : ''}.`;
+      if (!list.length) return `${here}\nNo programs installed yet.`;
+      return `${here}\n${list
+        .map(
+          p =>
+            `- ${p.name} ${p.version} (${p.source.kind === 'pypi' ? `PyPI ${p.source.package}` : `github.com/${p.source.repo} ${p.source.tag}`}): commands ${p.bins.join(', ') || 'none'}; ${p.state === 'ok' ? "checked, on plugins' PATH" : p.state === 'unchecked' ? 'not checked yet' : `OFF the PATH - ${p.state}: install it again`}${p.check ? `; says "${p.check}"` : ''}`,
+        )
+        .join('\n')}`;
+    },
+  },
+  {
+    id: 'engineer.install_program',
+    tier: 'T2',
+    description:
+      "Propose installing a program a code plugin needs (ffmpeg, yt-dlp, Python, a PyPI package) on the computer this agency runs on - a person approves. From a pinned GitHub release (its checksum read from the release, and checked on download) or from PyPI into the Python installed here. Approved, it's downloaded, checked, unpacked into the agency's data folder (kept across restarts and redeploys) and put on the PATH of plugin processes: plugins run it by its command name (with commands: true).",
+    schema: obj(
+      {
+        for_agent: str('The agent whose plugin needs it (its owner approves)'),
+        request_id: int('The request it answers'),
+        name: str("The program, lowercase: ffmpeg, yt-dlp, python - or the PyPI package's name"),
+        version: str('The exact version (7.1, 2025.10.22, 3.12.12) - never "latest"'),
+        source: { type: 'string', enum: ['github_release', 'pypi'], description: 'github_release: a file of a GitHub release (url). pypi: a package installed with the Python already installed here' },
+        url: str('github_release: https://github.com/<owner>/<repo>/releases/download/<tag>/<file> - the build for this computer (engineer.list_programs says which), from the project itself or the build its site links to'),
+        package: str('pypi: the package name, if not the same as name'),
+        sha256: str("Optional: the file's SHA-256 from the project. Read from the release when it publishes one; needed when it doesn't"),
+        bins: { type: 'array', items: { type: 'string' }, description: 'Its commands, as named in the download (["ffmpeg", "ffprobe"], ["python3"] on Linux or ["python"] on Windows, ["yt-dlp"]). For a single-file download, the name it is saved as' },
+        check_args: { type: 'array', items: { type: 'string' }, description: 'How to ask the first command its version, to show it runs (default ["--version"]; ffmpeg: ["-version"])' },
+        why: str('Which plugin needs it, for what - the person reads this'),
+      },
+      ['for_agent', 'request_id', 'name', 'version', 'source', 'bins', 'why'],
+    ),
+    preview: async a => {
+      openRequest(a.request_id);
+      if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
+      const spec = installSpecOf(a);
+      const where = hostName();
+      let source_line: string;
+      let sha256: string | null = null;
+      let checksum_from = '';
+      if (spec.source.kind === 'github_release') {
+        const sum = await releaseChecksum(spec.source, spec.sha256);
+        sha256 = sum.sha256;
+        checksum_from = sum.how;
+        source_line = `github.com/${spec.source.repo}, release ${spec.source.tag}: ${spec.source.asset}${sum.size ? ` (${Math.max(1, Math.round(sum.size / 1048576))} MB)` : ''}`;
+      } else {
+        const p = await pypiRelease(spec.source.package, spec.version);
+        source_line = `PyPI (pypi.org/project/${spec.source.package}), version ${spec.version}, with the packages it needs${p.summary ? ` - "${p.summary.slice(0, 120)}"` : ''}`;
+      }
+      postToRequest(Number(a.request_id), 'engineer', `${spec.name} ${spec.version} is installed on ${where} when you approve it on the Approvals page.`);
+      return {
+        ...(sha256 ? { sha256 } : {}),
+        for_agent_name: await nameOf(String(a.for_agent)),
+        program: `${spec.name} ${spec.version}`,
+        where,
+        source_line,
+        checksum_from,
+        notice: `${String(a.why)}\n\n${PROGRAM_WARNING(where)}`,
+      };
+    },
+    impl: async (a, ctx) => {
+      // The checksum on the card is the one the download must have.
+      const spec = installSpecOf(a);
+      if (installing.has(spec.name)) return `${spec.name} is already being installed: you're woken when it's done.`;
+      const r = Number(a.request_id);
+      // A download can take minutes: the person's approve click doesn't wait for it.
+      installing.add(spec.name);
+      void installProgram(spec, ctx.agent.id)
+        .then(p => {
+          if (Number.isFinite(r)) postToRequest(r, 'engineer', `Installed ${p.name} ${p.version}.`);
+          ctx.wake(FLEET_ENGINEER, 'request', `Installed ${p.name} ${p.version} (request #${r}): plugins run it as ${p.bins.join(', ') || '(no commands)'} - it's on their PATH; the plugin needs commands: true${p.check ? `. It says: ${p.check}` : ''}. Now write, or test, the plugin that uses it.`);
+        })
+        .catch(e => {
+          if (Number.isFinite(r)) postToRequest(r, 'engineer', `Installing ${spec.name} ${spec.version} failed: ${(e as Error).message}`);
+          ctx.wake(FLEET_ENGINEER, 'request', `Installing ${spec.name} ${spec.version} (request #${r}) FAILED, nothing was installed: ${(e as Error).message} Work out why (the wrong build for this computer?) and propose it again.`);
+        })
+        .finally(() => installing.delete(spec.name));
+      return `Installing ${spec.name} ${spec.version} now: you're woken when it's done (or if it fails).`;
+    },
+  },
   appGapTool('engineer.report_app_gap'),
 ];
 
@@ -1355,7 +1467,25 @@ export async function movedToBuiltIns(book: (agentId: string, trigger: 'request'
   setSetting('drafts-covered-told', told);
 }
 
+// Installed programs (programs.ts), checked against what was installed. One that
+// changed stays off plugins' PATH, and the Engineer hears once per install.
+export async function checkPrograms(book: (agentId: string, trigger: 'request', task: string) => void) {
+  const told = getSetting<string[]>('programs-changed-told', []);
+  const now: string[] = [];
+  await verifyPrograms((name, why) => now.push(`${name}: ${why}`));
+  const list = await listPrograms();
+  for (const line of now) {
+    const name = line.slice(0, line.indexOf(':'));
+    const key = `${name}@${list.find(p => p.name === name)?.installedAt ?? ''}`;
+    if (told.includes(key)) continue;
+    told.push(key);
+    book(FLEET_ENGINEER, 'request', `The installed program ${line}, so plugins can't run it any more (it's off their PATH). Propose installing it again (engineer.install_program, same version and source - engineer.list_programs shows them), saying on the card that its files changed on this computer.`);
+  }
+  if (now.length) setSetting('programs-changed-told', told.slice(-100));
+}
+
 export function startEngineer(book: (agentId: string, trigger: 'request' | 'connected' | 'connection failed', task: string) => void) {
+  void checkPrograms(book).catch(e => console.error('Checking installed programs failed:', (e as Error).message));
   void movedToBuiltIns(book).catch(() => {});
   // Gaps in the app that didn't reach its makers (offline): sent again, hourly.
   void resendUnsent().catch(() => {});

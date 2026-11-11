@@ -2,6 +2,7 @@ import { toolsForPeople } from '../catalog.js';
 import { nameNow } from '../access.js';
 import { readMeta } from '../files.js';
 import { approvalCardOf, discardDraft } from '../integrations/index.js';
+import type { ApprovalCardDef } from '../integrations/schema.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
 import { DOCTOR } from './doctor.js';
 import { all, one, run as exec } from './db.js';
@@ -17,6 +18,22 @@ import { keptPageAlive } from './kept-pages.js';
 // Books a run (the scheduler's book): the agent hearing an outcome, or work a
 // tool that ran sets off (the Agency Engineer picking a request back up).
 type Wake = (agentId: string, trigger: 'approval' | 'request', task: string) => void;
+
+// Cards for the built-in agents' own tools that the app's Approvals page has no
+// card for: the page draws these as it draws an integration's (no new UI).
+export const BUILT_IN_CARDS: Record<string, ApprovalCardDef> = {
+  'engineer.install_program': {
+    wants_to: 'install the program {program} on {where}',
+    headers: [
+      { label: 'For', value: '{for_agent_name}' },
+      { label: 'From', value: '{source_line}' },
+      { label: 'Checksum (SHA-256)', value: '{sha256}', optional: true },
+      { label: 'Checksum from', value: '{checksum_from}', optional: true },
+    ],
+    body: '{notice}',
+    expires_after_hours: 168,
+  },
+};
 
 export type ApprovalRow = { id: string; agent_id: string; run_id: string; tool: string; args: string; status: string; created_at: number; expires_at: number };
 
@@ -42,7 +59,7 @@ export async function pendingApprovals(now = Date.now()) {
     const args = JSON.parse(r.args) as Record<string, unknown>;
     return Array.isArray(args.tools) && typeof args.tools_list === 'string' ? { ...args, tools_list: toolsForPeople(args.tools as { id: string; tier: string }[]) } : args;
   };
-  return rows.map((r, i) => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, owner: owners[i], agentStopped: stateOf(r.agent_id, now).state === 'stopped', agencyStopped: agencyStopped(), tool: r.tool, args: argsOf(r), card: approvalCardOf(r.tool), createdAt: r.created_at, expiresAt: r.expires_at }));
+  return rows.map((r, i) => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, owner: owners[i], agentStopped: stateOf(r.agent_id, now).state === 'stopped', agencyStopped: agencyStopped(), tool: r.tool, args: argsOf(r), card: approvalCardOf(r.tool) ?? BUILT_IN_CARDS[r.tool] ?? null, createdAt: r.created_at, expiresAt: r.expires_at }));
 }
 
 const argsLine = (args: Record<string, unknown>) =>
