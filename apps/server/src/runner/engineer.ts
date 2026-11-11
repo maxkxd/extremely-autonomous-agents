@@ -24,7 +24,7 @@ import {
   writeDraftIntegration,
 } from '../integrations/index.js';
 import { pluginsAllowed, writePlugin } from '../integrations/plugins.js';
-import { addPending, clearStaging, dropPending, installProgram, listPrograms, npmRelease, pendingInstalls, parseReleaseUrl, pypiRelease, releaseChecksum, verifyPrograms, type InstallSpec, type PendingInstall } from '../integrations/programs.js';
+import { addPending, dropPending, startPrograms, installProgram, listPrograms, npmRelease, pendingInstalls, parseReleaseUrl, pypiRelease, releaseChecksum, verifyPrograms, type InstallSpec, type PendingInstall } from '../integrations/programs.js';
 import { checkEvent } from './events.js';
 import { hooksBase } from './hooks.js';
 import { reviewPlugin } from '../integrations/review.js';
@@ -181,7 +181,7 @@ A plugin that needs a program this computer doesn't have (ffmpeg to edit video, 
 - From a release on GitHub, pinned to its tag (never "latest"): the project's own release, or the build its official site links to. The build for the computer this agency runs on, which engineer.list_programs names: the cloud host (Linux x64), or a person's own computer - their personal agency, or an organization hosted on their PC - which is usually Windows x64, sometimes Windows on ARM (winarm64), a Mac (Apple silicon arm64 or Intel) or Linux. It installs there just the same; only the build differs. yt-dlp: github.com/yt-dlp/yt-dlp, the single file yt-dlp_linux (or yt-dlp.exe), bins ["yt-dlp"]. ffmpeg: the static builds ffmpeg.org links to, github.com/FFmpeg-Builds/FFmpeg-Builds (once BtbN/FFmpeg-Builds) - a dated autobuild-... release (not "latest"), the linux64-gpl .tar.xz (or win64-gpl .zip) of a numbered version (ffmpeg-n8.1.3-...-linux64-gpl-8.1.tar.xz, never the N-... master builds), bins ["ffmpeg", "ffprobe"], check_args ["-version"]. Those builds have no Mac version: on a Mac, ffmpeg can't be installed this way yet - say so on the request (engineer.reply_to_request) rather than guessing another source. yt-dlp on a Mac: yt-dlp_macos. Python: github.com/astral-sh/python-build-standalone, the cpython-<version>+<date>-x86_64-unknown-linux-gnu-install_only.tar.gz (Windows: -x86_64-pc-windows-msvc-install_only.tar.gz; Mac: -aarch64-apple-darwin- or -x86_64-apple-darwin-install_only.tar.gz), name "python", bins ["python3"] (Windows ["python"]). Read the release's file list first (web.fetch_page on https://api.github.com/repos/<owner>/<repo>/releases/tags/<tag>) for the exact file name. The checksum is read from the release; one that publishes none needs sha256 from the project.
 - From PyPI, into that Python (install "python" first): source pypi, an exact version, bins for its commands.
 - From npm, for a JavaScript command-line tool (@mermaid-js/mermaid-cli, prettier...): source npm, the exact version (3.3.3, never a range), package when it's scoped, bins for its commands (or leave them out for all of them). It's installed with npm into its own folder - npm is fetched first if this computer has none - and runs on this agency's own Node.
-Plugins start any installed program the same way, which works on every computer: \`const [cmd, ...pre] = kit.command('ffmpeg'); execFileSync(cmd, [...pre, ...args])\` (kit.command('mmdc') for an npm one). Windows can't start an npm command by its name, so never call one bare.
+Plugins start any installed program the same way, which works on every computer: \`const [cmd, ...pre] = kit.command('ffmpeg'); execFileSync(cmd, [...pre, ...args])\` (kit.command('mmdc') for an npm one). Windows can't start an npm command by its name, so never call one bare. Passing values as environment variables, keep the rest: \`{ env: { ...process.env, CLIP_URL: url } }\`, never a bare env - it carries the PATH and settings the programs need.
 Approved, it's downloaded, checked against the checksum on the card, unpacked into the agency's data folder - kept across restarts and the cloud host's redeploys - and made available to plugins: a plugin with commands: true starts it with kit.command (above), and declares the folders it reads and writes as usual. Installing happens when it's approved; write the plugin meanwhile. Each program is checked again on start: one whose files changed is taken off the PATH and you're told, to propose it again. Installed programs aren't sandboxed (the card tells the person), so only well-known ones, from where their project says.
 
 ## When a person turns a request down
@@ -1409,7 +1409,7 @@ const TOOLS: ToolDef[] = [
         sha256: str("Optional: the file's SHA-256 from the project. Read from the release when it publishes one; needed when it doesn't"),
         bins: { type: 'array', items: { type: 'string' }, description: 'Its commands, as named in the download (["ffmpeg", "ffprobe"], ["python3"] on Linux or ["python"] on Windows, ["yt-dlp"]). For a single-file download, the name it is saved as' },
         check_args: { type: 'array', items: { type: 'string' }, description: 'How to ask the first command its version, to show it runs (default ["--version"]; ffmpeg: ["-version"])' },
-        why: str('One plain sentence for the person: what the agent does with it ("Video Studio cuts its clips with it"). No file names, versions, commands or code words'),
+        why: str('One plain sentence for the person: what the agent does with it ("The video agent cuts its clips with it"). No file names, versions, commands or code words'),
       },
       // name first: one card per program waits at a time (tools.ts), however many requests need it.
       ['name', 'for_agent', 'request_id', 'version', 'source', 'bins', 'why'],
@@ -1447,7 +1447,15 @@ const TOOLS: ToolDef[] = [
       if (installing.has(spec.name)) throw new Error(`${spec.name} is being installed right now. Once you're told it's done, propose it again if this one is still needed.`);
       // The checksum on the card is the one the download must have, and it's checked against
       // the release once more. Lowered from T2 on the Tools page, there was no card: read from the release now.
-      if (spec.source.kind === 'github_release') spec.sha256 = (await releaseChecksum(spec.source, spec.sha256)).sha256;
+      if (spec.source.kind === 'github_release') {
+        const checked = await releaseChecksum(spec.source, spec.sha256).catch(e => {
+          // GitHub not answering (rate limits) doesn't undo an approval: the download is still
+          // checked against the approved checksum. A different checksum does.
+          if (spec.sha256 && !/doesn't match/.test((e as Error).message)) return { sha256: spec.sha256 };
+          throw e;
+        });
+        spec.sha256 = checked.sha256;
+      }
       const r = Number(a.request_id);
       // A download can take minutes: the person's approve click doesn't wait for it.
       await startInstall({ id: `${spec.name}-${Date.now().toString(36)}`, spec, by: ctx.agent.id, requestId: Number.isFinite(r) ? r : null, at: Date.now() }, (id, t, task) => ctx.wake(id, t, task));
@@ -1489,7 +1497,8 @@ export async function movedToBuiltIns(book: (agentId: string, trigger: 'request'
 export async function startInstall(p: PendingInstall, wake: (agentId: string, trigger: 'request', task: string) => void) {
   const { spec, requestId: r } = p;
   installing.add(spec.name);
-  await addPending(p);
+  // Remembered for a restart; if that can't be written, it still installs now.
+  await addPending(p).catch(e => console.error('Remembering an install failed:', (e as Error).message));
   void installProgram(spec, p.by)
     .then(done => {
       if (r != null) postToRequest(r, 'engineer', `${programTitle(done.name, done.version)} is installed.`);
@@ -1511,14 +1520,14 @@ export async function startInstall(p: PendingInstall, wake: (agentId: string, tr
 // changed stays off plugins' PATH, and the Engineer hears once per install. And
 // installs a person approved that a restart cut short pick up again - the approval stands.
 export async function checkPrograms(book: (agentId: string, trigger: 'request', task: string) => void) {
-  await clearStaging();
+  const told = getSetting<string[]>('programs-changed-told', []);
+  const now: string[] = [];
+  // Checked first, so a resumed install finds what it needs (Python, for a PyPI one) checked.
+  await startPrograms((name, why) => now.push(`${name}: ${why}`));
   for (const p of await pendingInstalls()) {
     if (p.requestId != null) postToRequest(p.requestId, 'engineer', `The agency restarted while ${programTitle(p.spec.name, p.spec.version)} was being installed, so it's starting again.`);
     await startInstall(p, book).catch(e => console.error('Resuming an install failed:', (e as Error).message));
   }
-  const told = getSetting<string[]>('programs-changed-told', []);
-  const now: string[] = [];
-  await verifyPrograms((name, why) => now.push(`${name}: ${why}`));
   const list = await listPrograms();
   for (const line of now) {
     const name = line.slice(0, line.indexOf(':'));

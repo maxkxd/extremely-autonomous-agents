@@ -209,10 +209,12 @@ export async function programCommands(): Promise<Record<string, string[]>> {
   const out: Record<string, string[]> = {};
   for (const p of Object.values(m.programs)) {
     if (verified.get(p.name) !== true) continue;
+    // A PyPI package's commands are in its Python's folders.
+    const dirs = p.source.kind === 'pypi' ? (m.programs.python?.pathDirs ?? []) : p.pathDirs;
     if (p.scripts) for (const [bin, rel] of Object.entries(p.scripts)) out[bin] = [process.execPath, join(ROOT, rel)];
     else
       for (const bin of p.bins)
-        for (const d of p.pathDirs) {
+        for (const d of dirs) {
           const f = await locate([join(ROOT, d)], bin);
           if (f) {
             out[bin] = [f];
@@ -269,14 +271,34 @@ async function changed(p: Installed): Promise<string | null> {
 // On start: every program checked against what was installed. One that changed
 // stays off the PATH; told is how the Agency Engineer hears.
 let firstCheck: Promise<void> | null = null;
+let queue: Promise<unknown> = Promise.resolve();
+// One install, removal or check at a time: each reads the record, works for minutes
+// and writes it back, so two at once would lose one's changes.
+function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
+  const next = queue.then(fn, fn);
+  queue = next.catch(() => {});
+  return next;
+}
 // Plugins wait for this (sandbox.ts): until programs are checked, none is offered,
 // and a plugin would quietly get another copy of the same command from the PATH.
 export const programsChecked = (): Promise<void> => (firstCheck ??= verifyPrograms().catch(() => {}));
 
+// In the same queue as installs: a check never hashes a folder an install is replacing.
 export function verifyPrograms(told?: (name: string, why: string) => void): Promise<void> {
-  const check = verifyNow(told);
+  const check = oneAtATime(() => verifyNow(told));
   firstCheck ??= check.catch(() => {});
   return check;
+}
+// On start, before anything else: downloads a restart cut short are cleared, the
+// installed programs checked, and "node" made for the desktop app's scripts.
+export function startPrograms(told?: (name: string, why: string) => void): Promise<void> {
+  const start = oneAtATime(async () => {
+    await clearStaging();
+    await nodeShim().catch(() => {});
+    await verifyNow(told);
+  });
+  firstCheck ??= start.catch(() => {});
+  return start;
 }
 async function verifyNow(told?: (name: string, why: string) => void): Promise<void> {
   const m = await readManifest();
@@ -386,10 +408,25 @@ async function tryIt(bin: string, args: string[], env: NodeJS.ProcessEnv): Promi
 }
 
 // Python's folder for console commands (pip puts yt-dlp's there).
-async function scriptsDir(python: string): Promise<string> {
-  const { stdout } = await run(python, ['-c', "import sysconfig; print(sysconfig.get_path('scripts'))"], { timeout: 30_000, windowsHide: true, env: plainEnv() });
-  return stdout.trim();
-}
+// Where a Python keeps things (sysconfig): 'scripts' for its packages' commands, 'purelib' for packages.
+type PythonPath = (python: string, which: 'scripts' | 'purelib') => Promise<string>;
+const askPython: PythonPath = async (python, which) =>
+  (await run(python, ['-c', `import sysconfig; print(sysconfig.get_path('${which}'))`], { timeout: 30_000, windowsHide: true, env: plainEnv() })).stdout.trim();
+let pythonPath: PythonPath = askPython;
+// Tests: a stand-in Python.
+export const setPythonPath = (f: PythonPath | null) => void (pythonPath = f ?? askPython);
+const scriptsDir = (python: string) => pythonPath(python, 'scripts');
+
+// Every .py compiled once, as installed, and recorded: Python compiles its first few
+// modules before anything can tell it not to, so a run then has nothing to add. Some
+// files never compile (Python's own tests of bad syntax), so the exit code isn't the answer.
+type Compile = (python: string, dir: string) => Promise<void>;
+const compileAll: Compile = async (python, dir) => {
+  await run(python, ['-m', 'compileall', '-q', '-j', '0', dir], { timeout: 10 * 60_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true, env: { ...plainEnv(), PYTHONDONTWRITEBYTECODE: '' } }).catch(() => {});
+};
+let precompile: Compile = compileAll;
+// Tests: a stand-in Python compiles nothing.
+export const setPythonCompile = (f: Compile | null) => void (precompile = f ?? compileAll);
 
 // What every program the agency installed runs with - its check, pip, npm and its
 // install scripts here, and plugins' programs (sandbox.ts) - never the server's own
@@ -402,7 +439,9 @@ async function scriptsDir(python: string): Promise<string> {
 const CACHE = join(ROOT, '.cache');
 const NODE_SHIM = join(ROOT, '.node');
 export function programEnv(): Record<string, string> {
-  const keep = ['PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'windir', 'ComSpec', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'HOMEDRIVE', 'HOMEPATH', 'USERNAME', 'LANG', 'TZ', 'ELECTRON_RUN_AS_NODE'];
+  // The system's basics, and how this computer reaches the internet (a proxy, its own certificates).
+  const keep = ['PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'SystemDrive', 'windir', 'ComSpec', 'ProgramData', 'PROCESSOR_ARCHITECTURE', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'HOMEDRIVE', 'HOMEPATH', 'USERNAME', 'LANG', 'TZ', 'ELECTRON_RUN_AS_NODE',
+    'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'REQUESTS_CA_BUNDLE'];
   const env: Record<string, string> = Object.fromEntries(keep.filter(k => process.env[k] !== undefined).map(k => [k, process.env[k]!]));
   const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH';
   env[pathKey] = [...(process.env.ELECTRON_RUN_AS_NODE ? [NODE_SHIM] : []), ...pathDirs, ...(process.env[pathKey] ? [process.env[pathKey]!] : [])].join(delimiter);
@@ -424,14 +463,6 @@ async function nodeShim() {
 // checked against the approved checksum, unpacked into its own folder, its
 // files recorded, tried once. A version already there is replaced only once
 // the new one works.
-let queue: Promise<unknown> = Promise.resolve();
-// One install (or removal) at a time: each reads the record, works for minutes and
-// writes it back, so two at once would lose one's changes.
-function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
-  const next = queue.then(fn, fn);
-  queue = next.catch(() => {});
-  return next;
-}
 
 export type InstallResult = Installed & { dropped?: string[] };
 export function installProgram(spec: InstallSpec, by: string | null = null): Promise<InstallResult> {
@@ -478,12 +509,23 @@ async function installNow(spec: InstallSpec, by: string | null): Promise<Install
     };
     // Python: its console commands' folder too (where pip puts them), made now so it's recorded.
     if (spec.name === 'python') {
-      const scripts = await scriptsDir(bins.get(spec.bins[0])!).catch(() => null);
+      // Asked of the Python in its place (the one it was tried as has moved), and not
+      // quietly skipped: without it, nothing pip installs would be found.
+      const python = join(final, relative(unpacked, bins.get(spec.bins[0])!));
+      const scripts = await scriptsDir(python).catch(e => {
+        throw new Error(`Python installed, but didn't say where its packages' commands go: ${(e as Error).message.slice(0, 200)}`);
+      });
       if (scripts) {
         await mkdir(scripts, { recursive: true }).catch(() => {});
         const rel = relative(ROOT, scripts).split(sep).join('/');
         if (!rel.startsWith('..') && !entry.pathDirs.includes(rel)) entry.pathDirs.push(rel);
       }
+      // Python itself told to write no compiled files (a .pth runs at every start),
+      // whatever environment a plugin starts it with: its files stay as checked.
+      const site = await pythonPath(python, 'purelib');
+      await mkdir(site, { recursive: true });
+      await writeFile(join(site, 'zz_agency_no_bytecode.pth'), 'import sys; sys.dont_write_bytecode = True\n');
+      await precompile(python, final);
       entry.files = await hashTree(final);
     }
     const old = m.programs[spec.name];
@@ -517,11 +559,13 @@ async function installPypi(spec: InstallSpec, m: Manifest, by: string | null): P
   } catch (e) {
     const err = e as { stderr?: string; message: string };
     // pip may have left part of it: Python's record is taken again either way.
+    await precompile(pyExe, join(ROOT, python.dir));
     python.files = await hashTree(join(ROOT, python.dir));
     await writeManifest(m);
     throw new Error(`pip couldn't install ${pkg} ${spec.version}: ${(err.stderr?.trim().split('\n').slice(-3).join(' ') || err.message).slice(0, 400)}`);
   }
-  // Python's files now include the package: recorded as approved.
+  // Python's files now include the package (compiled, like the rest): recorded as approved.
+  await precompile(pyExe, join(ROOT, python.dir));
   python.files = await hashTree(join(ROOT, python.dir));
   const scripts = python.pathDirs.map(d => join(ROOT, d));
   let check: string | null = null;
@@ -654,7 +698,7 @@ export async function pendingInstalls(): Promise<PendingInstall[]> {
 }
 let pendingWrites: Promise<unknown> = Promise.resolve();
 const editPending = (fn: (l: PendingInstall[]) => PendingInstall[]) =>
-  (pendingWrites = pendingWrites.then(async () => {
+  (pendingWrites = pendingWrites.catch(() => {}).then(async () => {
     await mkdir(ROOT, { recursive: true });
     const next = fn(await pendingInstalls());
     await writeFile(`${PENDING}.tmp`, JSON.stringify(next, null, 2));

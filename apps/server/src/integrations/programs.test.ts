@@ -261,7 +261,15 @@ test('two installs at once both end up recorded', async () => {
 test("installing Python again drops the old one's packages from the record, and says which", async () => {
   releases = [{ tag: 'py1', files: { 'python': NODE }, digests: true }];
   const spec = { name: 'python', version: '3.12.1', source: parseReleaseUrl('https://github.com/o/p/releases/download/py1/python'), sha256: sha(NODE), bins: ['python'], checkArgs: ['--version'] };
+  // Node stands in for Python: where it keeps things, as Python would say.
+  const { setPythonPath } = await import('./programs.js');
+  setPythonPath(async (python, which) => join(python, '..', which === 'scripts' ? 'Scripts' : 'site-packages'));
+  const { setPythonCompile } = await import('./programs.js');
+  setPythonCompile(async () => {});
   await installProgram(spec);
+  const first = (await listPrograms()).find(x => x.name === 'python')!;
+  assert.ok(first.pathDirs.some(d => d.endsWith('/Scripts')), "its packages' commands folder is offered to plugins");
+  assert.ok(Object.keys(first.files).some(f => f.endsWith('site-packages/zz_agency_no_bytecode.pth')), 'told to write no compiled files');
   // A package pip put in it (written as pip's install records it).
   const manifest = join(programsRoot(), 'programs.json');
   const m = JSON.parse(readFileSync(manifest, 'utf8'));
@@ -271,6 +279,8 @@ test("installing Python again drops the old one's packages from the record, and 
   assert.deepEqual(again.dropped, ['yt-dlp']);
   assert.equal((await listPrograms()).find(x => x.name === 'yt-dlp'), undefined);
   await removeProgram('python');
+  setPythonPath(null);
+  setPythonCompile(null);
 });
 
 test('an approved install a restart cut short starts again, and the Engineer hears how it went', async () => {
@@ -295,4 +305,21 @@ test('the card names the package actually installed, and where its checksum came
   assert.equal(fromLine({ kind: 'pypi', package: 'yt-dlp-tools' }), 'yt-dlp-tools on PyPI, the Python package library');
   assert.equal(fromLine({ kind: 'npm', package: '@mermaid-js/mermaid-cli' }), '@mermaid-js/mermaid-cli on npm, the JavaScript package library');
   assert.equal(fromLine(parseReleaseUrl('https://github.com/yt-dlp/yt-dlp/releases/download/1/x')), 'yt-dlp on GitHub');
+});
+
+test('after a restart, the check runs before a resumed install, so a reinstall is never taken for a changed one', async () => {
+  const { addPending } = await import('./programs.js');
+  const { checkPrograms } = await import('../runner/engineer.js');
+  releases = [{ tag: 'q1', files: { 'again': NODE }, digests: true }, { tag: 'q2', files: { 'again': NODE }, digests: true }];
+  const url = (tag: string) => parseReleaseUrl(`https://github.com/o/p/releases/download/${tag}/again`);
+  await installProgram({ name: 'again', version: '1', source: url('q1'), sha256: sha(NODE), bins: ['again'] });
+  await addPending({ id: 'again-2', spec: { name: 'again', version: '2', source: url('q2'), sha256: sha(NODE), bins: ['again'] }, by: 'fleet', requestId: null, at: Date.now() });
+  const woken: string[] = [];
+  await checkPrograms((_a, _t, task) => void woken.push(task));
+  for (let i = 0; i < 100 && !woken.some(w => /^Installed again 2/.test(w)); i++) await new Promise(r => setTimeout(r, 100));
+  assert.ok(woken.some(w => /^Installed again 2/.test(w)), woken.join(' | '));
+  assert.ok(!woken.some(w => /changed|missing/.test(w)), `no false "files changed": ${woken.join(' | ')}`);
+  const now = (await listPrograms()).find(x => x.name === 'again')!;
+  assert.deepEqual([now.version, now.state], ['2', 'ok']);
+  await removeProgram('again');
 });

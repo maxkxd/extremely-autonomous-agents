@@ -277,10 +277,17 @@ website, and not system installers or package managers (apt, winget, brew,
 5. **Checked again on every start** (`checkPrograms` in `runner/engineer.ts`):
    every file hashed against the record - anything changed, missing or added
    takes that program off the PATH, and the Engineer is told once to propose
-   it again. Compiled Python files count too: installed programs run with
-   `PYTHONDONTWRITEBYTECODE`, so none appear by themselves. Plugins wait for
-   this check before they start, so none gets another copy of a command off
-   the PATH meanwhile.
+   it again. Compiled Python files count too: Python and every package pip
+   adds are compiled once when installed (`compileall`) and recorded, and a
+   `.pth` file tells Python to write none - so even a plugin that starts it
+   with a bare environment adds nothing (Python compiles its first modules
+   before any setting can stop it; precompiling is what covers those). This
+   check runs first on start, in the same queue as installs, before an
+   install a restart cut short is resumed; plugins wait for it, so none gets
+   another copy of a command off the PATH meanwhile. Everything the installer
+   starts keeps the computer's proxy and certificate settings
+   (`HTTPS_PROXY`, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`...), nothing else of
+   the server's.
 
 Where they live: `<data>/programs/<name>/<version>/`. On the cloud host that
 is the volume (`EAA_DATA_DIR=/data/agency`), so programs survive redeploys;
