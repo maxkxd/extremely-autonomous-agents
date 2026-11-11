@@ -24,7 +24,7 @@ import {
   writeDraftIntegration,
 } from '../integrations/index.js';
 import { pluginsAllowed, writePlugin } from '../integrations/plugins.js';
-import { installProgram, listPrograms, parseReleaseUrl, pypiRelease, releaseChecksum, verifyPrograms, type InstallSpec } from '../integrations/programs.js';
+import { installProgram, listPrograms, npmRelease, parseReleaseUrl, pypiRelease, releaseChecksum, verifyPrograms, type InstallSpec } from '../integrations/programs.js';
 import { checkEvent } from './events.js';
 import { hooksBase } from './hooks.js';
 import { reviewPlugin } from '../integrations/review.js';
@@ -180,7 +180,9 @@ Only if allowed (engineer.list_integrations says). For what HTTP and MCP can't d
 A plugin that needs a program this computer doesn't have (ffmpeg to edit video, yt-dlp to fetch clips, Python and its packages): install it yourself - never ask the person to install it, and never download it from inside a plugin. engineer.list_programs says what's installed and which computer this is (system, processor). Then engineer.install_program, one program per card, with the person approving (unless they lowered its level on the Tools page):
 - From a release on GitHub, pinned to its tag (never "latest"): the project's own release, or the build its official site links to. The build for the computer this agency runs on, which engineer.list_programs names: the cloud host (Linux x64), or a person's own computer - their personal agency, or an organization hosted on their PC - which is usually Windows x64, sometimes Windows on ARM (winarm64), a Mac (Apple silicon arm64 or Intel) or Linux. It installs there just the same; only the build differs. yt-dlp: github.com/yt-dlp/yt-dlp, the single file yt-dlp_linux (or yt-dlp.exe), bins ["yt-dlp"]. ffmpeg: the static builds ffmpeg.org links to, github.com/FFmpeg-Builds/FFmpeg-Builds (once BtbN/FFmpeg-Builds) - a dated autobuild-... release (not "latest"), the linux64-gpl .tar.xz (or win64-gpl .zip) of a numbered version (ffmpeg-n8.1.3-...-linux64-gpl-8.1.tar.xz, never the N-... master builds), bins ["ffmpeg", "ffprobe"], check_args ["-version"]. Those builds have no Mac version: on a Mac, ffmpeg can't be installed this way yet - say so on the request (engineer.reply_to_request) rather than guessing another source. yt-dlp on a Mac: yt-dlp_macos. Python: github.com/astral-sh/python-build-standalone, the cpython-<version>+<date>-x86_64-unknown-linux-gnu-install_only.tar.gz (Windows: -x86_64-pc-windows-msvc-install_only.tar.gz; Mac: -aarch64-apple-darwin- or -x86_64-apple-darwin-install_only.tar.gz), name "python", bins ["python3"] (Windows ["python"]). Read the release's file list first (web.fetch_page on https://api.github.com/repos/<owner>/<repo>/releases/tags/<tag>) for the exact file name. The checksum is read from the release; one that publishes none needs sha256 from the project.
 - From PyPI, into that Python (install "python" first): source pypi, an exact version, bins for its commands.
-Approved, it's downloaded, checked against the checksum on the card, unpacked into the agency's data folder - kept across restarts and the cloud host's redeploys - and put on plugins' PATH: a plugin runs it by its command name (execFile('ffmpeg', [...]) with commands: true), and declares the folders it reads and writes as usual. Installing happens when it's approved; write the plugin meanwhile. Each program is checked again on start: one whose files changed is taken off the PATH and you're told, to propose it again. Installed programs aren't sandboxed (the card tells the person), so only well-known ones, from where their project says.
+- From npm, for a JavaScript command-line tool (@mermaid-js/mermaid-cli, prettier...): source npm, the exact version (3.3.3, never a range), package when it's scoped, bins for its commands (or leave them out for all of them). It's installed with npm into its own folder - npm is fetched first if this computer has none - and runs on this agency's own Node.
+Plugins start any installed program the same way, which works on every computer: \`const [cmd, ...pre] = kit.command('ffmpeg'); execFileSync(cmd, [...pre, ...args])\` (kit.command('mmdc') for an npm one). Windows can't start an npm command by its name, so never call one bare.
+Approved, it's downloaded, checked against the checksum on the card, unpacked into the agency's data folder - kept across restarts and the cloud host's redeploys - and made available to plugins: a plugin with commands: true starts it with kit.command (above), and declares the folders it reads and writes as usual. Installing happens when it's approved; write the plugin meanwhile. Each program is checked again on start: one whose files changed is taken off the PATH and you're told, to propose it again. Installed programs aren't sandboxed (the card tells the person), so only well-known ones, from where their project says.
 
 ## When a person turns a request down
 A no to the way you picked (HubSpot) is rarely a no to what the agent needs (somewhere to keep its leads). Never let one leave an agent stuck with nothing to do.
@@ -603,6 +605,7 @@ export const programTitle = (name: string, version: string) => `${PRETTY[name] ?
 // Where it comes from, in words: "yt-dlp on GitHub", "python-build-standalone by astral-sh, on GitHub".
 export function fromLine(src: InstallSpec['source']): string {
   if (src.kind === 'pypi') return 'PyPI, the Python package library';
+  if (src.kind === 'npm') return 'npm, the JavaScript package library';
   const [owner, repo] = src.repo.split('/');
   return owner.toLowerCase() === repo.toLowerCase() ? `${repo} on GitHub` : `${repo} by ${owner}, on GitHub`;
 }
@@ -613,7 +616,8 @@ export function installSpecOf(a: Record<string, unknown>): InstallSpec {
   const checkArgs = Array.isArray(a.check_args) ? a.check_args.map(String) : undefined;
   const sha256 = typeof a.sha256 === 'string' && a.sha256.trim() ? a.sha256.trim().toLowerCase() : undefined;
   if (a.source === 'pypi') return { name, version, source: { kind: 'pypi', package: String(a.package || name).trim() }, bins, checkArgs };
-  if (a.source !== 'github_release') throw new Error('source is github_release or pypi.');
+  if (a.source === 'npm') return { name, version, source: { kind: 'npm', package: String(a.package || name).trim() }, bins, checkArgs };
+  if (a.source !== 'github_release') throw new Error('source is github_release, pypi or npm.');
   if (typeof a.url !== 'string' || !a.url.trim()) throw new Error('A github_release needs its url.');
   return { name, version, source: parseReleaseUrl(a.url.trim()), sha256, bins, checkArgs };
 }
@@ -1382,7 +1386,7 @@ const TOOLS: ToolDef[] = [
       return `${here}\n${list
         .map(
           p =>
-            `- ${p.name} ${p.version} (${p.source.kind === 'pypi' ? `PyPI ${p.source.package}` : `github.com/${p.source.repo} ${p.source.tag}`}): commands ${p.bins.join(', ') || 'none'}; ${p.state === 'ok' ? "checked, on plugins' PATH" : p.state === 'unchecked' ? 'not checked yet' : `OFF the PATH - ${p.state}: install it again`}${p.check ? `; says "${p.check}"` : ''}`,
+            `- ${p.name} ${p.version} (${p.source.kind === 'github_release' ? `github.com/${p.source.repo} ${p.source.tag}` : `${p.source.kind === 'npm' ? 'npm' : 'PyPI'} ${p.source.package}`}): commands ${p.bins.join(', ') || 'none'}; ${p.state === 'ok' ? "checked, plugins can run it" : p.state === 'unchecked' ? 'not checked yet' : `OFF the PATH - ${p.state}: install it again`}${p.check ? `; says "${p.check}"` : ''}`,
         )
         .join('\n')}`;
     },
@@ -1398,9 +1402,9 @@ const TOOLS: ToolDef[] = [
         request_id: int('The request it answers'),
         name: str("The program, lowercase: ffmpeg, yt-dlp, python - or the PyPI package's name"),
         version: str('The exact version (7.1, 2025.10.22, 3.12.12) - never "latest"'),
-        source: { type: 'string', enum: ['github_release', 'pypi'], description: 'github_release: a file of a GitHub release (url). pypi: a package installed with the Python already installed here' },
+        source: { type: 'string', enum: ['github_release', 'pypi', 'npm'], description: 'github_release: a file of a GitHub release (url). pypi: a package installed with the Python already installed here. npm: a package from the npm registry (a JavaScript command-line tool)' },
         url: str('github_release: https://github.com/<owner>/<repo>/releases/download/<tag>/<file> - the build for this computer (engineer.list_programs says which), from the project itself or the build its site links to'),
-        package: str('pypi: the package name, if not the same as name'),
+        package: str('pypi or npm: the package name, if not the same as name (npm: "@scope/name" too)'),
         sha256: str("Optional: the file's SHA-256 from the project. Read from the release when it publishes one; needed when it doesn't"),
         bins: { type: 'array', items: { type: 'string' }, description: 'Its commands, as named in the download (["ffmpeg", "ffprobe"], ["python3"] on Linux or ["python"] on Windows, ["yt-dlp"]). For a single-file download, the name it is saved as' },
         check_args: { type: 'array', items: { type: 'string' }, description: 'How to ask the first command its version, to show it runs (default ["--version"]; ffmpeg: ["-version"])' },
@@ -1420,6 +1424,10 @@ const TOOLS: ToolDef[] = [
         const sum = await releaseChecksum(spec.source, spec.sha256);
         card.sha256 = sum.sha256;
         card.checked = 'Against the copy its makers published';
+      } else if (spec.source.kind === 'npm') {
+        const rel = await npmRelease(spec.source.package, spec.version);
+        const missing = spec.bins.filter(b => !rel.bins.includes(b));
+        if (missing.length) throw new Error(`${spec.source.package} ${spec.version} has no command ${missing.join(', ')}. Its commands: ${rel.bins.join(', ') || 'none'}.`);
       } else await pypiRelease(spec.source.package, spec.version);
       const program = programTitle(spec.name, spec.version);
       postToRequest(Number(a.request_id), 'engineer', `${program} gets installed once you approve it on the Approvals page.`);
@@ -1444,7 +1452,7 @@ const TOOLS: ToolDef[] = [
       void installProgram(spec, ctx.agent.id)
         .then(p => {
           if (Number.isFinite(r)) postToRequest(r, 'engineer', `${programTitle(p.name, p.version)} is installed.`);
-          ctx.wake(FLEET_ENGINEER, 'request', `Installed ${p.name} ${p.version} (request #${r}): plugins run it as ${p.bins.join(', ') || '(no commands)'} - it's on their PATH; the plugin needs commands: true${p.check ? `. It says: ${p.check}` : ''}. Now write, or test, the plugin that uses it.`);
+          ctx.wake(FLEET_ENGINEER, 'request', `Installed ${p.name} ${p.version} (request #${r}): plugins start ${p.bins.join(', ') || '(no commands)'} with kit.command('${p.bins[0] ?? p.name}') - the plugin needs commands: true${p.check ? `. It says: ${p.check}` : ''}. Now write, or test, the plugin that uses it.`);
         })
         .catch(e => {
           // The details are for the Engineer; the person hears it's being handled.

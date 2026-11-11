@@ -183,11 +183,18 @@ own, one person's approval each** (`integrations/programs.ts`). Any
 organization's agency can acquire the tools its work needs; nobody has to
 rebuild the image.
 
+It isn't a list of allowed programs: the Engineer can propose **any** program
+that comes from one of three places. What's limited is where from, so that
+what a person approves is pinned to one exact version and checked on download
+(decided with the owner 2026-11-11): GitHub releases, PyPI and npm - not any
+website, and not system installers or package managers (apt, winget, brew,
+`.msi`), which need admin rights and change the whole computer.
+
 1. **The Engineer proposes it** - `engineer.install_program` (T2 by default;
    a person can lower it on the Tools page, "Install a program", and then it
    installs without a card - the checksum is still read from the release and
    checked): name, exact version, and
-   the source. Two kinds:
+   the source. Three kinds:
    - `github_release`: one file of a GitHub release,
      `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>` and
      nothing else - no "latest", no other host. The checksum is read from the
@@ -202,6 +209,16 @@ rebuild the image.
      the packages it needs. Those dependencies aren't pinned or
      checksum-checked - pip's TLS to pypi.org is the check - the card says
      "with the packages it needs".
+   - `npm`: an exact version (`3.3.3`, never a range) of a package from the
+     npm registry - JavaScript command-line tools (`@mermaid-js/mermaid-cli`,
+     `prettier`). Installed with npm into its own folder; npm checks every
+     download against the registry's sha512 fingerprint, and its install
+     scripts run (some packages fetch their own binaries that way). A
+     deprecated version is refused. npm is the one beside this computer's
+     Node; the desktop app runs on Electron's Node, which has none, so npm
+     itself (a pinned version) is fetched from the registry the first time,
+     checked against the registry's fingerprint, into `programs/.npm-cli/`.
+     Its commands run with this agency's own Node.
    `engineer.list_programs` tells it what's installed and which computer this
    is (system, processor), to pick the right build. The Engineer's prompt
    names the usual sources: yt-dlp's own releases, the static ffmpeg builds
@@ -229,9 +246,18 @@ rebuild the image.
    (`--version`, or `check_args`), and only then moved into place, replacing
    an older version. Every file's SHA-256 is recorded in
    `<data>/programs/programs.json`.
-4. **On plugins' PATH**: `sandbox.ts` puts the folders of the installed
-   programs first on the PATH it gives plugin processes - only them, not the
-   server or agents' other tools. A plugin runs `execFile('ffmpeg', [...])`.
+4. **For plugins only**: `sandbox.ts` puts the folders of the installed
+   programs first on the PATH it gives plugin processes - not the server or
+   agents' other tools - and hands them `kit.command(name)`: how to start
+   it, `[file, ...args]`. A plugin runs
+   `const [cmd, ...pre] = kit.command('ffmpeg'); execFileSync(cmd, [...pre, ...args])`.
+   The same line works for every source on every computer - an npm command
+   is `[Node, its script]`, since Windows can't start npm's `.cmd` files by
+   name and the desktop app has no `node` on the PATH. A program the agency
+   didn't install comes back as its bare name. The check after installing
+   only fails when the program can't start (a build for another system,
+   missing libraries) - not when it exits unhappily, as tools without
+   `--version` do.
 5. **Checked again on every start** (`checkPrograms` in `runner/engineer.ts`):
    every file hashed against the record - anything changed, missing or added
    (Python's `__pycache__` aside) takes that program off the PATH, and the

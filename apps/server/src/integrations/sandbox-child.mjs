@@ -22,7 +22,13 @@ for (const name of ['fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest']) {
 
 let seq = 0;
 const waiting = new Map();
+let commands = {};
 const kit = {
+  // How to start an installed program: [file, ...args before yours]. execFile(cmd, [...pre, ...yours]).
+  // A program that isn't installed by the agency comes back as its bare name (the PATH finds it).
+  command(name) {
+    return [...(commands[String(name)] ?? [String(name)])];
+  },
   fetch(url, init = {}) {
     const id = ++seq;
     process.send({ fetch: { id, url: String(url), init } });
@@ -40,6 +46,7 @@ process.on('message', async msg => {
     w.resolve(new Response(status === 204 || status === 304 ? null : Buffer.from(body, 'base64'), { status, headers }));
     return;
   }
+  if (msg.commands) commands = msg.commands;
   try {
     const mod = (await import(msg.file)).default;
     if (!mod || !Array.isArray(mod.tools)) throw new Error('The plugin must export default { tools: [...] }.');

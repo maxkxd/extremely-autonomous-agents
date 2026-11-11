@@ -166,7 +166,7 @@ test("the Engineer's arguments and the card the person sees", () => {
   assert.equal(spec.name, 'ffmpeg');
   assert.equal(spec.source.kind === 'github_release' && spec.source.repo, 'BtbN/FFmpeg-Builds');
   assert.deepEqual(installSpecOf({ name: 'yt-dlp', version: '2025.10.22', source: 'pypi', bins: ['yt-dlp'] }).source, { kind: 'pypi', package: 'yt-dlp' });
-  assert.throws(() => installSpecOf({ name: 'x', version: '1', source: 'apt', bins: [] }), /github_release or pypi/);
+  assert.throws(() => installSpecOf({ name: 'x', version: '1', source: 'apt', bins: [] }), /github_release, pypi or npm/);
   const card = BUILT_IN_CARDS['engineer.install_program'];
   assert.match(card.wants_to, /\{program\}/);
   // Every placeholder is a field the preview fills in.
@@ -194,4 +194,37 @@ test('the card names the computer it installs on, for whoever approves it', asyn
   } finally {
     for (const [k, v] of [['EAA_CLOUD_HOST', keep.cloud], ['EAA_SELF_HOSTED', keep.self], ['EAA_HOSTED_ORG', keep.org]] as const) v === undefined ? delete process.env[k] : (process.env[k] = v);
   }
+});
+
+test('npm: an exact version that exists, with the commands named; deprecated ones and ranges are refused', async () => {
+  const { npmRelease, checkSpec } = await import('./programs.js');
+  const meta: Record<string, unknown> = {
+    'https://registry.npmjs.org/@mermaid-js%2Fmermaid-cli/11.4.0': { description: 'Command-line interface for mermaid', bin: { mmdc: 'src/cli.js' }, dist: { integrity: 'sha512-x', tarball: 'https://registry.npmjs.org/t.tgz' } },
+    'https://registry.npmjs.org/old-tool/1.0.0': { deprecated: 'use new-tool', dist: { integrity: 'sha512-x', tarball: 'https://registry.npmjs.org/o.tgz' } },
+    'https://registry.npmjs.org/one-bin/2.0.0': { bin: './cli.js', dist: { integrity: 'sha512-x', tarball: 'https://registry.npmjs.org/b.tgz' } },
+  };
+  setProgramFetcher(async url => ({ res: url in meta ? Response.json(meta[url]) : new Response('{}', { status: 404 }) }));
+  try {
+    assert.deepEqual((await npmRelease('@mermaid-js/mermaid-cli', '11.4.0')).bins, ['mmdc']);
+    assert.deepEqual((await npmRelease('one-bin', '2.0.0')).bins, ['one-bin'], 'a single bin is named after the package');
+    await assert.rejects(npmRelease('old-tool', '1.0.0'), /deprecated/);
+    await assert.rejects(npmRelease('no-such', '1.0.0'), /npm has no no-such 1.0.0/);
+  } finally {
+    setProgramFetcher(null);
+  }
+  const spec = (version: string, pkg = 'prettier') => ({ name: 'prettier', version, source: { kind: 'npm' as const, package: pkg }, bins: [] });
+  checkSpec(spec('3.3.3'));
+  assert.throws(() => checkSpec(spec('^3.3.3')), /isn't a version|exact npm version/);
+  assert.throws(() => checkSpec(spec('latest')), /exact npm version/);
+  assert.throws(() => checkSpec(spec('3.3.3', '../evil')), /isn't an npm package name/);
+});
+
+test('kit.command: a plugin starts an installed program the same way everywhere', async () => {
+  const code = `import { execFileSync } from 'node:child_process';
+export default { tools: [
+  { id: 'x.cmd', tier: 'T0', description: '', input: {}, run: async (a, t, kit) => { const [cmd, ...pre] = kit.command('fakeprog'); return execFileSync(cmd, [...pre, '--version']).toString().trim() + ' ' + JSON.stringify(kit.command('not-installed')); } },
+]};`;
+  const file = await buildPlugin('zz-kit-command', code, 'cafe'.repeat(16));
+  const out = await runSandboxed(file, { read: [], write: [], commands: true }, { op: 'run', tool: 'x.cmd', args: {} });
+  assert.equal(out.result, `${process.version} ["not-installed"]`);
 });

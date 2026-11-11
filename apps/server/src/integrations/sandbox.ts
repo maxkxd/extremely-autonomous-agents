@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transform } from 'esbuild';
 import { safeFetch } from '../runner/net.js';
 import { DATA_DIR } from '../paths.js';
-import { withProgramsOnPath } from './programs.js';
+import { programCommands, withProgramsOnPath } from './programs.js';
 
 // Where code plugins run (docs/integrations.md): a separate Node process under
 // Node's permission model, allowed only what the plugin declared - the folders
@@ -57,7 +57,7 @@ export async function buildPlugin(module: string, code: string, hash: string): P
 
 // Only what programs need to run - never the server's own environment, which
 // holds keys (ANTHROPIC_API_KEY...) and its TypeScript loader.
-const PASS = ['PATH', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'windir', 'ComSpec', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'HOMEDRIVE', 'HOMEPATH', 'USERNAME', 'LANG', 'TZ'];
+const PASS = ['PATH', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'windir', 'ComSpec', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'HOMEDRIVE', 'HOMEPATH', 'USERNAME', 'LANG', 'TZ', 'ELECTRON_RUN_AS_NODE'];
 // The programs the agency installed (programs.ts) come first on its PATH.
 const sandboxEnv = () => {
   const env: Record<string, string> = Object.fromEntries(PASS.filter(k => process.env[k] !== undefined).map(k => [k, process.env[k]!]));
@@ -131,6 +131,12 @@ export function runSandboxed(
         reject(new Error(`The plugin stopped (exit ${code})${why ? `: ${why.slice(0, 300)}` : ''}.`));
       }),
     );
-    child.send({ ...msg, file: pathToFileURL(file).href });
+    // How it starts the programs the agency installed (kit.command): a program's own
+    // file, or this agency's Node and an npm package's script.
+    void programCommands()
+      .catch(() => ({}))
+      .then(commands => {
+        if (!settled && child.connected) child.send({ ...msg, commands, file: pathToFileURL(file).href });
+      });
   });
 }

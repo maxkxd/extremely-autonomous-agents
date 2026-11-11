@@ -31,7 +31,10 @@ export type ProgramSource =
   // A file attached to a release on GitHub: a single program, or a .zip / .tar.gz / .tar.xz of one.
   | { kind: 'github_release'; url: string; repo: string; tag: string; asset: string }
   // A package from PyPI, installed with the Python this agency installed (program "python").
-  | { kind: 'pypi'; package: string };
+  | { kind: 'pypi'; package: string }
+  // A package from npm (registry.npmjs.org), installed with npm into its own folder; its
+  // commands are JavaScript, run with this agency's own Node (kit.command gives the way).
+  | { kind: 'npm'; package: string };
 
 export type InstallSpec = {
   name: string;
@@ -59,6 +62,8 @@ export type Installed = {
   installedAt: number;
   by: string | null;
   check: string | null;
+  // An npm package's commands: name -> its script, relative to programs/ (run with Node).
+  scripts?: Record<string, string>;
 };
 type Manifest = { programs: Record<string, Installed> };
 
@@ -66,6 +71,7 @@ export const NAME = /^[a-z0-9][a-z0-9._-]{0,40}$/;
 const VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,60}$/;
 const BIN = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,60}$/;
 const SHA = /^[a-f0-9]{64}$/;
+const NPM_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]{0,213}$/;
 
 // --- Where it comes from ----------------------------------------------------------
 
@@ -90,7 +96,9 @@ export function checkSpec(s: InstallSpec) {
   if (s.sha256 !== undefined && !SHA.test(s.sha256.toLowerCase())) throw new Error('sha256 is 64 hexadecimal characters.');
   if (s.source.kind === 'github_release') {
     if (!s.bins.length) throw new Error('Name the program\'s commands in bins (e.g. ["ffmpeg", "ffprobe"]).');
-  } else if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(s.source.package)) throw new Error(`"${s.source.package}" isn't a PyPI package name.`);
+  } else if (s.source.kind === 'pypi' && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(s.source.package)) throw new Error(`"${s.source.package}" isn't a PyPI package name.`);
+  else if (s.source.kind === 'npm' && !NPM_NAME.test(s.source.package)) throw new Error(`"${s.source.package}" isn't an npm package name.`);
+  if (s.source.kind === 'npm' && !/^\d+\.\d+\.\d+([-+][\w.-]+)?$/.test(s.version)) throw new Error(`"${s.version}" isn't an exact npm version (e.g. 3.3.3).`);
   for (const b of s.bins) if (!BIN.test(b)) throw new Error(`"${b}" isn't a command name.`);
   if ((s.checkArgs ?? []).some(a => typeof a !== 'string' || a.length > 40)) throw new Error('check_args are a few short words, e.g. ["-version"].');
 }
@@ -156,6 +164,18 @@ export async function pypiRelease(pkg: string, version: string): Promise<{ summa
   return { summary: info.info?.summary ?? '' };
 }
 
+// An exact version on the npm registry, and the fingerprint npm checks its download against.
+export async function npmRelease(pkg: string, version: string): Promise<{ description: string; integrity: string; tarball: string; bins: string[] }> {
+  const name = pkg.startsWith('@') ? `@${encodeURIComponent(pkg.slice(1))}` : encodeURIComponent(pkg);
+  const info = (await getJson(`https://registry.npmjs.org/${name}/${encodeURIComponent(version)}`).catch(e => {
+    throw new Error(`npm has no ${pkg} ${version}: ${(e as Error).message}`);
+  })) as { description?: string; deprecated?: string; bin?: string | Record<string, string>; dist?: { integrity?: string; tarball?: string } };
+  if (info.deprecated) throw new Error(`${pkg} ${version} is deprecated on npm ("${String(info.deprecated).slice(0, 120)}"): pick another version or package.`);
+  if (!info.dist?.integrity || !info.dist.tarball) throw new Error(`npm lists no download for ${pkg} ${version}.`);
+  const bins = typeof info.bin === 'string' ? [pkg.split('/').pop()!] : Object.keys(info.bin ?? {});
+  return { description: info.description ?? '', integrity: info.dist.integrity, tarball: info.dist.tarball, bins };
+}
+
 // --- The manifest, and what's on the PATH -----------------------------------------
 
 async function readManifest(): Promise<Manifest> {
@@ -180,6 +200,27 @@ export async function listPrograms(): Promise<(Installed & { state: 'ok' | 'unch
     const v = verified.get(p.name);
     return { ...p, state: v === true ? 'ok' : (v ?? 'unchecked') };
   });
+}
+
+// How a plugin starts each program that checked out (kit.command): a program's own
+// file, or for an npm package's command, this agency's Node and the script.
+export async function programCommands(): Promise<Record<string, string[]>> {
+  const m = await readManifest();
+  const out: Record<string, string[]> = {};
+  for (const p of Object.values(m.programs)) {
+    if (verified.get(p.name) !== true) continue;
+    if (p.scripts) for (const [bin, rel] of Object.entries(p.scripts)) out[bin] = [process.execPath, join(ROOT, rel)];
+    else
+      for (const bin of p.bins)
+        for (const d of p.pathDirs) {
+          const f = await locate([join(ROOT, d)], bin);
+          if (f) {
+            out[bin] = [f];
+            break;
+          }
+        }
+  }
+  return out;
 }
 
 // For plugin processes (sandbox.ts): the folders of programs that checked out, before the rest of PATH.
@@ -326,8 +367,14 @@ async function tryIt(bin: string, args: string[], env?: NodeJS.ProcessEnv): Prom
     const { stdout, stderr } = await run(bin, args, { timeout: 60_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true, env });
     return (stdout || stderr).trim().split('\n')[0]?.slice(0, 200) ?? '';
   } catch (e) {
-    const err = e as { stderr?: string; message: string };
-    throw new Error(`It was downloaded but doesn't run here: ${(err.stderr?.trim() || err.message).slice(0, 300)}`);
+    const err = e as { stdout?: string; stderr?: string; message: string; code?: unknown; signal?: unknown };
+    const said = [err.stdout ?? '', err.stderr ?? ''].join('\n').trim();
+    // It started and answered, just not happily (many tools have no --version): it runs here.
+    // Not: couldn't start (ENOENT, a build for another system), killed, or the system's
+    // "can't run this" (126/127: missing libraries, not executable).
+    const ran = typeof err.code === 'number' && err.code !== 126 && err.code !== 127 && !err.signal && !/error while loading shared libraries|cannot execute|exec format error|is not a valid Win32|not compatible with the version of Windows/i.test(said);
+    if (ran) return said.split('\n')[0]?.slice(0, 200) || `(it ran, and exited with code ${err.code})`;
+    throw new Error(`It was downloaded but doesn't run here: ${(said || err.message).slice(0, 300)}`);
   }
 }
 
@@ -351,6 +398,7 @@ export async function installProgram(spec: InstallSpec, by: string | null = null
   const m = await readManifest();
   await mkdir(ROOT, { recursive: true });
   if (spec.source.kind === 'pypi') return installPypi(spec, m, by);
+  if (spec.source.kind === 'npm') return installNpm(spec, m, by);
 
   const src = spec.source;
   if (!spec.sha256 || !SHA.test(spec.sha256)) throw new Error('No checksum was approved for it.');
@@ -437,6 +485,90 @@ async function installPypi(spec: InstallSpec, m: Manifest, by: string | null): P
   verified.set(spec.name, true);
   await refreshPath();
   return entry;
+}
+
+// npm itself: the one beside this computer's Node, else (the desktop app runs on
+// Electron's Node, which has none) fetched once from the npm registry, checked
+// against the fingerprint the registry publishes for it.
+const NPM_VERSION = '11.21.2';
+// Tests: as the desktop app, with no npm beside its Node.
+let ownNpm = false;
+export const useOwnNpm = (on: boolean) => void (ownNpm = on);
+async function npmCli(): Promise<string> {
+  const near = [join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'), join(dirname(process.execPath), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')];
+  if (!ownNpm) for (const f of near) if (await stat(f).then(s => s.isFile()).catch(() => false)) return f;
+  const dir = join(ROOT, '.npm-cli', NPM_VERSION);
+  const cli = join(dir, 'package', 'bin', 'npm-cli.js');
+  if (await stat(cli).then(s => s.isFile()).catch(() => false)) return cli;
+  const rel = await npmRelease('npm', NPM_VERSION);
+  const [algo, b64] = rel.integrity.split('-');
+  if (algo !== 'sha512') throw new Error(`npm's download is fingerprinted with ${algo}, not sha512.`);
+  const { res } = await fetcher(rel.tarball, { timeoutMs: 5 * 60_000 });
+  if (!res.ok) throw new Error(`Downloading npm failed: ${res.status}.`);
+  const body = Buffer.from(await res.arrayBuffer());
+  if (createHash('sha512').update(body).digest('base64') !== b64) throw new Error("npm's download doesn't match the registry's fingerprint: nothing was installed.");
+  const staging = join(ROOT, '.staging', `npm-${Date.now().toString(36)}`);
+  await mkdir(staging, { recursive: true });
+  try {
+    await writeFile(join(staging, 'npm.tgz'), body);
+    await unpack(join(staging, 'npm.tgz'), 'npm.tgz', join(staging, 'files'), 'npm');
+    await rm(dir, { recursive: true, force: true });
+    await mkdir(dirname(dir), { recursive: true });
+    await moveInto(join(staging, 'files'), dir);
+  } finally {
+    await rm(staging, { recursive: true, force: true }).catch(() => {});
+  }
+  return cli;
+}
+
+// Runs this agency's Node: the packaged desktop app's is Electron's, which needs to be told.
+const nodeEnv = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
+  ...plainEnv(),
+  ...(process.env.ELECTRON_RUN_AS_NODE ? { ELECTRON_RUN_AS_NODE: process.env.ELECTRON_RUN_AS_NODE } : {}),
+  PATH: withProgramsOnPath(process.env.PATH),
+  ...extra,
+});
+
+async function installNpm(spec: InstallSpec, m: Manifest, by: string | null): Promise<Installed> {
+  const pkg = (spec.source as { package: string }).package;
+  const dirRel = `${spec.name}/${spec.version}`;
+  const staging = join(ROOT, '.staging', `${spec.name}-${Date.now().toString(36)}`);
+  await rm(staging, { recursive: true, force: true });
+  await mkdir(staging, { recursive: true });
+  try {
+    const cli = await npmCli();
+    const env = nodeEnv({ npm_config_cache: join(ROOT, '.npm-cache'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' });
+    await writeFile(join(staging, 'package.json'), '{ "private": true }\n');
+    try {
+      await run(process.execPath, [cli, 'install', `${pkg}@${spec.version}`, '--prefix', staging, '--omit=dev', '--no-audit', '--no-fund', '--save-exact'], { timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env });
+    } catch (e) {
+      const err = e as { stderr?: string; message: string };
+      throw new Error(`npm couldn't install ${pkg} ${spec.version}: ${(err.stderr?.trim().split('\n').filter(l => /ERR/.test(l)).slice(-3).join(' ') || err.message).slice(0, 400)}`);
+    }
+    // Its commands, from its own package.json.
+    const own = JSON.parse(await readFile(join(staging, 'node_modules', ...pkg.split('/'), 'package.json'), 'utf8')) as { bin?: string | Record<string, string> };
+    const binMap: Record<string, string> = typeof own.bin === 'string' ? { [pkg.split('/').pop()!]: own.bin } : (own.bin ?? {});
+    const wanted = spec.bins.length ? spec.bins : Object.keys(binMap);
+    const missing = wanted.filter(b => !binMap[b]);
+    if (missing.length) throw new Error(`${pkg} has no command ${missing.join(', ')}. Its commands: ${Object.keys(binMap).join(', ') || 'none'}.`);
+    const final = join(ROOT, dirRel);
+    const scripts = Object.fromEntries(wanted.map(b => [b, `${dirRel}/node_modules/${pkg}/${binMap[b].replace(/^\.\//, '')}`]));
+    let check: string | null = null;
+    if (wanted.length) check = await tryIt(process.execPath, [join(staging, 'node_modules', ...pkg.split('/'), binMap[wanted[0]]), ...(spec.checkArgs ?? ['--version'])], nodeEnv());
+    await rm(final, { recursive: true, force: true });
+    await mkdir(dirname(final), { recursive: true });
+    await moveInto(staging, final);
+    const entry: Installed = { name: spec.name, version: spec.version, source: { kind: 'npm', package: pkg }, sha256: null, bins: wanted, pathDirs: [], dir: dirRel, files: await hashTree(final), installedAt: Date.now(), by, check, scripts };
+    const old = m.programs[spec.name];
+    m.programs[spec.name] = entry;
+    await writeManifest(m);
+    if (old?.dir && old.dir !== dirRel) await rm(join(ROOT, old.dir), { recursive: true, force: true }).catch(() => {});
+    verified.set(spec.name, true);
+    await refreshPath();
+    return entry;
+  } finally {
+    await rm(staging, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 async function locate(dirs: string[], bin: string): Promise<string | null> {
