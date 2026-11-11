@@ -53,10 +53,16 @@ type Route = (req: IncomingMessage, q: URLSearchParams, body: <T>() => Promise<T
 
 const isId = (id: unknown): id is string => typeof id === 'string' && /^[a-z0-9-]+$/.test(id);
 
+// A message drafted and waiting for a person's approval counts on the Dashboard as
+// sent: it's written, and one click sends it. Turned down or withdrawn, it doesn't.
+const SENDS = /(^|\.)[a-z_]*send_(mail|email|message)s?$/;
+const QUEUED_SENDS = "a.outcome = 'queued' AND (a.tool GLOB '*send_mail' OR a.tool GLOB '*send_email' OR a.tool GLOB '*send_message') AND NOT EXISTS (SELECT 1 FROM approvals p WHERE p.id = a.approval_id AND p.status IN ('rejected', 'withdrawn'))";
+
 // A label for output that isn't one of its KPI actions (extra effort, like
 // stocking up files): "write_file" -> "Write file".
 const outputLabel = (tool: string) => {
   if (tool === 'files.write_file') return 'Files written';
+  if (SENDS.test(tool)) return 'emails sent';
   const name = (tool.split('.').pop() ?? tool).replace(/_/g, ' ');
   return name.charAt(0).toUpperCase() + name.slice(1);
 };
@@ -221,7 +227,8 @@ export const runnerRoutes: Record<string, Route> = {
         id,
       );
       const outputs = all<{ tool: string; n: number }>(
-        'SELECT tool, SUM(output) AS n FROM actions WHERE agent_id = ? AND at >= ? AND output > 0 GROUP BY tool',
+        `SELECT a.tool AS tool, SUM(CASE WHEN a.output > 0 THEN a.output WHEN ${QUEUED_SENDS} THEN 1 ELSE 0 END) AS n
+           FROM actions a WHERE a.agent_id = ? AND a.at >= ? GROUP BY a.tool HAVING n > 0`,
         id,
         since,
       );
