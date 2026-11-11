@@ -23,14 +23,14 @@ type Wake = (agentId: string, trigger: 'approval' | 'request', task: string) => 
 // card for: the page draws these as it draws an integration's (no new UI).
 export const BUILT_IN_CARDS: Record<string, ApprovalCardDef> = {
   'engineer.install_program': {
-    wants_to: 'install the program {program} on {where}',
+    wants_to: 'install {program} on {where}',
     headers: [
       { label: 'For', value: '{for_agent_name}' },
       { label: 'From', value: '{source_line}' },
-      { label: 'Checksum (SHA-256)', value: '{sha256}', optional: true },
-      { label: 'Checksum from', value: '{checksum_from}', optional: true },
+      { label: 'Checked', value: '{checked}', optional: true },
+      { label: 'Heads-up', value: '{heads_up}' },
     ],
-    body: '{notice}',
+    body: '{why}',
     expires_after_hours: 168,
   },
 };

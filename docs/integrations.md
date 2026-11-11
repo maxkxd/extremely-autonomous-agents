@@ -208,12 +208,18 @@ rebuild the image.
    ffmpeg.org links to (github.com/FFmpeg-Builds/FFmpeg-Builds), Python from
    python-build-standalone.
 2. **The card** (the existing Approvals card, filled from a server-side card
-   in `runner/approvals.ts` - no new UI): "wants to install the program
-   ffmpeg 8.1 on the organization's cloud host", for which agent, from where
-   (repository, release, file, size), the checksum and where it came from,
-   the Engineer's why, and plainly: *installed programs are not sandboxed - a
-   plugin that runs one can do whatever this agency can on this computer.*
-   The owner of the agent it's for decides, as for `give_tools`.
+   in `runner/approvals.ts` - no new UI), in plain words: "Agency Engineer
+   wants to install FFmpeg 8.1 on the organization's cloud host", then For
+   (the agent), From ("FFmpeg-Builds on GitHub", "PyPI, the Python package
+   library"), Checked ("Against the copy its makers published"), and a
+   Heads-up: programs aren't sandboxed, so once installed agents' tools can
+   use it to do anything this agency can there. The Engineer's one-sentence
+   why is the quote. File names, release tags and the checksum stay off the
+   card (the checksum is kept with the call; it's what the download must
+   match). The owner of the agent it's for decides, as for `give_tools`.
+   Requests say it plainly too ("FFmpeg 8.1 is installed"; a failure is "didn't
+   work, nothing was installed, I'm looking into it", with the details going
+   to the Engineer).
 3. **Approved**: installed in the background - the approve click doesn't
    wait on a 150 MB download; the Engineer is woken when it's done or failed,
    and the request says so. Downloaded (public addresses only, through the safe

@@ -586,8 +586,16 @@ async function pointOutput(agentId: string, toolIds: string[], wake: (agentId: s
 // engineer.install_program: where it goes, what the card warns, and its arguments as programs.ts takes them.
 const installing = new Set<string>();
 const hostName = () => (process.env.EAA_CLOUD_HOST ? "the organization's cloud host" : 'this computer');
-export const PROGRAM_WARNING = (where: string) =>
-  `Installed programs are not sandboxed: a plugin that runs one can do whatever this agency can on ${where}. Approve only a program you'd install yourself, from where it says.`;
+export const PROGRAM_WARNING = (where: string) => `Programs aren't sandboxed. Once it's installed, agents' tools can use it to do anything this agency can on ${where}.`;
+// How people see a program's name on cards and requests: "FFmpeg 8.1", not "ffmpeg 8.1".
+const PRETTY: Record<string, string> = { ffmpeg: 'FFmpeg', ffprobe: 'FFprobe', python: 'Python', python3: 'Python', node: 'Node.js', imagemagick: 'ImageMagick', pandoc: 'Pandoc', sox: 'SoX' };
+export const programTitle = (name: string, version: string) => `${PRETTY[name] ?? name} ${version}`;
+// Where it comes from, in words: "yt-dlp on GitHub", "python-build-standalone by astral-sh, on GitHub".
+export function fromLine(src: InstallSpec['source']): string {
+  if (src.kind === 'pypi') return 'PyPI, the Python package library';
+  const [owner, repo] = src.repo.split('/');
+  return owner.toLowerCase() === repo.toLowerCase() ? `${repo} on GitHub` : `${repo} by ${owner}, on GitHub`;
+}
 export function installSpecOf(a: Record<string, unknown>): InstallSpec {
   const name = String(a.name ?? '').trim().toLowerCase();
   const version = String(a.version ?? '').trim();
@@ -1385,7 +1393,7 @@ const TOOLS: ToolDef[] = [
         sha256: str("Optional: the file's SHA-256 from the project. Read from the release when it publishes one; needed when it doesn't"),
         bins: { type: 'array', items: { type: 'string' }, description: 'Its commands, as named in the download (["ffmpeg", "ffprobe"], ["python3"] on Linux or ["python"] on Windows, ["yt-dlp"]). For a single-file download, the name it is saved as' },
         check_args: { type: 'array', items: { type: 'string' }, description: 'How to ask the first command its version, to show it runs (default ["--version"]; ffmpeg: ["-version"])' },
-        why: str('Which plugin needs it, for what - the person reads this'),
+        why: str('One plain sentence for the person: what the agent does with it ("Video Studio cuts its clips with it"). No file names, versions, commands or code words'),
       },
       ['for_agent', 'request_id', 'name', 'version', 'source', 'bins', 'why'],
     ),
@@ -1394,27 +1402,23 @@ const TOOLS: ToolDef[] = [
       if (!(await loadAgent(String(a.for_agent)))) throw new Error(`No agent "${a.for_agent}".`);
       const spec = installSpecOf(a);
       const where = hostName();
-      let source_line: string;
-      let sha256: string | null = null;
-      let checksum_from = '';
+      // What the person reads: plain words. The exact file and its checksum stay
+      // in the call (sha256 is what the download must match), off the card.
+      const card: Record<string, string> = {};
       if (spec.source.kind === 'github_release') {
         const sum = await releaseChecksum(spec.source, spec.sha256);
-        sha256 = sum.sha256;
-        checksum_from = sum.how;
-        source_line = `github.com/${spec.source.repo}, release ${spec.source.tag}: ${spec.source.asset}${sum.size ? ` (${Math.max(1, Math.round(sum.size / 1048576))} MB)` : ''}`;
-      } else {
-        const p = await pypiRelease(spec.source.package, spec.version);
-        source_line = `PyPI (pypi.org/project/${spec.source.package}), version ${spec.version}, with the packages it needs${p.summary ? ` - "${p.summary.slice(0, 120)}"` : ''}`;
-      }
-      postToRequest(Number(a.request_id), 'engineer', `${spec.name} ${spec.version} is installed on ${where} when you approve it on the Approvals page.`);
+        card.sha256 = sum.sha256;
+        card.checked = 'Against the copy its makers published';
+      } else await pypiRelease(spec.source.package, spec.version);
+      const program = programTitle(spec.name, spec.version);
+      postToRequest(Number(a.request_id), 'engineer', `${program} gets installed once you approve it on the Approvals page.`);
       return {
-        ...(sha256 ? { sha256 } : {}),
+        ...card,
         for_agent_name: await nameOf(String(a.for_agent)),
-        program: `${spec.name} ${spec.version}`,
+        program,
         where,
-        source_line,
-        checksum_from,
-        notice: `${String(a.why)}\n\n${PROGRAM_WARNING(where)}`,
+        source_line: fromLine(spec.source),
+        heads_up: PROGRAM_WARNING(where),
       };
     },
     impl: async (a, ctx) => {
@@ -1428,11 +1432,12 @@ const TOOLS: ToolDef[] = [
       installing.add(spec.name);
       void installProgram(spec, ctx.agent.id)
         .then(p => {
-          if (Number.isFinite(r)) postToRequest(r, 'engineer', `Installed ${p.name} ${p.version}.`);
+          if (Number.isFinite(r)) postToRequest(r, 'engineer', `${programTitle(p.name, p.version)} is installed.`);
           ctx.wake(FLEET_ENGINEER, 'request', `Installed ${p.name} ${p.version} (request #${r}): plugins run it as ${p.bins.join(', ') || '(no commands)'} - it's on their PATH; the plugin needs commands: true${p.check ? `. It says: ${p.check}` : ''}. Now write, or test, the plugin that uses it.`);
         })
         .catch(e => {
-          if (Number.isFinite(r)) postToRequest(r, 'engineer', `Installing ${spec.name} ${spec.version} failed: ${(e as Error).message}`);
+          // The details are for the Engineer; the person hears it's being handled.
+          if (Number.isFinite(r)) postToRequest(r, 'engineer', `Installing ${programTitle(spec.name, spec.version)} didn't work, so nothing was installed. I'm looking into it.`);
           ctx.wake(FLEET_ENGINEER, 'request', `Installing ${spec.name} ${spec.version} (request #${r}) FAILED, nothing was installed: ${(e as Error).message} Work out why (the wrong build for this computer?) and propose it again.`);
         })
         .finally(() => installing.delete(spec.name));

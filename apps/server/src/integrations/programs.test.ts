@@ -170,6 +170,6 @@ test("the Engineer's arguments and the card the person sees", () => {
   const card = BUILT_IN_CARDS['engineer.install_program'];
   assert.match(card.wants_to, /\{program\}/);
   // Every placeholder is a field the preview fills in.
-  const filled = ['program', 'where', 'for_agent_name', 'source_line', 'sha256', 'checksum_from', 'notice'];
+  const filled = ['program', 'where', 'for_agent_name', 'source_line', 'checked', 'heads_up', 'why'];
   for (const t of [card.wants_to, card.body ?? '', ...card.headers.map(h => h.value)]) for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(filled.includes(m[1]), m[1]);
 });
