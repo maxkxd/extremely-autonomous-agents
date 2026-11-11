@@ -183,8 +183,10 @@ own, one person's approval each** (`integrations/programs.ts`). Any
 organization's agency can acquire the tools its work needs; nobody has to
 rebuild the image.
 
-1. **The Engineer proposes it** - `engineer.install_program` (T2; never a
-   lower level, it isn't in the Tools page's list): name, exact version, and
+1. **The Engineer proposes it** - `engineer.install_program` (T2 by default;
+   a person can lower it on the Tools page, "Install a program", and then it
+   installs without a card - the checksum is still read from the release and
+   checked): name, exact version, and
    the source. Two kinds:
    - `github_release`: one file of a GitHub release,
      `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>` and
