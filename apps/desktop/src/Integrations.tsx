@@ -7,6 +7,7 @@ import { connectAssistantTo, currentOrg, handOffSignIns, isAdmin, remoteAssistan
 import { ACCOUNT } from './data';
 import { AI_IDES, IdeLogo, type IdeId } from './Requests';
 import { useOffline } from './offline';
+import { useLastSeen } from './lastSeen';
 import {
   addMcpIntegration,
   connectIntegration,
@@ -38,11 +39,11 @@ import {
 // whichever is connected); anything else is added as an MCP server by its
 // address, or later by the Agency Engineer. Keys go here, never in a chat.
 export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenApproval: (id: string) => void; focus?: string | null; onFocused?: () => void }) {
-  const [view, setView] = useState<IntegrationsView | null>(null);
+  const [view, setView] = useLastSeen<IntegrationsView | null>('integrations:view', null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   // Events' webhook addresses and the tunnel (docs/events.md), kept in step with the list.
-  const [events, setEvents] = useState<{ tunnel: TunnelState; events: EventInfo[] }>({ tunnel: { status: 'off', url: null, error: null }, events: [] });
+  const [events, setEvents] = useLastSeen<{ tunnel: TunnelState; events: EventInfo[] }>('integrations:events', { tunnel: { status: 'off', url: null, error: null }, events: [] });
   const refresh = () => {
     getEvents().then(setEvents, () => {});
     return getIntegrations().then(setView, e => setError((e as Error).message));
@@ -542,7 +543,7 @@ const ApproveButton = ({ i, onOpenApproval }: { i: IntegrationView; onOpenApprov
 // Whether the Agency Engineer may write code plugins: code that runs on this
 // computer, for what an HTTP or MCP integration can't do. Off unless turned on.
 function CodePlugins() {
-  const [allowed, setAllowed] = useState<boolean | null>(null);
+  const [allowed, setAllowed] = useLastSeen<boolean | null>('integrations:codePlugins', null);
   useEffect(() => void getCodePlugins().then(r => setAllowed(r.allowed), () => {}), []);
   if (allowed === null) return null;
   const flip = () => {
@@ -567,7 +568,7 @@ function CodePlugins() {
 // open (account.ts, runner/remote-mcp.ts). Either way it looks the same here.
 function AgencyMcp() {
   const off = useOffline();
-  const [mcp, setMcp] = useState<{ url: string; here: boolean; remote?: boolean } | null>(null);
+  const [mcp, setMcp] = useLastSeen<{ url: string; here: boolean; remote?: boolean } | null>('integrations:assistant', null);
   const [said, setSaid] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -894,7 +895,7 @@ function AgentBrowser({ status }: { status: IntegrationsView['profile'] }) {
 // The agents' accounts and passwords: who made each, in which profile. Revealed one at
 // a time; agents never see them (they type them straight into the page).
 function Passwords({ onRows }: { onRows: (rows: SavedPassword[]) => void }) {
-  const [rows, setRowsState] = useState<SavedPassword[] | null>(null);
+  const [rows, setRowsState] = useLastSeen<SavedPassword[] | null>('integrations:passwords', null);
   const setRows = (r: SavedPassword[]) => (setRowsState(r), onRows(r));
   const [shown, setShown] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false);

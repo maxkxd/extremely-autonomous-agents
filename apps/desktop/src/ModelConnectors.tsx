@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { AlertTriangle, Cpu, ExternalLink, Loader2 } from 'lucide-react';
 import { useOffline } from './offline';
+import { useLastSeen } from './lastSeen';
 import {
   siAnthropic,
   siClaude,
@@ -99,7 +100,7 @@ function Logo({ id }: { id: string }) {
 const SIGN_IN_WAIT_MS = 5 * 60_000;
 
 export function ModelConnectors() {
-  const [list, setList] = useState<Connection[] | null>(null);
+  const [list, setList] = useLastSeen<Connection[] | null>('models:connections', null);
   const [error, setError] = useState<string | null>(null);
   const refresh = () => getConnections().then(setList, e => setError((e as Error).message));
   useEffect(() => {

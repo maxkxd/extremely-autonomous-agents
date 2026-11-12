@@ -24,6 +24,8 @@ type RunState = 'active' | 'draining' | 'stopped';
 const lastLive: Partial<Record<TimeRange, Record<string, LiveAgent>>> = {};
 // And each agent's models, and the models there are, for the same reason.
 const lastModels: { choices?: Record<string, ModelChoice[]>; available?: AvailableModels[] } = {};
+// And agents' setup (connectors, stars, progress bar), so they don't pop in late.
+let lastSetups: Record<string, AgentSetup> = {};
 
 const SIZE = 220;
 const R = 82;
@@ -731,10 +733,16 @@ export function Dashboard({
     return agency === 'standby' && own === 'active' ? 'draining' : own;
   };
   // New agents still in setup: their connectors, stars and progress (AgentSetup.tsx).
-  const [setups, setSetups] = useState<Record<string, AgentSetup>>({});
+  const [setups, setSetups] = useState<Record<string, AgentSetup>>(() => lastSetups);
   useEffect(() => {
     let alive = true;
-    const load = () => getSetups().then(s => alive && setSetups(s)).catch(() => {});
+    const load = () =>
+      getSetups()
+        .then(s => {
+          lastSetups = s;
+          if (alive) setSetups(s);
+        })
+        .catch(() => {});
     void load();
     const t = setInterval(load, 10_000);
     return () => {

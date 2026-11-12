@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Building2, Check, ChevronDown, ChevronRight, Gauge, LoaderCircle, LogIn, LogOut, Plug, Plus, Trash2, User, UserRound, Wrench, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, rangeDays, rangeLabel, type TimeRange } from './data';
 import { RangePicker } from './RangePicker';
+import { peek, remember, useLastSeen } from './lastSeen';
 import {
   createInvite,
   joinSelf,
@@ -182,15 +183,18 @@ const SAVE_AFTER_MS = 600;
 
 // Load one server-side record and save it as you edit: a moment after you
 // stop typing, and straight away if Settings closes first.
-function useRecord<T>(load: () => Promise<T>, store: (v: T) => Promise<unknown>) {
-  const [value, setValue] = useState<T | null>(null);
+// `key`: shows the last one loaded at once when Settings opens again (lastSeen.ts).
+function useRecord<T>(key: string, load: () => Promise<T>, store: (v: T) => Promise<unknown>) {
+  const [value, setValue] = useState<T | null>(() => peek<T>(key) ?? null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const latest = useRef<T | null>(null);
+  const latest = useRef<T | null>(peek<T>(key) ?? null);
   const dirty = useRef(false);
   useEffect(() => {
     load().then(v => {
-      latest.current = v;
+      // Edited while it loaded (from the last one seen): keep the edit.
+      if (dirty.current) return;
+      latest.current = remember(key, v);
       setValue(v);
     }, e => setError((e as Error).message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -212,7 +216,7 @@ function useRecord<T>(load: () => Promise<T>, store: (v: T) => Promise<unknown>)
   const timer = useRef<ReturnType<typeof setTimeout>>();
   const edit = (patch: Partial<T>) => {
     if (!latest.current) return;
-    latest.current = { ...latest.current, ...patch };
+    latest.current = remember(key, { ...latest.current, ...patch });
     dirty.current = true;
     setValue(latest.current);
     clearTimeout(timer.current);
@@ -434,7 +438,7 @@ function AccountSignIn() {
 }
 
 function AccountSection() {
-  const [p, setP] = useState<Person | null>(null);
+  const [p, setP] = useLastSeen<Person | null>('settings:person', null);
   const [error, setError] = useState<string | null>(null);
   const [ide, setIde] = useState<IdeId>(yourIde);
   const photo = usePhoto();
@@ -799,8 +803,8 @@ function SelfHosted() {
 
 // A self-hosted organization: the address its members reach it at (its owner's tunnel or proxy).
 function SelfAddress({ manage }: { manage: boolean }) {
-  const [address, setAddress] = useState<string | null>(null);
-  const [draft, setDraft] = useState('');
+  const [address, setAddress] = useLastSeen<string | null>('settings:selfAddress', null);
+  const [draft, setDraft] = useState(() => address ?? '');
   const [error, setError] = useState<string | null>(null);
   useEffect(() => void selfAddress().then(a => (setAddress(a), setDraft(a ?? '')), () => {}), []);
   if (!manage) return null;
@@ -844,7 +848,7 @@ function Advanced({ children }: { children: React.ReactNode }) {
 }
 
 function InvitesForMe() {
-  const [list, setList] = useState<WaitingInvite[]>([]);
+  const [list, setList] = useLastSeen<WaitingInvite[]>('settings:invitesForMe', []);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => void myInvites().then(setList, () => {}), []);
@@ -896,9 +900,9 @@ function InvitesForMe() {
 // The people in it (our backend), its invites, and leaving or deleting it.
 function OrgPeople() {
   const org = teamOrgs().find(o => o.id === state.agency)!;
-  const [people, setPeople] = useState<Member[]>(state.members);
-  const [pending, setPending] = useState<Invite[]>([]);
-  const [invitesIn, setInvitesIn] = useState(false);
+  const [people, setPeople] = useLastSeen<Member[]>(`org:${org.id}:members`, state.members);
+  const [pending, setPending] = useLastSeen<Invite[]>(`org:${org.id}:invites`, []);
+  const [invitesIn, setInvitesIn] = useState(() => peek(`org:${org.id}:invites`) !== undefined);
   const [email, setEmail] = useState('');
   const [role, setRoleChoice] = useState<'member' | 'admin'>('member');
   const [made, setMade] = useState<Invite | null>(null);
@@ -908,7 +912,7 @@ function OrgPeople() {
   const [leaving, setLeaving] = useState(false);
   const manage = org.role !== 'member';
   // Self-hosted: the address invites go with.
-  const [address, setAddressShown] = useState<string | null>(null);
+  const [address, setAddressShown] = useLastSeen<string | null>(`org:${org.id}:address`, null);
   const load = () => {
     listMembers(org.id).then(setPeople, () => {});
     if (manage)
@@ -1145,6 +1149,7 @@ const samePerson = (a: KeyPerson, b: KeyPerson) => a.name.trim() === b.name.trim
 
 function OrganizationProfile({ name }: { name: string }) {
   const rec = useRecord<Profile>(
+    `profile:${name}`,
     () => getProfile(name).then(p => p ?? BLANK_PROFILE(name)),
     p => saveProfile(name, p),
   );
@@ -1250,9 +1255,12 @@ function UsageSection() {
   // What each agent's runs cost, from the runner: this calendar month, or another time frame
   // (the Dashboard's picker). The limits stay monthly.
   const [range, setRange] = useState<TimeRange>('month');
-  const [usage, setUsage] = useState<Usage | null>(null);
+  const [usage, setUsage] = useState<Usage | null>(() => peek<Usage>('usage:month') ?? null);
   useEffect(() => {
-    getUsage(range === 'month' ? undefined : rangeDays(range)).then(setUsage, () => {});
+    const key = `usage:${range}`;
+    const last = peek<Usage>(key);
+    if (last) setUsage(last);
+    getUsage(range === 'month' ? undefined : rangeDays(range)).then(u => setUsage(remember(key, u)), () => {});
   }, [range]);
   // Most first: by spend to the cent, then by runs (a fraction of a cent put 1 run above 7).
   const cents = (n: number) => Math.round(n * 100);
@@ -1418,7 +1426,7 @@ const levelOf = (t: ToolView['tier']) => (t === 'mixed' ? null : LEVELS.find(l =
 
 function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?: () => void }) {
   const off = useOffline();
-  const [tools, setTools] = useState<ToolView[] | null>(null);
+  const [tools, setTools] = useLastSeen<ToolView[] | null>('settings:tools', null);
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = () => getTools().then(setTools, e => setError((e as Error).message));
