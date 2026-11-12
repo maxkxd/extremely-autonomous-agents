@@ -1,7 +1,7 @@
 # Packaging: the downloadable app
 
-Windows first (2026-10-30); Mac once Windows is solid and Apple Developer is
-approved. The app is Electron (`apps/electron`) around the same agency that
+Windows and Mac, both at launch (owner, 2026-11-13; replaces "Windows first"
+from 2026-10-30). The app is Electron (`apps/electron`) around the same agency that
 runs in development.
 
 ## What the app is

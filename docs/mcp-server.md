@@ -276,5 +276,5 @@ routing, rate limits, connector-directory review).
    session lives in the app). Is that acceptable for v1? The alternative is
    a relay client inside the package, which would mean the package holding
    the org token: more work, and a second place that holds a sign-in.
-5. **macOS and Linux**: the package runs anywhere, but the app is
-   Windows-first. Should the registry listings say Windows only for now?
+5. **Linux**: the package runs anywhere, and the app ships for Windows and
+   Mac. Should the registry listings say Windows and Mac?

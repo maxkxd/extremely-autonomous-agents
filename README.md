@@ -11,7 +11,7 @@ Groq or any OpenAI-compatible endpoint), or a local model through Ollama.
 
 [Watch the 33-second demo, with sound](https://extremely.agency/press/demo-video.mp4).
 
-**Launching 1 December 2026 on Windows.** [Join the waitlist](https://extremely.agency/#waitlist),
+**Launching 1 December 2026 on Windows and Mac.** [Join the waitlist](https://extremely.agency/#waitlist),
 or [try the live demo](https://extremely.agency/demo/) in your browser: the whole
 app with sample agents, nothing to install.
 
