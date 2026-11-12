@@ -2124,9 +2124,24 @@ a.sbtn { text-decoration: none; color: inherit; }
 }
 
 /* The browser tab the desktop app signs in through (account.ts): the outcome alone. */
-.handoff-page { min-height: 100vh; display: grid; place-content: center; text-align: center; gap: 8px; padding: 24px; }
-.handoff-page h1 { margin: 0; font-size: 24px; font-weight: 600; }
-.handoff-page p { margin: 0; color: var(--muted); }
+.handoff-page {
+  min-height: 100vh; display: grid; place-content: center; justify-items: center; text-align: center; gap: 10px; padding: 24px; box-sizing: border-box;
+  background: radial-gradient(ellipse at 50% 42%, #1c1c1c 0%, var(--bg) 60%);
+}
+.handoff-logo { width: 44px; height: 44px; margin-bottom: 12px; opacity: 0.95; }
+.handoff-page h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; }
+.handoff-page h1 span { display: inline-block; }
+.handoff-page p { margin: 0; color: var(--muted); font-size: 14px; }
+/* Working: a Mexican wave across the letters. */
+.handoff-page h1.wave span { animation: handoff-wave 1.6s ease-in-out infinite; animation-delay: calc(var(--i) * 0.09s); }
+@keyframes handoff-wave { 0%, 55%, 100% { transform: translateY(0); } 25% { transform: translateY(-9px); } }
+/* Signed in: the letters land, then the word floats as one. */
+.handoff-page h1.float span, .handoff-page h1.still span { animation: handoff-land 0.45s ease-out both; animation-delay: calc(var(--i) * 0.03s); }
+.handoff-page h1.float { animation: handoff-float 3.2s ease-in-out 0.6s infinite; }
+.handoff-page h1.still { color: #f19a9c; }
+@keyframes handoff-land { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes handoff-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .handoff-page h1, .handoff-page h1 span { animation: none !important; } }
 
 /* An invitation waiting for you: on your profile, on Settings in its menu, on Organization in Settings. */
 .notify-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--attention); margin-left: 8px; flex: none; }

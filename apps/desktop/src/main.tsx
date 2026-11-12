@@ -17,17 +17,28 @@ void (async () => {
   const handoffPage = !inDesktopApp && (q.has('handoff') || (location.pathname === '/sso-callback' && q.has('handoff_state')));
   if (handoffPage) {
     const root = createRoot(document.getElementById('root')!);
-    const show = (title: string, text: string) =>
+    // While it works the heading's letters ripple like a wave; signed in, they
+    // settle and float together; if it fails they stop.
+    const show = (title: string, text: string, mood: 'wave' | 'float' | 'still', tab: string) => {
+      document.title = `${tab} · EXTREMELY`;
       root.render(
         <div className="handoff-page">
-          <h1>{title}</h1>
+          <img className="handoff-logo" src={(document.querySelector('link[rel=icon]') as HTMLLinkElement | null)?.href} alt="" />
+          <h1 key={title} className={mood} aria-label={title}>
+            {[...title].map((c, i) => (
+              <span key={i} aria-hidden style={{ '--i': i } as React.CSSProperties}>
+                {c === ' ' ? ' ' : c}
+              </span>
+            ))}
+          </h1>
           <p>{text}</p>
         </div>,
       );
-    const signedIn = () => show("You're signed in", 'Go back to the app - you can close this tab.');
+    };
+    const signedIn = () => show("You're signed in", 'Go back to the app - you can close this tab.', 'float', 'Signed in');
     // Where signing this browser back out lands, once the app has its ticket.
     if (q.get('handoff') === 'done') return signedIn();
-    show('Signing you in...', 'One moment.');
+    show('Signing you in', 'One moment.', 'wave', 'Signing in');
     try {
       await initAccount();
     } catch (e) {
@@ -35,7 +46,7 @@ void (async () => {
     }
     // Nothing yet: on the way to Google or GitHub, this page is leaving.
     if (state.handoff === 'done') signedIn();
-    else if (state.handoff) show('That didn’t work', state.handoff.error);
+    else if (state.handoff) show('That didn’t work', state.handoff.error, 'still', 'Not signed in');
     return;
   }
   await initAccount().catch(e => console.error('Starting without the account:', e));
