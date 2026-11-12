@@ -1,8 +1,8 @@
 # Packaging: the downloadable app
 
-Windows first (2026-10-30); Mac once Windows is solid and Apple Developer is
-approved. The app is Electron (`apps/electron`) around the same agency that
-runs in development.
+Launching on Mac and Windows together on 1 December 2026. The Mac build needs
+Apple Developer approval for signing. The app is Electron (`apps/electron`)
+around the same agency that runs in development.
 
 ## What the app is
 
