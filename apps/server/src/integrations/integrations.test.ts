@@ -124,8 +124,14 @@ test("a draft nobody will connect - its request closed, nothing connected - is m
   assert.equal(list.find(i => i.id === 'zz-wanted')?.unused, false);
   assert.equal(list.find(i => i.id === 'zz-stale')?.unused, true);
   assert.equal(list.find(i => i.id === 'tavily')?.unused, false);
+  // Built for a request that has since closed, then asked for on a request of its
+  // own (Pexels): that request waits on it, so it shows.
+  await writeDraftIntegration(def('zz-asked-later'), 'fleet', open + 2000);
+  run("INSERT INTO requests (agent_id, what, why, created_at, status, stage, waiting_on) VALUES ('zz', 'Connect it', 'x', 0, 'open', 'waiting_you', 'zz-asked-later')");
+  assert.equal((await listIntegrations()).find(i => i.id === 'zz-asked-later')?.unused, false);
   await discardDraft('zz-wanted');
   await discardDraft('zz-stale');
+  await discardDraft('zz-asked-later');
 });
 
 test("a Connect that fails goes to the Agency Engineer, and the row says it's on it until it works", async () => {

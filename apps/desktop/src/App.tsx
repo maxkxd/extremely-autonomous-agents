@@ -445,7 +445,15 @@ function Agency() {
     if (!name) return;
     const want = name.trim().toLowerCase();
     getIntegrations().then(
-      v => setSettingsFocus(v.integrations.find(i => i.id === want || i.name.toLowerCase() === want)?.id ?? null),
+      v =>
+        setSettingsFocus(
+          v.integrations.find(i => i.id === want || i.name.toLowerCase() === want)?.id ??
+            // "Pexels and press Connect": the longest name the words start with.
+            v.integrations
+              .filter(i => want.startsWith(`${i.name.toLowerCase()} `))
+              .sort((a, b) => b.name.length - a.name.length)[0]?.id ??
+            null,
+        ),
       () => {},
     );
   };

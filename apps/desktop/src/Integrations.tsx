@@ -54,14 +54,19 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
     return () => window.clearInterval(t);
   }, []);
   // Arriving for one integration (a request's "Open ... in Settings"): scrolled to, glowing blue.
+  // Kept shown after, even a draft the list would hide (`focus` clears once used).
+  const [landed, setLanded] = useState<string | null>(null);
   useEffect(() => {
     if (!focus || !view) return;
+    setLanded(focus);
     onFocused?.();
-    spotlight(focus);
+    // After the render that puts its row on the page.
+    requestAnimationFrame(() => spotlight(focus));
   }, [focus, !!view]);
   if (error && !view) return <p className="custom-error">{error}</p>;
   if (!view) return <SkelRows n={4} h={54} what="integrations" />;
-  const shown = view.integrations.filter(i => !i.unused);
+  // A hidden one you were sent to still shows: there's nothing to land on otherwise.
+  const shown = view.integrations.filter(i => !i.unused || i.id === focus || i.id === landed);
   const search = shown.filter(i => i.tools.some(t => t.id === 'web.web_search'));
   const others = shown.filter(i => !search.includes(i));
   return (

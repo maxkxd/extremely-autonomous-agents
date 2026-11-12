@@ -757,6 +757,10 @@ export async function listIntegrations() {
   );
   // Requests still open, for drafts that no longer answer one.
   const openRequests = new Set(all<{ id: number }>("SELECT id FROM requests WHERE status = 'open'").map(r => r.id));
+  // And what open requests wait on you to connect: a draft can be asked for by a
+  // later request than the one it was built for (Pexels, built on a request that
+  // closed, then asked for on its own one).
+  const waitedOn = new Set(all<{ id: string }>("SELECT DISTINCT waiting_on AS id FROM requests WHERE status = 'open' AND waiting_on IS NOT NULL").map(r => r.id));
   // Which have a webhook signing secret saved (events whose posts are signed).
   const secrets = new Set<string>();
   for (const { integration } of loaded) if (await webhookSecret(integration.id)) secrets.add(integration.id);
@@ -806,6 +810,7 @@ export async function listIntegrations() {
       !!st[integration.id]?.draft &&
       !isConnected(integration.id) &&
       !waiting.has(integration.id) &&
+      !waitedOn.has(integration.id) &&
       !(st[integration.id]?.request && openRequests.has(st[integration.id]!.request!)),
     by: st[integration.id]?.by ?? null,
     test: st[integration.id]?.test ?? null,
@@ -1190,6 +1195,7 @@ export async function publishPreview(id: string) {
     code: src?.code ?? null,
     codeHash: src?.code ? codeHash(src.code) : null,
     permissions: plugin && integration.kind === 'code' ? resolvePermissions(integration.permissions) : null,
+    module: plugin && integration.kind === 'code' ? integration.module : null,
     // An extension: the connection whose key it uses.
     usesKeyOf: keyFrom(integration) ? (find(keyFrom(integration)!)?.name ?? keyFrom(integration)!) : null,
   };
