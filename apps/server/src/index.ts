@@ -2,6 +2,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { serveUi } from './ui.js';
 import { collectTicket, handInTicket, startHandoff } from './handoff.js';
+import { signInPage } from './signin-page.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { BuilderError, build, interview, matchPack, profileInterview, type Build, type Context, type Pack, type Turn } from './builder.js';
 import { compose, DATA, kpiLabels, listIds, readMeta, remove, save, slug, type AgentFiles } from './files.js';
@@ -69,13 +70,8 @@ function send(res: ServerResponse, status: number, data: unknown) {
 class Html {
   constructor(readonly body: string) {}
 }
-const escape = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 function landing(ok: boolean, message: string) {
-  return new Html(`<!doctype html><meta charset="utf-8"><title>${ok ? 'Connected' : 'Not connected'}</title>
-<body style="margin:0;height:100vh;display:grid;place-items:center;background:#141414;color:#e6e6e6;font-family:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;text-align:center">
-<div><h1 style="font-size:22px;margin:0 0 8px">${ok ? 'Connected' : 'Not connected'}</h1>
-<p style="color:#8a8a8a;margin:0">${escape(message)}</p></div>
-<script>${ok ? 'setTimeout(() => window.close(), 1200)' : ''}</script></body>`);
+  return new Html(signInPage({ done: true, ok, message }));
 }
 async function finishSignIn(q: URLSearchParams) {
   try {

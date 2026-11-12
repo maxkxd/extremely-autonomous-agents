@@ -1,3 +1,5 @@
+import { signInPage } from './signin-page.js';
+
 // Sign-ins that come back to this computer for an organization hosted elsewhere
 // (oauth.ts: they come back to the app's own port on whatever computer the browser
 // is on — a service at /, or ChatGPT and OpenRouter at their own paths). The host's
@@ -12,23 +14,7 @@ export function parkSignIn(q: URLSearchParams): string {
   for (const [k, h] of held) if (Date.now() - h.at > 10 * 60_000) held.delete(k);
   held.set(state, { query: q.toString(), at: Date.now(), claimed: false });
   // The page waits for the app's answer, then says how it went.
-  return `<!doctype html><meta charset="utf-8"><title>Signing in</title>
-<body style="margin:0;height:100vh;display:grid;place-items:center;background:#141414;color:#e6e6e6;font-family:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;text-align:center">
-<div><h1 id="h" style="font-size:22px;margin:0 0 8px">Signing in</h1><p id="p" style="color:#8a8a8a;margin:0">Finishing in the app...</p></div>
-<script>
-const state = ${JSON.stringify(state)};
-const tick = async () => {
-  const r = await fetch('/api/oauth/held/status?state=' + encodeURIComponent(state)).then(r => r.json()).catch(() => null);
-  if (r && r.done) {
-    document.getElementById('h').textContent = r.ok ? 'Connected' : 'Not connected';
-    document.getElementById('p').textContent = r.message;
-    if (r.ok) setTimeout(() => window.close(), 1200);
-    return;
-  }
-  setTimeout(tick, 1000);
-};
-tick();
-</script></body>`;
+  return signInPage({ done: false }, state);
 }
 export function heldSignIns() {
   const out: { state: string; query: string }[] = [];
