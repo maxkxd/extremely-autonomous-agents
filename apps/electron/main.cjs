@@ -188,7 +188,11 @@ function createWindow() {
     icon: path.join(__dirname, 'build', 'icon.png'),
     show: false,
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, sandbox: true },
+    // backgroundThrottling off: the page keeps its timers at full speed while it's
+    // behind the browser or in the tray. A sign-in for an organization hosted
+    // elsewhere waits on this page to pass it on (handOffSignIns in account.ts);
+    // throttled, that took up to a minute per check and the sign-in page hung.
+    webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false },
   });
   win.loadURL(ORIGIN);
   win.once('ready-to-show', () => {

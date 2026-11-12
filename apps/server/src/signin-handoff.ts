@@ -6,9 +6,11 @@ import { signInPage } from './signin-page.js';
 // agency started them, so this one can't finish them: they wait here for this
 // computer's app to send them to the host through the relay.
 
-// Held a minute at most: an app that is waiting collects them within seconds.
+// Held three minutes at most: an app that is waiting collects them within seconds,
+// but one that was slowed in the background (or just woke) gets time to catch up
+// before the page says the sign-in expired.
 const held = new Map<string, { query: string; at: number; claimed: boolean; result?: { ok: boolean; message: string } }>();
-const HOLD_MS = 60_000;
+const HOLD_MS = 3 * 60_000;
 export function parkSignIn(q: URLSearchParams): string {
   const state = q.get('state')!;
   for (const [k, h] of held) if (Date.now() - h.at > 10 * 60_000) held.delete(k);
