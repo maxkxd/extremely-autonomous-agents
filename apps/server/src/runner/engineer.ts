@@ -23,7 +23,7 @@ import {
   toolIdsOf,
   writeDraftIntegration,
 } from '../integrations/index.js';
-import { pluginsAllowed, writePlugin } from '../integrations/plugins.js';
+import { checkPlugin, pluginsAllowed, writePlugin } from '../integrations/plugins.js';
 import { addPending, dropPending, startPrograms, installProgram, listPrograms, npmRelease, pendingInstalls, parseReleaseUrl, pypiRelease, releaseChecksum, verifyPrograms, type InstallSpec, type PendingInstall } from '../integrations/programs.js';
 import { checkEvent } from './events.js';
 import { hooksBase } from './hooks.js';
@@ -1147,6 +1147,10 @@ const TOOLS: ToolDef[] = [
       // computer - plus anything it rated worth a person's attention.
       let bullets: string[] = [];
       if (p.code && p.permissions) {
+        // Loaded and checked as going live will, so it can't fail after the person approves.
+        if (p.module) await checkPlugin(p.module, p.permissions).catch(e => {
+          throw new Error(`${(e as Error).message} It wasn't proposed: fix the plugin (engineer.write_plugin) and propose it again.`);
+        });
         const r = await reviewPlugin({ name: p.name, yaml: p.yaml, code: p.code, permissions: p.permissions });
         if (r.verdict === 'fix')
           throw new Error(

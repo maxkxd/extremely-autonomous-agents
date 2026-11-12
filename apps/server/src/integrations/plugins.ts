@@ -84,6 +84,30 @@ export async function tryDraftTool(module: string, permissions: Permissions, too
   return out.result ?? '';
 }
 
+// What going live demands of a plugin's tools (installPlugin). Checked when it's
+// proposed too, so a wrong id can't pass the card and fail after approval.
+type Described = { id?: unknown; tier?: unknown; run?: unknown; description?: unknown; input?: unknown };
+function checkTools(module: string, tools: Described[]) {
+  if (!tools.length) throw new Error(`The plugin "${module}" must export default { tools: [...] }.`);
+  for (const t of tools) {
+    if (typeof t.id !== 'string' || !/^[a-z0-9_-]+\.[a-z0-9_]+$/.test(t.id))
+      throw new Error(`A tool in "${module}" has a bad id${typeof t.id === 'string' ? ` ("${t.id}")` : ''} (want server.tool, lowercase${typeof t.id === 'string' && !t.id.includes('.') ? `, e.g. "${module}.${t.id}"` : ''}).`);
+    if (!['T0', 'T1', 'T2'].includes(t.tier as string)) throw new Error(`${t.id} needs a tier: T0, T1 or T2.`);
+    if (t.run !== 'function' || typeof t.description !== 'string' || !t.input) throw new Error(`${t.id} needs a description, an input schema and a run function.`);
+  }
+}
+
+// Before its go-live card: the plugin as it is now loads in its sandbox and its
+// tools pass the checks going live makes. Nothing is installed.
+export async function checkPlugin(module: string, permissions: Permissions): Promise<void> {
+  const code = await readPlugin(module);
+  if (code == null) throw new Error(`The plugin "${module}" has no code.`);
+  const built = await buildPlugin(module, code, codeHash(code));
+  const described = await runSandboxed(built, permissions, { op: 'describe' }, { hosts: new Set(), readOnly: true });
+  if (described.error) throw new Error(`The plugin "${module}" didn't load: ${described.error}`);
+  checkTools(module, (described.tools ?? []) as Described[]);
+}
+
 const installed = new Map<string, CodeModule>();
 export const pluginModule = (module: string) => installed.get(module);
 
@@ -101,12 +125,7 @@ export async function installPlugin(module: string, approvedHash: string, permis
   const described = await runSandboxed(built, permissions, { op: 'describe' });
   if (described.error) throw new Error(`The plugin "${module}" didn't load: ${described.error}`);
   const tools = described.tools ?? [];
-  if (!tools.length) throw new Error(`The plugin "${module}" must export default { tools: [...] }.`);
-  for (const t of tools) {
-    if (typeof t.id !== 'string' || !/^[a-z0-9_-]+\.[a-z0-9_]+$/.test(t.id)) throw new Error(`A tool in "${module}" has a bad id (want server.tool, lowercase).`);
-    if (!['T0', 'T1', 'T2'].includes(t.tier)) throw new Error(`${t.id} needs a tier: T0, T1 or T2.`);
-    if (t.run !== 'function' || typeof t.description !== 'string' || !t.input) throw new Error(`${t.id} needs a description, an input schema and a run function.`);
-  }
+  checkTools(module, tools as Described[]);
   const mod: CodeModule = {
     tools: tools.map(t => ({
       id: t.id,
