@@ -21,9 +21,12 @@ const BROWSER_KIT_TOOLS: CatalogTool[] = [
   t('open', 'T0', 'Open a page in its own browser profile and read it'),
   t('scroll', 'T0', 'Scroll the current page'),
   t('back', 'T0', 'Go back a page'),
+  t('look', 'T0', 'See the current page again without reloading it'),
   t('click', 'T1', 'Click a button or link (not paying, posting publicly or starting a new business tool)'),
   t('type', 'T1', 'Type into a field'),
   t('choose', 'T1', 'Pick an option in a dropdown'),
+  t('press', 'T1', 'Press a key (Escape, Tab, the arrows, Enter)'),
+  t('tick_security_check', 'T1', 'Tick a security check\'s box ("Verify you are human"), once'),
   t('upload_file', 'T1', 'Attach a file to an upload field (a logo, a screenshot)'),
   t('click_to_pay', 'T2', 'The click that spends money'),
   t('click_to_post', 'T2', 'The click that posts publicly as the business'),
@@ -31,7 +34,7 @@ const BROWSER_KIT_TOOLS: CatalogTool[] = [
   t('make_password', 'T1', "Sign up for an account: a strong password kept in the agency's store"),
   t('type_password', 'T1', 'Type a password from the store'),
   t('passwords', 'T0', "List the store's accounts (never the passwords)"),
-  t('show_person', 'T0', "Open a profile on the person's screen for a CAPTCHA or a phone code"),
+  t('show_person', 'T1', 'Keep a page for the person (a CAPTCHA puzzle, a phone code) and file the request for it'),
 ];
 
 export const CATALOG: CatalogServer[] = [

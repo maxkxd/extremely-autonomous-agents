@@ -46,6 +46,7 @@ const NAMES: Record<string, string> = {
   'signed_in_browser.open': 'Open a page',
   'signed_in_browser.back': 'Go back a page',
   'signed_in_browser.scroll': 'Scroll the page',
+  'signed_in_browser.look': 'Look at the page again',
   'signed_in_browser.click': 'Click on a page',
   'signed_in_browser.type': 'Type into a page',
   'signed_in_browser.choose': 'Pick from a dropdown',
@@ -55,7 +56,9 @@ const NAMES: Record<string, string> = {
   'signed_in_browser.make_password': 'Make a password for a new account',
   'signed_in_browser.type_password': 'Type a saved password',
   'signed_in_browser.passwords': 'List saved accounts',
-  'signed_in_browser.show_person': 'Open the browser on your screen',
+  'signed_in_browser.show_person': 'Keep a page for you to finish',
+  'signed_in_browser.press': 'Press a key in a page',
+  'signed_in_browser.tick_security_check': 'Tick a "Verify you are human" box',
 };
 const service = (s: string) =>
   OWN_AREAS[s] ??

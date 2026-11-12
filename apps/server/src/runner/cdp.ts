@@ -8,9 +8,14 @@
 // plain browser it is. (World Asset Register's runner drives Chrome the same way.)
 //
 // Nothing here turns on Runtime events (Runtime.enable), which pages can notice:
-// scripts are run with Runtime.evaluate alone.
+// scripts are run with Runtime.evaluate alone - and in a world of their own
+// (Page.createIsolatedWorld), so nothing the agent's page view adds is in the page's.
 
 type Listener = (params: any, sessionId?: string) => void;
+
+// A call the browser never answers (a page stuck in a dialog, a renderer that hung)
+// fails after this, instead of holding its run for ever.
+const SEND_TIMEOUT_MS = 60_000;
 
 export class Cdp {
   private seq = 0;
@@ -47,11 +52,21 @@ export class Cdp {
     });
   }
 
-  send<T = any>(method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<T> {
+  send<T = any>(method: string, params: Record<string, unknown> = {}, sessionId?: string, timeout = SEND_TIMEOUT_MS): Promise<T> {
     if (this.closed) return Promise.reject(new Error('The browser closed.'));
     const id = ++this.seq;
     this.ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-    return new Promise<T>((resolve, reject) => this.pending.set(id, { resolve, reject }));
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (!this.pending.delete(id)) return;
+        reject(new Error(`The browser didn't answer ${method} in ${Math.round(timeout / 1000)} s.`));
+      }, timeout);
+      timer.unref?.();
+      this.pending.set(id, {
+        resolve: v => (clearTimeout(timer), resolve(v)),
+        reject: e => (clearTimeout(timer), reject(e)),
+      });
+    });
   }
 
   on(method: string, fn: Listener): () => void {
@@ -77,6 +92,21 @@ export type PersonInput =
   | { type: 'key'; action: 'down' | 'up'; key: string; code: string; keyCode: number; text?: string; modifiers?: number }
   | { type: 'text'; text: string };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+// The keys an agent can press (signed_in_browser.press).
+export const KEYS = {
+  Enter: { code: 'Enter', vk: 13, text: '\r' },
+  Escape: { code: 'Escape', vk: 27 },
+  Tab: { code: 'Tab', vk: 9 },
+  Backspace: { code: 'Backspace', vk: 8 },
+  ArrowDown: { code: 'ArrowDown', vk: 40 },
+  ArrowUp: { code: 'ArrowUp', vk: 38 },
+  ArrowLeft: { code: 'ArrowLeft', vk: 37 },
+  ArrowRight: { code: 'ArrowRight', vk: 39 },
+  PageDown: { code: 'PageDown', vk: 34 },
+  PageUp: { code: 'PageUp', vk: 33 },
+  Space: { code: 'Space', vk: 32, text: ' ' },
+} as const satisfies Record<string, { code: string; vk: number; text?: string }>;
+export type Key = keyof typeof KEYS;
 // A numbered control in the page: through the page view's finder (browser.ts), which
 // also finds one the page drew again since it was numbered.
 const EL = (ref: number) => `(window.__eaa ? window.__eaa.find(${Number(ref)}) : document.querySelector('[data-eaa-ref="${Number(ref)}"]'))`;
@@ -104,6 +134,9 @@ export class CdpPage {
   private frameByNo = new Map<number, Frame>();
   private frameNo = new Map<string, number>();
   private allow?: (url: string) => Promise<boolean>;
+  private mainFrame?: string;
+  private mainContext?: number; // the page view's own world in the page's document
+  private dialogs: string[] = []; // what the page said in alerts and confirms since last asked
   private constructor(
     private cdp: Cdp,
     readonly targetId: string,
@@ -120,6 +153,17 @@ export class CdpPage {
         void this.watchFrames(p.sessionId).catch(() => {});
       }),
       cdp.on('Target.targetDestroyed', p => p.targetId === targetId && (this.closedFlag = true)),
+      // A new document (a navigation, or one back from the back/forward cache): its own world.
+      cdp.on('Page.frameNavigated', (p, s) => {
+        if (s === session && !p.frame.parentId) [this.mainContext, this.mainFrame] = [undefined, p.frame.id];
+      }),
+      // An alert, confirm or "leave this page?" holds the page - and every call to it -
+      // until it's answered: answered as the agent's click meant it (OK), and told.
+      cdp.on('Page.javascriptDialogOpening', (p, s) => {
+        if (!s || !this.owns(s)) return;
+        this.dialogs.push(`${p.type === 'beforeunload' ? 'Leave this page?' : p.type}: "${String(p.message ?? '').slice(0, 300)}"`);
+        void cdp.send('Page.handleJavaScriptDialog', { accept: p.type !== 'prompt' }, s).catch(() => {});
+      }),
     ];
     cdp.onClose(() => {
       this.closedFlag = true;
@@ -127,9 +171,18 @@ export class CdpPage {
     });
   }
 
-  // A new window (shown, but not brought in front of what the person's doing).
-  static async open(cdp: Cdp, bounds: Bounds, url = 'about:blank'): Promise<CdpPage> {
-    const { targetId } = await cdp.send<{ targetId: string }>('Target.createTarget', { url, newWindow: true, background: true, ...bounds });
+  // A new window (shown, but not brought in front of what the person's doing) - in a
+  // browser context of its own when given one (a throwaway, nothing signed in).
+  static async open(cdp: Cdp, bounds: Bounds, url = 'about:blank', browserContextId?: string): Promise<CdpPage> {
+    const { targetId } = await cdp.send<{ targetId: string }>('Target.createTarget', { url, newWindow: true, background: true, ...bounds, ...(browserContextId ? { browserContextId } : {}) });
+    const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
+    const page = new CdpPage(cdp, targetId, sessionId);
+    await page.watchFrames(sessionId);
+    return page;
+  }
+
+  // A page already open in the browser (one kept for the person, found again after the app restarted).
+  static async attach(cdp: Cdp, targetId: string): Promise<CdpPage> {
     const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
     const page = new CdpPage(cdp, targetId, sessionId);
     await page.watchFrames(sessionId);
@@ -156,6 +209,10 @@ export class CdpPage {
 
   private async watchFrames(session: string) {
     await this.cdp.send('Page.enable', {}, session);
+    // Behind the person's windows, a page still acts as the one in front: keys reach it
+    // (a window without focus never got an Escape), and it doesn't hold back as a page
+    // in the background does.
+    if (session === this.session) await this.cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, session).catch(() => {});
     await this.cdp.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true, filter: [{ type: 'iframe', exclude: false }, { exclude: true }] }, session);
     if (this.allow) await this.fetchOn(session);
   }
@@ -168,9 +225,23 @@ export class CdpPage {
     return this.closedFlag || this.cdp.closed;
   }
 
-  // In front of the person's other windows.
-  bringToFront() {
-    return this.send('Page.bringToFront');
+  // Closed with its whole browser (quit, crashed, closed for Google's sign-in), not on its own.
+  browserGone() {
+    return this.cdp.closed;
+  }
+
+  // In front of the person's other windows: its window shown (not minimised) and this tab in it.
+  async bringToFront() {
+    const w = await this.cdp.send<{ windowId: number; bounds: { windowState?: string } }>('Browser.getWindowForTarget', { targetId: this.targetId }).catch(() => null);
+    if (w?.bounds.windowState === 'minimized') await this.cdp.send('Browser.setWindowBounds', { windowId: w.windowId, bounds: { windowState: 'normal' } }).catch(() => {});
+    await this.send('Page.bringToFront');
+  }
+
+  // What the page's alerts and confirms said since last asked (each was answered OK).
+  takeDialogs() {
+    const d = this.dialogs;
+    this.dialogs = [];
+    return d;
   }
 
   async close() {
@@ -178,7 +249,11 @@ export class CdpPage {
     this.closedFlag = true;
   }
 
-  // Every request the page makes goes through allow() first.
+  // Every page and frame the page loads goes through allow() first: the addresses an
+  // agent can be steered to. What a page then loads itself (its images, its scripts) is
+  // left to the browser, which keeps public pages off this computer's network as it does
+  // for anyone - pausing each of those used to slow every page, and trip the checks
+  // sites time (a CAPTCHA that wouldn't load).
   async guard(allow: (url: string) => Promise<boolean>) {
     this.allow = allow;
     this.cdp.on('Fetch.requestPaused', (p, sessionId) => {
@@ -192,10 +267,27 @@ export class CdpPage {
   }
 
   private fetchOn(session: string) {
-    return this.cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }, session);
+    return this.cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*', resourceType: 'Document', requestStage: 'Request' }] }, session);
   }
 
-  evaluate<T = unknown>(expression: string): Promise<T> {
+  // In the page view's own world: it sees the page's document, the page never sees it.
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    for (let tries = 0; ; tries++) {
+      try {
+        this.mainFrame ??= (await this.send<{ frameTree: { frame: { id: string } } }>('Page.getFrameTree')).frameTree.frame.id;
+        this.mainContext ??= (await this.send<{ executionContextId: number }>('Page.createIsolatedWorld', { frameId: this.mainFrame, worldName: 'eaa' })).executionContextId;
+        return await this.run<T>(this.session, expression, this.mainContext);
+      } catch (e) {
+        // A document that went away between the two (a navigation): its new one, once.
+        this.mainContext = undefined;
+        if (tries >= 2 || !/context|frame/i.test((e as Error).message)) throw e;
+        if (/frame/i.test((e as Error).message)) this.mainFrame = undefined;
+      }
+    }
+  }
+
+  // In the page's own world: only for what has to be there for a moment (watching a Copy button).
+  evaluateInPage<T = unknown>(expression: string): Promise<T> {
     return this.run<T>(this.session, expression);
   }
 
@@ -285,6 +377,42 @@ export class CdpPage {
     });
     void send('Runtime.releaseObject', { objectId: object.objectId }).catch(() => {});
     return result.value;
+  }
+
+  // Where a frame is in the document that has it, and whether it shows at all (a
+  // CAPTCHA's puzzle frame is always there, hidden until it's needed).
+  async frameBox(no: number): Promise<{ width: number; height: number; shown: boolean } | null> {
+    const f = this.frameByNo.get(no);
+    if (!f) return null;
+    const send = <T = any>(m: string, p: Record<string, unknown>) => this.cdp.send<T>(m, p, f.owner);
+    try {
+      const { backendNodeId } = await send<{ backendNodeId: number }>('DOM.getFrameOwner', { frameId: f.id });
+      const { object } = await send<{ object: { objectId: string } }>('DOM.resolveNode', { backendNodeId });
+      const { result } = await send<{ result: { value: { width: number; height: number; shown: boolean } } }>('Runtime.callFunctionOn', {
+        objectId: object.objectId,
+        returnByValue: true,
+        functionDeclaration: `function () { const r = this.getBoundingClientRect(); return { width: r.width, height: r.height, shown: r.width > 20 && r.height > 20 && r.bottom > 0 && r.right > 0 && (!this.checkVisibility || this.checkVisibility({ visibilityProperty: true, opacityProperty: true })) }; }`,
+      });
+      void send('Runtime.releaseObject', { objectId: object.objectId }).catch(() => {});
+      return result.value;
+    } catch {
+      return null;
+    }
+  }
+
+  // A click at a point in a frame, in the frame's own pixels (a box drawn where the
+  // page view can't number it: Cloudflare's checkbox is in a closed shadow root).
+  async clickFrame(no: number, x: number, y: number) {
+    const f = this.frameByNo.get(no);
+    if (!f) throw new Error('That frame is gone.');
+    await this.offset(f, true);
+    const o = await this.offset(f);
+    const [session, px, py] = f.session !== this.session ? [f.session, x, y] : [this.session, o.x + x, o.y + y];
+    await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: px, y: py }, session);
+    await sleep(80 + Math.random() * 120);
+    await this.cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: px, y: py, button: 'left', clickCount: 1 }, session);
+    await sleep(40 + Math.random() * 60);
+    await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: px, y: py, button: 'left', clickCount: 1 }, session);
   }
 
   // Where a frame's content starts on the screen (outermost frame first: scrolling
@@ -422,8 +550,15 @@ export class CdpPage {
   }
 
   async pressEnter() {
-    await this.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: '\r' });
-    await this.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+    await this.press('Enter');
+  }
+
+  // A key, as the keyboard sends it, to whatever has the focus.
+  async press(key: Key) {
+    const k: { code: string; vk: number; text?: string } = KEYS[key];
+    const name = key === 'Space' ? ' ' : key;
+    await this.send('Input.dispatchKeyEvent', { type: 'keyDown', key: name, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk, ...(k.text ? { text: k.text } : {}) });
+    await this.send('Input.dispatchKeyEvent', { type: 'keyUp', key: name, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk });
   }
 
   // A dropdown's options, or null when it isn't one.
@@ -447,8 +582,9 @@ export class CdpPage {
   async setFiles(findInput: string, files: string[], ref = 0) {
     const f = this.frameOf(ref);
     if (f) await this.inFrame(f, '1'); // its world, current
+    else await this.evaluate('1');
     const session = f?.session ?? this.session;
-    const r = await this.cdp.send<{ result: { objectId?: string; subtype?: string } }>('Runtime.evaluate', { expression: findInput, returnByValue: false, ...(f ? { contextId: f.context } : {}) }, session);
+    const r = await this.cdp.send<{ result: { objectId?: string; subtype?: string } }>('Runtime.evaluate', { expression: findInput, returnByValue: false, contextId: f ? f.context : this.mainContext }, session);
     if (!r.result.objectId || r.result.subtype === 'null') return false;
     await this.cdp.send('DOM.setFileInputFiles', { files, objectId: r.result.objectId }, session);
     return true;

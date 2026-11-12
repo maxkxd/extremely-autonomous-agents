@@ -284,3 +284,51 @@ test('a pop-up over a frame says so, instead of clicking it', { skip }, async ()
   await p.close();
   server.close();
 });
+
+// Sites check for what automation leaves in a page. The page view lives in a world of
+// its own, and the copy watch is there for the moment of a click only.
+test("the page never sees the page view, and its copy functions are its own again after a click", { skip }, async () => {
+  const { server, port } = await serve({ '/': `<button onclick="navigator.clipboard.writeText('x')">Copy</button>` });
+  const p = await open(`http://localhost:${port}/`);
+  const s = await view.snapshot(p);
+  assert.equal(await p.evaluateInPage('typeof window.__eaa'), 'undefined');
+  await view.click(p, refOf(s, 'button', 'Copy'));
+  assert.equal(await p.evaluateInPage('typeof window.__eaaCopy'), 'undefined');
+  assert.match(await p.evaluateInPage<string>('Clipboard.prototype.writeText.toString() + document.execCommand.toString()'), /^function writeText\(\) \{ \[native code\] \}function execCommand\(\) \{ \[native code\] \}$/);
+  await p.close();
+  server.close();
+});
+
+// An alert or confirm used to hold the page, and every call after it, for good.
+test('an alert or a confirm is answered OK, and the agent is told what it said', { skip }, async () => {
+  const p = await page(`<button onclick="if (confirm('Delete the draft?')) out.textContent = 'Deleted'; alert('Saved')">Delete</button><p id=out>kept</p>`);
+  const s = await view.snapshot(p);
+  const after = await view.click(p, refOf(s, 'button', 'Delete'));
+  assert.match(after, /The page asked \(answered OK\): confirm: "Delete the draft\?"; alert: "Saved"/);
+  assert.match(after, /Deleted/);
+  await p.close();
+});
+
+test('Escape closes a pop-up that listens for it', { skip }, async () => {
+  const p = await page(`<div id=pop>Subscribe to our newsletter</div><script>addEventListener('keydown', e => e.key === 'Escape' && pop.remove())</script>`);
+  await p.press('Escape');
+  assert.match(await view.snapshot(p), /\n\(no text\)\n/);
+  await p.close();
+});
+
+// A security check's box used to be hidden from the agent, so every one waited for a person.
+test("a security check's box is ticked by the agent, and it says when the check is gone", { skip }, async () => {
+  view.allowAllFrames();
+  const { server, port } = await serve({
+    '/': `<form><input name=email><iframe id=cap style="width:300px;height:78px"></iframe><button>Send</button></form>
+      <script>cap.src = 'http://127.0.0.1:' + location.port + '/recaptcha/api2/anchor'; addEventListener('message', e => e.data === 'ticked' && cap.remove())</script>`,
+    '/recaptcha/api2/anchor': `<div id=recaptcha-anchor role=checkbox aria-checked=false style="width:24px;height:24px;border:2px solid" onclick="parent.postMessage('ticked', '*')"></div> I'm not a robot`,
+  });
+  const p = await open(`http://localhost:${port}/`);
+  await new Promise(r => setTimeout(r, 800));
+  const s = await view.snapshot(p);
+  assert.match(s, /tick_security_check/);
+  assert.match(await view.tick(p), /^Ticked, and the check is gone/);
+  await p.close();
+  server.close();
+});

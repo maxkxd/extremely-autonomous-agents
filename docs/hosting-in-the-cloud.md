@@ -103,6 +103,8 @@ an empty token forgets it). It's kept in the vault and given to Claude Code as
 
 ## Not yet
 
-- A person can't see the container's screen: the agents' browser's live view
-  in the app (a stream of its tabs through the relay) is next. Until then,
-  CAPTCHAs and phone codes there wait.
+- (Done 2026-11-13.) Each profile's browser runs on a virtual screen of its
+  own, and the app's Agents' browser page streams that whole screen through
+  the relay - every agent's window, the tab kept for a CAPTCHA - with the
+  person's mouse and keys sent to it, as the browser on their own screen would
+  be. Google's sign-in opens on the same screen.

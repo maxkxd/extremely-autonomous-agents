@@ -24,7 +24,7 @@ import { answerRemoteMcp, isRemoteMcpUrl, remoteMcpUrl, takeRemoteMcp } from './
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals, recentlyWithdrawn } from './approvals.js';
-import { listProfiles, openProfileWindow, profileStatus, takeKeptPage } from './browser.js';
+import { listProfiles, onPersonDone, openProfileWindow, profileStatus, releaseKeptFor, takeKeptPage } from './browser.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
 import { deletePassword, listPasswords, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
@@ -137,6 +137,12 @@ export async function personWrites(r: { id: number; agent_id: string }, text: st
   replyToEngineer(r.id, (await readMeta(r.agent_id))?.owner || 'The person', text);
 }
 
+// The person finished with a page kept for a request (closed its tab): the request is
+// done, and its agent hears straight away - to check it worked, not the Engineer.
+onPersonDone((request, text) => {
+  if (one<{ id: number }>("SELECT id FROM requests WHERE id = ? AND status = 'open'", request)) void answerRequest(request, 'done', text).catch(e => console.error(`Answering request #${request}:`, e));
+});
+
 // A person turned a request down: the agent still needs what it was for, so
 // the Agency Engineer follows up - what they'd rather, or how the agent does
 // without - instead of the agent being stuck on one no. (Not worded "request
@@ -164,6 +170,7 @@ export async function answerRequest(id: number, status: 'done' | 'rejected', ans
     id,
   ).changes;
   if (!changed) return false;
+  void releaseKeptFor(id).catch(e => console.error(`Closing the page kept for request #${id}:`, e));
   // Its agent hears now, as when the Agency Engineer settles one - not at its next
   // scheduled run (a weekly agent waited a week for the price list it asked for).
   const asker = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', id)?.agent_id;
@@ -640,37 +647,18 @@ export const runnerRoutes: Record<string, Route> = {
     await removeIntegration(id);
     return { ok: true };
   },
-  // Opens one of the agents' browser profiles in a window on this computer, so the
-  // person can sign in (or do what an agent asked: a CAPTCHA, a code), at a page.
-  // Opened from a request: closing the window tells its Engineer, as a reply would -
-  // it was opened to sign in or do something there, so it's worth a look now.
+  // A request's button (or "Open" in Settings): the page an agent kept for it, brought
+  // in front in the agents' browser - or, with none, a window in that browser at the
+  // address (Google's own sign-in: the profile as the plain browser). The person does
+  // what's needed there; closing it answers the request, and its agent hears.
   'POST /api/browser/sign-in': async (_req, _q, body) => {
     const b = await body<{ profile?: number; url?: string; request?: number }>().catch(() => ({}) as { profile?: number; url?: string; request?: number });
     const r = b.request ? one<{ id: number; status: string; agent_id: string }>('SELECT id, status, agent_id FROM requests WHERE id = ?', Number(b.request)) : undefined;
     if (r) await requireMakerOrAdmin(r.agent_id);
-    const site = (() => {
-      try {
-        return new URL(b.url ?? '').hostname.replace(/^www\./, '');
-      } catch {
-        return null;
-      }
-    })();
-    const onClosed =
-      r?.status === 'open'
-        ? {
-            key: `request ${r.id}`,
-            run: () => {
-              // Still waiting on it by then (not answered in the meantime).
-              const now = one<{ status: string }>('SELECT status FROM requests WHERE id = ?', r.id);
-              if (now?.status !== 'open') return;
-              void personWrites(r, `I closed the signed-in browser${site ? ` (opened at ${site})` : ''}. Done there - please check it worked.`).catch(e => console.error('Telling the Engineer the browser closed:', e));
-            },
-          }
-        : undefined;
-    // The page the agent filled in and kept for this: straight to it.
-    const kept = b.url ? takeKeptPage(b.profile ?? 1, b.url, r?.id, onClosed?.run) : null;
+    const request = r?.status === 'open' ? r.id : undefined;
+    const kept = b.url ? await takeKeptPage(b.profile ?? 1, b.url, request) : null;
     if (kept) return { ok: true, profile: b.profile ?? 1, already: true, ...kept };
-    return openProfileWindow(b.profile ?? 1, b.url || undefined, onClosed, r?.id);
+    return openProfileWindow(b.profile ?? 1, b.url || undefined, request);
   },
 
   // --- The agents' browser, live (live-view.ts): owners and admins (access.ts) ---

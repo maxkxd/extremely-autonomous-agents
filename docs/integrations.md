@@ -496,7 +496,10 @@ is forced under `agent/`. Approving a review is for people.
   No key.
 - `web.web_search` - through whichever search service is connected.
 - **Browsing**, on the Edge or Chrome already installed (`runner/browser.ts`):
-  - `browser.*` (what `web.browse` gives) - a blank throwaway browser.
+  - `browser.*` (what `web.browse` gives) - a blank throwaway: a private window
+    (a browser context of its own: no sign-ins, nothing kept) in profile 1's
+    browser. It used to be a separate headless Playwright browser, which sites
+    could tell apart at a glance.
   - `signed_in_browser.*` - the agents' own browser, which **every agent
     holds** (catalog.ts BASELINE; agents built before it get it at start,
     engineer.ts ensureBrowserKit). Separate, persistent profiles in
@@ -508,41 +511,82 @@ is forced under `agent/`. Approving a review is for people.
       Connectors > Signed-in browser > Passwords.
     - A profile holds up to 10 accounts on one site (Google's limit per
       browser); the 11th goes in a new profile, made for it.
-    - Only a CAPTCHA and a code sent to a phone need a person: `show_person`
-      opens the profile on their screen, and a request line "Open in
-      signed-in browser: <address>" is a button that opens it there too.
-    - Levels: open, scroll, back, `passwords` and `show_person` silent; click,
-      type, `make_password` and `type_password` logged; the click that pays,
-      posts publicly or starts a new business tool is its own tool
-      (`click_to_pay`, `click_to_post`, `click_to_start_tool`) at approval.
-      The agent's rules make it use those for those clicks.
-    - **One browser per profile, shared by the agents** (2026-11-06). A
+    - Levels: open, scroll, back and `passwords` silent; click, type, choose,
+      `press`, `tick_security_check`, `show_person`, `make_password` and
+      `type_password` logged; the click that pays, posts publicly or starts a
+      new business tool is its own tool (`click_to_pay`, `click_to_post`,
+      `click_to_start_tool`) at approval. The agent's rules make it use those
+      for those clicks.
+    - **Approving one of those clicks approves the job, not one click**
+      (2026-11-13; World Asset Register learnt the same: its runs resume whole
+      after a decision instead of replaying one call). The click is tried on
+      the page kept for it; either way the page goes back to the agent that
+      queued it, whose next run finishes there (`look` shows it as it is) - a
+      newsletter pop-up over the button, an "Are you sure?", Submit again. For
+      an hour the same click on the same site runs without asking again, for
+      that agent only (`granted` in tools.ts). A click replayed alone used to
+      fail on the first pop-up ("Something is on top of [42]").
+    - **One browser per profile, always running, like any browser**
+      (2026-11-13, the way World Asset Register runs its agents' Chrome). A
       profile folder opens in only one browser, so the runner starts the plain
       browser itself with a debugging address on 127.0.0.1 and drives it one
-      page at a time over DevTools (`runner/cdp.ts`, no Playwright - as World
-      Asset Register's runner does): only an agent's own window is ever
-      attached. Every agent run gets its own window, on screen behind what the
-      person's doing, to watch or click in. It starts with no window
-      (`--no-startup-window`) and keeps running with none between runs (checked
-      live on Edge) - no blank anchor window off-screen; it closes a minute
-      after the last run, and with the app. A profile already open in a browser the
-      app didn't start is reported, not fought over.
-    - **The person signs in in the plain browser alone** (`show_person`, the
-      request button, Settings). Google refuses sign-in in a browser started
-      with a debugging address at all - attached to the page or not (checked
-      live 2026-11-06; a plain Edge on the same machine signs in). So their
-      window is the browser with no debugging address: the agents' browser on
-      that profile closes first (session cookies kept), runs needing it wait
-      until the person closes their window, then carry on with what they
-      signed in to.
+      page at a time over DevTools (`runner/cdp.ts`, no Playwright): only an
+      agent's own window is ever attached. Every agent run gets its own window,
+      on screen behind what the person's doing - they watch, click and type in
+      any of them, and open their own tabs (never closed as strays). It isn't
+      closed when runs end or when the app quits: the app finds it again when it
+      starts (its `DevToolsActivePort`), with every page in it. It used to close
+      a minute after the last run and with the app, taking the pages kept for
+      the person with it.
+    - **What the page sees.** The page view (its numbered controls, its text)
+      runs in a world of its own (`Page.createIsolatedWorld`): the page never
+      sees it. A click watches the page's copy functions for that moment only,
+      to say what a Copy button copied, and puts them back. Only the pages and
+      frames a page loads are checked against this computer's network, not
+      every image and script (pausing each of those slowed every page and broke
+      the timing checks CAPTCHAs make). Alerts and confirms are answered OK and
+      the agent is told what they said; each DevTools call gives up after a
+      minute instead of holding a run for ever. Pages behind other windows act
+      as the one in front (focus emulation), so keys reach them.
+    - **Security checks.** A CAPTCHA's box to tick ("Verify you are human",
+      "I'm not a robot") is the agent's: `tick_security_check` clicks it once,
+      as a person would, and says whether it passed - in a real browser on a
+      real connection it usually does. Only a puzzle after that (pictures, a
+      slider), a code sent to a phone, an ID check, and signing in to Google
+      need the person. They used to be hidden from the agent altogether, so
+      every one waited for a person.
+    - **Handing a page to the person** (`show_person`): the agent fills in
+      everything else and calls it while on the page. The page is kept as it
+      is - its own tab in that profile's browser - and a request is filed with
+      the line "Open in signed-in browser: <address>", which is a button that
+      brings the person straight to that tab (matched by the request, not just
+      the site). They do the check, press Submit, and close the tab: that
+      answers the request, and the agent that asked hears straight away, to
+      check it worked. Kept pages are written down (`kept-pages.json`) and
+      picked up again after the app restarts; one lost (the browser closed, it
+      waited 7 days, more than 20 waiting) is said on its request and its agent
+      is told to fill it in again. A request's button with no kept page opens a
+      new window in the agents' browser at its address.
+    - **Signing in to Google** (`show_person` with `google`). Google refuses
+      sign-in in a browser started with a debugging address at all - attached
+      to the page or not (checked live 2026-11-06, and again 2026-11-13 on
+      Chrome 155 with only real keystrokes). So, as World Asset Register does
+      it: that profile's browser closes, the same profile opens as the plain
+      browser for the person to sign in, and when they close it the agents'
+      browser starts again. Nothing is copied: it used to be a copy of the
+      profile with some cookies carried back - never Google's or YouTube's,
+      and nothing a site keeps outside cookies - so agents could never be
+      signed in to YouTube. Meanwhile that profile tells agents to work on
+      something else. After that, "Sign in with Google" on another site is the
+      agent's: it chooses the account.
     - Kept signed in: lasting cookies are the browser's own; session cookies
       (a sign-in without "remember me") are kept in the vault at the end of a
-      run and put back at the next (checked: both survive a restart).
+      run and put back when the browser starts again.
     - The vault's key is sealed to the Windows account by the desktop app
       (Electron safeStorage, `vault-key.sealed`), not left beside the vault.
 
   A page comes back as its text plus numbered buttons, links and fields; the
-  agent clicks or types by number. One session per run, closed at its end.
+  agent clicks or types by number. One window per run, closed at its end.
 
 ## Status (2026-10-29)
 

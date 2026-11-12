@@ -94,10 +94,13 @@ async function pdfText(bytes: Buffer, url: string, cut: (s: string) => string): 
   return `PDF: ${url} (${n})\n\n${cut(text)}`;
 }
 
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36';
+
 export async function fetchPage(url: string, maxChars = 20_000): Promise<string> {
   const { res, url: finalUrl } = await safeFetch(url, {
     headers: {
-      'user-agent': 'Mozilla/5.0 (compatible; ExtremelyAutonomousAgents/1.0; +https://extremely.agency)',
+      // A browser's: sites behind Cloudflare and the like turn away anything that says it's a bot.
+      'user-agent': BROWSER_UA,
       accept: 'text/html,application/xhtml+xml,application/json,text/plain;q=0.9,application/pdf;q=0.8,*/*;q=0.5',
     },
   });

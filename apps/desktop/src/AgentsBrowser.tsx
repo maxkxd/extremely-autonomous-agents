@@ -6,8 +6,9 @@ import { liveBrowser, liveControl, liveFrame, liveInput, liveOpen, openAgentBrow
 // you (CAPTCHAs, sign-ins, codes an agent asked for) and every page the agents have
 // open, small and about once a second; on the right the one you pick, as it changes.
 // Take control and your mouse, keys, pasted text and scrolling go to that page only,
-// and its agent waits on it until you hand it back. The same here and in the cloud
-// (there through the relay).
+// and its agent waits on it until you hand it back. In the cloud each profile's whole
+// browser is here too, as its screen - every window in it, yours to use any time, as
+// the browser itself is on your own screen.
 
 const ago = (at: number) => {
   const m = Math.max(0, Math.round((Date.now() - at) / 60_000));
@@ -172,7 +173,7 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
                 {t.thumb ? <img src={`data:image/jpeg;base64,${t.thumb}`} alt="" /> : <span className="abrowser-thumb-blank" />}
                 <span className="abrowser-thumb-label">
                   {t.kind === 'person' ? <User size={12} /> : null}
-                  <strong>{t.kind === 'person' ? 'You' : (t.agent?.name ?? 'An agent')}</strong>
+                  <strong>{t.kind === 'person' ? `Profile ${t.profile}` : (t.agent?.name ?? 'An agent')}</strong>
                   <span className="abrowser-muted">{siteOf(t.url)}</span>
                 </span>
               </button>
@@ -285,7 +286,7 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
       <header className="abrowser-bar">
         <span className="abrowser-bar-who">
           {tab.kind === 'person' ? <User size={14} /> : <Globe size={14} />}
-          <strong>{tab.kind === 'person' ? 'Your window' : (tab.agent?.name ?? 'An agent')}</strong>
+          <strong>{tab.kind === 'person' ? `Profile ${tab.profile}'s browser` : (tab.agent?.name ?? 'An agent')}</strong>
           <span className="abrowser-muted" title={tab.url}>
             {site}
             {tab.title ? ` · ${tab.title}` : ''}

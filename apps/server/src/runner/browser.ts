@@ -4,11 +4,10 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, readlink, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
-import { Cdp, CdpPage, FRAME_BASE, type Bounds } from './cdp.js';
+import { Cdp, CdpPage, FRAME_BASE, KEYS, type Bounds, type Key } from './cdp.js';
 import { checkUrl, isPrivateIp } from './net.js';
-import { inWorkspace, onApprovalSettled, onRunEnd, registerTools, type RunCtx, type ToolDef } from './tools.js';
-import { one } from './db.js';
+import { fileRequest, inWorkspace, onApprovalSettled, onRunEnd, registerTools, tooManyWaiting, type RunCtx, type ToolDef } from './tools.js';
+import { all, one, run as exec } from './db.js';
 import { setKeptPageCheck } from './kept-pages.js';
 import { ACCOUNTS_PER_SITE, listPasswords, makePassword, passwordRow, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { DATA_DIR } from '../paths.js';
@@ -17,7 +16,8 @@ import { deleteSecret, getSecret, setSecret } from '../vault.js';
 // Browsing for agents (docs/integrations.md), on the Edge or Chrome already
 // installed - nothing to download.
 //
-//   browser.*            a blank throwaway browser: no sign-ins, nothing kept
+//   browser.*            a blank throwaway: a private window (no sign-ins, nothing
+//                        kept) in the same browser
 //   signed_in_browser.*  the agents' own profiles: separate, persistent browser
 //                        profiles (never the person's own), signed in to sites by
 //                        the person or by agents themselves - agents sign up for
@@ -26,13 +26,17 @@ import { deleteSecret, getSecret, setSecret } from '../vault.js';
 //                        accounts on one site, and the next one gets a new profile.
 //
 // A page comes back as its text plus numbered buttons, links and fields; the agent
-// clicks or types by number. Every request an agent's page makes is checked like any
+// clicks or types by number. The pages an agent's browser opens are checked like any
 // agent fetch: never this computer or its network.
 //
-// A profile is one browser, shared: every agent run using it gets its own window
-// (on screen, to watch or click in) and the person gets theirs when they need it - a
-// sign-in, a CAPTCHA - all at once, with the same sign-ins, nobody waiting for
-// anybody (see "A profile's browser" below).
+// A profile is one browser, the plain one, always running - the way World Asset
+// Register runs its agents' Chrome: started once, kept for weeks, signed in once.
+// Every agent run gets its own window in it, on screen (or, in the cloud, on the
+// profile's own screen, streamed to the app), and the person uses that same browser
+// like any other: watches the agents, clicks in their windows, and does what only a
+// person can (a CAPTCHA, a code) in the very tab the agent left for them. Only
+// Google's own sign-in needs the browser started without its debugging address
+// (see "Signing in to Google").
 
 export const PROFILES_DIR = join(DATA_DIR, 'browser-profiles');
 const OLD_PROFILE_DIR = join(DATA_DIR, 'browser-profile'); // one profile, before there could be more
@@ -79,8 +83,9 @@ export function onScreen(w: Placement) {
 
 // Kept signed in across restarts: the browser restores its session cookies too
 // (sites whose sign-in has no "remember me" otherwise forget it on close), and it
-// never offers to save passwords - the store does that.
-async function keepSignedIn(dir: string) {
+// never offers to save passwords - the store does that. restore false: for Google's
+// sign-in window, which mustn't open again every window the agents had.
+async function keepSignedIn(dir: string, restore = true) {
   const file = join(dir, 'Default', 'Preferences');
   let prefs: Record<string, any> = {};
   try {
@@ -88,7 +93,7 @@ async function keepSignedIn(dir: string) {
   } catch {
     // a new profile
   }
-  prefs.session = { ...(prefs.session ?? {}), restore_on_startup: 1 };
+  prefs.session = { ...(prefs.session ?? {}), restore_on_startup: restore ? 1 : 5 };
   prefs.profile = { ...(prefs.profile ?? {}), exit_type: 'Normal', exited_cleanly: true, password_manager_enabled: false };
   prefs.credentials_enable_service = false;
   // Off the screen: forgotten, so the window opens where the browser places a new one.
@@ -151,42 +156,34 @@ export function browserExe(): string | null {
 }
 const noBrowser = () => new Error('No Edge or Chrome found on this computer. Install one, and agents can use it.');
 
-// --- Starting a browser ------------------------------------------------------------
-
-async function launch(headless: boolean): Promise<Browser> {
-  const exe = browserExe();
-  if (!exe) throw noBrowser();
-  return chromium.launch({ executablePath: exe, headless, args: EXTRA_FLAGS });
-}
-
-// --- A profile's browser, shared -----------------------------------------------------
+// --- A profile's browser, always running ------------------------------------------------
 //
 // A profile folder can only be open in one browser at a time, so there is one per
-// profile and the agents share it, each run in its own window. It's the plain
-// browser, started with a debugging address on this computer and driven over it one
-// page at a time (cdp.ts). Agents' windows open on screen, behind what the person's
-// doing - they can watch, and click in, any of them. It starts with no window at all
-// (--no-startup-window), and keeps running with none between runs: there used to be a
-// blank one kept off-screen so it wouldn't quit, which sat on the taskbar and couldn't
-// be opened. It closes a minute after the last run.
+// profile, shared: each run gets its own window in it. It's the plain browser, started
+// with a debugging address on this computer and driven over it one page at a time
+// (cdp.ts). Agents' windows open on screen, behind what the person's doing - they can
+// watch, and click in, any of them. It starts with no window (--no-startup-window) and
+// keeps running with none between runs.
 //
-// The person signs in elsewhere: Google refuses a browser started with a debugging
-// address at all - attached to the page or not ("This browser or app may not be
-// secure"; checked live) - so their window is the plain browser alone (see "A profile
-// on the person's screen").
+// It isn't closed when runs end, or when the app quits: like any browser it stays
+// where it is, with the pages left in it for the person, and the app finds it again
+// when it starts (its DevToolsActivePort file). It used to close a minute after the
+// last run and with the app, taking every page an agent had kept for the person with
+// it - "Finish 2 filled directory forms" opened blank forms.
 
 type Shared = {
-  proc: ChildProcess;
+  pid?: number;
+  proc?: ChildProcess; // the one we started this time, if we did
   cdp: Cdp;
   runs: Set<string>; // runs with a window open in it
-  idle?: ReturnType<typeof setTimeout>;
   opening?: number; // agents' pages being made right now
 };
 const shared = new Map<number, Promise<Shared>>();
-const IDLE_CLOSE_MS = 60_000;
-// Agents' windows one after another down and across, so each can be seen.
+// Agents' windows one after another down and across, so each can be seen. In the
+// cloud the profile's screen is the size of one, so each fills it.
 let opened = 0;
 const agentBounds = (): Bounds => {
+  if (CLOUD) return { left: 0, top: 0, ...SCREEN };
   const k = opened++ % 6;
   return { left: 120 + k * 40, top: 80 + k * 30, width: 1280, height: 900 };
 };
@@ -204,10 +201,9 @@ const PROFILE_FLAGS = [
 // namespaces for Chrome's sandbox, no keyring to lock cookies with, a small /dev/shm.
 const EXTRA_FLAGS = (process.env.EAA_BROWSER_ARGS ?? '').split(/\s+/).filter(f => f.startsWith('--'));
 
-const strayError = (n: number) =>
-  new Error(`Browser profile ${n} is open in a browser window the app didn't start (one left from before an update, say). Close that window and try again.`);
-
 async function profileBrowser(n: number): Promise<Shared> {
+  const google = signingIn.get(n);
+  if (google) throw new Error(`Browser profile ${n} is closed while the person signs in to Google in it (since ${new Date(google).toLocaleTimeString()}). Work on something else, and come back to the browser in a few minutes.`);
   let p = shared.get(n);
   if (!p) {
     p = startProfile(n);
@@ -219,19 +215,54 @@ async function profileBrowser(n: number): Promise<Shared> {
   return p;
 }
 
+// The browser left running on the profile (by this app before it restarted): its
+// debugging address, if it still answers.
+async function findRunning(n: number): Promise<{ cdp: Cdp; pid?: number } | null> {
+  const dir = profileDir(n);
+  const [port, path] = (await readFile(join(dir, 'DevToolsActivePort'), 'utf8').catch(() => '')).split('\n').map(l => l.trim());
+  if (!/^\d+$/.test(port ?? '') || !path?.startsWith('/devtools/browser/')) return null;
+  const cdp = await Promise.race([Cdp.connect(`ws://127.0.0.1:${port}${path}`).catch(() => null), sleep(3_000).then(() => null)]);
+  if (!cdp) return null;
+  const pid = process.platform === 'win32' ? undefined : (singletonPid(await readlink(join(dir, 'SingletonLock')).catch(() => null)) ?? undefined);
+  return { cdp, pid };
+}
+
 async function startProfile(n: number): Promise<Shared> {
   const exe = browserExe();
   if (!exe) throw noBrowser();
   const dir = profileDir(n);
+  const found = await findRunning(n);
+  if (found) {
+    console.log(`[browser] Profile ${n}: found its browser still running${found.pid ? ` (pid ${found.pid})` : ''}.`);
+    return attached(n, found.cdp, found.pid);
+  }
   await keepSignedIn(dir);
-  // The one before it, still shutting down, goes first: two on one folder is twice the memory.
+  // One still shutting down goes first: two on one folder is twice the memory.
   await closing.get(n);
   await clearStaleLock(dir);
+  // Held by a browser that doesn't answer (stuck, or one that isn't ours): ended, so this one can open it.
+  const holder = process.platform === 'win32' ? null : singletonPid(await readlink(join(dir, 'SingletonLock')).catch(() => null));
+  if (holder && pidAlive(holder)) {
+    console.error(`[browser] Profile ${n} is held by pid ${holder}, which doesn't answer. Ending it.`);
+    try {
+      process.kill(holder, 'SIGKILL');
+    } catch {}
+    await sleep(1_000);
+    await clearStaleLock(dir);
+  }
+  const display = CLOUD ? await displayFor(n) : null;
   // The browser writes its debugging port (and its address) here once it's listening.
   const portFile = join(dir, 'DevToolsActivePort');
   await rm(portFile, { force: true });
-  const proc = spawn(exe, [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', ...PROFILE_FLAGS, ...EXTRA_FLAGS], { stdio: 'ignore', windowsHide: false, detached: GROUPS });
-  running.add(proc);
+  // Its own process group, not ended with the app (see above).
+  const proc = spawn(exe, [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', ...PROFILE_FLAGS, ...(display ? ['--window-position=0,0', `--window-size=${SCREEN.width},${SCREEN.height}`] : []), ...EXTRA_FLAGS], {
+    stdio: 'ignore',
+    windowsHide: false,
+    detached: true,
+    env: display ? { ...process.env, DISPLAY: display } : process.env,
+  });
+  proc.unref();
+  if (proc.pid) ours.add(proc.pid);
   let exited = false;
   proc.on('error', e => {
     exited = true;
@@ -239,34 +270,39 @@ async function startProfile(n: number): Promise<Shared> {
   });
   proc.on('exit', (code, signal) => {
     exited = true;
-    running.delete(proc);
     if (code !== 0 && code !== null) console.error(`[browser] Profile ${n} (agents) exited (code ${code}${signal ? `, ${signal}` : ''}).`);
     else console.log(`[browser] Profile ${n} (agents) exited${signal ? ` (${signal})` : ''}.`);
   });
   let port = 0;
   let path = '';
-  // Already open in a browser we didn't start: this one hands over to it and exits, with no port.
   for (let i = 0; i < 200 && !port && !exited; i++) {
     const [first, second] = (await readFile(portFile, 'utf8').catch(() => '')).split('\n').map(l => l.trim());
     if (/^\d+$/.test(first ?? '') && second?.startsWith('/devtools/browser/')) [port, path] = [Number(first), second];
-    else await new Promise(r => setTimeout(r, 100));
+    else await sleep(100);
   }
   if (!port) {
+    if (proc.pid) ours.delete(proc.pid);
     proc.kill();
-    throw exited ? strayError(n) : new Error(`Browser profile ${n} didn't start. Try again.`);
+    throw new Error(exited ? `Browser profile ${n} is open in a browser window the app didn't start (one left from before an update, say). Close that window and try again.` : `Browser profile ${n} didn't start. Try again.`);
   }
   const cdp = await Cdp.connect(`ws://127.0.0.1:${port}${path}`);
   await restoreSessionCookies(cdp, n);
   await addCarriedCookies(cdp, n);
-  const s: Shared = { proc, cdp, runs: new Set() };
-  proc.on('exit', () => {
-    clearTimeout(s.idle);
-    // Only this browser's entry: a newer one may have started since.
+  return attached(n, cdp, proc.pid, proc);
+}
+
+function attached(n: number, cdp: Cdp, pid?: number, proc?: ChildProcess): Shared {
+  const s: Shared = { pid, proc, cdp, runs: new Set() };
+  if (pid) ours.add(pid);
+  // Closed (by the person, or it crashed): the next run starts it again.
+  cdp.onClose(() => {
+    if (pid) ours.delete(pid);
     void shared.get(n)?.then(cur => cur === s && shared.delete(n), () => {});
   });
-  cdp.onClose(() => void endBrowser(proc));
+  void adoptKeptPages(n, s).catch(e => console.error(`[browser] Profile ${n}: finding the pages kept for the person failed:`, (e as Error).message));
   return s;
 }
+const ours = new Set<number>(); // the profiles' browsers' pids, for the leftovers sweep
 
 // A browser asked to close that hasn't within CLOSE_DEADLINE_MS is ended, with
 // everything it started: one stuck shutting down kept its memory for hours while
@@ -283,55 +319,44 @@ export async function endBrowser(proc: ChildProcess, ask?: () => Promise<unknown
   const timer = new Promise<'late'>(r => setTimeout(() => r('late'), deadline).unref());
   if ((await Promise.race([gone, timer])) !== 'late') return;
   console.error(`[browser] A browser (pid ${proc.pid}) didn't close in ${deadline / 1000} s; ending it.`);
-  killTree(proc);
+  killTree(proc.pid);
   await Promise.race([gone, new Promise(r => setTimeout(r, 2_000).unref())]);
 }
-function killTree(proc: ChildProcess) {
+function killTree(pid?: number) {
+  if (!pid) return;
   try {
-    if (GROUPS && proc.pid) process.kill(-proc.pid, 'SIGKILL');
-    else proc.kill('SIGKILL');
+    process.kill(GROUPS ? -pid : pid, 'SIGKILL');
   } catch {
-    proc.kill('SIGKILL');
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {}
   }
 }
 
-// Nobody's using it: close it a minute later, sign-ins kept.
-function closeWhenIdle(n: number, s: Shared) {
-  clearTimeout(s.idle);
-  if (s.runs.size) return;
-  s.idle = setTimeout(() => {
-    if (!s.runs.size) closeShared(n, s);
-  }, IDLE_CLOSE_MS);
-}
+// Closed on purpose (the Doctor freeing memory, Google's sign-in): sign-ins kept.
 function closeShared(n: number, s: Shared) {
-  clearTimeout(s.idle);
   void shared.get(n)?.then(cur => cur === s && shared.delete(n), () => {});
-  const done = endBrowser(s.proc, async () => {
+  const ask = async () => {
     await keepSessionCookies(s.cdp, n).catch(e => console.error(`[browser] Profile ${n}: keeping the session before closing failed:`, (e as Error).message));
     await s.cdp.send('Browser.close');
-  });
+  };
+  const done = (async () => {
+    if (s.proc) return endBrowser(s.proc, ask);
+    // Found running (started before the app last restarted): no process of ours to wait on.
+    await Promise.race([ask().catch(() => {}), sleep(CLOSE_DEADLINE_MS)]);
+    for (let i = 0; i < 50 && s.pid && pidAlive(s.pid); i++) await sleep(200);
+    if (s.pid && pidAlive(s.pid)) killTree(s.pid);
+  })();
   closing.set(n, done);
   void done.finally(() => closing.get(n) === done && closing.delete(n));
   return done;
 }
 
-// The app quitting takes the profiles' browsers with it.
-const running = new Set<ChildProcess>();
-process.on('exit', () => {
-  for (const proc of running)
-    try {
-      if (GROUPS && proc.pid) process.kill(-proc.pid, 'SIGTERM');
-      else proc.kill();
-    } catch {
-      proc.kill();
-    }
-});
-
-// Nothing a page asks for on this computer or its network.
+// Nothing an agent's browser opens on this computer or its network.
 function allowUrl() {
   const verdicts = new Map<string, boolean>();
   return async (raw: string) => {
-    if (raw.startsWith('data:') || raw.startsWith('blob:')) return true;
+    if (raw.startsWith('data:') || raw.startsWith('blob:') || raw === 'about:blank') return true;
     try {
       const url = checkUrl(raw);
       let ok = verdicts.get(url.hostname);
@@ -346,49 +371,17 @@ function allowUrl() {
     }
   };
 }
-async function guard(context: BrowserContext) {
-  const allow = allowUrl();
-  await context.route('**/*', async route => ((await allow(route.request().url())) ? route.continue() : route.abort('blockedbyclient')));
-}
 
 // --- Sessions, one per run, kind and profile ------------------------------------------
 
-// What the tools drive: a profile's page over DevTools (cdp.ts), or a blank
-// throwaway browser's page through Playwright, made to look the same.
-type Driver = Pick<CdpPage, 'isClosed' | 'close' | 'goto' | 'ready' | 'url' | 'evaluate' | 'back' | 'click' | 'fill' | 'pressEnter' | 'options' | 'select' | 'wheel'> & Partial<Pick<CdpPage, 'frames' | 'evaluateInFrame' | 'evaluateFor'>>;
-function playwrightDriver(page: Page): Driver {
-  // Found through the page view's finder first, so a control the page drew again keeps its number.
-  const el = (ref: number) => page.locator(`[data-eaa-ref="${ref}"]`).first();
-  const found = async (ref: number) => {
-    await page.evaluate(`window.__eaa && window.__eaa.find(${Number(ref)})`).catch(() => {});
-    return el(ref);
-  };
-  return {
-    isClosed: () => page.isClosed(),
-    close: () => page.close().catch(() => {}),
-    goto: async url => void (await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })),
-    ready: async () => void (await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {})),
-    url: async () => page.url(),
-    evaluate: async <T,>(expression: string) => (await page.evaluate(expression)) as T,
-    back: async () => {
-      await page.goBack({ timeout: 15_000 }).catch(() => {});
-      return true;
-    },
-    click: async ref => (await found(ref)).click({ timeout: 10_000 }),
-    fill: async (ref, text) => (await found(ref)).fill(text, { timeout: 10_000 }),
-    pressEnter: () => page.keyboard.press('Enter'),
-    options: async ref => (await found(ref)).evaluate(e => (e instanceof HTMLSelectElement ? [...e.options].map(o => o.text.replace(/\s+/g, ' ').trim()) : null), null, { timeout: 10_000 }),
-    select: async (ref, index) => void (await (await found(ref)).selectOption({ index }, { timeout: 10_000 })),
-    wheel: deltaY => page.mouse.wheel(0, deltaY),
-  };
-}
-
-// blank: its own throwaway browser. profile: its own window in the profile's shared browser.
-// cdp/agent: a profile's page, as the live view sees it (live-view.ts).
+// blank: a private window (a browser context of its own: nothing signed in, gone when
+// it closes) in profile 1's browser. profile: its own window in the profile's browser.
 // openers: when it's working in a window a site opened, the pages behind it, oldest first.
+type Driver = CdpPage;
 type Windows = { page: Driver; cdp?: CdpPage; openers?: CdpPage[]; followed?: Set<string>; windowClosed?: boolean };
-type Session = Windows & { kind: 'blank' | 'profile'; runId: string; profile: number; browser?: Browser; agent?: { id: string; name: string }; request?: number };
+type Session = Windows & { kind: 'blank' | 'profile'; runId: string; profile: number; context?: string; agent?: { id: string; name: string }; request?: number };
 const sessions = new Map<string, Session>();
+const BLANK_HOST = 1; // the profile whose browser holds the throwaway windows
 
 // Two tool calls at once share one opening, and one that finishes after its run
 // ended closes again: either way a browser used to be left running with nobody's
@@ -404,6 +397,22 @@ async function session(ctx: RunCtx, kind: Session['kind'], profile = 1): Promise
     return existing;
   }
   if (existing) await closeSession(key);
+  // A page a person approved a click on, back with this agent to finish the job.
+  if (kind === 'profile' && !ctx.approved) {
+    const back = [...waitingPages.entries()].find(([, w]) => w.resume === ctx.agent.id && sessions.get(w.key)?.profile === profile && !sessions.get(w.key)!.page.isClosed());
+    if (back) {
+      const [id, w] = back;
+      waitingPages.delete(id);
+      const s = sessions.get(w.key)!;
+      sessions.delete(w.key);
+      const sh = await shared.get(profile)?.catch(() => null);
+      sh?.runs.delete(w.key);
+      sh?.runs.add(ctx.runId);
+      Object.assign(s, { runId: ctx.runId, request: undefined });
+      sessions.set(key, s);
+      return s;
+    }
+  }
   // A click a person approved runs on the page it was queued on, kept for it. With
   // that page gone a blank one would only fail ("no [13] on the page") - say why.
   if (ctx.approved)
@@ -418,25 +427,22 @@ async function session(ctx: RunCtx, kind: Session['kind'], profile = 1): Promise
 }
 async function openSession(ctx: RunCtx, kind: Session['kind'], profile: number, key: string): Promise<Session> {
   let s: Session;
-  if (kind === 'blank') {
-    const browser = await launch(true);
-    const context = await browser.newContext({ acceptDownloads: false, viewport: { width: 1280, height: 900 } });
-    s = { kind, runId: ctx.runId, profile: 0, browser, page: playwrightDriver(await context.newPage()) };
-    await guard(context);
-  } else {
-    const sh = await profileBrowser(profile);
-    clearTimeout(sh.idle);
-    sh.runs.add(ctx.runId);
-    sh.opening = (sh.opening ?? 0) + 1;
-    try {
-      const page = await CdpPage.open(sh.cdp, agentBounds()).finally(() => sh.opening!--);
-      await page.guard(allowUrl());
-      s = { kind, runId: ctx.runId, profile, page, cdp: page, agent: { id: ctx.agent.id, name: ctx.agent.name } };
-    } catch (e) {
-      sh.runs.delete(ctx.runId);
-      closeWhenIdle(profile, sh);
-      throw e;
-    }
+  const n = kind === 'blank' ? BLANK_HOST : profile;
+  const sh = await profileBrowser(n);
+  sh.runs.add(ctx.runId);
+  sh.opening = (sh.opening ?? 0) + 1;
+  let context: string | undefined;
+  try {
+    if (kind === 'blank') context = (await sh.cdp.send<{ browserContextId: string }>('Target.createBrowserContext', { disposeOnDetach: false })).browserContextId;
+    const page = await CdpPage.open(sh.cdp, agentBounds(), 'about:blank', context).finally(() => sh.opening!--);
+    agentMade.add(page.targetId);
+    saveKept();
+    await page.guard(allowUrl());
+    s = { kind, runId: ctx.runId, profile: kind === 'blank' ? 0 : profile, context, page, cdp: page, agent: { id: ctx.agent.id, name: ctx.agent.name } };
+  } catch (e) {
+    sh.runs.delete(ctx.runId);
+    if (context) await sh.cdp.send('Target.disposeBrowserContext', { browserContextId: context }).catch(() => {});
+    throw e;
   }
   sessions.set(key, s);
   if (endedRuns.has(ctx.runId)) {
@@ -451,15 +457,17 @@ async function closeSession(key: string) {
   if (!s) return;
   sessions.delete(key);
   if (s.cdp) release(s.cdp.targetId);
-  if (s.kind === 'blank') return void (await Promise.race([s.browser?.close().catch(() => {}), new Promise(r => setTimeout(r, CLOSE_DEADLINE_MS).unref())]));
-  const sh = await shared.get(s.profile)?.catch(() => null);
-  if (sh) await keepSessionCookies(sh.cdp, s.profile).catch(() => {});
+  const n = s.kind === 'blank' ? BLANK_HOST : s.profile;
+  const sh = await shared.get(n)?.catch(() => null);
+  if (sh && s.kind === 'profile') await keepSessionCookies(sh.cdp, n).catch(() => {});
   await s.page.close().catch(() => {});
   for (const o of s.openers ?? []) await o.close().catch(() => {});
+  for (const p of [s.cdp, ...(s.openers ?? [])]) if (p) agentMade.delete(p.targetId);
+  saveKept();
   if (!sh) return;
+  if (s.context) await sh.cdp.send('Target.disposeBrowserContext', { browserContextId: s.context }).catch(() => {});
   sh.runs.delete(s.runId);
-  await closeStrayPages(s.profile, sh).catch(() => 0);
-  closeWhenIdle(s.profile, sh);
+  await closeStrayPages(n, sh).catch(() => 0);
 }
 
 // Pages no run is driving: a site's popup or new tab ("Sign in with Google", a
@@ -468,17 +476,31 @@ async function closeSession(key: string) {
 // always working was for ever: twenty of them held 2.5 GB in the cloud. A popup
 // whose run is still going stays (a sign-in completing in it). Checked when a run
 // ends and with the leftovers sweep.
-export function strayPages(targets: { targetId: string; type: string; openerId?: string }[], live: Set<string>) {
-  return targets.filter(t => t.type === 'page' && !live.has(t.targetId) && !(t.openerId && live.has(t.openerId))).map(t => t.targetId);
+// agentMade: on the person's own screen the browser is theirs to use too, so only
+// pages agents made (and the popups they opened) are cleared - never a tab the person
+// opened themselves. In the cloud nobody opens one except through the app.
+export function strayPages(targets: { targetId: string; type: string; openerId?: string }[], live: Set<string>, agentMade?: Set<string>) {
+  return targets
+    .filter(t => t.type === 'page' && !live.has(t.targetId) && !(t.openerId && live.has(t.openerId)))
+    .filter(t => !agentMade || t.openerId || agentMade.has(t.targetId))
+    .map(t => t.targetId);
 }
-const liveTargets = (n: number) => new Set([...sessions.values()].filter(x => x.profile === n).flatMap(x => [x.cdp, ...(x.openers ?? [])]).filter((p): p is CdpPage => !!p && !p.isClosed()).map(p => p.targetId));
+const liveTargets = (n: number) =>
+  new Set([
+    ...[...sessions.values()].filter(x => (x.kind === 'blank' ? BLANK_HOST : x.profile) === n).flatMap(x => [x.cdp, ...(x.openers ?? [])]).filter((p): p is CdpPage => !!p && !p.isClosed()).map(p => p.targetId),
+    ...[...personPages.values()].filter(p => p.profile === n).map(p => p.targetId),
+  ]);
 async function closeStrayPages(n: number, sh: Shared) {
   if (sh.opening) return 0; // a page being made isn't a run's yet: next time
   const { targetInfos } = await sh.cdp.send<{ targetInfos: { targetId: string; type: string; openerId?: string }[] }>('Target.getTargets');
   if (sh.opening) return 0;
   const live = liveTargets(n);
-  const stray = strayPages(targetInfos, live);
-  for (const targetId of stray) await sh.cdp.send('Target.closeTarget', { targetId }).catch(() => {});
+  const stray = strayPages(targetInfos, live, CLOUD ? undefined : agentMade);
+  for (const targetId of stray) {
+    await sh.cdp.send('Target.closeTarget', { targetId }).catch(() => {});
+    agentMade.delete(targetId);
+  }
+  if (stray.length) saveKept();
   return stray.length;
 }
 
@@ -516,130 +538,18 @@ async function addCarriedCookies(cdp: Cdp, n: number) {
   await deleteSecret(carriedKey(n));
 }
 
-// --- The person's window has a folder of its own ----------------------------------------
-//
-// A profile's folder opens in one browser at a time, and Google won't sign anyone in
-// to the agents' (it has a debugging connection). So the person's plain window runs
-// on a copy - person-<n> beside the profile - seeded with the agents' sign-ins when
-// it opens, and what they signed in to goes back to the agents' browser when it
-// closes. The agents carry on meanwhile.
-export const personDir = (n: number) => join(PROFILES_DIR, `person-${n}`);
-const cookieParams = (c: Record<string, unknown>) => {
-  const { name, value, domain, path, expires, httpOnly, secure, sameSite, priority, sourceScheme, sourcePort, partitionKey, session } = c;
-  return {
-    name,
-    value,
-    domain,
-    path,
-    httpOnly,
-    secure,
-    ...(sameSite ? { sameSite } : {}),
-    ...(priority ? { priority } : {}),
-    ...(sourceScheme ? { sourceScheme } : {}),
-    ...(typeof sourcePort === 'number' ? { sourcePort } : {}),
-    ...(partitionKey ? { partitionKey } : {}),
-    ...(session || typeof expires !== 'number' || expires < 0 ? {} : { expires }),
-  };
-};
-async function setAll(cdp: Cdp, cookies: Record<string, unknown>[]) {
-  if (!cookies.length) return;
-  // One at a time past a batch that's refused, so one odd cookie doesn't lose the rest.
-  await cdp.send('Storage.setCookies', { cookies }).catch(async () => {
-    for (const c of cookies) await cdp.send('Storage.setCookies', { cookies: [c] }).catch(() => {});
-  });
-}
-// The folder in a browser of its own for a moment: no window, a debugging address on this computer.
-async function withHeadless<T>(dir: string, fn: (cdp: Cdp) => Promise<T>): Promise<T> {
-  const exe = browserExe();
-  if (!exe) throw noBrowser();
-  await mkdir(dir, { recursive: true });
-  await clearStaleLock(dir);
-  const portFile = join(dir, 'DevToolsActivePort');
-  await rm(portFile, { force: true });
-  const proc = spawn(exe, [`--user-data-dir=${dir}`, '--headless=new', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', '--no-first-run', '--no-default-browser-check', ...EXTRA_FLAGS, 'about:blank'], {
-    stdio: 'ignore',
-    windowsHide: true,
-  });
-  running.add(proc);
-  try {
-    let found = '';
-    for (let i = 0; i < 150 && !/^\d+\n\/devtools\//.test(found); i++) {
-      if (proc.exitCode !== null) throw new Error(`The browser on ${dir} closed straight away.`);
-      found = (await readFile(portFile, 'utf8').catch(() => '')).replace(/\r/g, '');
-      await sleep(100);
-    }
-    const [port, path] = found.split('\n').map(l => l.trim());
-    if (!path) throw new Error(`The browser on ${dir} didn't start.`);
-    const cdp = await Cdp.connect(`ws://127.0.0.1:${port}${path}`);
-    try {
-      return await fn(cdp);
-    } finally {
-      await cdp.send('Browser.close').catch(() => {});
-    }
-  } finally {
-    const gone = new Promise<void>(r => (proc.exitCode !== null ? r() : proc.once('exit', () => r())));
-    await Promise.race([gone, sleep(5_000)]);
-    if (proc.exitCode === null) proc.kill();
-    running.delete(proc);
-  }
-}
-// Opening: the agents' sign-ins into the person's folder.
-async function seedPersonDir(n: number) {
-  const sh = await profileBrowser(n);
-  const { cookies } = await sh.cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies');
-  closeWhenIdle(n, sh);
-  // Only these: what an earlier window left here is older than the agents' own - except
-  // the person's own Google sign-in, which only ever lives here (googleCookie).
-  const given = cookies.filter(c => !googleCookie(c));
-  await withHeadless(personDir(n), async cdp => {
-    const { cookies: own } = await cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies');
-    await cdp.send('Storage.clearCookies');
-    await setAll(cdp, [...given, ...own.filter(googleCookie)].map(cookieParams));
-  });
-  seeded.set(n, new Map(given.map(c => [cookieKey(c), String(c.value)])));
-  return given.length;
-}
-// Google's own sign-in stays in the person's window and never goes to the agents'
-// browser. Google refuses that browser, and a Google session seen there is signed out -
-// in the person's window too, so they had to sign in again each time. "Sign in with
-// Google" on another site is done in the person's window; that site's own sign-in is
-// what comes back to the agents.
-export const googleCookie = (c: Record<string, unknown>) => /(^|\.)(google\.[a-z]{2,3}(\.[a-z]{2})?|youtube\.com|googleusercontent\.com)$/i.test(String(c.domain ?? '').replace(/^\./, ''));
-// What the person's window changed. The rest is the copy it was given, and the agents'
-// browser has moved on since: a site that renewed its sign-in while the window was open
-// was put back to the old one, which it no longer accepts, and the agent was signed out.
-const seeded = new Map<number, Map<string, string>>();
-const cookieKey = (c: Record<string, unknown>) => `${String(c.domain)}|${String(c.path)}|${String(c.name)}`;
-export function changedCookies<T extends Record<string, unknown>>(all: T[], given?: Map<string, string>) {
-  return given ? all.filter(c => given.get(cookieKey(c)) !== String(c.value)) : all;
-}
-// Closed: what they signed in to, into the agents' browser - straight in when it's
-// open, or added the next time it opens.
-async function carryBack(n: number) {
-  const cookies = changedCookies((await withHeadless(personDir(n), async cdp => (await cdp.send<{ cookies: Record<string, unknown>[] }>('Storage.getCookies')).cookies)).map(cookieParams), seeded.get(n)).filter(c => !googleCookie(c));
-  const sh = await shared.get(n)?.catch(() => null);
-  if (sh && !sh.cdp.closed) {
-    await setAll(sh.cdp, cookies);
-    await keepSessionCookies(sh.cdp, n).catch(() => {});
-  } else await setSecret(carriedKey(n), [...((await getSecret<Record<string, unknown>[]>(carriedKey(n)).catch(() => null)) ?? []), ...cookies]);
-  console.log(`[browser] Profile ${n}: ${cookies.length} cookies from the person's window are in the agents' browser now.`);
-}
-
 // Leftovers, checked every few minutes where there's a `ps` (Linux: the cloud). A
-// browser on an agents' profile folder that isn't the one the app is using, or a
-// throwaway browser while no run has one open, is ended: nothing else would.
-export function leftoverBrowsers(ps: string, self: number, ours: Set<number>, blankInUse: boolean) {
+// browser on an agents' profile folder that isn't the one the app is using is ended:
+// nothing else would.
+export function leftoverBrowsers(ps: string, ours: Set<number>) {
   const out: number[] = [];
   for (const line of ps.split('\n')) {
     const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
     if (!m) continue;
-    const [pid, ppid, args] = [Number(m[1]), Number(m[2]), m[3]];
+    const [pid, args] = [Number(m[1]), m[3]];
     if (ours.has(pid) || args.includes('--type=')) continue; // renderers and the like go with their browser
     const dir = /--user-data-dir=(\S+)/.exec(args)?.[1];
-    if (!dir) continue;
-    const agents = dir.startsWith(PROFILES_DIR) && /^\d+$/.test(dir.slice(PROFILES_DIR.length + 1));
-    const blank = ppid === self && dir.includes('playwright_chromiumdev_profile') && !blankInUse;
-    if (agents || blank) out.push(pid);
+    if (dir?.startsWith(PROFILES_DIR) && /^\d+$/.test(dir.slice(PROFILES_DIR.length + 1))) out.push(pid);
   }
   return out;
 }
@@ -647,24 +557,17 @@ const SWEEP_MS = 5 * 60_000;
 const psList = () => new Promise<string>(r => execFile('ps', ['-eo', 'pid=,ppid=,args='], { maxBuffer: 16 << 20 }, (err, out) => r(err ? '' : out)));
 async function findLeftovers() {
   if (process.platform !== 'linux') return [];
-  const ps = await psList();
-  const ours = new Set<number>();
-  for (const p of running) if (p.pid) ours.add(p.pid);
-  for (const p of personProcs.values()) if (p.pid) ours.add(p.pid);
-  const blankInUse = [...sessions.values()].some(x => x.kind === 'blank') || [...sessionOpening.keys()].some(k => k.includes(':blank:'));
-  return leftoverBrowsers(ps, process.pid, ours, blankInUse);
+  const mine = new Set(ours);
+  for (const p of running) if (p.pid) mine.add(p.pid);
+  if (personWindow?.pid) mine.add(personWindow.pid);
+  for (const sh of await Promise.all([...shared.values()].map(p => p.catch(() => null)))) if (sh?.pid) mine.add(sh.pid);
+  return leftoverBrowsers(await psList(), mine);
 }
 async function endLeftovers() {
   const pids = await findLeftovers();
   for (const pid of pids) {
     console.error(`[browser] Ending a leftover browser (pid ${pid}).`);
-    try {
-      process.kill(-pid, 'SIGKILL');
-    } catch {
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {}
-    }
+    killTree(pid);
   }
   return pids;
 }
@@ -672,6 +575,19 @@ setInterval(() => {
   if (process.platform === 'linux') void endLeftovers();
   for (const [n, p] of shared) void p.then(sh => closeStrayPages(n, sh), () => 0).catch(() => 0);
 }, SWEEP_MS).unref();
+
+// What the app starts besides the browsers (a virtual screen, Google's sign-in
+// window), ended when it quits.
+const running = new Set<ChildProcess>();
+process.on('exit', () => {
+  for (const proc of running)
+    try {
+      if (GROUPS && proc.pid) process.kill(-proc.pid, 'SIGTERM');
+      else proc.kill();
+    } catch {
+      proc.kill();
+    }
+});
 
 // What the Doctor and the Agency Engineer see of the browsers, and can clear (host.ts).
 export async function browserCensus() {
@@ -681,11 +597,11 @@ export async function browserCensus() {
     if (!s) continue;
     const { targetInfos } = await s.cdp.send<{ targetInfos: { targetId: string; type: string; openerId?: string }[] }>('Target.getTargets').catch(() => ({ targetInfos: [] }));
     const live = liveTargets(n);
-    agents.push({ profile: n, pid: s.proc.pid, runs: s.runs.size, pages: targetInfos.filter(t => t.type === 'page').length, stray: strayPages(targetInfos, live).length });
+    agents.push({ profile: n, pid: s.pid, runs: s.runs.size, pages: targetInfos.filter(t => t.type === 'page').length, stray: strayPages(targetInfos, live, CLOUD ? undefined : agentMade).length });
   }
   return {
     agents,
-    personWindows: [...personProcs.entries()].map(([profile, p]) => ({ profile, pid: p.pid })),
+    personWindows: personWindow ? [{ profile: personWindow.profile, pid: personWindow.pid }] : [],
     throwaway: [...sessions.values()].filter(x => x.kind === 'blank').length,
     leftovers: await findLeftovers(),
   };
@@ -699,6 +615,7 @@ export async function cleanUpBrowsers() {
   for (const [n, p] of [...shared]) {
     const s = await p.catch(() => null);
     if (!s) continue;
+    // In use, or holding pages kept for the person: only its strays.
     if (s.runs.size) {
       pages += await closeStrayPages(n, s).catch(() => 0);
       continue;
@@ -719,9 +636,14 @@ export async function cleanUpBrowsers() {
 const WAIT_MAX_MS = 24 * 3_600_000;
 const WAIT_MAX = 8;
 const UNCLAIMED_MS = 2 * 60_000;
-// person: kept for a person to finish (a CAPTCHA, then Submit), found by its site when
-// they press the request's button. The rest wait for an approval.
-type Waiting = { key: string; runId: string; since: number; person?: { profile: number; site: string; request?: number; onDone?: () => void } };
+// A page kept for the person (a CAPTCHA, then Submit) waits for them far longer: it's
+// a tab in a browser that stays open, and they may not look for days.
+const PERSON_MAX_MS = 7 * 24 * 3_600_000;
+const PERSON_MAX = 20;
+// person: kept for a person to finish, and the request it's for (show_person files it).
+type KeptFor = { profile: number; site: string; url: string; request?: number; agent?: { id: string; name: string } };
+// resume: approved, and back with the agent that queued it, to finish the job (its next run takes it).
+type Waiting = { key: string; runId: string; since: number; person?: KeptFor; resume?: string };
 const waitingPages = new Map<string, Waiting>(); // by page id (the approval's _page)
 setKeptPageCheck(id => waitingPages.has(id));
 const pendingFor = (pageId: string) =>
@@ -737,18 +659,54 @@ export function pagesToLetGo(waits: { id: string; since: number }[], pending: (i
   for (const w of kept.slice(0, Math.max(0, kept.length - max))) go.add(w.id);
   return [...go];
 }
-async function letGoOf(ids: string[]) {
+async function letGoOf(ids: string[], why?: string) {
   for (const id of ids) {
     const w = waitingPages.get(id);
     waitingPages.delete(id);
-    if (w) await closeSession(w.key);
+    if (!w) continue;
+    await closeSession(w.key);
+    if (w.person && why) void keptPageLost(w.person, why);
   }
+  saveKept();
 }
 const inPersonsHands = (w: Waiting) => {
   const id = sessions.get(w.key)?.cdp?.targetId;
   return !!id && heldSince(id) != null;
 };
-const checkWaiting = () => letGoOf(pagesToLetGo([...waitingPages.entries()].filter(([, w]) => !inPersonsHands(w)).map(([id, w]) => ({ id, since: w.since })), id => !!waitingPages.get(id)?.person || pendingFor(id), Date.now()));
+const checkWaiting = async () => {
+  const now = Date.now();
+  const free = [...waitingPages.entries()].filter(([, w]) => !inPersonsHands(w));
+  // Closed by the person (or the browser): their request is done, or the page is gone.
+  const shut = free.filter(([, w]) => w.person && sessions.get(w.key)?.page.isClosed());
+  for (const [id, w] of shut) void (sessions.get(w.key)?.page.browserGone() ? letGoOf([id], 'the browser closed') : finishKept(id, 'closed'));
+  await letGoOf(pagesToLetGo(free.filter(([, w]) => !w.person).map(([id, w]) => ({ id, since: w.since })), id => pendingFor(id) || !!waitingPages.get(id)?.resume, now));
+  await letGoOf(
+    pagesToLetGo(free.filter(([id, w]) => w.person && !shut.some(([x]) => x === id)).map(([id, w]) => ({ id, since: w.since })), () => true, now, PERSON_MAX, PERSON_MAX_MS),
+    'it waited too long, or too many pages were waiting',
+  );
+};
+
+// A kept page the person closed (with the request's button or without): answered
+// within a couple of seconds, not at the next sweep. Only a flag is read, no browser call.
+let keptWatch: ReturnType<typeof setInterval> | undefined;
+function watchKept() {
+  if (keptWatch) return;
+  keptWatch = setInterval(() => {
+    const kept = [...waitingPages.entries()].filter(([, w]) => w.person);
+    for (const [id, w] of kept) {
+      const page = sessions.get(w.key)?.page;
+      if (!page?.isClosed()) continue;
+      // The whole browser went: the page didn't get done, it went with it.
+      if (page.browserGone()) void letGoOf([id], 'the browser closed');
+      else void finishKept(id, 'closed');
+    }
+    if (!kept.length) {
+      clearInterval(keptWatch);
+      keptWatch = undefined;
+    }
+  }, 2_000);
+  keptWatch.unref?.();
+}
 
 // The run's page in this profile, set aside for a click being queued on it.
 async function setAside(ctx: RunCtx, profile: number, ref: number) {
@@ -756,27 +714,28 @@ async function setAside(ctx: RunCtx, profile: number, ref: number) {
   const s = sessions.get(key);
   if (!s || !s.cdp || s.page.isClosed()) throw new Error('There is no page open in the browser to click on. Open the page, fill it in, then queue the click.');
   if (!(await s.cdp.evaluateFor<boolean>(ref, inPage(`find(${ref}) !== null`)))) throw new Error(`There's no [${ref}] on the page now - look at it again (scroll, or open it) and use a number from what you see.`);
-  const id = await moveAside(ctx, key, s, profile);
+  const id = await moveAside(ctx.runId, key, s, profile);
   return { _page: id, _url: await s.page.url() };
 }
-async function moveAside(ctx: RunCtx, key: string, s: Session, profile: number, person?: Waiting['person']) {
-  const id = `wp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+async function moveAside(runId: string, key: string, s: Session, profile: number, person?: KeptFor, since = Date.now(), id = `wp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`) {
   const own = `wait:${id}`;
   sessions.delete(key);
   // Its own user of the shared browser, so the run ending doesn't close the browser under it.
-  sessions.set(own, { ...s, runId: own });
+  sessions.set(own, { ...s, runId: own, request: person?.request });
   const sh = await shared.get(profile)?.catch(() => null);
   sh?.runs.add(own);
-  waitingPages.set(id, { key: own, runId: ctx.runId, since: Date.now(), person });
+  waitingPages.set(id, { key: own, runId, since, person });
+  saveKept();
+  if (person) watchKept();
   setTimeout(() => void checkWaiting(), UNCLAIMED_MS + 1_000).unref();
   void checkWaiting();
   return id;
 }
 
-// What only a person can do on a form the agent has filled in (a CAPTCHA): the page
-// itself waits for them, so they do the check and press Submit and nothing else. It
-// used to be a fresh window at the same address, with the whole form to fill in again.
-// Not Google's own sign-in: Google refuses this browser, so that takes the person's window.
+// What only a person can do on a page the agent has filled in (a CAPTCHA, a code): the
+// page itself waits for them - the tab stays where it is in the agents' browser, and
+// the request it's filed with brings them straight to it. They do the check, press
+// Submit, and close the tab (or press Done on the request).
 const siteOfUrl = (url: string) => {
   try {
     return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
@@ -784,47 +743,158 @@ const siteOfUrl = (url: string) => {
     return '';
   }
 };
-async function keepForPerson(ctx: RunCtx, profile: number, url: string) {
+export const BROWSER_LINE = (url: string, profile: number) => `Open in signed-in browser: ${url}${profile !== 1 ? ` (profile ${profile})` : ''}`;
+
+// The agent's request for it: one per page - a second show_person on the same address
+// is the same request.
+function requestFor(ctx: RunCtx, profile: number, url: string, what: string, why: string): { id: number; isNew: boolean } | string {
+  const line = BROWSER_LINE(url, profile);
+  const open = all<{ id: number; evidence: string | null }>("SELECT id, evidence FROM requests WHERE agent_id = ? AND status = 'open' AND evidence LIKE ?", ctx.agent.id, `%${line}%`);
+  if (open[0]) return { id: open[0].id, isNew: false };
+  const full = tooManyWaiting(ctx.agent.id);
+  if (full) return full;
+  const id = fileRequest(ctx.agent.id, ctx.runId, { what, why, evidence: `${line}\nThe page is kept as the agent left it: press the button to go straight to that tab in the agents' browser, do what's asked, then close the tab (or press Done here).` }, ctx.now(), ctx.wake);
+  // It's the person's to do, not the Engineer's to work out: straight to them.
+  exec("UPDATE requests SET stage = 'person' WHERE id = ? AND joined_to IS NULL", id);
+  return { id, isNew: true };
+}
+
+async function keepForPerson(ctx: RunCtx, profile: number, what: string, why: string) {
   const key = `${ctx.runId}:profile:${profile}`;
   const s = sessions.get(key);
-  if (!s?.cdp || s.page.isClosed()) return false;
-  const site = siteOfUrl(await s.page.url().catch(() => ''));
-  if (!site || site !== siteOfUrl(url) || site === 'accounts.google.com') return false;
-  await moveAside(ctx, key, s, profile, { profile, site });
-  return true;
-}
-// The request's button: the page kept for it, in the person's hands, if there is one.
-// In the cloud it's shown in the app (live: the tab). On their own computer it's a real
-// window on their screen, brought forward; closing it is them being done.
-export function takeKeptPage(profile: number, url: string, request?: number, onDone?: () => void) {
+  if (!s?.cdp || s.page.isClosed()) throw new Error('There is no page open in your browser to keep. Open the page, fill in everything you can, then call show_person.');
+  const url = await s.page.url().catch(() => '');
   const site = siteOfUrl(url);
-  const kept = [...waitingPages.values()]
-    .filter(w => w.person?.profile === profile && w.person.site === site && (w.person.request == null || w.person.request === request) && sessions.get(w.key)?.cdp && !sessions.get(w.key)!.page.isClosed())
-    .sort((a, b) => b.since - a.since)[0];
+  if (!site) throw new Error("This page has no web address to keep. Open the page you need the person on first.");
+  const r = requestFor(ctx, profile, url, what, why);
+  if (typeof r === 'string') return r;
+  // Kept before for this request (the agent filled it in again): the new page replaces it.
+  for (const [id, w] of waitingPages) if (w.person?.request === r.id) await letGoOf([id]);
+  await moveAside(ctx.runId, key, s, profile, { profile, site, url, request: r.id, agent: s.agent });
+  return `This page is kept for the person exactly as it is, in its own tab in profile ${profile}, and ${r.isNew ? `request #${r.id} is filed` : `request #${r.id} (already filed) points to it now`} with a button that brings them straight to it. Your next browser step starts on a new page. Don't file another request for this. You'll hear when they're done: then open the site again and check it worked.`;
+}
+
+// The request's button: the page kept for it, if there is one - this request's own
+// first, then the newest kept on that site. On the person's screen it's their window,
+// brought in front; in the cloud the profile's screen shows it (live: the screen).
+export async function takeKeptPage(profile: number, url: string, request?: number) {
+  const site = siteOfUrl(url);
+  const usable = [...waitingPages.values()].filter(w => w.person?.profile === profile && sessions.get(w.key)?.cdp && !sessions.get(w.key)!.page.isClosed());
+  const kept =
+    (request != null ? usable.find(w => w.person!.request === request) : undefined) ??
+    usable.filter(w => w.person!.site === site && (w.person!.request == null || request == null || w.person!.request === request)).sort((a, b) => b.since - a.since)[0];
   if (!kept) return null;
   const s = sessions.get(kept.key)!;
-  Object.assign(kept.person!, { request: request ?? kept.person!.request, onDone: onDone ?? kept.person!.onDone });
+  if (request != null && kept.person!.request == null) kept.person!.request = request;
   s.request = kept.person!.request;
-  const id = s.cdp!.targetId;
-  hold(id);
-  if (CLOUD) return { live: id };
-  void s.cdp!.bringToFront().catch(() => {});
-  const watch = setInterval(() => {
-    if (![...waitingPages.values()].includes(kept)) return clearInterval(watch);
-    if (!s.page.isClosed()) return;
-    clearInterval(watch);
-    void finishKeptPage(id).catch(e => console.error('[browser] Finishing a kept page:', (e as Error).message));
-  }, 1_000);
-  watch.unref();
-  return {};
+  hold(s.cdp!.targetId);
+  await s.cdp!.bringToFront().catch(() => {});
+  return CLOUD ? { live: `${SCREEN_TAB}${profile}`, tab: s.cdp!.targetId } : { tab: s.cdp!.targetId };
 }
-// They pressed Done on it: it's closed (sign-ins kept), and its request hears.
+
+// The person's done with a kept page (closed its tab, or pressed Done): its request is
+// answered, which tells the agent that kept it - not the Engineer, who'd only pass it on.
+let personDone: (request: number, text: string) => void = () => {};
+export const onPersonDone = (fn: typeof personDone) => void (personDone = fn);
+async function finishKept(id: string, how: 'closed' | 'done') {
+  const w = waitingPages.get(id);
+  if (!w?.person) return;
+  await letGoOf([id]);
+  if (w.person.request != null)
+    personDone(w.person.request, `${how === 'closed' ? 'Closed' : 'Finished with'} the page kept for this on ${w.person.site}. Open ${w.person.url} again and check it worked.`);
+}
 export async function finishKeptPage(targetId: string) {
   const found = [...waitingPages.entries()].find(([, w]) => w.person && sessions.get(w.key)?.cdp?.targetId === targetId);
-  if (!found) return;
-  await letGoOf([found[0]]);
-  found[1].person!.onDone?.();
+  if (found) await finishKept(found[0], 'done');
 }
+// A request answered (done, or turned down): the page kept for it is no longer needed.
+export async function releaseKeptFor(request: number) {
+  await letGoOf([...waitingPages.entries()].filter(([, w]) => w.person?.request === request).map(([id]) => id));
+}
+
+// A kept page gone before the person got to it (the browser closed, it waited too
+// long): the request says so, and the agent hears, to fill it in and keep it again.
+async function keptPageLost(p: KeptFor, why: string) {
+  if (p.request == null) return;
+  const open = one<{ agent_id: string }>("SELECT agent_id FROM requests WHERE id = ? AND status = 'open'", p.request);
+  if (!open) return;
+  const { postToRequest } = await import('./engineer.js');
+  const { book } = await import('./scheduler.js');
+  postToRequest(p.request, 'engineer', `The page kept for this on ${p.site} closed before it was done (${why}). The agent will fill it in again; the button opens ${p.site} meanwhile.`);
+  book(open.agent_id, 'request reply', `The page you kept for the person for request #${p.request} on ${p.site} closed before they got to it (${why}). Open ${p.url} again, fill it in, and call signed_in_browser.show_person: the same request points to the new page.`);
+}
+
+// --- Kept across restarts --------------------------------------------------------------
+//
+// The browser outlives the app, so the pages kept for the person do too: which tab is
+// which request's is written down here, and picked up again when the app finds the
+// browser. So are the agents' own windows, so the ones a restart left behind (their
+// runs ended with it) are closed then - and only those, never a tab the person opened.
+const KEPT_FILE = join(PROFILES_DIR, 'kept-pages.json');
+type KeptRecord = KeptFor & { id: string; runId: string; since: number; targetId: string };
+const agentMade = new Set<string>(); // agents' windows this time (and popups they opened)
+let fromBefore: { kept: KeptRecord[]; agentMade: string[] } | null = null;
+let saving: ReturnType<typeof setTimeout> | undefined;
+function saveKept() {
+  clearTimeout(saving);
+  saving = setTimeout(() => {
+    const kept: KeptRecord[] = [];
+    for (const [id, w] of waitingPages) {
+      const targetId = sessions.get(w.key)?.cdp?.targetId;
+      if (w.person && targetId) kept.push({ ...w.person, id, runId: w.runId, since: w.since, targetId });
+    }
+    // What's still to be picked up from before counts too, until it has been.
+    for (const k of fromBefore?.kept ?? []) if (!kept.some(x => x.id === k.id)) kept.push(k);
+    const made = [...agentMade, ...(fromBefore?.agentMade ?? [])];
+    void writeFile(KEPT_FILE, JSON.stringify({ kept, agentMade: made })).catch(e => console.error('[browser] Writing the kept pages failed:', (e as Error).message));
+  }, 300);
+  saving.unref?.();
+}
+async function readKept() {
+  if (fromBefore) return fromBefore;
+  try {
+    const f = JSON.parse(await readFile(KEPT_FILE, 'utf8'));
+    fromBefore = { kept: Array.isArray(f.kept) ? f.kept : [], agentMade: Array.isArray(f.agentMade) ? f.agentMade : [] };
+  } catch {
+    fromBefore = { kept: [], agentMade: [] };
+  }
+  return fromBefore;
+}
+// The profile's browser found or started: its kept pages back in place, its leftover agent windows closed.
+async function adoptKeptPages(n: number, sh: Shared) {
+  const before = await readKept();
+  const mine = before.kept.filter(k => k.profile === n);
+  const { targetInfos } = await sh.cdp.send<{ targetInfos: { targetId: string; type: string; url: string }[] }>('Target.getTargets');
+  const there = new Map(targetInfos.filter(t => t.type === 'page').map(t => [t.targetId, t]));
+  for (const k of mine) {
+    before.kept = before.kept.filter(x => x !== k);
+    if (!there.has(k.targetId)) {
+      void keptPageLost(k, 'the browser closed');
+      continue;
+    }
+    try {
+      const page = await CdpPage.attach(sh.cdp, k.targetId);
+      await page.guard(allowUrl());
+      const key = `restored:${k.id}`;
+      sessions.set(key, { kind: 'profile', runId: key, profile: n, page, cdp: page, agent: k.agent });
+      await moveAside(k.runId, key, sessions.get(key)!, n, { profile: n, site: k.site, url: k.url, request: k.request, agent: k.agent }, k.since, k.id);
+      there.delete(k.targetId);
+    } catch (e) {
+      console.error(`[browser] Profile ${n}: picking up the page kept for request #${k.request ?? '?'} failed:`, (e as Error).message);
+      void keptPageLost(k, 'the browser restarted');
+    }
+  }
+  const leftover = before.agentMade.filter(id => there.has(id));
+  before.agentMade = before.agentMade.filter(id => !leftover.includes(id));
+  for (const targetId of leftover) await sh.cdp.send('Target.closeTarget', { targetId }).catch(() => {});
+  if (mine.length || leftover.length) console.log(`[browser] Profile ${n}: picked up ${mine.length} kept page(s), closed ${leftover.length} window(s) left from before.`);
+  saveKept();
+}
+// Kept pages from before: their browsers found (or started) now, so they're back
+// before anyone presses a request's button.
+void readKept().then(b => {
+  for (const n of new Set(b.kept.map(k => k.profile))) void profileBrowser(n).catch(e => console.error(`[browser] Profile ${n}: starting it for its kept pages failed:`, (e as Error).message));
+});
 
 async function closeSessions(runId: string) {
   endedRuns.add(runId);
@@ -1019,57 +1089,65 @@ const PAGE_HELPERS = `(() => {
     function stop() { o.disconnect(); clearTimeout(t); clearTimeout(hard); done(true); }
     o.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
   });
-  // What the page copies (a Copy button): kept, so the agent can be told. The
-  // clipboard itself can't be read here, and may refuse a page that isn't in front -
-  // the page is still told it worked, or it shows "Copy failed".
+  // The numbered controls inside an element (a pop-up in the way of a click).
+  const listIn = c => { const all = controls().filter(x => c.contains(x)); number(all); return all.slice(0, 12).map(x => describe(x, x.getAttribute('data-eaa-ref'))); };
+  return (window.__eaa = { view, find, pickOption, fileInput, settle, listIn });
+})()`;
+// Each call installs the helpers first if this document doesn't have them yet - in
+// the page view's own world (cdp.ts), so the page never sees them.
+export const inPage = (call: string) => `${PAGE_HELPERS}.${call}`;
+
+// What a click copies (a Copy button), so the agent can be told: the page's own copy
+// functions are watched for the moment of the click only, then put back. The clipboard
+// itself can't be read here, and may refuse a page that isn't in front - the page is
+// still told it worked, or it shows "Copy failed".
+const COPY_WATCH = `(() => {
+  if (window.__eaaCopy) return;
+  const st = { copied: '', undo: [] };
   const remember = t => { if (typeof t === 'string' && t) st.copied = t; };
+  const swap = (o, k, f) => { const was = o[k]; if (typeof was !== 'function') return; o[k] = f(was); st.undo.push(() => { o[k] = was; }); };
   if (window.Clipboard) {
-    const C = Clipboard.prototype;
-    const writeText = C.writeText;
-    if (writeText) C.writeText = function (t) { remember(String(t)); return writeText.call(this, t).catch(() => undefined); };
-    const write = C.write;
-    if (write) C.write = function (items) {
+    swap(Clipboard.prototype, 'writeText', w => function (t) { remember(String(t)); return w.call(this, t).catch(() => undefined); });
+    swap(Clipboard.prototype, 'write', w => function (items) {
       for (const item of items || []) {
         const type = item.types.includes('text/plain') ? 'text/plain' : item.types.find(x => x.startsWith('text/'));
         if (type) item.getType(type).then(b => b.text()).then(remember).catch(() => {});
       }
-      return write.call(this, items).catch(() => undefined);
-    };
+      return w.call(this, items).catch(() => undefined);
+    });
   }
-  const execCommand = document.execCommand;
-  document.execCommand = function (c) {
+  swap(document, 'execCommand', e => function (c) {
     const copy = String(c).toLowerCase() === 'copy';
-    if (copy) {
-      const a = document.activeElement;
-      remember(a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT') ? a.value.slice(a.selectionStart, a.selectionEnd) : String(getSelection()));
-    }
-    return execCommand.apply(this, arguments) || copy;
-  };
-  // A page that fills in the copy itself, in its copy event.
-  const setData = DataTransfer.prototype.setData;
-  DataTransfer.prototype.setData = function (type, value) {
+    if (copy) { const a = document.activeElement; remember(a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT') ? a.value.slice(a.selectionStart, a.selectionEnd) : String(getSelection())); }
+    return e.apply(this, arguments) || copy;
+  });
+  swap(DataTransfer.prototype, 'setData', d => function (type, value) {
     if (window.event && window.event.type === 'copy' && /text/.test(type)) remember(String(value));
-    return setData.call(this, type, value);
-  };
-  const takeCopied = () => { const c = st.copied || null; st.copied = ''; return c; };
-  // The numbered controls inside an element (a pop-up in the way of a click).
-  const listIn = c => { const all = controls().filter(x => c.contains(x)); number(all); return all.slice(0, 12).map(x => describe(x, x.getAttribute('data-eaa-ref'))); };
-  return (window.__eaa = { view, find, pickOption, fileInput, settle, listIn, takeCopied });
+    return d.call(this, type, value);
+  });
+  Object.defineProperty(window, '__eaaCopy', { value: st, configurable: true });
 })()`;
-// Each call installs the helpers first if this document doesn't have them yet.
-export const inPage = (call: string) => `${PAGE_HELPERS}.${call}`;
+const COPY_TAKE = `(() => { const st = window.__eaaCopy; if (!st) return null; for (const u of st.undo) u(); delete window.__eaaCopy; return st.copied || null; })()`;
 
 // The page's text and its numbered controls.
 async function snapshot(page: Driver): Promise<string> {
   await page.ready();
   const view = await page.evaluate<{ title: string; text: string; items: string[] }>(inPage(`view(${MAX_ELEMENTS}, ${TEXT_CHARS})`));
-  return [`Title: ${view.title || '(none)'}`, `URL: ${await page.url()}`, '', view.text || '(no text)', '', view.items.length ? `What you can use (by number):\n${view.items.join('\n')}` : 'Nothing to click on this page.', ...(await frameSections(page))].join('\n');
+  const dialogs = page.takeDialogs();
+  return [...(dialogs.length ? [`The page asked (answered OK): ${dialogs.join('; ')}`, ''] : []), `Title: ${view.title || '(none)'}`, `URL: ${await page.url()}`, '', view.text || '(no text)', '', view.items.length ? `What you can use (by number):\n${view.items.join('\n')}` : 'Nothing to click on this page.', ...(await frameSections(page))].join('\n');
 }
 
 // What's in the page's embedded frames (a form or an editor hosted elsewhere), each
-// numbered with the rest. Not a security check: those stop an agent and go to a
-// person, so one is only mentioned. Not a card field, an ad or a video either.
+// numbered with the rest - a security check's too: most are a box to tick, which in
+// a real browser on a real connection usually just passes, and the agent ticks it
+// (tick_security_check). Only a puzzle after that goes to the person. They used to be
+// hidden from the agent altogether, so every one, even a checkbox, waited for a person.
+// Not a card field, an ad or a video.
 const CAPTCHA_FRAME = /challenges\.cloudflare\.com|\/recaptcha\/|recaptcha\.net|hcaptcha\.com|arkoselabs\.com|funcaptcha\.com|geetest\.com/i;
+// The part that's a box to tick: Cloudflare's Turnstile, reCAPTCHA's anchor, hCaptcha's checkbox.
+const CHECKBOX_FRAME = /challenges\.cloudflare\.com|\/recaptcha\/(api2|enterprise)\/anchor|hcaptcha\.com\/.*#frame=checkbox|newassets\.hcaptcha\.com\/captcha\/v1\/[^/]+\/static\/hcaptcha\.html#frame=checkbox/i;
+// The puzzle that opens after it (pictures to pick, a slider): the person's.
+const PUZZLE_FRAME = /\/recaptcha\/(api2|enterprise)\/bframe|hcaptcha\.com\/.*#frame=challenge|arkoselabs\.com|funcaptcha\.com|geetest\.com/i;
 const UNUSED_FRAME = /js\.stripe\.com|checkout\.stripe\.com|paypal\.com|doubleclick\.net|googlesyndication\.com|googletagmanager\.com|youtube(-nocookie)?\.com\/embed|player\.vimeo\.com|facebook\.com\/plugins|platform\.twitter\.com/i;
 const MAX_FRAMES = 8;
 const FRAME_ELEMENTS = 50;
@@ -1081,7 +1159,7 @@ async function frameSections(page: Driver): Promise<string[]> {
   if (!page.frames || !page.evaluateInFrame) return [];
   const all = await page.frames().catch(() => []);
   const allow = frameAllow();
-  const usable = (await Promise.all(all.map(async f => (!CAPTCHA_FRAME.test(f.url) && !UNUSED_FRAME.test(f.url) && (!/^https?:/.test(f.url) || (await allow(f.url).catch(() => false))) ? f : null)))).filter(f => !!f).slice(0, MAX_FRAMES);
+  const usable = (await Promise.all(all.map(async f => (!UNUSED_FRAME.test(f.url) && (!/^https?:/.test(f.url) || (await allow(f.url).catch(() => false))) ? f : null)))).filter(f => !!f).slice(0, MAX_FRAMES);
   const read = (no: number) => {
     const look = () => page.evaluateInFrame!<(PageView & { size: number }) | null>(no, `Object.assign(${inPage(`view(${FRAME_ELEMENTS}, ${FRAME_CHARS})`)}, { size: innerWidth * innerHeight })`);
     return Promise.race([
@@ -1096,7 +1174,11 @@ async function frameSections(page: Driver): Promise<string[]> {
     ]);
   };
   const views = await Promise.all(usable.map(async f => ({ url: f.url, view: await read(f.no) })));
-  const out = all.some(f => CAPTCHA_FRAME.test(f.url)) ? ['', 'This page has a security check (CAPTCHA) in a frame. It stays with a person.'] : [];
+  const out = all.some(f => CAPTCHA_FRAME.test(f.url))
+    ? ['', (await securityCheck(page)) === 'puzzle'
+        ? 'This page has a security check (CAPTCHA) asking for a puzzle - pictures to pick, a slider. That part is the person\'s: fill in everything else, then signed_in_browser.show_person.'
+        : 'This page has a security check (CAPTCHA). If it shows a box to tick ("Verify you are human", "I\'m not a robot"), call tick_security_check once. Often it passes by itself after a few seconds: look again before ticking.']
+    : [];
   for (const { url, view } of views) {
     if (!view || view.size < 400 || (!view.text && !view.items.length)) continue;
     const host = /^https?:/.test(url) ? new URL(url).host : 'this site';
@@ -1106,6 +1188,48 @@ async function frameSections(page: Driver): Promise<string[]> {
 }
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// The security check on a page now: a puzzle showing (the person's), a box to tick, or none.
+async function securityCheck(page: Driver): Promise<'puzzle' | 'checkbox' | 'none'> {
+  const frames = await page.frames().catch(() => []);
+  const shown = async (re: RegExp) => {
+    for (const f of frames.filter(f => re.test(f.url))) if ((await page.frameBox(f.no))?.shown) return f;
+    return null;
+  };
+  if (await shown(PUZZLE_FRAME)) return 'puzzle';
+  return (await shown(CHECKBOX_FRAME)) ? 'checkbox' : 'none';
+}
+// Ticks the box, as a person would, and says what happened.
+async function tickSecurityCheck(page: Driver): Promise<string> {
+  const frames = await page.frames().catch(() => []);
+  let target: { no: number; box: { width: number; height: number } } | null = null;
+  for (const f of frames.filter(f => CHECKBOX_FRAME.test(f.url))) {
+    const box = await page.frameBox(f.no);
+    if (box?.shown) {
+      target = { no: f.no, box };
+      break;
+    }
+  }
+  if (!target) return `There's no box to tick on this page now.\n\n${await snapshot(page)}`;
+  // reCAPTCHA's and hCaptcha's box is an element there; Cloudflare's is drawn where
+  // nothing can reach it, at the left of its frame.
+  const el = await page
+    .evaluateInFrame<{ x: number; y: number } | null>(target.no, `(() => { const e = document.querySelector('#recaptcha-anchor, #checkbox, [role=checkbox], input[type=checkbox]'); if (!e) return null; const r = e.getBoundingClientRect(); return r.width ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; })()`)
+    .catch(() => null);
+  const at = el ?? { x: Math.min(32, target.box.width / 4), y: target.box.height / 2 };
+  await page.clickFrame(target.no, at.x, at.y);
+  await wait(4_000);
+  await settle(page, 3_000);
+  const now = await securityCheck(page);
+  const said =
+    now === 'puzzle'
+      ? "Ticked, and now it asks for a puzzle (pictures to pick, a slider): that part is the person's. Fill in everything else, then signed_in_browser.show_person."
+      : now === 'checkbox'
+        ? "Ticked; the box is still there - it may still be checking. Look again in a few seconds. If it's still asking, it's the person's: signed_in_browser.show_person."
+        : 'Ticked, and the check is gone: carry on.';
+  return `${said}\n\n${await snapshot(page)}`;
+}
+
 // After something that changes the page: until it has finished changing (cap ms at most).
 const settle = (page: Driver, cap = 3_000, min = 0) => page.evaluate(inPage(`settle(400, ${cap}, ${min})`)).catch(() => wait(300));
 // The same, watching the frame a number is in when it's in one.
@@ -1140,6 +1264,7 @@ async function followNewWindow(s: Windows, allow: (url: string) => Promise<boole
   for (const id of fresh) followed.add(id);
   const win = await s.cdp.adopt(fresh[fresh.length - 1]).catch(() => null);
   if (!win) return '';
+  agentMade.add(win.targetId);
   await win.guard(allow);
   await win.ready(10_000);
   await settle(win, 3_000, 1_000);
@@ -1152,7 +1277,7 @@ async function followNewWindow(s: Windows, allow: (url: string) => Promise<boole
   s.cdp = win;
   s.page = win;
   if (siteOfUrl(at) === 'accounts.google.com')
-    return "That click opened Google's sign-in, which refuses this browser. Go back (it closes the window), then call signed_in_browser.show_person with sign_in true at this site's sign-in page and file one request: the person presses \"Sign in with Google\" in their own window, and the site's sign-in comes over to you when they close it.";
+    return "That click opened Google's sign-in. If it lists an account to choose, choose it - that signs you in. If it asks for an email or password instead, Google won't take it from this browser: go back (it closes the window) and call signed_in_browser.show_person with google true, once - the person signs in to Google in this profile, and from then on choosing the account is yours.";
   return "That click opened a new window, and you're in it now: what you do next happens there. When it closes you're back on the page that opened it; open, or back with nowhere further back to go, leaves it.";
 }
 async function windowNote(s: Windows, allow: (url: string) => Promise<boolean>) {
@@ -1173,18 +1298,20 @@ async function stopIfWindowClosed(s: Windows) {
 // A click, and the page after it - first what it copied, when it was a Copy button.
 const MAX_COPIED = 20_000;
 async function clickAndLook(page: Driver, ref: number, s?: Windows, allow = allowUrl()): Promise<string> {
+  await page.evaluateInPage(COPY_WATCH).catch(() => {});
   try {
     await page.click(ref);
   } catch (e) {
+    void page.evaluateInPage(COPY_TAKE).catch(() => {});
     if (!s?.openers?.length || !page.isClosed()) throw e; // a click that closes its own window
   }
   await wait(150);
   await settleAt(page, ref);
+  const copied = await page.evaluateInPage<string | null>(COPY_TAKE).catch(() => null);
   if (s) {
     const note = await windowNote(s, allow);
     if (note) return `${note}\n\n${await snapshot(s.page)}`;
   }
-  const copied = await page.evaluate<string | null>(inPage('takeCopied()')).catch(() => null);
   const after = await snapshot(page);
   if (!copied) return after;
   const cut = copied.length > MAX_COPIED ? `${copied.slice(0, MAX_COPIED)}\n[cut off - ${copied.length} characters in all]` : copied;
@@ -1294,6 +1421,36 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
         return snapshot(s.page);
       },
     },
+    {
+      id: `${prefix}.look`,
+      tier: 'T0',
+      description: `See the current page in ${where} again, as it is now, without reloading it - a page given back to you after an approval, or one that changed by itself.`,
+      schema: obj(withProfile({}), []),
+      impl: async (a, ctx) => snapshot((await open(ctx, a)).page),
+    },
+    {
+      id: `${prefix}.press`,
+      tier: actTier,
+      description: `Press a key in the current page in ${where}, on whatever has the focus: Escape closes most pop-ups and menus, Tab moves to the next field, the arrows move in a list, Enter submits.`,
+      schema: obj(withProfile({ key: { type: 'string', enum: Object.keys(KEYS) } }), ['key']),
+      impl: async (a, ctx) => {
+        const key = String(a.key ?? '') as Key;
+        if (!(key in KEYS)) throw new Error(`key: one of ${Object.keys(KEYS).join(', ')}.`);
+        const s = await open(ctx, a);
+        await s.page.press(key);
+        await wait(150);
+        await settle(s.page, 2_000);
+        if (backFromClosedWindow(s)) return `That window closed, so you're back on the page that opened it.\n\n${await snapshot(s.page)}`;
+        return snapshot(s.page);
+      },
+    },
+    {
+      id: `${prefix}.tick_security_check`,
+      tier: actTier,
+      description: `Tick the security check's box on the current page in ${where} ("Verify you are human", "I'm not a robot"), once, as a person would. Says whether it passed, or now wants a puzzle - which is the person's.`,
+      schema: obj(withProfile({}), []),
+      impl: async (a, ctx) => tickSecurityCheck((await open(ctx, a)).page),
+    },
     ...(kind === 'profile' ? profileOnly(where, click) : []),
   ];
 }
@@ -1362,29 +1519,60 @@ async function chooseFromList(page: Driver, ref: number, option: string): Promis
 }
 
 // For tests: the page view and its steps, on a page made there.
-export const pageViewForTests = { allowAllFrames: () => void (frameAllow = () => async () => true), clickIn: (s: { page: CdpPage; cdp: CdpPage; openers?: CdpPage[] }, ref: number) => clickAndLook(s.page, ref, s as Windows, async () => true), click: (p: CdpPage, ref: number) => clickAndLook(p, ref), snapshot: (p: CdpPage) => snapshot(p), choose: (p: CdpPage, ref: number, option: string) => chooseFromList(p, ref, option), settle: (p: CdpPage, cap?: number, min?: number) => settle(p, cap, min) };
+export const pageViewForTests = { allowAllFrames: () => void (frameAllow = () => async () => true), clickIn: (s: { page: CdpPage; cdp: CdpPage; openers?: CdpPage[] }, ref: number) => clickAndLook(s.page, ref, s as Windows, async () => true), click: (p: CdpPage, ref: number) => clickAndLook(p, ref), snapshot: (p: CdpPage) => snapshot(p), choose: (p: CdpPage, ref: number, option: string) => chooseFromList(p, ref, option), settle: (p: CdpPage, cap?: number, min?: number) => settle(p, cap, min), tick: (p: CdpPage) => tickSecurityCheck(p) };
+
+// What a person's approval of a click clears, by agent and click: the site, until when.
+const GRANT_MS = 60 * 60_000;
+const grants = new Map<string, { site: string; until: number }>();
 
 // The clicks that always wait for a person (unless they lower them on the Tools page),
 // the password store, and opening a profile on the person's screen.
 function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
+  // Approving one of these clears the job, not one click replayed blind: the click is
+  // tried on the page kept for it, and either way the page goes back to the agent, which
+  // may need a few more steps to finish (a newsletter pop-up over the button, an "Are
+  // you sure?", Submit again). For the next hour the same click on the same site runs
+  // without asking again - for that agent only. A click replayed alone, with nothing
+  // able to deal with what was in its way, was what kept failing ("Something is on top
+  // of [42]"), as it had in World Asset Register before its runs resumed whole.
   const decisive = (id: string, what: string): ToolDef => ({
     id: `signed_in_browser.${id}`,
     tier: 'T2',
-    description: `The click that ${what}, in ${where}: a numbered button on the current page. Waits for the person's approval, unless they lowered it. The page stays as it is for that click, and your next browser step starts on a new page - open the next address you need; nothing you do after can move the waiting click.`,
+    description: `The click that ${what}, in ${where}: a numbered button on the current page. Waits for the person's approval, unless they lowered it. The page stays as it is for that click, and your next browser step starts on a new page - open the next address you need; nothing you do after can move the waiting click. Once approved, the page comes back to you to finish the job: whatever else it takes there (a pop-up, a confirmation, this click again) is yours, and this click on that site runs without asking again for an hour.`,
     schema: obj({ ref: { type: 'number', description: 'The number from the last page you saw' }, what: { type: 'string', description: 'For the person approving, in a sentence: exactly what this click does (the plan and price, the post, the tool)' }, profile: PROFILE_ARG }, ['ref', 'what']),
     // Queued: its page is set aside for it (setAside). Approved: the click runs there.
     preview: async (a, ctx) => setAside(ctx, await knownProfile(a.profile), Number(a.ref)),
+    // The rest of a job a person approved: the same click on the same site, within the hour.
+    granted: async (a, ctx) => {
+      const g = grants.get(`${ctx.agent.id}|${id}`);
+      if (!g || g.until < Date.now()) return false;
+      const s = sessions.get(`${ctx.runId}:profile:${await knownProfile(a.profile)}`);
+      return !!s && !s.page.isClosed() && siteOfUrl(await s.page.url().catch(() => '')) === g.site;
+    },
     impl: async (a, ctx) => {
-      if (!a._page) return click(a, ctx); // the person lowered it: no approval, no page set aside
+      if (!a._page) return click(a, ctx); // the person lowered it, or approved the job this is part of
+      const site = siteOfUrl(String(a._url ?? ''));
+      grants.set(`${ctx.agent.id}|${id}`, { site, until: Date.now() + GRANT_MS });
+      const cleared = `signed_in_browser.${id} on ${site} runs without asking again for the next hour`;
       const w = waitingPages.get(String(a._page));
       const s = w && sessions.get(w.key);
-      if (!s || s.page.isClosed())
-        throw new Error("The page this click was on closed before it was approved (the agency restarted, the page was closed, or it waited too long), so nothing was clicked. Open the page again, redo the steps, and queue the click once more.");
+      if (!w || !s || s.page.isClosed())
+        return `Nothing was clicked: the page it was queued on had closed (the agency restarted, the page was closed, or it waited too long). It's approved all the same, so do it yourself now: open ${String(a._url ?? 'the page')} again, redo the steps, and click - ${cleared}.`;
       if (s.cdp) await untilFree(s.cdp);
-      await s.page.click(Number(a.ref));
-      await wait(150);
-      await settle(s.page);
-      return snapshot(s.page);
+      let done: string;
+      try {
+        await s.page.click(Number(a.ref));
+        await wait(150);
+        await settle(s.page);
+        done = 'Clicked.';
+      } catch (e) {
+        done = `The click as it was queued didn't land: ${(e as Error).message}`;
+      }
+      // Back with the agent: its next browser step on this profile continues here.
+      w.resume = ctx.agent.id;
+      w.since = Date.now();
+      const n = s.profile;
+      return `${done} The page is yours again: your next browser step on profile ${n} continues on it (signed_in_browser.look shows it - don't open it again, that reloads it). Finish the job there: close a pop-up, confirm, press it again - ${cleared}. Then check it went through.\n\n${await snapshot(s.page)}`;
     },
   });
   return [
@@ -1459,23 +1647,28 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
     },
     {
       id: 'signed_in_browser.show_person',
-      tier: 'T0',
+      tier: 'T1',
       description:
-        "For what only a person can do: a CAPTCHA, or a code sent to their phone. Fill in everything else first and call this while you're still on that page, with url its address: the page itself is kept for them exactly as it is, so they do the check and press Submit, and your next browser step starts on a new page. From anywhere else it opens a browser profile in a window on the person's screen, at that address. Then file a request saying what they need to do, with a line \"Open in signed-in browser: <address>\" (and \" (profile N)\" if not 1) so they get a button. Your own browser on that profile carries on meanwhile - file the request and get on with other work. What they sign in to is signed in for you too once they close their window.",
+        "For what only a person can do on a page: a CAPTCHA puzzle (after tick_security_check didn't pass it), a code sent to their phone, an ID check. Fill in everything else first and call this while you're still on that page: the page is kept for them exactly as it is, in its own tab in your browser, and a request is filed for you with a button that takes them straight to that tab - so they only do the check and press Submit. Don't file a request yourself as well. Your next browser step starts on a new page; get on with other work, and you'll hear when they're done. google true instead: the person signs in to Google in this profile (Google won't let an agent's browser sign in) - after that \"Sign in with Google\" on any site is yours: click it and choose the account.",
       schema: obj(
         {
-          url: { type: 'string', description: 'The page to open' },
-          sign_in: { type: 'boolean', description: "True when the person is to sign in there (\"Sign in with Google\", Apple, Microsoft, a phone code): it opens their own plain window at url, the site's sign-in page, since Google refuses the agents' browser. Their sign-in to that site comes over to your browser when they close it." },
+          what: { type: 'string', description: 'For the request\'s title, in 10 words or fewer: what they need to do and why - "Pass the CAPTCHA to send the Tech Talks Daily pitch"' },
+          why: { type: 'string', description: "What's filled in and waiting, and what happens once they've done it" },
+          google: { type: 'boolean', description: 'True for signing in to Google in this profile, not a page you are on' },
           profile: PROFILE_ARG,
         },
-        ['url'],
+        ['what'],
       ),
       impl: async (a, ctx) => {
         const n = await knownProfile(a.profile);
-        if (!a.sign_in && (await keepForPerson(ctx, n, String(a.url ?? ''))))
-          return `This page is kept for the person exactly as it is, in profile ${n}: file the request now. Your next browser step starts on a new page.`;
-        await openProfileWindow(n, String(a.url ?? ''));
-        return `Opened profile ${n} on the person's screen at ${String(a.url)}.`;
+        const what = String(a.what ?? '').trim();
+        const words = what.split(/\s+/).length;
+        if (words > 14) return `Not done: what is ${words} words. Make it 10 words or fewer - what they need to do and why - and put the rest in why.`;
+        const why = String(a.why ?? '').trim() || what;
+        if (!a.google) return keepForPerson(ctx, n, what, why);
+        const r = requestFor(ctx, n, GOOGLE_SIGN_IN, what, why);
+        if (typeof r === 'string') return r;
+        return `${r.isNew ? `Filed request #${r.id}` : `Request #${r.id} is already open for this`}: its button opens Google's sign-in in profile ${n} for the person. Meanwhile profile ${n} is closed to you while they sign in - use another profile or other work. You'll hear when they're done.`;
       },
     },
   ];
@@ -1537,18 +1730,33 @@ async function untilFree(page: CdpPage) {
   if (!freed) throw new Error("The person has taken over this page in the agents' browser and hasn't handed it back. Work on something else and try it later.");
 }
 
-// In the cloud nobody sees the screen: the person's window opens on a screen of its own
-// (a virtual display per profile), which the live view streams and sends their input to
-// (live-view.ts). It's still the plain browser, nothing attached, so Google signs them in.
+// In the cloud nobody sees the screen: each profile's browser runs on a screen of its
+// own (a virtual display), which the live view streams whole - every agent's window,
+// and the tab kept for the person - and sends their mouse and keys to (live-view.ts).
+// It's the same browser the agents work in, as a browser on the person's own screen is.
 const CLOUD = !!process.env.EAA_CLOUD_HOST;
 const SCREEN = { width: 1280, height: 860 };
-type Screen = { profile: number; display: string; since: number; url: string; request?: number };
-const screens = new Map<number, Screen>();
-export const personScreens = () => [...screens.values()];
+const SCREEN_TAB = 'screen:';
 export const screenSize = SCREEN;
 const xvfbs = new Map<string, ChildProcess>();
+const screenSince = new Map<number, number>();
 const screenOf = (n: number) => `:${100 + n}`;
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// The profiles' screens (in the cloud), to watch and use: the browser on it, or
+// Google's sign-in window while that has it.
+export async function personScreens() {
+  if (!CLOUD) return [];
+  const out: { profile: number; display: string; since: number; url: string; request?: number }[] = [];
+  for (const [n, p] of shared) {
+    if (!(await p.then(() => true, () => false))) continue;
+    const kept = [...waitingPages.values()].find(w => w.person?.profile === n);
+    out.push({ profile: n, display: screenOf(n), since: screenSince.get(n) ?? Date.now(), url: kept?.person?.url ?? '', request: kept?.person?.request });
+  }
+  if (personWindow && !out.some(o => o.profile === personWindow!.profile))
+    out.push({ profile: personWindow.profile, display: screenOf(personWindow.profile), since: personWindow.since, url: personWindow.url, request: personWindow.request });
+  return out;
+}
 
 // Chrome's POSIX profile lock is a symlink "hostname-pid". A hostname can itself
 // contain dashes, so the pid is the part after the last one, and only this machine's
@@ -1563,15 +1771,6 @@ export function singletonPid(lock: string | null, host = hostname()): number | n
   return pid;
 }
 
-// The process we spawned has gone. Keep streaming the screen when the lock names
-// some other live process: Chrome's singleton makes the second process the window
-// and the one we started exits, and dropping the screen then is how a live browser
-// disappeared from the page with nothing to click.
-export function personWindowAfterExit(ourPid: number | undefined, lockPid: number | null, lockAlive: boolean): 'keep' | 'close' {
-  if (ourPid != null && lockPid != null && lockPid !== ourPid && lockAlive) return 'keep';
-  return 'close';
-}
-
 function pidAlive(pid: number) {
   try {
     process.kill(pid, 0);
@@ -1579,29 +1778,6 @@ function pidAlive(pid: number) {
   } catch (e) {
     return (e as NodeJS.ErrnoException).code === 'EPERM';
   }
-}
-async function pidParent(pid: number): Promise<number | null> {
-  if (process.platform !== 'linux') return null;
-  try {
-    const m = /^PPid:\s+(\d+)/m.exec(await readFile(`/proc/${pid}/status`, 'utf8'));
-    return m ? Number(m[1]) : null;
-  } catch (e) {
-    console.error(`[browser] Couldn't read the parent of pid ${pid}:`, (e as Error).message);
-    return null;
-  }
-}
-
-// One opener per profile. A second open used to run while the first was still
-// closing the agents' browser and starting the screen, spawn its own Chrome
-// (without the first-run flags, on a display that didn't exist yet), and that
-// Chrome won the profile. The one we were watching then exited and took the
-// screen with it.
-const profileTails = new Map<number, Promise<void>>();
-function withProfile<T>(n: number, fn: () => Promise<T>): Promise<T> {
-  const prev = profileTails.get(n) ?? Promise.resolve();
-  const run = prev.then(fn, fn);
-  profileTails.set(n, run.then(() => undefined, () => undefined));
-  return run;
 }
 
 async function displayReady(display: string, x: ChildProcess) {
@@ -1640,288 +1816,142 @@ async function displayFor(n: number) {
   running.add(x);
   if (await displayReady(display, x)) {
     console.log(`[browser] Virtual screen ${display} is up.`);
+    screenSince.set(n, Date.now());
     return display;
   }
   throw new Error(`The virtual screen ${display} never came up.${stderr.trim() ? ` ${stderr.trim()}` : ''}`);
 }
 
-// The browser that has the profile. `spawned` is the process we started; once
-// that exits and Chrome has kept the profile under another pid, only that pid
-// is left, and closing the window means signalling it.
-type PersonBrowser = { pid: number | undefined; spawned?: ChildProcess; kill: () => void; exited: () => boolean };
-const personProcs = new Map<number, PersonBrowser>();
-const watchers = new Map<number, ReturnType<typeof setInterval>>();
-
-// --- A profile on the person's screen ------------------------------------------------------
-
-// The person's window: the plain browser, nothing attached and no debugging address,
-// where Google signs them in - on its own copy of the profile (personDir), so the
-// agents' browser stays open and its runs carry on. It opens with the agents' sign-ins
-// and, once closed, what they signed in to goes to the agents (carryBack).
-// onClosed: once it has closed (opened from a request, its Engineer is told) - once
-// per key however often it's opened meanwhile.
-const whenClosed = new Map<number, Map<string, () => void>>();
-function personGone(n: number) {
-  const then = whenClosed.get(n);
-  whenClosed.delete(n);
-  for (const f of then?.values() ?? []) {
-    try {
-      f();
-    } catch (e) {
-      console.error(`[browser] Profile ${n}: telling the agency the window closed failed:`, (e as Error).message);
+// --- A page for the person -------------------------------------------------------------
+//
+// A request's button with no page kept for it (or "Open a profile" in the app): a new
+// window in the profile's browser - the agents' own, with every sign-in they have - at
+// that address. It isn't attached to anything, so it's the plain browser to the site.
+// Whatever the person signs in to there, the agents are signed in to: it's one browser.
+type PersonPage = { targetId: string; profile: number; url: string; request?: number; since: number };
+const personPages = new Map<string, PersonPage>();
+async function openPersonPage(n: number, url: string, request?: number) {
+  const sh = await profileBrowser(n);
+  const { targetId } = await sh.cdp.send<{ targetId: string }>('Target.createTarget', { url, newWindow: true, ...agentBounds() });
+  personPages.set(targetId, { targetId, profile: n, url, request, since: Date.now() });
+  await sh.cdp.send('Target.activateTarget', { targetId }).catch(() => {});
+  watchPersonPages();
+  return targetId;
+}
+// Closed by the person: its request, if it came from one, is answered - its agent hears.
+let pagesWatch: ReturnType<typeof setInterval> | undefined;
+function watchPersonPages() {
+  if (pagesWatch) return;
+  pagesWatch = setInterval(async () => {
+    for (const [n, p] of shared) {
+      const sh = await p.catch(() => null);
+      const open = new Set(sh ? (await sh.cdp.send<{ targetInfos: { targetId: string }[] }>('Target.getTargets').catch(() => ({ targetInfos: [] }))).targetInfos.map(t => t.targetId) : []);
+      for (const pp of personPages.values()) {
+        if (pp.profile !== n || open.has(pp.targetId)) continue;
+        personPages.delete(pp.targetId);
+        if (pp.request != null) personDone(pp.request, `Closed the page opened for this (${siteOfUrl(pp.url)}). Open ${pp.url} again and check it worked.`);
+      }
     }
+    if (!personPages.size) {
+      clearInterval(pagesWatch);
+      pagesWatch = undefined;
+    }
+  }, 2_000);
+  pagesWatch.unref?.();
+}
+
+// --- Signing in to Google ----------------------------------------------------------------
+//
+// Google refuses to sign anyone in to a browser started with a debugging address -
+// attached to the page or not ("This browser or app may not be secure"; checked again
+// 2026-11-13 on Chrome 155, with only real keystrokes). So, as World Asset Register does
+// it: the profile's browser closes, the same profile opens as the plain browser for
+// the person to sign in, and when they close it the agents' browser starts again,
+// signed in. Nothing is copied: it's the same profile, Google's sign-in and all.
+// (It used to be a copy of the profile, with only some cookies carried back - never
+// Google's or YouTube's, and nothing a site keeps outside cookies - so agents could
+// never be signed in to YouTube, however often the person signed in.)
+const signingIn = new Map<number, number>(); // profile -> since
+type PersonWindow = { profile: number; pid?: number; proc: ChildProcess; since: number; url: string; request?: number };
+let personWindow: PersonWindow | null = null;
+const isGoogleSignIn = (url: string) => /^(accounts\.google\.com|accounts\.youtube\.com)$/.test(siteOfUrl(url));
+export const GOOGLE_SIGN_IN = 'https://accounts.google.com/';
+
+async function googleSignIn(n: number, url: string, request?: number) {
+  if (personWindow) {
+    if (personWindow.profile === n) return { ok: true, profile: n, already: true, ...(CLOUD ? { live: `${SCREEN_TAB}${n}` } : {}) };
+    throw new Error(`Google's sign-in is open for profile ${personWindow.profile}. Finish there (close that window) first.`);
+  }
+  const exe = browserExe();
+  if (!exe) throw noBrowser();
+  signingIn.set(n, Date.now());
+  try {
+    const sh = await shared.get(n)?.catch(() => null);
+    if (sh) {
+      console.log(`[browser] Profile ${n}: closing the agents' browser for Google's sign-in.`);
+      await closeShared(n, sh);
+    }
+    await closing.get(n);
+    const dir = profileDir(n);
+    await keepSignedIn(dir, false);
+    await clearStaleLock(dir);
+    const display = CLOUD ? await displayFor(n) : null;
+    const proc = spawn(exe, [`--user-data-dir=${dir}`, '--no-first-run', '--no-default-browser-check', ...(display ? ['--window-position=0,0', `--window-size=${SCREEN.width},${SCREEN.height}`, '--start-maximized'] : []), ...EXTRA_FLAGS, url], {
+      stdio: 'ignore',
+      env: display ? { ...process.env, DISPLAY: display } : process.env,
+    });
+    running.add(proc);
+    const w: PersonWindow = { profile: n, pid: proc.pid, proc, since: Date.now(), url, request };
+    personWindow = w;
+    proc.once('error', e => console.error(`[browser] Profile ${n}: Google's sign-in window failed to start:`, e.message));
+    proc.once('exit', () => {
+      running.delete(proc);
+      if (personWindow === w) personWindow = null;
+      signingIn.delete(n);
+      console.log(`[browser] Profile ${n}: Google's sign-in window closed; the agents' browser starts again.`);
+      // Back for the agents now, with its kept pages and the new sign-in.
+      void profileBrowser(n).catch(e => console.error(`[browser] Profile ${n}: starting the agents' browser again failed:`, (e as Error).message));
+      if (request != null) personDone(request, 'Closed the Google sign-in window. Check you are signed in to Google now (open the site and sign in with Google - choose the account, nothing to type).');
+    });
+    console.log(`[browser] Profile ${n}: Google's sign-in open for the person${display ? ` on ${display}` : ''} (pid ${proc.pid ?? 'unknown'}).`);
+    return { ok: true, profile: n, already: false, ...(display ? { live: `${SCREEN_TAB}${n}` } : {}) };
+  } catch (e) {
+    signingIn.delete(n);
+    throw e;
   }
 }
-const personOpen = new Map<number, Promise<void>>();
-const personRelease = new Map<number, () => void>();
-const PERSON_FLAGS = ['--no-first-run', '--no-default-browser-check'];
-const personArgs = (dir: string, target: string, display: string | null) => [
-  `--user-data-dir=${dir}`,
-  ...PERSON_FLAGS,
-  ...(display ? ['--window-position=0,0', `--window-size=${SCREEN.width},${SCREEN.height}`, '--start-maximized'] : []),
-  ...EXTRA_FLAGS,
-  target,
-];
 
-function forgetPerson(n: number, tell = true) {
-  const w = watchers.get(n);
-  if (w) clearInterval(w);
-  watchers.delete(n);
-  const proc = personProcs.get(n);
-  if (proc?.spawned) running.delete(proc.spawned);
-  personProcs.delete(n);
-  screens.delete(n);
-  personOpen.delete(n);
-  // A window that never opened isn't "closed": the caller already got the error.
-  if (!tell) whenClosed.delete(n);
-  // What they signed in to, to the agents' browser - before the request is told it's done.
-  void (tell ? carryBack(n) : Promise.resolve())
-    .catch(e => console.error(`[browser] Profile ${n}: copying the person's sign-ins to the agents failed:`, (e as Error).message))
-    .finally(() => personGone(n));
-  const release = personRelease.get(n);
-  personRelease.delete(n);
-  release?.();
-}
-
-// Chrome kept the profile after the process we started exited. Watch that pid:
-// the screen stays until it, and no successor, is gone.
-function adopt(n: number, pid: number): PersonBrowser {
-  const prev = watchers.get(n);
-  if (prev) clearInterval(prev);
-  const browser: PersonBrowser = {
-    pid,
-    kill() {
-      try {
-        process.kill(pid, 'SIGTERM');
-      } catch (e) {
-        const err = e as NodeJS.ErrnoException;
-        if (err.code !== 'ESRCH') console.error(`[browser] Profile ${n}: couldn't close pid ${pid}:`, err.message);
-      }
-    },
-    exited: () => !pidAlive(pid),
-  };
-  const timer = setInterval(() => {
-    if (pidAlive(pid)) return;
-    clearInterval(timer);
-    if (watchers.get(n) === timer) watchers.delete(n);
-    void withProfile(n, async () => {
-      if (personProcs.get(n) !== browser) return;
-      const holder = singletonPid(await readlink(join(personDir(n), 'SingletonLock')).catch(() => null));
-      if (holder && personWindowAfterExit(pid, holder, pidAlive(holder)) === 'keep') {
-        console.error(`[browser] Profile ${n}: pid ${pid} exited and Chrome kept the profile as pid ${holder}. Still streaming that screen.`);
-        personProcs.set(n, adopt(n, holder));
-        return;
-      }
-      console.log(`[browser] Profile ${n} closed.`);
-      forgetPerson(n);
-    });
-  }, 1_000);
-  timer.unref();
-  watchers.set(n, timer);
-  return browser;
-}
-
-// Done (or handed back unfinished: its request isn't told) - the window closes.
-export function closePersonWindow(n: number, done: boolean) {
-  const proc = personProcs.get(n);
-  if (!proc || proc.exited()) return false;
-  if (!done) whenClosed.delete(n);
-  console.log(`[browser] Profile ${n}: closing the signed-in browser (${done ? 'done' : 'handed back'}).`);
-  const sc = screens.get(n);
-  if (!sc) {
-    proc.kill();
+// Done with Google's sign-in from the app (in the cloud, where they can't close the
+// window themselves): closed the way a person closes it, so Chrome writes its cookies.
+export function closePersonWindow(n: number) {
+  const w = personWindow;
+  if (!w || w.profile !== n) return false;
+  if (!CLOUD) {
+    w.proc.kill();
     return true;
   }
-  // Closed the way a person closes it, so Chrome shuts down cleanly and writes its
-  // cookies: killed, it loses the newest ones - a sign-in made a moment ago.
   void (async () => {
-    for (let i = 0; i < 6 && !proc.exited(); i++) {
+    for (let i = 0; i < 6 && w.proc.exitCode === null; i++) {
       await new Promise<void>(r => {
-        const x = spawn('xdotool', ['key', 'ctrl+shift+w'], { env: { ...process.env, DISPLAY: sc.display }, stdio: 'ignore' });
+        const x = spawn('xdotool', ['key', 'ctrl+shift+w'], { env: { ...process.env, DISPLAY: screenOf(n) }, stdio: 'ignore' });
         x.on('close', () => r());
         x.on('error', () => r());
       });
       await sleep(1_000);
     }
-    if (!proc.exited()) {
-      console.error(`[browser] Profile ${n}: the window didn't close; stopping it.`);
-      proc.kill();
-    }
+    if (w.proc.exitCode === null) w.proc.kill();
   })();
   return true;
 }
 
-// True once this pid (or a child of it) holds the profile, so a second Chrome
-// can only be a handoff: it opens the page in the browser we already track and exits.
-async function profileHeld(dir: string, pid: number | undefined, since: number) {
-  if (!pid || !pidAlive(pid)) return false;
-  if (process.platform === 'win32') {
-    try {
-      return (await stat(join(dir, 'SingletonLock'))).mtimeMs >= since;
-    } catch {
-      return false;
-    }
-  }
-  const holder = singletonPid(await readlink(join(dir, 'SingletonLock')).catch(() => null));
-  if (!holder || !pidAlive(holder)) return false;
-  // The lock is sometimes a child of the process we spawned (Chrome's zygote),
-  // not that process itself. Walk up a few parents before calling it someone else's.
-  let cur: number | null = holder;
-  for (let i = 0; i < 8 && cur && cur > 1; i++) {
-    if (cur === pid) return true;
-    cur = await pidParent(cur);
-  }
-  return false;
-}
-
-function handOffPage(exe: string, dir: string, target: string, display: string | null, n: number) {
-  const child = spawn(exe, personArgs(dir, target, display), {
-    stdio: ['ignore', 'ignore', 'pipe'],
-    env: display ? { ...process.env, DISPLAY: display } : process.env,
-  });
-  running.add(child);
-  let stderr = '';
-  child.stderr?.on('data', (d: Buffer) => (stderr = (stderr + d.toString()).slice(-2_000)));
-  child.on('error', e => console.error(`[browser] Profile ${n}: handing ${target} to the open browser failed:`, e.message));
-  child.on('exit', (code, signal) => {
-    running.delete(child);
-    // Exiting is what a handoff does once the open browser has the page. Anything
-    // else means the page never arrived, and the browser we track is still the window.
-    if (code !== 0) console.error(`[browser] Profile ${n}: handing ${target} to the open browser failed (code ${code ?? 'none'}${signal ? `, ${signal}` : ''}).${stderr.trim() ? ` ${stderr.trim()}` : ''}`);
-  });
-}
-
-async function lockHolder(dir: string) {
-  return singletonPid(await readlink(join(dir, 'SingletonLock')).catch(() => null));
-}
-
-export async function openProfileWindow(profile = 1, url = 'https://www.google.com', onClosed?: { key: string; run: () => void }, request?: number) {
+// A request's button, or "Open a profile" in the app: Google's sign-in in the plain
+// browser; anything else a window in the agents' browser, at that address.
+export async function openProfileWindow(profile = 1, url = 'https://www.google.com', request?: number) {
   const n = await knownProfile(profile);
   const target = checkUrl(url).toString();
-  const exe = browserExe();
-  if (!exe) throw noBrowser();
-  return withProfile(n, () => openPersonWindow(n, exe, target, onClosed, request));
-}
-
-async function openPersonWindow(n: number, exe: string, target: string, onClosed?: { key: string; run: () => void }, request?: number) {
-  const dir = personDir(n);
-  const remember = () => onClosed && whenClosed.set(n, (whenClosed.get(n) ?? new Map()).set(onClosed.key, onClosed.run));
-  const cur = personProcs.get(n);
-  if (personOpen.has(n) && cur && !cur.exited()) {
-    remember();
-    const held = await profileHeld(dir, cur.pid, 0);
-    if (!held) {
-      const holder = await lockHolder(dir);
-      console.error(`[browser] Profile ${n} is open as pid ${cur.pid ?? 'unknown'} but the profile lock is ${holder ?? 'absent'}.`);
-      throw new Error(`Browser profile ${n} is still opening. Try again in a moment.`);
-    }
-    const sc = screens.get(n);
-    if (CLOUD && !sc) throw new Error(`Browser profile ${n} is open, but its screen isn't being streamed. Close it and open it again.`);
-    if (sc) Object.assign(sc, { url: target, request: request ?? sc.request });
-    handOffPage(exe, dir, target, sc?.display ?? null, n);
-    console.log(`[browser] Profile ${n}: handed ${target} to the open browser (pid ${cur.pid}).`);
-    return { ok: true, profile: n, already: true, ...(sc ? { live: `screen:${n}` } : {}) };
-  }
-  if (personOpen.has(n)) {
-    console.error(`[browser] Profile ${n} was marked open with no browser running. Clearing it.`);
-    forgetPerson(n);
-  }
-  // Open from now (the agents' browser carries on beside it).
-  let release = () => {};
-  personOpen.set(n, new Promise<void>(r => (release = r)));
-  personRelease.set(n, release);
-  try {
-    const seeded = await seedPersonDir(n);
-    console.log(`[browser] Profile ${n}: the person's window starts with the agents' ${seeded} cookies.`);
-    remember();
-    await keepSignedIn(dir);
-    await clearStaleLock(dir);
-    const display = CLOUD ? await displayFor(n) : null;
-    const started = Date.now();
-    let stderr = '';
-    const proc = spawn(exe, personArgs(dir, target, display), {
-      stdio: ['ignore', 'ignore', 'pipe'],
-      env: display ? { ...process.env, DISPLAY: display } : process.env,
-    });
-    proc.stderr?.on('data', (d: Buffer) => (stderr = (stderr + d.toString()).slice(-4_000)));
-    running.add(proc);
-    const tracked: PersonBrowser = { pid: proc.pid, spawned: proc, kill: () => proc.kill(), exited: () => proc.exitCode !== null };
-    personProcs.set(n, tracked);
-    if (display) screens.set(n, { profile: n, display, since: started, url: target, request });
-    console.log(`[browser] Profile ${n}: opening ${target}${display ? ` on ${display}` : ''} (pid ${proc.pid ?? 'unknown'}).`);
-    let settled = false;
-    const onGone = (code: number | null, signal: NodeJS.Signals | null) => {
-      if (settled) return;
-      settled = true;
-      void withProfile(n, async () => {
-        running.delete(proc);
-        if (personProcs.get(n)?.spawned !== proc) return;
-        const holder = await lockHolder(dir);
-        if (holder && personWindowAfterExit(proc.pid, holder, pidAlive(holder)) === 'keep') {
-          console.error(`[browser] Profile ${n}: the browser we started (pid ${proc.pid}) exited (${code ?? 'none'}${signal ? `, ${signal}` : ''}) and Chrome kept the profile as pid ${holder}. Still streaming that screen.`);
-          personProcs.set(n, adopt(n, holder));
-          return;
-        }
-        if (code !== 0 && code !== null) console.error(`[browser] Profile ${n} closed (code ${code}${signal ? `, ${signal}` : ''}).${stderr.trim() ? ` ${stderr.trim()}` : ''}`);
-        else console.log(`[browser] Profile ${n} closed.`);
-        forgetPerson(n);
-      });
-    };
-    proc.once('exit', onGone);
-    proc.once('error', e => {
-      console.error(`[browser] Profile ${n} failed to start:`, e.message);
-      onGone(null, null);
-    });
-    const deadline = started + 15_000;
-    let held = false;
-    while (Date.now() < deadline) {
-      if (proc.exitCode !== null) break;
-      if (await profileHeld(dir, proc.pid, started)) {
-        held = true;
-        break;
-      }
-      await sleep(50);
-    }
-    if (!held) {
-      const holder = await lockHolder(dir);
-      if (holder && personWindowAfterExit(proc.pid, holder, pidAlive(holder)) === 'keep') {
-        console.error(`[browser] Profile ${n}: pid ${proc.pid} never held the profile; pid ${holder} does. Streaming that screen.`);
-        personProcs.set(n, adopt(n, holder));
-        return { ok: true, profile: n, already: false, ...(display ? { live: `screen:${n}` } : {}) };
-      }
-      throw new Error(`Browser profile ${n} didn't open${proc.exitCode !== null ? ` (the browser exited with code ${proc.exitCode})` : ''}.${stderr.trim() ? ` ${stderr.trim()}` : ''}`);
-    }
-    return { ok: true, profile: n, already: false, ...(display ? { live: `screen:${n}` } : {}) };
-  } catch (e) {
-    console.error(`[browser] Opening profile ${n} at ${target} failed:`, (e as Error).message);
-    const proc = personProcs.get(n);
-    if (proc?.spawned && proc.spawned.exitCode === null) {
-      proc.kill();
-      await Promise.race([new Promise<void>(r => proc.spawned?.once('exit', () => r())), sleep(2_000)]);
-    } else if (proc && !proc.spawned) proc.kill();
-    forgetPerson(n, false);
-    throw e;
-  }
+  if (isGoogleSignIn(target)) return googleSignIn(n, target, request);
+  const tab = await openPersonPage(n, target, request);
+  return { ok: true, profile: n, already: false, tab, ...(CLOUD ? { live: `${SCREEN_TAB}${n}` } : {}) };
 }
 
 export async function profileStatus() {
@@ -1933,7 +1963,7 @@ export async function profileStatus() {
     const s = await p.catch(() => null);
     if (s) now.set(n, s);
   }
-  const open = (n: number) => personOpen.has(n);
+  const open = (n: number) => personWindow?.profile === n;
   const inUse = (n: number) => (now.get(n)?.runs.size ?? 0) > 0;
   return {
     // Kept for older screens: profile 1.

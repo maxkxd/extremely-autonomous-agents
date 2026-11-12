@@ -11,11 +11,11 @@ import { closePersonWindow, finishKeptPage, heldSince, hold, listProfiles, liveT
 // and in the cloud: these are ordinary requests to the agency, so from elsewhere they
 // go through the end-to-end encrypted relay like the rest.
 //
-// In the cloud the person's own window (signing in, a CAPTCHA) is on a screen of its
-// own (browser.ts personScreens): the plain browser with nothing attached, because
-// Google refuses one with a debugging connection. That screen is streamed from the
-// display itself (ffmpeg) and their input typed into it (xdotool), never through
-// DevTools.
+// In the cloud each profile's browser is on a screen of its own (browser.ts
+// personScreens): the whole browser, every agent's window and the tab kept for the
+// person, as it would be on their own screen - and Google's sign-in window while that
+// has the profile. That screen is streamed from the display itself (ffmpeg) and their
+// input typed into it (xdotool), never through DevTools: it's theirs to use any time.
 //
 // Frames are pulled, not pushed: the app asks for the next one after the one it has,
 // and a page is only streamed while somebody keeps asking.
@@ -135,7 +135,7 @@ async function typeInto(display: string, e: PersonInput) {
 }
 
 // --- Every page there is to watch: agents' pages, and the person's screens ---
-function sources(): Source[] {
+async function sources(): Promise<Source[]> {
   const agents: Source[] = liveTabs().map(t => ({
     id: t.id,
     kind: 'agent',
@@ -158,7 +158,7 @@ function sources(): Source[] {
     input: e => t.page.input(e),
     page: t.page,
   }));
-  const screens: Source[] = personScreens().map(s => ({
+  const screens: Source[] = (await personScreens()).map(s => ({
     id: `${SCREEN_PREFIX}${s.profile}`,
     kind: 'person',
     profile: s.profile,
@@ -167,7 +167,7 @@ function sources(): Source[] {
     since: s.since,
     held: s.since, // always theirs
     url: async () => s.url,
-    title: async () => 'Your window',
+    title: async () => `Profile ${s.profile}'s browser`,
     thumb: () => grabOne(s.display),
     stream: async onFrame => {
       const ff = grabStream(s.display, onFrame);
@@ -177,8 +177,8 @@ function sources(): Source[] {
   }));
   return [...agents, ...screens];
 }
-const sourceOf = (id: unknown) => {
-  const s = sources().find(x => x.id === id);
+const sourceOf = async (id: unknown) => {
+  const s = (await sources()).find(x => x.id === id);
   if (!s) throw new Error('That page has closed.');
   return s;
 };
@@ -219,7 +219,7 @@ async function needs() {
 }
 
 export async function liveState(withThumbs: boolean) {
-  const all = sources();
+  const all = await sources();
   for (const id of thumbs.keys()) if (!all.some(s => s.id === id)) thumbs.delete(id);
   return {
     profiles: await listProfiles(),
@@ -244,8 +244,8 @@ export async function liveState(withThumbs: boolean) {
 // --- The page being watched: streamed while asked for, the latest frame kept ---
 type Watch = { seq: number; frame: Frame | null; asked: number; stop: (() => Promise<void>) | null; waiters: Set<() => void> };
 const watching = new Map<string, Watch>();
-setInterval(() => {
-  const ids = new Set(sources().map(s => s.id));
+setInterval(async () => {
+  const ids = new Set((await sources()).map(s => s.id));
   for (const [id, w] of watching)
     if (Date.now() - w.asked > WATCH_IDLE_MS || !ids.has(id)) {
       watching.delete(id);
@@ -254,7 +254,7 @@ setInterval(() => {
 }, 1000).unref();
 
 export async function frame(id: string, after: number) {
-  const s = sourceOf(id);
+  const s = await sourceOf(id);
   let w = watching.get(id);
   if (!w) {
     const fresh: Watch = { seq: 0, frame: null, asked: Date.now(), stop: null, waiters: new Set() };
@@ -281,7 +281,7 @@ export async function frame(id: string, after: number) {
 // --- The person's input: only on a page they have ---
 const INPUTS = new Set(['mouse', 'wheel', 'key', 'text']);
 export async function input(id: string, events: unknown) {
-  const s = sourceOf(id);
+  const s = await sourceOf(id);
   if (s.held == null) throw new Error('Take control of this page first: until then it’s the agent’s.');
   if (!Array.isArray(events)) throw new Error('events: a list.');
   for (const e of events.slice(0, 50) as PersonInput[]) {
@@ -292,23 +292,24 @@ export async function input(id: string, events: unknown) {
   return { ok: true };
 }
 
-// take: the person has it, its agent waits. done: finished (the person's window closes,
-// and the request it came from is told). handback: back to its agent, or closed, unfinished.
+// take: the person has it, its agent waits. done: finished (a page kept for them closes,
+// and the request it came from is answered; Google's sign-in window closes and the
+// agents' browser starts again). handback: back to its agent, unfinished.
 export async function control(id: string, action: unknown) {
-  const s = sourceOf(id);
+  const s = await sourceOf(id);
   if (action === 'take') {
     if (s.kind === 'agent') hold(id);
   } else if (action === 'done' || action === 'handback') {
     if (s.kind === 'agent') {
       release(id);
       if (action === 'done') await finishKeptPage(id);
-    } else closePersonWindow(s.profile, action === 'done');
+    } else if (action === 'done') closePersonWindow(s.profile);
   } else throw new Error('action: take, done or handback.');
   return { ok: true };
 }
 
-// "Open a profile to sign in": the person's own window on that profile - on their screen
-// here, or (in the cloud) on a screen of its own, shown on the page.
+// "Open a profile": a window in that profile's browser - on their screen here, or (in
+// the cloud) on the profile's screen, shown on the page.
 export async function openForPerson(profile: unknown, url: unknown) {
   const r = await openProfileWindow(Number(profile ?? 1) || 1, typeof url === 'string' && url ? url : 'https://www.google.com');
   return { tab: (r as { live?: string }).live ?? null };

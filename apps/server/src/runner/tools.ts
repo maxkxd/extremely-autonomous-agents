@@ -44,6 +44,8 @@ type Impl = (args: Record<string, unknown>, ctx: RunCtx) => Promise<string> | st
 // that provides it is connected). Missing means always.
 // preview: for a T2 tool, facts to add to what the person approves (the code a
 // plugin will run, say) - stored with the call, and handed to impl when it runs.
+// granted: for a T2 tool, whether a person's approval already covers this call (the
+// rest of a job they approved: browser.ts) - it runs, logged, instead of queueing.
 type ToolDef = {
   id: string;
   tier: Tier;
@@ -52,6 +54,7 @@ type ToolDef = {
   impl: Impl;
   ready?: () => boolean;
   preview?: (args: Record<string, unknown>, ctx: RunCtx) => Promise<Record<string, unknown>>;
+  granted?: (args: Record<string, unknown>, ctx: RunCtx) => Promise<boolean> | boolean;
 };
 
 export type Wake = (agentId: string, trigger: string, task: string) => void;
@@ -830,7 +833,8 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
   const { why, ...args } = call.args;
   if (!('why' in ((impl.schema as { properties?: Record<string, unknown> }).properties ?? {}))) call = { ...call, args };
   const n = counts ? actsIn(call.args) : 0;
-  if (tier === 'T2') {
+  const granted = tier === 'T2' && !!impl.granted && (await Promise.resolve(impl.granted(call.args, ctx)).catch(() => false));
+  if (tier === 'T2' && !granted) {
     // The same action on the same thing already waiting for a person: one card, not two.
     // The argument that says which record (an id, a company, an email) - not a type
     // every call shares (object_type: "Leads" let only one Lead wait at a time).

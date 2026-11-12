@@ -6,21 +6,19 @@ import { test } from 'node:test';
 import { endBrowser, leftoverBrowsers, PROFILES_DIR, pagesToLetGo } from './browser.js';
 
 // In the cloud a second agents' browser ran beside the first on the same profile
-// for hours, and a throwaway browser outlived its run: about 1.5 GB between them.
+// for hours: about 1.5 GB.
 
-test('leftover browsers: a stray on an agents profile, and a throwaway one nobody is using', () => {
+test('leftover browsers: a second one on an agents profile', () => {
   const p1 = join(PROFILES_DIR, '1');
   const ps = [
     `  100     1 /usr/bin/google-chrome-stable --user-data-dir=${p1} --remote-debugging-port=0`, // ours
     `  200    35 /usr/bin/google-chrome-stable --user-data-dir=${p1} --remote-debugging-port=0`, // the stray
     `  201   200 /opt/google/chrome/chrome --type=renderer --user-data-dir=${p1}`, // goes with it
-    `  300    35 /usr/bin/google-chrome-stable --user-data-dir=${join(PROFILES_DIR, 'person-1')}`, // the person's window
-    `  400    35 /opt/google/chrome/chrome --headless --user-data-dir=/tmp/playwright_chromiumdev_profile-4w4FhU`,
+    `  300    35 /usr/bin/google-chrome-stable --user-data-dir=${join(PROFILES_DIR, 'person-1')}`, // an old person's copy: not an agents' profile
     `  500    99 /opt/google/chrome/chrome --user-data-dir=/tmp/playwright_chromiumdev_profile-x`, // someone else's
     `  600    35 claude -p --resume abc`,
   ].join('\n');
-  assert.deepEqual(leftoverBrowsers(ps, 35, new Set([100]), false), [200, 400]);
-  assert.deepEqual(leftoverBrowsers(ps, 35, new Set([100]), true), [200], 'a throwaway browser in use stays');
+  assert.deepEqual(leftoverBrowsers(ps, new Set([100])), [200]);
 });
 
 test('a browser that ignores being asked to close is ended after the deadline', { skip: process.platform === 'win32' }, async () => {
@@ -45,6 +43,19 @@ test("pages no run is driving are stray; a running run's own page and its popups
   ];
   assert.deepEqual(strayPages(targets, new Set(['run-a'])), ['old-popup', 'old-tab']);
   assert.deepEqual(strayPages(targets, new Set()), ['run-a', 'google-popup', 'old-popup', 'old-tab']);
+});
+
+// On the person's own screen the agents' browser is theirs to use too: a tab they
+// opened is never closed as a stray - only agents' windows and the popups those opened.
+test("on the person's screen, only pages agents made are stray", async () => {
+  const { strayPages } = await import('./browser.js');
+  const targets = [
+    { targetId: 'run-a', type: 'page' },
+    { targetId: 'ended-run-window', type: 'page' }, // an agent's window whose run ended
+    { targetId: 'old-popup', type: 'page', openerId: 'ended-run-window' },
+    { targetId: 'persons-tab', type: 'page' }, // opened by the person
+  ];
+  assert.deepEqual(strayPages(targets, new Set(['run-a']), new Set(['run-a', 'ended-run-window'])), ['ended-run-window', 'old-popup']);
 });
 
 // A queued click's page is set aside for it; these are let go.

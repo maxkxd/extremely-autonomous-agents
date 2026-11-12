@@ -38,7 +38,8 @@ function Inline({ text, refs }: { text: string; refs: Ref }) {
 }
 
 // "Open in signed-in browser: https://www.linkedin.com/login (profile 2)": a button that
-// opens the agents' own browser at that page, on this computer (runner/browser.ts).
+// takes you to that page in the agents' own browser (runner/browser.ts) - the very tab
+// the agent filled in and kept for you, when it kept one.
 const BROWSER_LINE = /^\s*Open in signed-in browser:\s*(https?:\/\/[^\s<>"']+?)[.,]?(?:\s*\(profile\s*(\d+)\))?\.?\s*$/i;
 const hostOf = (url: string) => {
   try {
@@ -48,13 +49,15 @@ const hostOf = (url: string) => {
   }
 };
 
-// Once open, it says what's next: the request carries on when that window closes
-// (the Engineer is told, runner/api.ts). Pressed again, the page opens again.
+// Once open, it says what's next: closing that tab (or Google's sign-in window) answers
+// the request, and the agent that asked hears (runner/api.ts). Pressed again, it's
+// brought in front again.
 function BrowserButton({ url, profile, request }: { url: string; profile: number; request?: number }) {
   const [opened, setOpened] = useState(false);
+  const google = /^accounts\.(google|youtube)\.com$/.test(hostOf(url));
   return (
     <button className="rt-settings" onClick={() => openAgentBrowser(profile, url, request).then(() => setOpened(true), e => window.alert((e as Error).message))}>
-      {opened ? 'Close the browser to continue' : `Open ${hostOf(url)} in the signed-in browser`}
+      {opened ? (google ? 'Close the sign-in window when you’re signed in' : 'Close that tab when you’re done') : google ? 'Sign in to Google in the signed-in browser' : `Go to ${hostOf(url)} in the signed-in browser`}
     </button>
   );
 }
