@@ -8,7 +8,7 @@ import { liveBrowser, sendRequestMessage, sendToIde } from './builder';
 import { RichText } from './RichText';
 import { Loading, Skel } from './Skeleton';
 import { useOffline } from './offline';
-import { isAdmin } from './account';
+import { isAdmin, myAccountId, scoped } from './account';
 
 // A request waiting for a sign-in the whole organization shares (Gmail, Square...)
 // is everyone's to see, not just its agent's owner's: a teammate's request can
@@ -76,6 +76,38 @@ export function setYourIde(id: IdeId) {
   }
 }
 
+// Requests start closed. The ones you open stay open, and closing one keeps it
+// closed: remembered per person, per agency, on this computer. Opening one for
+// you (a link to it) doesn't count as your choice.
+const openKey = () => scoped(`eaa.requestsOpen.${myAccountId() ?? 'local'}`);
+function openedByYou(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(openKey()) ?? '[]') as string[]);
+  } catch {
+    return new Set();
+  }
+}
+function rememberOpen(id: string, open: boolean) {
+  const all = openedByYou();
+  if (open) all.add(id);
+  else all.delete(id);
+  try {
+    localStorage.setItem(openKey(), JSON.stringify([...all]));
+  } catch {
+    // Storage unavailable - it lasts until the page reloads.
+  }
+}
+// Open or closed as you left it; the row's toggle remembers each click.
+function useRememberedOpen(id: string): [boolean, (open: boolean) => void, () => void] {
+  const [open, setOpen] = useState(() => openedByYou().has(id));
+  const toggle = () =>
+    setOpen(o => {
+      rememberOpen(id, !o);
+      return !o;
+    });
+  return [open, setOpen, toggle];
+}
+
 export function IdeLogo({ logo }: { logo: SimpleIcon | null }) {
   if (!logo) return <Code2 size={15} strokeWidth={1.9} />;
   return (
@@ -132,10 +164,9 @@ function RequestRow({
 }) {
   const agent = agentOf(request);
   const DeptIcon = DEPARTMENT_ICON[agent.department];
-  // Closed unless it's waiting on you.
-  // A teammate's shared one (theirs) is answered by them: shown closed, after your own.
+  // A teammate's shared one (theirs) is answered by them: shown after your own.
   const theirs = theirsOf(request);
-  const [open, setOpen] = useState(!theirs && (request.stage === 'waiting_you' || request.stage === 'person'));
+  const [open, setOpen, toggleOpen] = useRememberedOpen(`r:${request.id}`);
   // Arriving for this one (a link from another request): open, centred, a blue glow.
   const wrapRef = useRef<HTMLDivElement>(null);
   const replyRef = useRef<HTMLTextAreaElement>(null);
@@ -234,7 +265,7 @@ function RequestRow({
   return (
     <div className={`request-wrap${collapsing ? ' collapsing' : ''}`} ref={wrapRef}>
       <article className={`request${open ? ' open' : ''}${leaving ? ` leaving ${leaving}` : spotlit ? ' spotlit' : ''}`}>
-        <button className="request-row" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+        <button className="request-row" onClick={toggleOpen} aria-expanded={open}>
           <ChevronRight size={15} className="request-chevron" />
           <DeptIcon size={15} strokeWidth={1.75} className="request-dept" />
           <span className="request-agent">{agent.name}</span>
@@ -435,7 +466,7 @@ export function requestItems<T extends Pick<ResourceRequest, 'stage' | 'waitingO
 function ConnectGroup({ name, members, row, refs, focus }: { name: string; members: ResourceRequest[]; row: (r: ResourceRequest) => React.ReactNode; refs: RequestRefs; focus: number | null }) {
   // Every one of them a teammate's (shared, not yours to answer): closed, saying whose.
   const owners = members.every(theirsOf) ? [...new Set(members.map(ownerOf))].join(', ') : null;
-  const [open, setOpen] = useState(!owners);
+  const [open, setOpen, toggleOpen] = useRememberedOpen(`g:${name}`);
   const [list, setList] = useState(false);
   // Sent here for one of its requests: show it, so that row can glow.
   const holds = members.some(m => m.live === focus);
@@ -451,7 +482,7 @@ function ConnectGroup({ name, members, row, refs, focus }: { name: string; membe
   return (
     <div className="request-wrap">
       <article className={`request connect-group${open ? ' open' : ''}`}>
-        <button className="request-row" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+        <button className="request-row" onClick={toggleOpen} aria-expanded={open}>
           <ChevronRight size={15} className="request-chevron" />
           <Plug size={15} strokeWidth={1.75} className="request-dept" />
           <span className="request-summary">Connect {name}</span>
