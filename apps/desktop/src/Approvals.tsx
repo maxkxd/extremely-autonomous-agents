@@ -8,6 +8,7 @@ import { useDismiss } from './useDismiss';
 import { openSettings } from './NoModels';
 import { Loading, Skel, SkelLines } from './Skeleton';
 import { useOffline } from './offline';
+import { scrollToCard } from './scrollToCard';
 
 export type ApprovalScope = 'mine' | 'all';
 // 'expired' = nobody answered in time; like a rejection, the action does not happen.
@@ -265,7 +266,7 @@ function ApprovalCard({
   const [spotlit, setSpotlit] = useState(false);
   useEffect(() => {
     if (!spotlight) return;
-    wrapRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    scrollToCard(wrapRef.current, 'center');
     setSpotlit(true);
     onFocused(); // clears `spotlight` straight away, so the glow's timer isn't tied to it
     setTimeout(() => setSpotlit(false), 2600);

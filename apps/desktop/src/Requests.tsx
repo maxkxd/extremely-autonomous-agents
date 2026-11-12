@@ -9,6 +9,7 @@ import { RichText } from './RichText';
 import { Loading, Skel } from './Skeleton';
 import { useOffline } from './offline';
 import { isAdmin, myAccountId, scoped } from './account';
+import { scrollToCard } from './scrollToCard';
 
 // A request waiting for a sign-in the whole organization shares (Gmail, Square...)
 // is everyone's to see, not just its agent's owner's: a teammate's request can
@@ -175,8 +176,9 @@ function RequestRow({
   useEffect(() => {
     if (!spotlight) return;
     setOpen(true);
-    // Once it's open (0.28s), its top into view: an open request can be taller than the window.
-    window.setTimeout(() => wrapRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 320);
+    // Its top into view (an open request can be taller than the window), following
+    // it while it opens and the list above settles.
+    scrollToCard(wrapRef.current, 'start');
     setSpotlit(true);
     if (replyFirst) (setSuggesting(true), window.setTimeout(() => replyRef.current?.focus({ preventScroll: true }), 360));
     onFocused();
