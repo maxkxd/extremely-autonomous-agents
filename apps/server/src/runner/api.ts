@@ -23,7 +23,7 @@ import { connectAssistant, type Assistant } from './assistant.js';
 import { answerRemoteMcp, isRemoteMcpUrl, remoteMcpUrl, takeRemoteMcp } from './remote-mcp.js';
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
-import { decideApproval, pendingApprovals } from './approvals.js';
+import { decideApproval, pendingApprovals, recentlyWithdrawn } from './approvals.js';
 import { listProfiles, openProfileWindow, profileStatus, takeKeptPage } from './browser.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
 import { deletePassword, listPasswords, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
@@ -531,7 +531,7 @@ export const runnerRoutes: Record<string, Route> = {
   },
 
   // --- Approvals: T2 calls waiting on a person ---
-  'GET /api/runner/approvals': async () => ({ approvals: await pendingApprovals() }),
+  'GET /api/runner/approvals': async () => ({ approvals: await pendingApprovals(), withdrawn: recentlyWithdrawn() }),
   'POST /api/runner/approvals/decide': async (_req, _q, body) => {
     const { id, decision, note: typed } = await body<{ id: string; decision: 'approved' | 'rejected'; note?: string }>();
     const note = typed && scrub(typed);

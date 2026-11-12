@@ -2,11 +2,11 @@ import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import { DEFAULT_PLAN, type AgentDef } from './agent.js';
-import { decideApproval, expireApprovals, pendingApprovals } from './approvals.js';
+import { decideApproval, expireApprovals, pendingApprovals, recentlyWithdrawn } from './approvals.js';
 import { setKeptPageCheck } from './kept-pages.js';
 import { one, resetDbForTests, run as exec } from './db.js';
 import { stateOf } from './run.js';
-import { execute, onApprovalSettled, registerTools } from './tools.js';
+import { execute, onApprovalSettled, registerTools, withdrawMine } from './tools.js';
 
 const agent: AgentDef = {
   id: 'zz-approvals-test',
@@ -196,4 +196,34 @@ test("a browser click whose kept page has closed is withdrawn, and its agent tol
   } finally {
     setKeptPageCheck(() => true);
   }
+});
+
+// An agent taking back its own waiting approvals (approvals.withdraw_mine).
+async function queueTo(to: string, now: number) {
+  if (!one('SELECT id FROM runs WHERE id = ?', 'r1')) exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES ('r1', ?, 'scheduled', 0, 'running', ?)", agent.id, now);
+  const ctx = { agent, runId: 'r1', level: 0, now: () => now, fleet: async () => [], wake: () => {} };
+  const out = await execute(ctx, { id: to, name: 'mail__send', args: { to, body: 'Hi - Max here' } }, new Map([['mail__send', 'mail.send']]));
+  return out.approvalId!;
+}
+const statusOf = (id: string) => one<{ status: string }>('SELECT status FROM approvals WHERE id = ?', id)!.status;
+
+test('a rejected one of a batch tells its agent it can withdraw the others, which then leave the page', async () => {
+  const t = Date.now() - 60_000;
+  const [a, b, c] = [await queueTo('a@x.com', t), await queueTo('b@x.com', t + 1), await queueTo('c@x.com', t + 2)];
+  await decideApproval(a, 'rejected', 'Sign off as the team, not Max', wake, t + 10, async () => agent);
+  assert.match(woken.at(-1)!.task, /2 other actions still waiting[\s\S]*approvals\.withdraw_mine/);
+  const out = withdrawMine(agent.id, { approval_ids: [b, c], why: 'Same sign-off' }, t + 30);
+  assert.match(out, /Withdrew 2/);
+  assert.deepEqual([statusOf(b), statusOf(c)], ['withdrawn', 'withdrawn']);
+  assert.deepEqual(recentlyWithdrawn(t + 40).sort(), [b, c].sort());
+  assert.equal((await pendingApprovals()).length, 0);
+});
+
+test('an agent can only withdraw its own approvals that are still waiting', async () => {
+  const t = Date.now() - 60_000;
+  const b = await queueTo('b@x.com', t);
+  exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES ('apv_other', 'someone-else', 'r9', 'mail.send', '{}', ?, ?)", t, t + 9e6);
+  assert.throws(() => withdrawMine(agent.id, { approval_ids: ['apv_other'], why: 'x' }, t + 5), /none of those/);
+  assert.match(withdrawMine(agent.id, { approval_ids: [b, 'apv_other'], why: 'x' }, t + 5), /Withdrew 1[\s\S]*apv_other/);
+  assert.equal(statusOf('apv_other'), 'pending');
 });

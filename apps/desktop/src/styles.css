@@ -720,6 +720,13 @@ ul { list-style: none; margin: 0; padding: 0; }
 .approval.leaving.approved { animation: approve-out 0.62s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
 .approval.leaving.rejected,
 .approval.leaving.expired { animation: reject-out 0.62s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
+.approval.leaving.withdrawn { animation: withdraw-out 0.62s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
+@keyframes withdraw-out {
+  0% { transform: none; opacity: 1; }
+  12% { border-color: #9a9a9a; box-shadow: 0 0 0 1px #9a9a9a, 0 0 30px rgba(190, 190, 190, 0.35); background-color: rgba(190, 190, 190, 0.06); transform: scale(0.99); }
+  42% { border-color: #9a9a9a; box-shadow: 0 0 0 1px #9a9a9a, 0 0 30px rgba(190, 190, 190, 0.35); background-color: rgba(190, 190, 190, 0.06); transform: none; opacity: 1; }
+  100% { border-color: #9a9a9a; box-shadow: 0 0 0 1px #9a9a9a, 0 0 30px rgba(190, 190, 190, 0.2); background-color: rgba(190, 190, 190, 0.06); transform: translateX(-110%) rotate(-1.5deg); opacity: 0; }
+}
 @keyframes approve-out {
   0% { transform: none; opacity: 1; }
   12% { border-color: #3fb27f; box-shadow: 0 0 0 1px #3fb27f, 0 0 30px rgba(63, 178, 127, 0.45); background-color: rgba(63, 178, 127, 0.06); transform: scale(1.01); }
@@ -734,7 +741,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .approval.leaving.approved, .approval.leaving.rejected, .approval.leaving.expired { animation-name: fade-out; }
+  .approval.leaving.approved, .approval.leaving.rejected, .approval.leaving.expired, .approval.leaving.withdrawn { animation-name: fade-out; }
   @keyframes fade-out { to { opacity: 0; } }
   .reject-drawer, .reject-inner, .approval-wrap { transition: none; }
 }

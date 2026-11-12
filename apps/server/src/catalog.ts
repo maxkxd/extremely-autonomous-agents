@@ -238,6 +238,7 @@ export const BASELINE: { server: string; tool: CatalogTool }[] = [
   ['files', t('read_file', 'T0', 'Read a file from its own workspace')],
   ['files', t('list_files', 'T0', 'List its workspace')],
   ['ops', t('book_next_run', 'T0', 'Book its own next run')],
+  ['approvals', t('withdraw_mine', 'T1', "Take back its own actions waiting for approval, when a person asked or rejected one with the same problem")],
   ['ops', t('set_my_ferocity', 'T1', 'Change how hard it works, when a person asks in its chat')],
   ['ops', t('pause_me', 'T1', 'Go on standby or stop (until a time), when a person asks in its chat')],
   ['ops', t('set_my_run_days', 'T1', 'Set the days its schedule runs, when a person asks in its chat')],

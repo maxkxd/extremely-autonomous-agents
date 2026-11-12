@@ -166,10 +166,11 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
   const myOpen = all<{ id: number; what: string }>("SELECT id, what FROM requests WHERE agent_id = ? AND status = 'open' ORDER BY id", agent.id);
   // What it already queued: a run woken by each approval couldn't see the others,
   // and queued the same Zoho Note three times.
-  const myQueued = all<{ tool: string; args: string }>("SELECT tool, args FROM approvals WHERE agent_id = ? AND status = 'pending' ORDER BY created_at", agent.id).map(q => {
+  const myQueued = all<{ id: string; tool: string; args: string }>("SELECT id, tool, args FROM approvals WHERE agent_id = ? AND status = 'pending' ORDER BY created_at", agent.id).map(q => {
     const a = JSON.parse(q.args) as Record<string, unknown>;
     const label = [a.title, a.company, a.subject, a.to, a.name].find(v => typeof v === 'string' && v.trim());
-    return `${q.tool}${label ? ` (${String(label).slice(0, 80)})` : ''}`;
+    // The id, so it can withdraw one (approvals.withdraw_mine).
+    return `${q.id} ${q.tool}${label ? ` (${String(label).slice(0, 80)})` : ''}`;
   });
 
   const org = agent.org ? await loadProfile(agent.org) : null;

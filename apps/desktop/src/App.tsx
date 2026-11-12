@@ -193,9 +193,9 @@ function Agency() {
   useEffect(() => {
     const load = () =>
       getLiveApprovals().then(
-        list => {
+        ({ list, withdrawn }) => {
           setApprovalsReady(true);
-          setLiveApprovals([
+          setLiveApprovals(prev => [
             ...list.map(a => ({
               id: a.id,
               live: true,
@@ -221,6 +221,8 @@ function Agency() {
                     : undefined,
             })),
             ...[...decidedLive.current.values()].filter(d => !list.some(a => a.id === d.id)),
+            // Taken back by its agent: kept long enough to play leaving.
+            ...prev.filter(p => withdrawn.includes(p.id) && !list.some(a => a.id === p.id) && !decidedLive.current.has(p.id)).map(p => ({ ...p, withdrawn: true })),
           ]);
         },
         () => {},

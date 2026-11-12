@@ -98,7 +98,13 @@ export async function decideApproval(id: string, decision: 'approved' | 'rejecte
     // A go-live turned down: its draft goes too.
     const gone = a.tool === 'engineer.publish_integration' && (await discardDraft(String(args.integration_id)).catch(() => false));
     void approvalSettled(a.run_id);
-    wake(a.agent_id, 'approval', `A person REJECTED your queued ${what}. It did not happen.${gone ? ' Its draft was discarded (if a version of it was live before, that one is back).' : ''}${why} Take that into account - don't queue the same thing again unchanged.`);
+    // Others it queued alongside may share what was wrong: it may take those back
+    // (approvals.withdraw_mine) - its call, when it's confident.
+    const others = one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE agent_id = ? AND status = 'pending' AND id != ?", a.agent_id, id)?.n ?? 0;
+    const batch = others
+      ? ` You have ${others} other action${others === 1 ? '' : 's'} still waiting for approval. If the person's note asks for the change on them too, or they plainly have exactly the problem rejected here, withdraw them (approvals.withdraw_mine) and queue fixed versions. If you're not sure, leave them: the person may want to see them as they are.`
+      : '';
+    wake(a.agent_id, 'approval', `A person REJECTED your queued ${what} (${id}). It did not happen.${gone ? ' Its draft was discarded (if a version of it was live before, that one is back).' : ''}${why} Take that into account - don't queue the same thing again unchanged.${batch}`);
     return { ok: true, ran: false, result: null };
   }
   const agent = await load(a.agent_id);
@@ -144,6 +150,11 @@ function withdrawClosedPages(now: number, wake: Wake) {
   }
   return gone.length;
 }
+
+// Taken back by their own agent a moment ago (approvals.withdraw_mine): the app
+// plays them leaving instead of having them blink out.
+export const recentlyWithdrawn = (now = Date.now()) =>
+  all<{ id: string }>("SELECT id FROM approvals WHERE status = 'withdrawn' AND decided_at > ?", now - 120_000).map(r => r.id);
 
 // Anything nobody decided in time doesn't happen; its agent hears so.
 export function expireApprovals(now: number, wake: Wake) {

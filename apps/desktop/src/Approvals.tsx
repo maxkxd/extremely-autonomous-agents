@@ -257,7 +257,7 @@ function ApprovalCard({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const off = useOffline(); // the host is offline: it can't be decided until it's back
-  const [leaving, setLeaving] = useState<Resolution | null>(null);
+  const [leaving, setLeaving] = useState<Resolution | 'withdrawn' | null>(null);
   const [collapsing, setCollapsing] = useState(false);
   // Arriving for this one (Open Approvals, a draft's Approve): scroll it to the
   // middle, then glow blue for a moment.
@@ -282,6 +282,15 @@ function ApprovalCard({
     setTimeout(() => setCollapsing(true), EXIT_MS);
     setTimeout(onGone, EXIT_MS + COLLAPSE_MS);
   };
+  // Its agent took it back: a grey glow, then off to the left. Nobody decided it,
+  // so nothing is counted.
+  useEffect(() => {
+    if (!approval.withdrawn || leaving) return;
+    setRejecting(false);
+    setLeaving('withdrawn');
+    setTimeout(() => setCollapsing(true), EXIT_MS);
+    setTimeout(onGone, EXIT_MS + COLLAPSE_MS);
+  }, [approval.withdrawn]);
 
   return (
     <div ref={wrapRef} className={`approval-wrap${collapsing ? ' collapsing' : ''}`}>

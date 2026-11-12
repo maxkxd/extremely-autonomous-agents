@@ -256,6 +256,7 @@ export type Approval = {
   pausedByAgency?: boolean; // ...because the whole agency is stopped, not the agent
   owner?: string | null; // a real one: whose decision it is, from the server (null: anyone's)
   minutesAgo: number; // when the agent made the call
+  withdrawn?: boolean; // its own agent took it back: it glows grey and flies off
   createdAt?: number; // ms timestamp, for approvals raised while the app is open
   // Whose owner decides it, when that isn't the calling agent - e.g. the
   // Agency Engineer (owned by no one) building a tool FOR Lead Finder goes

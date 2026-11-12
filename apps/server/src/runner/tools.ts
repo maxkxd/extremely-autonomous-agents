@@ -456,6 +456,20 @@ const BUILTIN: ToolDef[] = [
     },
   },
   {
+    id: 'approvals.withdraw_mine',
+    tier: 'T1',
+    description:
+      "Take some of YOUR OWN actions that are still waiting for a person's approval off their Approvals page, so you can queue fixed versions - e.g. a person rejected one of ten emails asking for a change that applies to all ten. Only when you're confident they should go: the person told you to (in a rejection note or their message to you), or they rejected one of yours and these plainly have exactly the same problem. Never to tidy up or on a hunch - if the person might want to see them as they are, leave them. Withdrawn ones don't happen; queue the fixed versions after, and say in your summary what you withdrew and why.",
+    schema: obj(
+      {
+        approval_ids: { type: 'array', items: { type: 'string' }, description: 'The ids (apv_...) of your waiting actions to withdraw - from "Your actions waiting for a person\'s approval".' },
+        why: str('In a sentence, why these go - e.g. what the person said, or the problem they rejected'),
+      },
+      ['approval_ids', 'why'],
+    ),
+    impl: (a, ctx) => withdrawMine(ctx.agent.id, a, ctx.now()),
+  },
+  {
     id: 'ops.book_next_run',
     tier: 'T0',
     description: 'Book your own next run, naming the work it is for. delay_minutes: how long from now (0 = as soon as this one ends), up to 10080 (7 days) - work for Monday is booked for Monday.',
@@ -536,6 +550,30 @@ export async function approvalSettled(runId: string | null) {
 const find = (id: string) => BUILTIN.find(t => t.id === id) ?? REGISTERED.get(id);
 
 // Runs a tool a person approved, with the exact arguments the agent queued.
+// An agent taking its own waiting approvals back (approvals.withdraw_mine), so a
+// person who rejected one of a batch for something that applies to all of them
+// isn't left rejecting the rest one by one. When to is the agent's judgement (its
+// tool description); here only that they're its own and still waiting.
+export function withdrawMine(agentId: string, a: Record<string, unknown>, now: number): string {
+  const ids = [...new Set((Array.isArray(a.approval_ids) ? a.approval_ids : []).map(String))];
+  if (!ids.length) throw new Error('Give the ids of the waiting actions to withdraw.');
+  const why = String(a.why ?? '').trim().slice(0, 500);
+  const done: string[] = [];
+  const skipped: string[] = [];
+  for (const id of ids) {
+    const p = one<{ run_id: string }>("SELECT run_id FROM approvals WHERE id = ? AND agent_id = ? AND status = 'pending'", id, agentId);
+    if (!p || !run("UPDATE approvals SET status = 'withdrawn', decided_at = ?, note = ? WHERE id = ? AND status = 'pending'", now, why || 'Withdrawn by its agent.', id).changes) {
+      skipped.push(id);
+      continue;
+    }
+    run("UPDATE actions SET outcome = 'refused' WHERE approval_id = ? AND outcome = 'queued'", id);
+    void approvalSettled(p.run_id);
+    done.push(id);
+  }
+  if (!done.length) throw new Error(`Nothing withdrawn: none of those is one of yours still waiting (${skipped.join(', ')}).`);
+  return `Withdrew ${done.length} (${done.join(', ')}) - they won't happen and are off the person's Approvals page.${skipped.length ? ` Not yours or no longer waiting: ${skipped.join(', ')}.` : ''} Now queue the fixed versions, and say in your summary what you withdrew and why.`;
+}
+
 export async function runApproved(ctx: RunCtx, id: string, args: Record<string, unknown>): Promise<string> {
   const impl = find(id);
   if (!impl) throw new Error(`${id} no longer exists.`);

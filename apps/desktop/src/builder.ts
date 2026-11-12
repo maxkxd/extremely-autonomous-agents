@@ -360,7 +360,8 @@ export const startIntegrationSignIn = (id: string, client: { clientId?: string; 
 
 // Approvals: real agents' T2 calls waiting on a person.
 export type LiveApproval = { id: string; agentId: string; agentName: string; owner: string | null; agentStopped: boolean; agencyStopped?: boolean; tool: string; args: Record<string, unknown>; card?: IntegrationCard | null; createdAt: number; expiresAt: number };
-export const getLiveApprovals = () => request<{ approvals: LiveApproval[] }>('/api/runner/approvals').then(r => r.approvals);
+// withdrawn: ids its own agent took back in the last couple of minutes, so the card can play leaving.
+export const getLiveApprovals = () => request<{ approvals: LiveApproval[]; withdrawn?: string[] }>('/api/runner/approvals').then(r => ({ list: r.approvals, withdrawn: r.withdrawn ?? [] }));
 export const decideApproval = (id: string, decision: 'approved' | 'rejected', note?: string) =>
   post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note });
 // One of the agents' browser profiles, in a window on this computer (at a page, if given).
