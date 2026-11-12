@@ -9,6 +9,7 @@ import { addPack, buildAgent, getProfile, interviewDone, matchPack, NEW_SESSION,
 import { ConnectModel, useHasModels } from './NoModels';
 import { Skel } from './Skeleton';
 import { useOffline } from './offline';
+import { notifyError } from './Notices';
 
 // "Build your own agent" always takes the last slot of the top row (the
 // 4th card), or follows the packs straight away if there are fewer than three.
@@ -310,7 +311,7 @@ export function NewAgent({
           try {
             onBuilt(await addPack(p.id));
           } catch (e) {
-            window.alert((e as Error).message);
+            notifyError(e);
           }
         })
       }

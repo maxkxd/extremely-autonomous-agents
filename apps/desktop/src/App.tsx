@@ -44,6 +44,7 @@ import {
   type ApprovalScope,
   type Resolution,
 } from './Approvals';
+import { Notices, notifyError } from './Notices';
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 480;
@@ -105,8 +106,14 @@ const personEvidence = (evidence: string | null | undefined) =>
 export function App() {
   const org = currentOrg();
   const [firstRun, setFirstRun] = useState(() => !org && !onboarded());
-  if (firstRun) return <Onboarding onDone={() => setFirstRun(false)} />;
-  return org && state.unreachable ? <Elsewhere org={org} /> : <Agency />;
+  const page = firstRun ? <Onboarding onDone={() => setFirstRun(false)} /> : org && state.unreachable ? <Elsewhere org={org} /> : <Agency />;
+  // The app's own notices (Notices.tsx) sit over every page.
+  return (
+    <>
+      {page}
+      <Notices />
+    </>
+  );
 }
 
 // Offline (account.ts): since when, kept in step.
@@ -770,7 +777,7 @@ function Agency() {
                         { id, agentId: live.agentId, why: String(out.result ?? '').replace(/^Approved, but it failed:\s*/, '') },
                       ]),
                     e => {
-                      window.alert((e as Error).message);
+                      notifyError(e);
                       // Not decided after all: bring the card back.
                       decidedLive.current.delete(id);
                       setResolved(({ [id]: _, ...rest }) => rest);

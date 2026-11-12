@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Globe, Hand, MousePointerClick, Plus, Undo2, User } from 'lucide-react';
 import { liveBrowser, liveControl, liveFrame, liveInput, liveOpen, openAgentBrowser, type LiveFrame, type LiveNeed, type LiveTab, type PersonInput } from './builder';
+import { notifyError } from './Notices';
 
 // The agents' browser, live (server: runner/live-view.ts). On the left, what waits on
 // you (CAPTCHAs, sign-ins, codes an agent asked for) and every page the agents have
@@ -89,7 +90,7 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
       if (r.live) setSelected(r.live);
       else await refresh();
     } catch (e) {
-      window.alert((e as Error).message);
+      notifyError(e);
     } finally {
       setOpening(false);
     }
@@ -112,7 +113,7 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
       if (action === 'done') await next(current.id);
       else await refresh();
     } catch (e) {
-      window.alert((e as Error).message);
+      notifyError(e);
     }
   };
 
@@ -128,7 +129,7 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
       if (tab) setSelected(tab);
       await refresh();
     } catch (e) {
-      window.alert((e as Error).message);
+      notifyError(e);
     } finally {
       setOpening(false);
     }

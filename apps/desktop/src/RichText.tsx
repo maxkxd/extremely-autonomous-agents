@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react';
 import { openAgentBrowser } from './builder';
+import { notifyError } from './Notices';
 
 // Agents' and the Agency Engineer's text, made easy to follow: numbered steps as a
 // numbered list (also when they're written inline, "1. Do this. 2. Then that."),
@@ -56,7 +57,7 @@ function BrowserButton({ url, profile, request }: { url: string; profile: number
   const [opened, setOpened] = useState(false);
   const google = /^accounts\.(google|youtube)\.com$/.test(hostOf(url));
   return (
-    <button className="rt-settings" onClick={() => openAgentBrowser(profile, url, request).then(() => setOpened(true), e => window.alert((e as Error).message))}>
+    <button className="rt-settings" onClick={() => openAgentBrowser(profile, url, request).then(() => setOpened(true), notifyError)}>
       {opened ? (google ? 'Close the sign-in window when you’re signed in' : 'Close that tab when you’re done') : google ? 'Sign in to Google in the signed-in browser' : `Go to ${hostOf(url)} in the signed-in browser`}
     </button>
   );

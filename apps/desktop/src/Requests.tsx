@@ -10,6 +10,7 @@ import { Loading, Skel } from './Skeleton';
 import { useOffline } from './offline';
 import { isAdmin, myAccountId, scoped } from './account';
 import { scrollToCard } from './scrollToCard';
+import { notify, notifyError } from './Notices';
 
 // A request waiting for a sign-in the whole organization shares (Gmail, Square...)
 // is everyone's to see, not just its agent's owner's: a teammate's request can
@@ -231,7 +232,7 @@ function RequestRow({
     sendRequestMessage(request.live, mine).catch(e => {
       setEcho([]);
       setDraft(mine);
-      window.alert((e as Error).message);
+      notifyError(e);
     });
   };
 
@@ -245,10 +246,14 @@ function RequestRow({
       const r = await sendToIde(request.live, yourIde());
       if (yourIde() === 'claude-desktop') return; // a new chat, with the request typed in
       await navigator.clipboard?.writeText(r.prompt).catch(() => {});
-      if (!r.opened) window.alert(`${r.ide} isn't installed where the app can start it. The request is ready in ${r.folder} - open that folder in ${r.ide} and paste the prompt (copied).`);
-      else window.alert(`${r.ide} is opening the request's folder. Paste the prompt (copied) into its chat.`);
+      if (!r.opened)
+        notify(`${r.ide} isn't installed where the app can start it. The request is ready in ${r.folder} - open that folder in ${r.ide} and paste the prompt (copied).`, 'info', {
+          label: 'Copy folder path',
+          run: () => void navigator.clipboard?.writeText(r.folder).catch(() => {}),
+        });
+      else notify(`${r.ide} is opening the request's folder. Paste the prompt (copied) into its chat.`, 'done');
     } catch (e) {
-      window.alert((e as Error).message);
+      notifyError(e);
     } finally {
       setSending(false);
     }

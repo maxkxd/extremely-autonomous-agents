@@ -2300,3 +2300,65 @@ textarea:focus-visible, input:focus-visible { outline: none; }
 .abrowser-screen img { display: block; width: 100%; height: auto; user-select: none; }
 .abrowser-screen.mine img { cursor: default; }
 @media (max-width: 900px) { .abrowser { grid-template-columns: 1fr; } }
+
+/* --- Notices (Notices.tsx): the app's own pop-up, bottom right. ---------------
+   Red - it failed; green - done; blue - over to you. In like a card being dealt,
+   out the way approvals leave. */
+.notices {
+  position: fixed; right: 20px; bottom: 20px; z-index: 200;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+  width: min(380px, calc(100vw - 40px)); pointer-events: none;
+}
+.notice {
+  --n: 63, 123, 214; --n-solid: #3f7bd6;
+  position: relative; overflow: hidden; pointer-events: auto; width: 100%;
+  display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start;
+  padding: 12px 12px 13px 14px; border-radius: 12px;
+  background: linear-gradient(rgba(var(--n), 0.07), rgba(var(--n), 0.07)), var(--surface);
+  border: 1px solid rgba(var(--n), 0.55);
+  box-shadow: 0 0 0 1px rgba(var(--n), 0.12), 0 0 26px rgba(var(--n), 0.22), 0 12px 32px rgba(0, 0, 0, 0.45);
+  animation: notice-in 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+}
+.notice.error { --n: 229, 72, 77; --n-solid: #e5484d; animation: notice-in 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.15) both, notice-jolt 0.36s ease-out 0.42s; }
+.notice.done { --n: 63, 178, 127; --n-solid: #3fb27f; }
+.notice.leaving { animation: notice-out 0.52s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
+.notice-icon {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; margin-top: -2px;
+  color: var(--n-solid); background: rgba(var(--n), 0.14); box-shadow: 0 0 12px rgba(var(--n), 0.35);
+}
+.notice-body { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.notice-body p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.notice-action {
+  align-self: flex-start; padding: 5px 11px; border-radius: 7px; font-size: 12.5px; font-weight: 600;
+  color: #fff; background: var(--n-solid); transition: filter 0.15s, transform 0.15s;
+}
+.notice-action:hover { filter: brightness(1.12); }
+.notice-action:active { transform: scale(0.97); }
+.notice-close { color: var(--muted); padding: 3px; border-radius: 6px; margin: -2px -2px 0 0; transition: color 0.15s, background-color 0.15s; }
+.notice-close:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+/* Good news: a line along the bottom drains as it's about to go (held while hovered). */
+.notice-timer {
+  position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; transform-origin: left;
+  background: var(--n-solid); box-shadow: 0 0 8px rgba(var(--n), 0.8);
+  animation-name: notice-drain; animation-timing-function: linear; animation-fill-mode: forwards;
+}
+@keyframes notice-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes notice-jolt {
+  0%, 100% { transform: none; }
+  20% { transform: translateX(-5px); }
+  45% { transform: translateX(4px); }
+  70% { transform: translateX(-2px); }
+}
+@keyframes notice-out {
+  0% { transform: none; opacity: 1; }
+  25% { transform: scale(1.015); box-shadow: 0 0 0 1px rgba(var(--n), 0.5), 0 0 34px rgba(var(--n), 0.45), 0 12px 32px rgba(0, 0, 0, 0.45); opacity: 1; }
+  100% { transform: translateX(115%) rotate(1.5deg); opacity: 0; }
+}
+@keyframes notice-drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .notice, .notice.error { animation: fade-in 0.2s both; }
+  .notice.leaving { animation: fade-out 0.2s forwards; }
+}
