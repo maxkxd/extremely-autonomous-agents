@@ -7,7 +7,9 @@ themselves. It runs on the AI you already have: a ChatGPT, Claude or Copilot
 plan, an API key (Anthropic, OpenAI, Gemini, OpenRouter, xAI, Mistral, DeepSeek,
 Groq or any OpenAI-compatible endpoint), or a local model through Ollama.
 
-![The EXTREMELY dashboard: lead research and outreach agents running around the clock](docs/images/dashboard.png)
+[![The EXTREMELY demo: an Outreach agent turned up from Chill to Apocalyptic](docs/images/demo.webp)](https://extremely.agency/press/demo-video.mp4)
+
+[Watch the 33-second demo, with sound](https://extremely.agency/press/demo-video.mp4).
 
 **Launching 1 December 2026 on Windows.** [Join the waitlist](https://extremely.agency/#waitlist),
 or [try the live demo](https://extremely.agency/demo/) in your browser: the whole
