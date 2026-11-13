@@ -178,13 +178,11 @@ const listed = (items: [string, number][]) =>
 //   data folder (the database and everything not listed below), programs (with .cache and .npm-cache),
 //   each browser profile (and its Default), the video folders kept on the volume (per subfolder),
 //   old agency copies, and the temp folders runs leave behind.
-export async function diskReport(o: { dataDir: string; keepDir?: string; tmpDir?: string }): Promise<string[]> {
+export async function diskReport(o: { dataDir: string; programsDir?: string; keepDir?: string; tmpDir?: string }): Promise<string[]> {
   const keepDir = o.keepDir ?? join(dirname(o.dataDir), 'keep');
   const tmp = o.tmpDir ?? tmpdir();
   const lines: string[] = [];
 
-  const rest = (await childSizes(o.dataDir)).length ? [] : [];
-  void rest;
   const topLevel: [string, number][] = [];
   for (const name of await readdir(o.dataDir).catch(() => [] as string[])) {
     if (name === 'browser-profiles' || name === 'programs') continue;
@@ -192,7 +190,7 @@ export async function diskReport(o: { dataDir: string; keepDir?: string; tmpDir?
   }
   lines.push(`data folder (not programs or browser profiles) ${size(total(topLevel))}: ${listed(topLevel)}`);
 
-  const programs = await childSizes(programsRoot());
+  const programs = await childSizes(o.programsDir ?? programsRoot());
   lines.push(`programs ${size(total(programs))}: ${listed(programs)}`);
 
   const profiles = join(o.dataDir, 'browser-profiles');
