@@ -37,7 +37,7 @@ import { all, builtInLevels, getSetting, one, run as exec, setSetting } from './
 import { reportDefault, reportDefaultsForPrompt, setReportDefault } from './reports.js';
 import { appGapTool, fixedHereFor, resendUnsent } from './app-gaps.js';
 import { applyOutputMoves, retargetOutput, type OutputMove } from './output-names.js';
-import { fileRequest, heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
+import { APPROVAL_ASK, fileRequest, heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
 import './host.js';
 
 // The Agency Engineer (docs/requests.md, docs/integrations.md): the built-in
@@ -105,6 +105,7 @@ A request goes to a person only when it truly needs one (a sign-in, a key, a dec
 
 ## How you handle a request (engineer.list_requests shows them, with the asking agent's missing tools)
 What the person says on one request is true for all of them: one waiting on a question they've since answered elsewhere ("we have a Wix website", "we use Xero") - act on that answer there too, instead of leaving them a question they've already answered.
+0a. A request asking the person to approve, sign off or OK something (a strategy pack, a post, a plan): never theirs as a request - approvals happen only on approval cards. Close it telling the agent to queue the action itself with the tool that does it; its card is the sign-off. No such tool: give or build it. Its tool isn't live yet: it waits for that.
 0. Questions only the person can answer - their budget or spend, targets, prices, policies, who to contact, what they prefer: engineer.hand_to_person straight away, as asked. Never answer them yourself or suggest numbers - the agent already said what it does meanwhile.
 1. Another agent in the fleet can already do it (it holds the tool, it's its job)? Hand the work over with tasks.delegate_task, then engineer.close_request saying who does it now. Only genuinely related agents - not, say, customer support for an outreach email.
    Two agents asking for the same connection is not a duplicate: never close one agent's request because another asked first. Each needs its own tools. Handle it with the other (engineer.ask_for_connection on both, so the person sees one item and connecting wakes both; publish_integration's also for the second agent).
@@ -468,6 +469,14 @@ function rename(r: RequestRow, name: unknown) {
 }
 // One of an agent's setup connectors the person turned down, saying what they use
 // instead: picked back up with that, on the same card - not left as a gap.
+// A request asking the person to approve or sign off never reaches them as a
+// request: approvals happen only on approval cards.
+const NO_APPROVAL_REQUESTS = (r: RequestRow, message = '') => {
+  if (APPROVAL_ASK.test(r.what) || APPROVAL_ASK.test(message))
+    throw new Error(
+      `Request #${r.id} asks the person to approve or sign something off. Approvals never go to a person as a request - only on approval cards. Close it (engineer.close_request) telling the agent to queue the action itself with the tool that does it: its approval card is the sign-off. If it has no such tool, give or build one; if its tool isn't live yet, it waits for that - never ask the person here.`,
+    );
+};
 const reworkable = (raw: unknown): RequestRow => {
   const r = one<RequestRow>('SELECT * FROM requests WHERE id = ?', Number(raw));
   if (r?.status === 'rejected' && r.setup && one<{ setup: number | null }>('SELECT setup FROM agent_state WHERE agent_id = ?', r.agent_id)?.setup) {
@@ -787,6 +796,7 @@ const TOOLS: ToolDef[] = [
     schema: obj({ request_id: int('The request number'), message: str('Plain text, about 5 sentences: what you did and why, then numbered steps. No research story.'), stars: starsArg, setup_name: setupNameArg }, ['request_id', 'message']),
     impl: async a => {
       const r = reworkable(a.request_id);
+      NO_APPROVAL_REQUESTS(r);
       rate(r, a.stars);
       rename(r, a.setup_name);
       postToRequest(r.id, 'engineer', String(a.message));
@@ -801,6 +811,7 @@ const TOOLS: ToolDef[] = [
     schema: obj({ request_id: int('The request number'), message: str('Why it is theirs, and what to do'), stars: starsArg }, ['request_id', 'message']),
     impl: async a => {
       const r = openRequest(a.request_id);
+      NO_APPROVAL_REQUESTS(r, String(a.message));
       rate(r, a.stars);
       postToRequest(r.id, 'engineer', String(a.message));
       setStage(r.id, 'person');
