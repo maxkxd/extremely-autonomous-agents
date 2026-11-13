@@ -1,5 +1,5 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import { AlertTriangle, Cpu, ExternalLink, Loader2 } from 'lucide-react';
+import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
+import { AlertTriangle, Cpu, ExternalLink } from 'lucide-react';
 import { useOffline } from './offline';
 import { useLastSeen } from './lastSeen';
 import {
@@ -29,6 +29,7 @@ import {
   startSignIn,
   type Connection,
 } from './builder';
+import { BusyLabel, busyVerb, Working } from './Busy';
 
 // A hand-drawn aside between plans and keys: crayon arrows out of either side
 // of the text, curling out and up to the plans, and out and down to the keys. The wobble and grain come from an SVG filter, and each
@@ -207,9 +208,11 @@ export function SpinButton({
   disabled,
   title,
   onClick,
+  busyText,
   children,
 }: {
   spinning: boolean;
+  busyText?: string; // what it says while it works; worked out from its label otherwise
   className?: string;
   disabled?: boolean;
   title?: string;
@@ -226,8 +229,9 @@ export function SpinButton({
       onClick={onClick}
       aria-busy={spinning}
     >
-      <span className="spin-label">{children}</span>
-      {spinning && <Loader2 size={15} className="spin-icon" aria-hidden />}
+      <BusyLabel busy={spinning} busyText={busyText ?? busyVerb(children)}>
+        {children}
+      </BusyLabel>
     </button>
   );
 }
@@ -256,6 +260,19 @@ function useAction(refresh: () => Promise<unknown>) {
   return { busy, error, act };
 }
 
+// Onboarding tests each connected AI before you go on (Onboarding.tsx). While it
+// does, a row's badge says Connecting, grey and pulsing - "Connected" only once
+// the AI has really answered. Elsewhere (Settings) there's no test: no provider.
+export type ConnectionTestState = 'testing' | 'ok' | 'failed';
+export const ConnectionTests = createContext<{ loaded: boolean; states: Record<string, ConnectionTestState> } | null>(null);
+function ConnectedBadge({ id }: { id: string }) {
+  const tests = useContext(ConnectionTests);
+  const state = tests ? (tests.loaded ? tests.states[id] : 'testing') : 'ok';
+  if (state === 'failed') return null;
+  if (state === 'testing') return <span className="mconnected checking">Connecting</span>;
+  return <span className="mconnected">Connected</span>;
+}
+
 function RowShell({ c, sub, children, below }: { c: Connection; sub: React.ReactNode; children: React.ReactNode; below?: React.ReactNode }) {
   return (
     <div className="mrow" data-connection={c.id}>
@@ -265,7 +282,7 @@ function RowShell({ c, sub, children, below }: { c: Connection; sub: React.React
           <span>
             <span className="srow2-label">
               {c.name}
-              {c.connected && <span className="mconnected">Connected</span>}
+              {c.connected && <ConnectedBadge id={c.id} />}
               {c.broken && (
                 <span className="mbroken" title={c.broken}>
                   <AlertTriangle size={13} strokeWidth={2.2} /> Key not working
@@ -363,7 +380,7 @@ function KeyRow({
   // Worth retrying only when the provider was down or busy, not for a bad key.
   const unreachable = !!c.broken && /couldn't reach|busy|had a problem/i.test(c.broken);
   const sub = checking
-    ? 'Checking the key...'
+    ? <Working text="Checking the key" />
     : c.connected
       ? `${c.label}${modelCount(c.models)}`
       : c.broken
@@ -499,14 +516,14 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
     const cc = c.claudeCode;
     const task = cc?.task;
     const sub = task === 'updating'
-      ? 'Updating Claude Code in the window that opened...'
+      ? <Working text="Updating Claude Code in the window that opened" />
       : cc?.needsUpdate
         ? `Claude Code ${cc.version ?? ''} is too old for the newest Claude models: update it to ${cc.needsUpdate} or newer.`
         : c.connected
       ? // Not "Claude Code 2.1.314 · ...": the version means nothing to most people.
         `Signed in with ${isAdmin() ? 'your' : "the owner's"} Claude account`
       : task === 'installing'
-        ? 'Installing Claude Code in the window that opened...'
+        ? <Working text="Installing Claude Code in the window that opened" />
         : task === 'signing-in'
           ? 'Finish signing in to your Claude account in your browser.'
           : !cc?.installed
@@ -609,7 +626,7 @@ function PlanRow({ c, refresh, watch, waiting }: RowProps) {
           <a className="sbtn primary" href={c.pending!.verificationUri} target="_blank" rel="noreferrer">
             Open GitHub <ExternalLink size={12} />
           </a>
-          <Loader2 size={15} className="spin-icon solo" aria-label="Waiting for GitHub" />
+          <Working text="Waiting for GitHub" />
         </>
       ) : (
         <SpinButton

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { siGithub, siGoogle, type SimpleIcon } from 'simple-icons';
 import { devSignIn, emailCode, inDesktopApp, signInWith, state } from './account';
+import { BusyLabel } from './Busy';
 import { useGrow } from './grow';
 
 // Anywhere in the app can ask for it; App shows it, grown out of the button
@@ -192,7 +193,9 @@ export function SignIn({ onDone, onCancel, mode: asked = 'in' }: { onDone: () =>
             disabled={busy || (finish ? !code.trim() : !EMAIL.test(email.trim()))}
             title={!finish && !busy && !EMAIL.test(email.trim()) ? (email.trim() ? "That doesn't look like an email address yet" : 'Enter your email first') : undefined}
           >
-            {busy ? 'One moment...' : finish || dev ? (mode === 'up' ? 'SIGN UP' : 'SIGN IN') : 'Continue'}
+            <BusyLabel busy={busy} busyText={finish || dev ? (mode === 'up' ? 'Signing up' : 'Signing in') : 'Sending code'}>
+              {finish || dev ? (mode === 'up' ? 'SIGN UP' : 'SIGN IN') : 'Continue'}
+            </BusyLabel>
           </button>
         </div>
       </form>

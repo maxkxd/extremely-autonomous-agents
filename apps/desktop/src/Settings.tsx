@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Building2, Check, ChevronDown, ChevronRight, Gauge, LoaderCircle, LogIn, LogOut, Plug, Plus, Trash2, User, UserRound, Wrench, X } from 'lucide-react';
+import { Building2, Check, ChevronDown, ChevronRight, Gauge, LogIn, LogOut, Plug, Plus, Trash2, User, UserRound, Wrench, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, rangeDays, rangeLabel, type TimeRange } from './data';
 import { RangePicker } from './RangePicker';
 import { peek, remember, useLastSeen } from './lastSeen';
@@ -70,6 +70,7 @@ import {
   type Usage,
 } from './builder';
 import { useGrow } from './grow';
+import { BusyLabel, Working } from './Busy';
 
 export type SettingsSection = 'account' | 'organization' | 'usage' | 'connectors' | 'tools';
 
@@ -264,7 +265,7 @@ function SaveStatus({ status, error }: { status: 'idle' | 'saving' | 'saved'; er
   return (
     <span className="ssaved">
       {status === 'saving' ? (
-        'Saving...'
+        <Working text="Saving" />
       ) : (
         <>
           <Check size={14} /> Saved
@@ -676,7 +677,7 @@ function OrganizationSection({ onOrgChange, chatOpen }: { onOrgChange: () => voi
           </div>
         )
       ) : step ? (
-        <p className="snotes-empty">{step}...</p>
+        <p className="snotes-empty"><Working text={step} /></p>
       ) : (
         <div className="sfield">
           <span className="sfield-label">
@@ -765,7 +766,7 @@ function SelfHosted() {
               })
             }
           >
-            {busy ? 'Starting it...' : 'Self-host'}
+            <BusyLabel busy={busy} busyText="Starting">Self-host</BusyLabel>
           </button>
         </div>
       )}
@@ -974,7 +975,7 @@ function OrgPeople() {
             {org.role === 'owner' && (
               <RolePicker value={role} onChange={setRoleChoice} />
             )}
-            {/* Sending: a spinner in its place, the button keeping its size. */}
+            {/* Sending: says so, the button keeping its size (Busy.tsx). */}
             <button
               className={`sbtn${inviting ? ' busy' : ''}`}
               disabled={inviting || (!org.self && !email.trim())}
@@ -989,10 +990,9 @@ function OrgPeople() {
                 setInviting(false);
               }}
             >
-              <span className="sbtn-label">
+              <BusyLabel busy={inviting} busyText="Sending">
                 <Plus size={14} /> Invite
-              </span>
-              {inviting && <LoaderCircle size={16} strokeWidth={2} className="spin sbtn-spin" aria-label="Sending" />}
+              </BusyLabel>
             </button>
           </div>
           {/* Ours: emailed, and waiting in their app. Self-hosted (no mail from us): the address and a code to pass on. */}
@@ -1098,7 +1098,7 @@ function DeleteOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel
           </button>
           <button className="confirm-delete" onClick={go} disabled={!ok || busy}>
             <Trash2 size={14} strokeWidth={2} />
-            {busy ? 'Deleting...' : 'Delete organization'}
+            <BusyLabel busy={busy} busyText="Deleting">Delete organization</BusyLabel>
           </button>
         </div>
       </div>
@@ -1131,7 +1131,7 @@ function LeaveOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel:
             Cancel
           </button>
           <button className="confirm-delete" onClick={go} disabled={busy}>
-            {busy ? 'Leaving...' : 'Leave'}
+            <BusyLabel busy={busy} busyText="Leaving">Leave</BusyLabel>
           </button>
         </div>
       </div>

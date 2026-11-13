@@ -10,6 +10,7 @@ import { ConnectModel, useHasModels } from './NoModels';
 import { Skel } from './Skeleton';
 import { useOffline } from './offline';
 import { notifyError } from './Notices';
+import { Working } from './Busy';
 
 // "Build your own agent" always takes the last slot of the top row (the
 // 4th card), or follows the packs straight away if there are fewer than three.
@@ -187,7 +188,7 @@ function CustomCard({
             </button>
           </div>
         )}
-        {phase === 'matching' && <div className="custom-status">Checking the packs first...</div>}
+        {phase === 'matching' && <Working text="Checking the packs first" />}
         {session.error && !session.open && !stopped && !/agency is stopped/i.test(session.error) && <div className="custom-error">{session.error}</div>}
       </div>
     </article>

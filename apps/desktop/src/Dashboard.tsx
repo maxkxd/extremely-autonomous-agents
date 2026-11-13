@@ -1,6 +1,6 @@
 import { ResumeSetupDialog, SetupBar, SetupList } from './AgentSetup';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { CircleCheckBig, Ellipsis, GripVertical, LoaderCircle, Pause, Play, Plus, Square, Trash2, User, Wrench } from 'lucide-react';
+import { CircleCheckBig, Ellipsis, GripVertical, Pause, Play, Plus, Square, Trash2, User, Wrench } from 'lucide-react';
 import { DeleteAgentDialog } from './DeleteAgentDialog';
 import { ModelPanel, ModelRow, useModelChecks, useModelSlide, type Checks } from './ModelPicker';
 import { getAgentModels, getAvailableModels, getLiveAgents, getSetups, runNow, setAgentModels, setAgentRunner, type AgencyState, type AgentSetup, type AvailableModels, type LiveAgent, type ModelChoice } from './builder';
@@ -12,6 +12,7 @@ import { currentOrg, isAdmin, myAccountId, scoped } from './account';
 import { Skel } from './Skeleton';
 import { ConnectModel } from './NoModels';
 import { useOffline } from './offline';
+import { Spinner } from './Busy';
 
 // Slice colours come from --slice-0..4 on the card (styles.css): blue-to-gray
 // normally, red at Apocalyptic, grays when the agent is stopped.
@@ -609,14 +610,14 @@ function RunNowButton({ running, queued, why, onRun }: { running: boolean; queue
     <button
       className={`run-now${busy ? ' busy' : ''}`}
       // Only its first letter lower-cased (the whole reason was: 'no ai model... settings > connectors').
-      title={why ? `Run now: ${why.charAt(0).toLowerCase()}${why.slice(1)}` : busy ? (running ? 'Running' : queued ? 'Queued - it starts as soon as one of the agents running now finishes' : 'Starting...') : 'Run now'}
+      title={why ? `Run now: ${why.charAt(0).toLowerCase()}${why.slice(1)}` : busy ? (running ? 'Running' : queued ? 'Queued - it starts as soon as one of the agents running now finishes' : 'Starting…') : 'Run now'}
       disabled={!!why || busy}
       onClick={() => {
         setStarting(true);
         onRun();
       }}
     >
-      {busy ? <LoaderCircle size={12} strokeWidth={2} className="spin" /> : <Play size={12} strokeWidth={2} />}
+      {busy ? <Spinner size={12} /> : <Play size={12} strokeWidth={2} />}
       {running ? 'Running' : queued ? 'Queued' : 'Run now'}
     </button>
   );

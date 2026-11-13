@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Globe, Hand, MousePointerClick, Plus, Undo2, User } from 'lucide-react';
 import { liveBrowser, liveControl, liveFrame, liveInput, liveOpen, openAgentBrowser, type LiveFrame, type LiveNeed, type LiveTab, type PersonInput } from './builder';
 import { notifyError } from './Notices';
+import { BusyLabel, Working } from './Busy';
 
 // The agents' browser, live (server: runner/live-view.ts). On the left, what waits on
 // you (CAPTCHAs, sign-ins, codes an agent asked for) and every page the agents have
@@ -135,7 +136,7 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
     }
   };
 
-  if (tabs === null && !error) return <div className="main-empty">Looking at the agents’ browser…</div>;
+  if (tabs === null && !error) return <div className="main-empty"><Working text="Looking at the agents’ browser" /></div>;
   return (
     <div className="abrowser">
       <aside className="abrowser-side">
@@ -186,7 +187,9 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
           <form onSubmit={e => (e.preventDefault(), void openProfile())}>
             <input value={signInUrl} onChange={e => setSignInUrl(e.target.value)} placeholder="linkedin.com" aria-label="The page to open" />
             <button className="sbtn" type="submit" disabled={opening}>
-              <Plus size={14} /> {opening ? 'Opening…' : `Open${profile !== 'all' && profiles.length > 1 ? ` in profile ${profile}` : ''}`}
+              <BusyLabel busy={opening} busyText="Opening">
+                <Plus size={14} /> {`Open${profile !== 'all' && profiles.length > 1 ? ` in profile ${profile}` : ''}`}
+              </BusyLabel>
             </button>
           </form>
         </section>
@@ -336,7 +339,7 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
             onMouseMove={mouse('mouseMoved')}
           />
         ) : (
-          <div className="main-empty">{streamError ?? 'Connecting to the page…'}</div>
+          <div className="main-empty">{streamError ?? <Working text="Connecting to the page" />}</div>
         )}
       </div>
     </div>

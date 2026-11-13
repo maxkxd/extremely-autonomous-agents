@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { CircleAlert, CircleCheck, CircleStop, Loader2, SendHorizontal } from 'lucide-react';
+import { CircleAlert, CircleCheck, CircleStop, SendHorizontal } from 'lucide-react';
 import { Linkify } from './Linkify';
 import { RichText } from './RichText';
 import { ACCOUNT, AGENTS } from './data';
@@ -11,6 +11,7 @@ import { Loading, Skel, SkelLines } from './Skeleton';
 import { getTools } from './builder';
 import { useOffline } from './offline';
 import { clockTime } from './clock';
+import { Spinner } from './Busy';
 
 // Placeholder history is "minutes ago"; pin it to the page's load time.
 const loadedAt = Date.now();
@@ -309,7 +310,7 @@ export function AgentDM({
             </div>
             <div className="dm-post-main">
               <div className="dm-running">
-                <Loader2 size={13} className="spin" />
+                <Spinner />
                 {agent.name} is running…{since != null && <Elapsed since={since} />}
               </div>
             </div>

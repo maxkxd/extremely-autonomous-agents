@@ -69,8 +69,14 @@ function shrinkOut(copy: HTMLElement, origin: DOMRect | null) {
   return copy.animate([{}, { backgroundColor: 'rgba(0, 0, 0, 0)' }], { duration: SHRINK_MS, easing: 'ease-in', fill: 'forwards' });
 }
 
-// A menu opens down from its trigger, or up when it sits above it (the account menu).
-const upward = (menu: HTMLElement) => getComputedStyle(menu).top === 'auto';
+// A menu opens down from its trigger, or up when it sits above it (the account menu):
+// it unfolds from the side touching its trigger and folds back into it. (Its
+// computed top is a number either way, so it's read from where it is.)
+const upward = (menu: HTMLElement) => {
+  const box = menu.getBoundingClientRect();
+  const holder = menu.parentElement?.getBoundingClientRect();
+  return !!holder && box.top < holder.top;
+};
 const fold = (menu: HTMLElement) => [
   { opacity: 0, transform: `translateY(${upward(menu) ? 6 : -6}px) scaleY(0.82)`, transformOrigin: upward(menu) ? 'bottom' : 'top' },
   { opacity: 1, transform: 'none', transformOrigin: upward(menu) ? 'bottom' : 'top' },

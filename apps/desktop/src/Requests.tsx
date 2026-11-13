@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, Code2, Globe, Hammer, Hand, Loader2, Plug, SendHorizontal, User, X } from 'lucide-react';
+import { Check, ChevronRight, Code2, Globe, Hammer, Hand, Plug, SendHorizontal, User, X } from 'lucide-react';
 import { siClaude, siCursor, type SimpleIcon } from 'simple-icons';
 import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
@@ -11,6 +11,7 @@ import { useOffline } from './offline';
 import { isAdmin, myAccountId, scoped } from './account';
 import { scrollToCard } from './scrollToCard';
 import { notify, notifyError } from './Notices';
+import { Spinner } from './Busy';
 
 // A request waiting for a sign-in the whole organization shares (Gmail, Square...)
 // is everyone's to see, not just its agent's owner's: a teammate's request can
@@ -279,7 +280,7 @@ function RequestRow({
           <span className="request-summary">{request.summary}</span>
           {engineerOnIt && (
             <span className="request-status working">
-              <Loader2 size={12} className="spin" />
+              <Spinner size={12} />
               Agency Engineer
             </span>
           )}

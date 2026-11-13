@@ -33,6 +33,7 @@ import {
   type IntegrationView,
   type TunnelState,
 } from './builder';
+import { Working } from './Busy';
 
 // Settings > Connectors > Integrations (docs/integrations.md): the services
 // agents' tools run on. Web search is one service among several (agents use
@@ -426,7 +427,7 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
   };
   const tools = i.tools.length ? `${i.tools.length} tools` : '';
   const sub = waiting
-    ? 'Waiting for you to sign in, in the window that opened'
+    ? <Working text="Waiting for you to sign in, in the window that opened" />
     : i.connected
       ? i.draft
         ? i.approvalId ? 'Tested · waiting for your approval' : 'The Agency Engineer is testing it'
@@ -712,7 +713,7 @@ function WebhookTunnel({ tunnel, onChange }: { tunnel: TunnelState; onChange: (t
     tunnel.status === 'on'
       ? tunnel.url
       : tunnel.status === 'starting'
-        ? 'Starting...'
+        ? <Working text="Starting" />
         : tunnel.status === 'missing'
           ? (
               <>

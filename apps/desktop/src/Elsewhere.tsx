@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { hostHere, state, switchAgency, teamOrgs, type OrgView } from './account';
+import { BusyLabel } from './Busy';
 
 // An organization that can't be reached right now: its host is offline, or
 // nothing hosts it yet (creating it stopped part-way: its owner can host it here).
@@ -36,7 +37,7 @@ export function Elsewhere({ org }: { org: OrgView }) {
         <div className="elsewhere-actions">
           {canHost && (
             <button className="sbtn primary" disabled={busy} onClick={host}>
-              {busy ? 'Starting...' : 'Host it on this computer'}
+              <BusyLabel busy={busy} busyText="Starting">Host it on this computer</BusyLabel>
             </button>
           )}
           <button className={`sbtn${canHost ? '' : ' primary'}`} onClick={() => switchAgency('personal')}>

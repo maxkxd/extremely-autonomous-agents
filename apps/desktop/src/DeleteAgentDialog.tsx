@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { Agent } from './data';
 import { useGrow } from './grow';
+import { BusyLabel } from './Busy';
 
 // Deleting an agent can't be undone, so you type its name to confirm.
 export function DeleteAgentDialog({
@@ -70,7 +71,7 @@ export function DeleteAgentDialog({
           </button>
           <button className="confirm-delete" onClick={confirm} disabled={!matches || busy}>
             <Trash2 size={14} strokeWidth={2} />
-            {busy ? 'Deleting...' : 'Delete agent'}
+            <BusyLabel busy={busy} busyText="Deleting">Delete agent</BusyLabel>
           </button>
         </div>
       </div>

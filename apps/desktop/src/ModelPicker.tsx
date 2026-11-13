@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronRight, Cpu, Search, X } from 'lucide-react';
 import { checkModel, EFFORTS, getModelChecks, type AvailableModels, type Effort, type ModelCheck, type ModelChoice } from './builder';
 import { ConnectModel } from './NoModels';
 import { modelName } from './modelNames';
+import { Working } from './Busy';
 
 // An agent's models on its dashboard card (docs/model-connections.md): up to
 // three in order - #1 runs, #2 and #3 take over if it fails. The card shows #1
@@ -190,7 +191,7 @@ export function ModelPanel({
                 <span className="model-slot-name">{c ? modelLabel(c) : reachable ? 'Pick a model' : '-'}</span>
                 {c && (
                   <span className="model-slot-sub">
-                    {checks[checkKey(c)]?.pending ? 'Checking...' : whyNot(c, available, checks) ?? connectionName(c.connection, available)}
+                    {checks[checkKey(c)]?.pending ? <Working text="Checking" /> : whyNot(c, available, checks) ?? connectionName(c.connection, available)}
                   </span>
                 )}
               </span>
