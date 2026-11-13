@@ -34,7 +34,7 @@ const textOf = (e: React.KeyboardEvent) => (e.ctrlKey || e.metaKey ? undefined :
 // A window left open and focused, with nobody at it, would keep pulling the list and the
 // live frames for good - and each one goes through the relay, which bills egress. After
 // IDLE_SLOW_MS with no mouse, key, wheel or touch in this window, they slow to a trickle
-// (the list every 5 s, a frame every 3 s); the next movement brings them straight back.
+// (the list every 5 s, a frame every 2 s); the next movement brings them straight back.
 const IDLE_SLOW_MS = 10 * 60_000;
 let lastTouch = Date.now();
 if (typeof window !== 'undefined')
@@ -235,8 +235,9 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
   // The next frame after the one shown, for as long as it's on screen - and only while
   // someone is looking (poll.ts). Away, it stops asking, and the host stops streaming a
   // few seconds later; back, it starts again from the first frame (the stream's count
-  // starts over when it does). Untouched for a long while (IDLE_SLOW_MS), a frame every
-  // 3 s - under the host's 5 s, so the stream stays up but barely runs.
+  // starts over when it does). Untouched for a long while (IDLE_SLOW_MS), a 2 s pause
+  // before each ask: that plus the host's 2.5 s wait for a frame on an unchanged screen
+  // stays under the host's 5 s (WATCH_IDLE_MS), so the stream stays up but barely runs.
   useEffect(() => {
     const stop = new AbortController();
     const alive = () => !stop.signal.aborted;
@@ -247,11 +248,16 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
           if (await untilLooking(stop.signal)) seq = 0;
           if (!alive()) return;
           if (untouched()) {
-            await new Promise(r => setTimeout(r, 3000));
+            await new Promise(r => setTimeout(r, 2000));
             if (!alive()) return;
           }
           const f = await liveFrame(tab.id, seq);
           if (!alive()) return;
+          // The host's stream started over (its count is back below ours): start over too.
+          if (f.seq < seq) {
+            seq = 0;
+            continue;
+          }
           if (f.data) {
             seq = f.seq;
             size.current = { width: f.width, height: f.height };
