@@ -17,16 +17,16 @@ const IDLE_MS = 60_000;
 
 const looking = () => document.visibilityState === 'visible' && document.hasFocus();
 
-// Resolves at once if someone is looking; otherwise when they are (or when `signal` aborts,
-// so a page that went away doesn't leave a listener behind).
-export function untilLooking(signal?: AbortSignal): Promise<void> {
-  if (looking()) return Promise.resolve();
-  return new Promise<void>(resolve => {
+// Resolves at once (false) if someone is looking; otherwise when they are (true: it had
+// to wait), or when `signal` aborts, so a page that went away leaves no listener behind.
+export function untilLooking(signal?: AbortSignal): Promise<boolean> {
+  if (looking()) return Promise.resolve(false);
+  return new Promise<boolean>(resolve => {
     const done = () => {
       window.removeEventListener('focus', check);
       document.removeEventListener('visibilitychange', check);
       signal?.removeEventListener('abort', done);
-      resolve();
+      resolve(true);
     };
     const check = () => looking() && done();
     window.addEventListener('focus', check);

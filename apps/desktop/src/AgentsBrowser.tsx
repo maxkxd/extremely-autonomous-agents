@@ -3,6 +3,7 @@ import { Globe, Hand, MousePointerClick, Plus, Undo2, User } from 'lucide-react'
 import { liveBrowser, liveControl, liveFrame, liveInput, liveOpen, openAgentBrowser, type LiveFrame, type LiveNeed, type LiveTab, type PersonInput } from './builder';
 import { notifyError } from './Notices';
 import { BusyLabel, Working } from './Busy';
+import { untilLooking } from './poll';
 
 // The agents' browser, live (server: runner/live-view.ts). On the left, what waits on
 // you (CAPTCHAs, sign-ins, codes an agent asked for) and every page the agents have
@@ -52,14 +53,19 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
       return null;
     }
   }, []);
+  // Only while someone is looking (poll.ts): the desktop window keeps running in the tray
+  // after it's closed, and this was a request a second, with thumbnails, through the relay.
   useEffect(() => {
-    let alive = true;
+    const stop = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
+      await untilLooking(stop.signal);
+      if (stop.signal.aborted) return;
       await refresh();
-      if (alive) timer = setTimeout(tick, 1000);
+      if (!stop.signal.aborted) timer = setTimeout(tick, 1000);
     };
-    let timer = setTimeout(tick, 0);
-    return () => ((alive = false), clearTimeout(timer));
+    void tick();
+    return () => (stop.abort(), clearTimeout(timer));
   }, [refresh]);
 
   // A page opened for you elsewhere (a request's button, Connectors): shown here.
@@ -211,15 +217,21 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
   mineRef.current = mine;
   const size = useRef({ width: 1280, height: 900 });
 
-  // The next frame after the one shown, for as long as it's on screen.
+  // The next frame after the one shown, for as long as it's on screen - and only while
+  // someone is looking (poll.ts). Away, it stops asking, and the host stops streaming a
+  // few seconds later; back, it starts again from the first frame (the stream's count
+  // starts over when it does).
   useEffect(() => {
-    let alive = true;
+    const stop = new AbortController();
+    const alive = () => !stop.signal.aborted;
     let seq = 0;
     void (async () => {
-      while (alive) {
+      while (alive()) {
         try {
+          if (await untilLooking(stop.signal)) seq = 0;
+          if (!alive()) return;
           const f = await liveFrame(tab.id, seq);
-          if (!alive) return;
+          if (!alive()) return;
           if (f.data) {
             seq = f.seq;
             size.current = { width: f.width, height: f.height };
@@ -227,7 +239,7 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
             setStreamError(null);
           }
         } catch (e) {
-          if (!alive) return;
+          if (!alive()) return;
           const message = (e as Error).message;
           console.error(`[browser] frame ${tab.id}:`, message);
           setStreamError(message);
@@ -235,7 +247,7 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
         }
       }
     })();
-    return () => void (alive = false);
+    return () => stop.abort();
   }, [tab.id]);
 
   // Input goes out every 40 ms, mouse moves only the latest.
