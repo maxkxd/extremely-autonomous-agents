@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { siGithub, siGoogle, type SimpleIcon } from 'simple-icons';
 import { devSignIn, emailCode, inDesktopApp, signInWith, state } from './account';
+import { useGrow } from './grow';
 
 // Anywhere in the app can ask for it; App shows it, grown out of the button
-// pressed (from), if there was one. 'up' only changes the title: the same
+// pressed (grow.ts). 'up' only changes the title: the same
 // email code signs you in or makes your account.
 export type SignInAsk = { mode: 'in' | 'up'; from: DOMRect | null };
 export const openSignIn = (mode: 'in' | 'up' = 'in', from?: Element | null) =>
@@ -17,62 +18,33 @@ const Mark = ({ icon }: { icon: SimpleIcon }) => (
 );
 
 // The logo over the title (as on extremely.agency, extremely-agency-site/logo.svg).
-// The title moves like the sign-in tab (main.tsx): its letters land as it opens,
-// wave while it works, shake when it fails, and float once you're signed in (the
-// logo launching off as it does at the end of onboarding). styles.css, .signin.
-type Mood = 'land' | 'wave' | 'shake' | 'done';
-const Head = ({ title, sub, mood = 'land' }: { title: string; sub?: string; mood?: Mood }) => (
-  <div className={`signin-head mood-${mood}`}>
+// They stay still: the dialog's opening and closing is its only motion.
+const Head = ({ title, sub }: { title: string; sub?: string }) => (
+  <div className="signin-head">
     <svg className="signin-logo" viewBox="-42 0 164 96" aria-hidden>
       <polygon fill="#3f7bd6" points="2,32 56,50 2,68 24,50" />
       <polygon fill="#e5484d" points="-40,8 120,44 44,78 78,50" />
     </svg>
-    {/* Keyed on the words, so a new title lands afresh. */}
-    <Title key={title} text={title} />
+    <h2 id="signin-title">{title}</h2>
     {sub && <p className="signin-sub">{sub}</p>}
   </div>
 );
-// The title's letters land once, when the words first show (opening, or new
-// words: "Check your email", "SIGNED IN"); a change of mood never replays it,
-// so a shake straight after the wave jolts letters you can see.
-function Title({ text }: { text: string }) {
-  const ref = useRef<HTMLHeadingElement>(null);
-  useLayoutEffect(() => {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    ref.current?.querySelectorAll<HTMLElement>('span').forEach((s, i) =>
-      s.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 420, delay: 180 + i * 30, easing: 'ease-out', fill: 'backwards' }),
-    );
-  }, []);
-  return (
-    <h2 id="signin-title" ref={ref} aria-label={text}>
-      {[...text].map((c, i) => (
-        <span key={i} aria-hidden style={{ '--i': i } as React.CSSProperties}>
-          {c === ' ' ? ' ' : c}
-        </span>
-      ))}
-    </h2>
-  );
-}
-// How long "Signed in" shows before the app carries on.
-const DONE_MS = 900;
 
-const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
-// The dialog, from the button's place and size to its own, or back.
-function grow(box: HTMLElement, from: DOMRect, back = false) {
-  // Measured where it rests, not part-way through another animation.
-  box.getAnimations().forEach(a => a.cancel());
-  const to = box.getBoundingClientRect();
-  const start = `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})`;
-  const frames = [
-    { transform: start, opacity: 0.6, borderRadius: '9px' },
-    { transform: 'none', opacity: 1, borderRadius: '14px' },
-  ];
-  box.style.transformOrigin = 'top left';
-  const a = box.animate(back ? frames.reverse() : frames, { duration: back ? 200 : 300, easing: EASE, fill: back ? 'forwards' : 'none' });
-  // What's inside fades in once it's nearly open, rather than squashing with it.
-  if (!back) for (const child of Array.from(box.children)) (child as HTMLElement).animate([{ opacity: 0 }, { opacity: 0 }, { opacity: 1 }], { duration: 300, easing: 'ease-out' });
-  return a.finished;
-}
+// Opening and closing as every other dialog does (grow.ts): grown out of the
+// button pressed, contents fading in once it's nearly open; closing, they fade
+// first and it shrinks back into the button. The sign-in panel's blue glow
+// (styles.css, .confirm.signin) also warms up as it opens.
+const GLOW_MS = 620;
+const warmUp = (scrim: HTMLDivElement | null) => {
+  const panel = scrim?.querySelector<HTMLElement>('.confirm.signin');
+  if (!panel || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  panel.animate([{ boxShadow: '0 0 0 0 rgba(63, 123, 214, 0), 0 0 0 rgba(63, 123, 214, 0), 0 0 0 rgba(63, 123, 214, 0), 0 30px 80px rgba(0, 0, 0, 0.6)', borderColor: 'rgba(63, 123, 214, 0.2)' }, {}], {
+    duration: GLOW_MS,
+    delay: 120,
+    easing: 'ease-out',
+    fill: 'backwards',
+  });
+};
 
 // Signing in, for organizations (account.ts): Google, GitHub, or a code by
 // email - the same code makes an account the first time. Development without
@@ -80,33 +52,10 @@ function grow(box: HTMLElement, from: DOMRect, back = false) {
 // Looks like an email address: until it does, the button waits (greyed, saying why).
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function SignIn({ onDone: finished, onCancel: close, mode: asked = 'in', from = null }: { onDone: () => void; onCancel: () => void; mode?: 'in' | 'up'; from?: DOMRect | null }) {
-  // Signed in: a moment of "Signed in" floating, the logo launching, then on.
-  const [signedIn, setSignedIn] = useState(false);
-  const onDone = () => {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return finished();
-    setSignedIn(true);
-    window.setTimeout(finished, DONE_MS);
-  };
+export function SignIn({ onDone, onCancel, mode: asked = 'in' }: { onDone: () => void; onCancel: () => void; mode?: 'in' | 'up'; from?: DOMRect | null }) {
   // Either dialog links to the other ("Need an account? SIGN UP").
   const [mode, setMode] = useState(asked);
-  const box = useRef<HTMLFormElement & HTMLDivElement>(null);
-  const grown = useRef(false);
-  useLayoutEffect(() => {
-    // Once (development runs effects twice).
-    if (grown.current) return;
-    grown.current = true;
-    if (from && box.current) void grow(box.current, from);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  // Closing goes back into the button it came from.
-  const leaving = useRef(false);
-  const onCancel = () => {
-    if (leaving.current) return;
-    leaving.current = true;
-    if (from && box.current) void grow(box.current, from, true).then(close, close);
-    else close();
-  };
+  const grow = useGrow<HTMLDivElement>('dialog', warmUp);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
@@ -130,7 +79,6 @@ export function SignIn({ onDone: finished, onCancel: close, mode: asked = 'in', 
       if (inDesktopApp && !stop.signal.aborted) onDone();
     });
   const [error, setError] = useState<string | null>(null);
-  const [shaking, setShaking] = useState(false);
   const first = useRef<HTMLInputElement>(null);
   const dev = state.signIn === 'dev';
 
@@ -148,13 +96,9 @@ export function SignIn({ onDone: finished, onCancel: close, mode: asked = 'in', 
       await step();
     } catch (e) {
       setError((e as Error).message);
-      // The title gives a short shake as it says why.
-      setShaking(true);
-      window.setTimeout(() => setShaking(false), 520);
     }
     setBusy(false);
   };
-  const mood: Mood = signedIn ? 'done' : busy ? 'wave' : shaking ? 'shake' : 'land';
   const submit = () =>
     run(async () => {
       if (dev) return void (await devSignIn(email, name, mode), onDone());
@@ -165,8 +109,8 @@ export function SignIn({ onDone: finished, onCancel: close, mode: asked = 'in', 
 
   if (!state.signIn)
     return (
-      <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && onCancel()}>
-        <div ref={box} className={`confirm signin${from ? ' grows' : ''}`} role="dialog" aria-labelledby="signin-title">
+      <div className="confirm-scrim" ref={grow} onMouseDown={e => e.target === e.currentTarget && onCancel()}>
+        <div className="confirm signin" role="dialog" aria-labelledby="signin-title">
           <Head title="SIGN IN" />
           <p>Can't reach sign-in right now. Your own agency works without it.</p>
           <div className="confirm-actions">
@@ -179,10 +123,9 @@ export function SignIn({ onDone: finished, onCancel: close, mode: asked = 'in', 
     );
 
   return (
-    <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && !busy && onCancel()}>
+    <div className="confirm-scrim" ref={grow} onMouseDown={e => e.target === e.currentTarget && !busy && onCancel()}>
       <form
-        ref={box}
-        className={`confirm signin${from ? ' grows' : ''}`}
+        className="confirm signin"
         role="dialog"
         aria-labelledby="signin-title"
         onSubmit={e => {
@@ -191,9 +134,8 @@ export function SignIn({ onDone: finished, onCancel: close, mode: asked = 'in', 
         }}
       >
         <Head
-          title={signedIn ? (mode === 'up' ? 'SIGNED UP' : 'SIGNED IN') : finish ? 'Check your email' : mode === 'up' ? 'SIGN UP' : 'SIGN IN'}
-          sub={!finish && !signedIn && mode === 'up' ? 'to unlock EXTREMELY agentic collaboration' : undefined}
-          mood={mood}
+          title={finish ? 'Check your email' : mode === 'up' ? 'SIGN UP' : 'SIGN IN'}
+          sub={!finish && mode === 'up' ? 'to unlock EXTREMELY agentic collaboration' : undefined}
         />
         {finish ? (
           <>

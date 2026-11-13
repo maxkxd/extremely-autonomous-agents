@@ -2408,22 +2408,3 @@ body.after-onboarding .app { animation: ob-reveal 0.55s ease-out both; }
   .onboarding .onboarding-models, .onboarding .onboarding-foot > *, .onboarding .onboarding-next,
   body.after-onboarding .app { animation: none !important; }
 }
-
-/* --- The Sign in dialog's title (SignIn.tsx), moving like the sign-in tab ------
-   Opening: the logo glides in from the left and the letters land. Working: they
-   wave. Failed: a short shake. Signed in: the word floats and the logo launches
-   off to the right, as at the end of onboarding. */
-.signin-head h2 { white-space: nowrap; }
-.signin-head h2 span { display: inline-block; }
-.signin-head .signin-logo { animation: si-glide 0.55s cubic-bezier(0.2, 0.7, 0.4, 1) 0.08s both; }
-/* The letters land once, from SignIn.tsx's Title (WAAPI), not here: a mood change
-   never replays it, so a failure straight after the wave shakes visible letters. */
-.signin-head.mood-wave h2 span { animation: handoff-wave 1.6s ease-in-out infinite; animation-delay: calc(var(--i) * 0.08s); }
-.signin-head.mood-shake h2 { color: #f19a9c; animation: notice-jolt 0.4s ease-out; transition: color 0.3s; }
-.signin-head.mood-done h2 { color: #3fb27f; text-shadow: 0 0 16px rgba(63, 178, 127, 0.45); animation: handoff-float 1.6s ease-in-out 0.3s infinite; }
-.signin-head.mood-done .signin-logo { animation: si-launch 0.7s cubic-bezier(0.6, 0, 0.8, 0.3) 0.15s forwards; }
-@keyframes si-glide { from { transform: translateX(-140px) scaleX(1.5); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes si-launch { to { transform: translateX(240px) scaleX(1.6); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) {
-  .signin-head .signin-logo, .signin-head h2, .signin-head h2 span { animation: none !important; }
-}
