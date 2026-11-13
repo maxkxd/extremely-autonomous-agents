@@ -23,17 +23,18 @@ import type { Auth } from './tokens.js';
 // Once a minute it logs how many bytes passed each way ("[relay] ..."), and one
 // line for each app channel that carried any: its user agent, origin, address and
 // request path (query names only, never values), and how many frames went to the
-// app and how big the biggest was. A line also goes out when a channel that carried
-// anything closes. So a stream nobody means to be watching can be traced to the
-// client. (The frames are ciphertext: what is in them is the host's and the app's.)
+// app that minute and how big the biggest was. A line also goes out when a channel
+// that carried anything closes. So a stream nobody means to be watching can be
+// traced to the client. (The frames are ciphertext: what is in them is the host's
+// and the app's.)
 
 const MAX_FRAME = 4 * 1024 * 1024;
 const MAX_CHANNELS = 200;
 const AUTH_WITHIN = 10_000;
 
 type Host = { ws: WebSocket; orgId: string; channels: Map<number, WebSocket> };
-// What the traffic log keeps about one app channel: who opened it and what
-// passed in the current minute (and, for the line when it closes, in all of it).
+// What the traffic log keeps about one app channel: who opened it, what passed in the
+// current minute, and (for the line when it closes) in all of it.
 type Chan = {
   ua: string;
   origin: string;
@@ -42,8 +43,9 @@ type Chan = {
   since: number;
   toApp: number;
   fromApp: number;
-  frames: number;
+  minuteFrames: number;
   biggest: number;
+  frames: number;
   totalToApp: number;
   totalFromApp: number;
 };
@@ -133,6 +135,7 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
         if (chan) {
           chan.toApp += text.length;
           chan.totalToApp += text.length;
+          chan.minuteFrames++;
           chan.frames++;
           chan.biggest = Math.max(chan.biggest, text.length);
         }
@@ -167,8 +170,9 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
       since: Date.now(),
       toApp: 0,
       fromApp: 0,
-      frames: 0,
+      minuteFrames: 0,
       biggest: 0,
+      frames: 0,
       totalToApp: 0,
       totalFromApp: 0,
     });
@@ -227,14 +231,14 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
         console.log(
           `[relay]   channel ${c}: open ${Math.round((now - chan.since) / 1000)}s, ${chan.ip || 'unknown address'}, ` +
             `"${chan.ua || 'no user agent'}", origin ${chan.origin || 'none'}, ${chan.where}, ` +
-            `to app ${megabytes(chan.toApp)} in ${chan.frames} frames so far (biggest ${kilobytes(chan.biggest)}), from app ${megabytes(chan.fromApp)}`,
+            `to app ${megabytes(chan.toApp)} in ${chan.minuteFrames} frames (biggest ${kilobytes(chan.biggest)}), from app ${megabytes(chan.fromApp)}`,
         );
       }
     }
     traffic.fromHost = traffic.toHost = traffic.fromApps = traffic.toApps = 0;
     for (const chan of chans.values()) {
       chan.toApp = chan.fromApp = 0;
-      chan.frames = chan.biggest = 0;
+      chan.minuteFrames = chan.biggest = 0;
     }
   }, statsMs);
   report.unref();
