@@ -34,6 +34,7 @@ import {
   type TunnelState,
 } from './builder';
 import { Working } from './Busy';
+import { every } from './poll';
 
 // Settings > Connectors > Integrations (docs/integrations.md): the services
 // agents' tools run on. Web search is one service among several (agents use
@@ -51,8 +52,7 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
   };
   useEffect(() => {
     refresh();
-    const t = window.setInterval(refresh, 5000);
-    return () => window.clearInterval(t);
+    return every(refresh, 5000);
   }, []);
   // Arriving for one integration (a request's "Open ... in Settings"): scrolled to, glowing blue.
   // Kept shown after, even a draft the list would hide (`focus` clears once used).

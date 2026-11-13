@@ -13,6 +13,7 @@ import { Skel } from './Skeleton';
 import { ConnectModel } from './NoModels';
 import { useOffline } from './offline';
 import { Spinner } from './Busy';
+import { every } from './poll';
 
 // Slice colours come from --slice-0..4 on the card (styles.css): blue-to-gray
 // normally, red at Apocalyptic, grays when the agent is stopped.
@@ -745,10 +746,10 @@ export function Dashboard({
         })
         .catch(() => {});
     void load();
-    const t = setInterval(load, 10_000);
+    const stopPoll = every(load, 10_000);
     return () => {
       alive = false;
-      clearInterval(t);
+      stopPoll();
     };
   }, []);
   // Each agent's models, and every model that could be given (docs/model-connections.md).
@@ -781,8 +782,7 @@ export function Dashboard({
       () => {},
     );
   useEffect(() => {
-    const t = window.setInterval(refreshModels, 8000);
-    return () => window.clearInterval(t);
+    return every(refreshModels, 8000);
   }, []);
   // The moment a card's Setting up pill goes, its tailored models are there to show.
   const settingUp = AGENTS.filter(a => a.settingUp).map(a => a.id).join(',');
@@ -816,10 +816,10 @@ export function Dashboard({
         setLiveFor(range);
       }, () => {});
     load();
-    const t = setInterval(load, 4000);
+    const stopPoll = every(load, 4000);
     return () => {
       stop = true;
-      clearInterval(t);
+      stopPoll();
     };
   }, [range, arrivingIds.join(',')]);
   // A placeholder card, or a real one with the runner's numbers.

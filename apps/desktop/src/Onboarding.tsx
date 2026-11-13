@@ -3,6 +3,7 @@ import { useMoreBelow } from './moreBelow';
 import { checkModel, getAvailableModels, type AvailableModels } from './builder';
 import { ConnectionTests, Crayon, ModelConnectors, type ConnectionTestState } from './ModelConnectors';
 import { BusyLabel } from './Busy';
+import { every } from './poll';
 
 // The first thing a new install shows: who we are, then the one step nothing
 // works without - an AI model (a plan you already pay for, or an API key). Next
@@ -40,10 +41,10 @@ function useModelTests() {
         setLoaded(true);
       }, () => {});
     look();
-    const t = window.setInterval(look, 3000);
+    const stopPoll = every(look, 3000);
     return () => {
       live = false;
-      window.clearInterval(t);
+      stopPoll();
     };
   }, []);
   const signature = connected.map(c => `${c.connection}:${c.models.join(',')}`).join('|');

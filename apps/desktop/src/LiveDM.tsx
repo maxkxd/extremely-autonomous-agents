@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AgentDM, type StampedEntry } from './AgentDM';
 import { getAgency, getDm, getLiveAgents, sendDm } from './builder';
 import type { Resolution } from './Approvals';
+import { every } from './poll';
 
 // A real agent's DM channel (docs/agent-dms.md): its run posts and your
 // messages, from the runner. Sending a message books a run to answer it; the
@@ -57,10 +58,10 @@ export function LiveDM({
       }
     };
     load();
-    const t = window.setInterval(load, 3000);
+    const stopPoll = every(load, 3000);
     return () => {
       stop = true;
-      window.clearInterval(t);
+      stopPoll();
     };
   }, [agentId]);
   useEffect(() => {

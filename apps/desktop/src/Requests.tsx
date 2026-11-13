@@ -12,6 +12,7 @@ import { isAdmin, myAccountId, scoped } from './account';
 import { scrollToCard } from './scrollToCard';
 import { notify, notifyError } from './Notices';
 import { Spinner } from './Busy';
+import { every } from './poll';
 
 // A request waiting for a sign-in the whole organization shares (Gmail, Square...)
 // is everyone's to see, not just its agent's owner's: a teammate's request can
@@ -33,8 +34,8 @@ function useBrowserWaiting() {
         () => {},
       );
     void tick();
-    const t = setInterval(tick, 10_000);
-    return () => ((alive = false), clearInterval(t));
+    const stopPoll = every(tick, 10_000);
+    return () => ((alive = false), stopPoll());
   }, []);
   return n;
 }

@@ -46,6 +46,7 @@ import {
 } from './Approvals';
 import { Notices, notifyError } from './Notices';
 import { useGrow } from './grow';
+import { every } from './poll';
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 480;
@@ -172,8 +173,7 @@ function Agency() {
         setAgencyReady(true);
       }, () => {});
     load();
-    const t = window.setInterval(load, 5000);
-    return () => window.clearInterval(t);
+    return every(load, 5000);
   }, []);
   // The agency's days run on its host's clock. Until orgs exist, whoever runs
   // the app is the host: the first time it opens, the server takes its time zone.
@@ -242,8 +242,7 @@ function Agency() {
         () => {},
       );
     load();
-    const t = window.setInterval(load, 4000);
-    return () => window.clearInterval(t);
+    return every(load, 4000);
   }, []);
   const allApprovals = liveApprovals;
   // Bumped when an agent is deleted, so everything re-reads AGENTS.
@@ -342,8 +341,7 @@ function Agency() {
         () => {},
       );
     load();
-    const t = window.setInterval(load, 5000);
-    return () => window.clearInterval(t);
+    return every(load, 5000);
   }, []);
   const pendingRequests = liveRequests.filter(r => !requestGone[r.id] && exists(r.agentId));
   // Still open: what the counts are (one flying off has already gone from them).
@@ -436,8 +434,7 @@ function Agency() {
         if (added) setAgentsVersion(v => v + 1);
       }, () => {});
     sync();
-    const t = window.setInterval(sync, 10_000);
-    return () => window.clearInterval(t);
+    return every(sync, 10_000);
   }, [AGENTS.length]);
   const mainBody = useRef<HTMLDivElement>(null);
   useElasticScroll(mainBody);
@@ -590,8 +587,7 @@ function Agency() {
       if (changed) setAgentsTick(t => t + 1);
     };
     check();
-    const id = window.setInterval(check, 3000);
-    return () => window.clearInterval(id);
+    return every(check, 3000);
   }, [anySettingUp]);
   const [width, setWidth] = useState(() => clamp(readStored(WIDTH_KEY, DEFAULT_WIDTH)));
   const [shut, setShut] = useState(() => readStored(SHUT_KEY, false));

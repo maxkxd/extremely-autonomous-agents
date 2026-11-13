@@ -1,5 +1,6 @@
 import type { Clerk as ClerkType } from '@clerk/clerk-js';
 import { HostOffline, RelayLink } from './relay';
+import { every } from './poll';
 
 // Who's signed in, which agency the app is in, and where its requests go
 // (docs/architecture.md, "Accounts and organizations").
@@ -682,7 +683,7 @@ export async function checkWaitingInvites() {
   waitingCount = n;
   waitingListeners.forEach(l => l());
 }
-setInterval(() => void checkWaitingInvites(), 30_000);
+every(() => void checkWaitingInvites(), 30_000);
 export const revokeInvite = (code: string) =>
   isSelf(state.agency) ? viaHost('/api/self/invites/revoke', { code }) : backend(`/invites/${encodeURIComponent(code)}`, { method: 'DELETE' });
 // The address a self-hosted organization's members reach it at (its owner sets it).

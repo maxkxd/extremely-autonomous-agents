@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { isAdmin } from './account';
 import { getAvailableModels } from './builder';
 import type { SettingsSection } from './Settings';
+import { every } from './poll';
 
 // Settings, at a section, from anywhere (App shows it).
 // focus: something in that section to bring into view (Tools: a tool id).
@@ -15,10 +16,10 @@ export function useHasModels() {
     let live = true;
     const check = () => getAvailableModels().then(a => live && setHas(a.some(c => c.models.length > 0)), () => {});
     check();
-    const t = window.setInterval(() => has !== true && check(), 3000);
+    const stopPoll = every(() => has !== true && check(), 3000);
     return () => {
       live = false;
-      window.clearInterval(t);
+      stopPoll();
     };
   }, [has]);
   return has;
