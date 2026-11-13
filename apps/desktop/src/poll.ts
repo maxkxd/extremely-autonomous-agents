@@ -21,6 +21,7 @@ const looking = () => document.visibilityState === 'visible' && document.hasFocu
 // to wait), or when `signal` aborts, so a page that went away leaves no listener behind.
 export function untilLooking(signal?: AbortSignal): Promise<boolean> {
   if (looking()) return Promise.resolve(false);
+  if (signal?.aborted) return Promise.resolve(true);
   return new Promise<boolean>(resolve => {
     const done = () => {
       window.removeEventListener('focus', check);
