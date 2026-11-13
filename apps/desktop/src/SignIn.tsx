@@ -28,16 +28,31 @@ const Head = ({ title, sub, mood = 'land' }: { title: string; sub?: string; mood
       <polygon fill="#e5484d" points="-40,8 120,44 44,78 78,50" />
     </svg>
     {/* Keyed on the words, so a new title lands afresh. */}
-    <h2 id="signin-title" key={title} aria-label={title}>
-      {[...title].map((c, i) => (
+    <Title key={title} text={title} />
+    {sub && <p className="signin-sub">{sub}</p>}
+  </div>
+);
+// The title's letters land once, when the words first show (opening, or new
+// words: "Check your email", "SIGNED IN"); a change of mood never replays it,
+// so a shake straight after the wave jolts letters you can see.
+function Title({ text }: { text: string }) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  useLayoutEffect(() => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    ref.current?.querySelectorAll<HTMLElement>('span').forEach((s, i) =>
+      s.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 420, delay: 180 + i * 30, easing: 'ease-out', fill: 'backwards' }),
+    );
+  }, []);
+  return (
+    <h2 id="signin-title" ref={ref} aria-label={text}>
+      {[...text].map((c, i) => (
         <span key={i} aria-hidden style={{ '--i': i } as React.CSSProperties}>
           {c === ' ' ? ' ' : c}
         </span>
       ))}
     </h2>
-    {sub && <p className="signin-sub">{sub}</p>}
-  </div>
-);
+  );
+}
 // How long "Signed in" shows before the app carries on.
 const DONE_MS = 900;
 
