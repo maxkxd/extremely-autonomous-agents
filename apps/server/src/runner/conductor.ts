@@ -56,6 +56,7 @@ export async function decideRoute(r: RequestFacts): Promise<Decision> {
     system: SYSTEM,
     prompt,
     maxTokens: 800,
+    want: 'cheap',
     summary: async t => {
       const d = jsonIn<Decision>(t);
       const to = d.route === 'agent' && d.agent_id ? (await readMeta(d.agent_id))?.name : null;

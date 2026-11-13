@@ -47,6 +47,7 @@ export async function reviewPlugin(p: { name: string; yaml: string; code: string
   const prompt = `Review this plugin, "${p.name}".\n\n${perms}\n\n--- Definition ---\n${p.yaml}\n\n--- Code ---\n${p.code}`;
   const text = await ask(REVIEWER, {
     trigger: 'handoff',
+    want: 'careful',
     task: `Review the plugin "${p.name}".`,
     system: SYSTEM,
     prompt,
@@ -57,7 +58,11 @@ export async function reviewPlugin(p: { name: string; yaml: string; code: string
     },
   }).catch(e => {
     if (e instanceof HelperStopped) throw new Error("The agency is stopped, so plugins can't be proposed until it's resumed.");
-    throw e;
+    // No AI answered (one out of credit, every one down): the app's own step,
+    // never the person's to pay for or fix.
+    throw new Error(
+      `The security review couldn't run - none of the AIs it can use answered (${(e as Error).message}). This is the app's own step: never ask a person to top up, pay for or fix an AI because of it. Propose it again later (it tries every AI that works); still failing on your next run, report it with engineer.report_app_gap and carry on with other requests.`,
+    );
   });
   try {
     return parseReview(text);
