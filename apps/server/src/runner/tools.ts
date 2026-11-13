@@ -68,6 +68,15 @@ export const setRequestRouter = (fn: typeof router) => void (router = fn);
 // Agency Engineer (docs/requests.md); direct: straight to the engineer (a tool
 // the builder invented - always the engineer's). The engineer's own requests
 // go to a person.
+// A request asking a person to approve or sign something off. Never filed:
+// approvals happen only on approval cards (the action itself, queued with the
+// tool that does it). A request is for what an agent can't get - a tool, access,
+// a decision only a person can make - never a second, wordier approval.
+export const APPROVAL_ASK =
+  /^(?:[^:]{1,40}:\s*)?(?:please\s+)?(?:approve|sign[- ]?off|okay|ok|green[- ]?light|give (?:the )?go[- ]ahead)\b|\b(?:your|an?|the) (?:approval|sign[- ]?off|go[- ]ahead|green[- ]?light) (?:on|for|of|to)\b|\bapprove (?:the|my|this|our)\b|\bsign (?:it |this |them )?off\b/i;
+export const NOT_AN_APPROVAL =
+  "Not filed: approvals never go in requests. Queue the action itself with the tool that does it - its approval card is where the person signs it off, with your summary of what it is and why it's good. No tool does it? Request that tool (what it should do), not the approval. Meanwhile carry on with other work.";
+
 export function fileRequest(
   agentId: string,
   runId: string | null,
@@ -338,7 +347,7 @@ const BUILTIN: ToolDef[] = [
     id: 'requests.request_resource',
     tier: 'T1',
     description:
-      'Ask for something you need and cannot get yourself: a tool, access, data, a decision, spend. Not an account you can sign up for in your own browser - do that yourself. It is answered later; carry on without it for now.',
+      'Ask for something you need and cannot get yourself: a tool, access, data, a decision, spend. Not an account you can sign up for in your own browser - do that yourself. Never an approval or sign-off: queue the action itself and its approval card is the sign-off. It is answered later; carry on without it for now.',
     schema: obj(
       {
         what: str("Its title: what you need, in 10 words or fewer, with what it's for, so it makes sense on its own - \"Sign in to Facebook so I can read the two groups\", not \"A request\". The details go in why."),
@@ -352,6 +361,7 @@ const BUILTIN: ToolDef[] = [
       // A paragraph as the title (53 words, six lines bold on the Requests page): sent back.
       const words = String(a.what ?? '').trim().split(/\s+/).length;
       if (words > 14) return `Not filed: the title (what) is ${words} words. Make it 10 words or fewer - what you need and what for - and put the rest in why.`;
+      if (APPROVAL_ASK.test(String(a.what ?? ''))) return NOT_AN_APPROVAL;
       const id = fileRequest(
         ctx.agent.id,
         ctx.runId,
