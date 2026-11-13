@@ -41,7 +41,10 @@ function Inline({ text, refs }: { text: string; refs: Ref }) {
 // "Open in signed-in browser: https://www.linkedin.com/login (profile 2)": a button that
 // takes you to that page in the agents' own browser (runner/browser.ts) - the very tab
 // the agent filled in and kept for you, when it kept one.
-const BROWSER_LINE = /^\s*Open in signed-in browser:\s*(https?:\/\/[^\s<>"']+?)[.,]?(?:\s*\(profile\s*(\d+)\))?\.?\s*$/i;
+// A short label before it still counts: a request's card puts its evidence under
+// "Details: " (App.tsx), which left every such line a plain link - #208 said "press the
+// button" with no button there.
+const BROWSER_LINE = /^\s*(?:[A-Za-z][\w ]{0,20}:\s*)?Open in signed-in browser:\s*(https?:\/\/[^\s<>"']+?)[.,]?(?:\s*\(profile\s*(\d+)\))?\.?\s*$/i;
 const hostOf = (url: string) => {
   try {
     return new URL(url).hostname.replace(/^www\./, '');

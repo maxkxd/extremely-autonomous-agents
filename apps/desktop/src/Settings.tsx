@@ -71,6 +71,7 @@ import {
 } from './builder';
 import { useGrow } from './grow';
 import { BusyLabel, Working } from './Busy';
+import { scrollToCard, whenOpened } from './scrollToCard';
 
 export type SettingsSection = 'account' | 'organization' | 'usage' | 'connectors' | 'tools';
 
@@ -1445,7 +1446,7 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
     window.setTimeout(() => {
       const row = document.querySelector<HTMLElement>(`[data-tool="${CSS.escape(focus)}"]`);
       if (!row) return;
-      row.scrollIntoView({ block: 'center' });
+      void whenOpened(row).then(() => scrollToCard(row, 'center'));
       row.classList.add('spotlit');
       window.setTimeout(() => row.classList.remove('spotlit'), 2600);
     }, 60);

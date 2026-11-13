@@ -19,6 +19,14 @@ function scrollerOf(el: HTMLElement): HTMLElement | null {
 
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
+// After the window it's in has finished opening (Settings grows out of what opened
+// it, grow.ts): the scroll starts once you can see where it's going.
+export async function whenOpened(el: HTMLElement | null) {
+  const win = el?.closest<HTMLElement>('.settings, .confirm');
+  if (!win) return;
+  await Promise.all(win.getAnimations({ subtree: true }).filter(a => a.playState === 'running' && a.effect?.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})));
+}
+
 export function scrollToCard(el: HTMLElement | null, block: 'start' | 'center' = 'center') {
   if (!el) return;
   const scroller = scrollerOf(el);

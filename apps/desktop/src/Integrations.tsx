@@ -35,6 +35,7 @@ import {
 } from './builder';
 import { Working } from './Busy';
 import { every } from './poll';
+import { scrollToCard, whenOpened } from './scrollToCard';
 
 // Settings > Connectors > Integrations (docs/integrations.md): the services
 // agents' tools run on. Web search is one service among several (agents use
@@ -115,7 +116,8 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
 function spotlight(id: string) {
   const row = document.querySelector<HTMLElement>(`[data-integration="${CSS.escape(id)}"]`);
   if (!row) return;
-  row.scrollIntoView({ block: 'center' });
+  // Settings opens first, then a quick scroll down to it (not a jump while it opens).
+  void whenOpened(row).then(() => scrollToCard(row, 'center'));
   row.classList.add('spotlit');
   window.setTimeout(() => row.classList.remove('spotlit'), 2600);
 }
