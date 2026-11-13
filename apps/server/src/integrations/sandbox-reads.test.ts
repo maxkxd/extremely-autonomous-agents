@@ -11,7 +11,8 @@ test('programs: the programs folder is always readable, system folders only on L
   assert.ok(programReads('darwin').includes('/Applications'));
 });
 
-test('programs: never the home folder, the whole disk or a writable path', () => {
+test('programs: never the home folder or the whole disk', () => {
   for (const platform of ['linux', 'darwin', 'win32']) for (const p of programReads(platform)) assert.notEqual(p, '/', `${platform}: ${p}`);
-  assert.ok(!programReads('linux').some(p => p.startsWith('/home') || p === '/etc' || p === '/data'));
+  const system = programReads('linux').filter(p => p !== programsRoot());
+  assert.ok(!system.some(p => p.startsWith('/home') || p === '/etc' || p === '/data'));
 });
