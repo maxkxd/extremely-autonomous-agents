@@ -9,6 +9,7 @@ import { openSettings } from './NoModels';
 import { Loading, Skel, SkelLines } from './Skeleton';
 import { useOffline } from './offline';
 import { scrollToCard } from './scrollToCard';
+import { useGrow } from './grow';
 
 export type ApprovalScope = 'mine' | 'all';
 // 'expired' = nobody answered in time; like a rejection, the action does not happen.
@@ -87,6 +88,7 @@ function AgentFilter({
   value: string | null;
   onChange: (id: string | null) => void;
 }) {
+  const menu = useGrow<HTMLUListElement>('menu');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, open, () => setOpen(false));
@@ -100,7 +102,7 @@ function AgentFilter({
         <ChevronDown size={15} className="muted chev" />
       </button>
       {open && (
-        <ul className="dropdown-menu" role="listbox">
+        <ul className="dropdown-menu" role="listbox" ref={menu}>
           <li>
             <button
               role="option"

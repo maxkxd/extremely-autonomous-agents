@@ -69,6 +69,7 @@ import {
   type ToolView,
   type Usage,
 } from './builder';
+import { useGrow } from './grow';
 
 export type SettingsSection = 'account' | 'organization' | 'usage' | 'connectors' | 'tools';
 
@@ -104,6 +105,7 @@ export function Settings({
   onOrgChange: () => void; // the account just became an organization
   onLogOut: () => void;
 }) {
+  const grow = useGrow<HTMLDivElement>('dialog');
   const invited = useSyncExternalStore(onWaitingInvites, waitingInvites) > 0;
   // The organization chat sits above Settings; Escape closes it first.
   const chatOpen = useRef(false);
@@ -114,7 +116,7 @@ export function Settings({
   }, [onClose]);
 
   return (
-    <div className="settings-scrim" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+    <div className="settings-scrim" ref={grow} onMouseDown={e => e.target === e.currentTarget && onClose()}>
       <div className="settings" role="dialog" aria-label="Settings">
         <nav className="settings-nav">
           <div className="settings-nav-title">Settings</div>
@@ -282,6 +284,7 @@ const ROLES = [
   { value: 'admin', label: 'Admin' },
 ] as const;
 function RolePicker({ value, onChange }: { value: 'admin' | 'member'; onChange: (r: 'admin' | 'member') => void }) {
+  const menu = useGrow<HTMLUListElement>('menu');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, open, () => setOpen(false));
@@ -292,7 +295,7 @@ function RolePicker({ value, onChange }: { value: 'admin' | 'member'; onChange: 
         <ChevronDown size={15} className="muted chev" />
       </button>
       {open && (
-        <ul className="dropdown-menu" role="listbox">
+        <ul className="dropdown-menu" role="listbox" ref={menu}>
           {ROLES.map(r => (
             <li key={r.value}>
               <button
@@ -316,6 +319,7 @@ function RolePicker({ value, onChange }: { value: 'admin' | 'member'; onChange: 
 }
 
 function IdePicker({ value, onChange }: { value: IdeId; onChange: (id: IdeId) => void }) {
+  const menu = useGrow<HTMLUListElement>('menu', el => el?.scrollIntoView({ block: 'nearest' }));
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, open, () => setOpen(false));
@@ -329,7 +333,7 @@ function IdePicker({ value, onChange }: { value: IdeId; onChange: (id: IdeId) =>
       </button>
       {open && (
         // Near the foot of Settings: scroll so the whole menu shows.
-        <ul className="dropdown-menu" role="listbox" ref={el => el?.scrollIntoView({ block: 'nearest' })}>
+        <ul className="dropdown-menu" role="listbox" ref={menu}>
           {(Object.keys(AI_IDES) as IdeId[]).map(id => (
             <li key={id}>
               <button
@@ -1061,6 +1065,7 @@ function OrgPeople() {
 }
 
 function DeleteOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => Promise<void> }) {
+  const grow = useGrow<HTMLDivElement>('dialog');
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1076,7 +1081,7 @@ function DeleteOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel
     }
   };
   return (
-    <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && !busy && onCancel()}>
+    <div className="confirm-scrim" ref={grow} onMouseDown={e => e.target === e.currentTarget && !busy && onCancel()}>
       <div className="confirm" role="alertdialog" aria-labelledby="delorg-title">
         <h2 id="delorg-title">Delete {name}?</h2>
         <p>Everyone loses access, and its agents, their history and its connections are deleted from this computer. This can't be undone.</p>
@@ -1103,6 +1108,7 @@ function DeleteOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel
 
 // Leaving asks first: it looked as harmless as "Switch to my personal agency" beside it.
 function LeaveOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => Promise<void> }) {
+  const grow = useGrow<HTMLDivElement>('dialog');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const go = async () => {
@@ -1115,7 +1121,7 @@ function LeaveOrgDialog({ name, onCancel, onConfirm }: { name: string; onCancel:
     }
   };
   return (
-    <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && !busy && onCancel()}>
+    <div className="confirm-scrim" ref={grow} onMouseDown={e => e.target === e.currentTarget && !busy && onCancel()}>
       <div className="confirm" role="alertdialog" aria-labelledby="leave-title">
         <h2 id="leave-title">Leave {name}?</h2>
         <p>You'll stop seeing its agents, requests and approvals. Your agents there stay with the organization. To come back, someone has to invite you again.</p>

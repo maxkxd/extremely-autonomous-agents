@@ -30,6 +30,7 @@ import { usePhoto } from './photo';
 import { useOffline } from './offline';
 import { useMoreBelow } from './moreBelow';
 import type { SettingsSection } from './Settings';
+import { useGrow } from './grow';
 
 export type View = 'dashboard' | 'approvals' | 'requests' | 'new-agent' | 'browser' | `agent:${string}`;
 
@@ -75,6 +76,7 @@ const currentOrgName = () => teamOrgs().find(o => o.id === state.agency)?.name ?
 // Your own agency and each organization you're in; picking one starts the app
 // in it. "New organization" (or joining one) opens Settings.
 function OrgPicker({ onNew }: { onNew: () => void }) {
+  const menu = useGrow<HTMLUListElement>('menu');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, open, () => setOpen(false));
@@ -100,7 +102,7 @@ function OrgPicker({ onNew }: { onNew: () => void }) {
         <ChevronsUpDown size={16} className="muted" />
       </button>
       {open && (
-        <ul className="dropdown-menu" role="listbox">
+        <ul className="dropdown-menu" role="listbox" ref={menu}>
           {choices.map(c => (
             <li key={c.id}>
               <button
@@ -290,6 +292,7 @@ const ACCOUNT_ITEMS: { label: string; Icon: typeof Settings; section: SettingsSe
 
 // Same joined dropdown as the org picker, opening upward from the sidebar foot.
 function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: SettingsSection) => void; onLogOut: () => void }) {
+  const menu = useGrow<HTMLUListElement>('menu');
   const [open, setOpen] = useState(false);
   // The name you go by (Settings > Account), kept in step as it changes.
   const name = useSyncExternalStore(onMyName, myName);
@@ -301,7 +304,7 @@ function AccountMenu({ onOpenSettings, onLogOut }: { onOpenSettings: (s: Setting
   return (
     <div className={`account-picker${open ? ' open' : ''}`} ref={ref}>
       {open && (
-        <ul className="dropdown-menu" role="menu">
+        <ul className="dropdown-menu" role="menu" ref={menu}>
           {ACCOUNT_ITEMS.map(({ label, Icon, section }) => (
             <li key={label}>
               <button

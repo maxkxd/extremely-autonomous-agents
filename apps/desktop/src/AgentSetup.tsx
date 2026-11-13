@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeftRight, Check, Play, Star } from 'lucide-react';
 import type { AgentSetup } from './builder';
+import { useGrow } from './grow';
 
 // A new agent's setup, on its card until it's first resumed: the connectors its
 // first requests asked for (the Agency Engineer drafts them), how much each
@@ -124,13 +125,14 @@ export function SetupList({
 
 // Resuming before everything's connected: it can, but say what that means.
 export function ResumeSetupDialog({ name, missing, onCancel, onResume }: { name: string; missing: string[]; onCancel: () => void; onResume: () => void }) {
+  const grow = useGrow<HTMLDivElement>('dialog');
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCancel();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onCancel]);
   return (
-    <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && onCancel()}>
+    <div className="confirm-scrim" ref={grow} onMouseDown={e => e.target === e.currentTarget && onCancel()}>
       <div className="confirm" role="alertdialog" aria-labelledby="setup-title" aria-describedby="setup-body">
         <h2 id="setup-title">{name} isn't fully connected</h2>
         <p id="setup-body">

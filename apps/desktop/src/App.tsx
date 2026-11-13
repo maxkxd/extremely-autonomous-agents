@@ -45,6 +45,7 @@ import {
   type Resolution,
 } from './Approvals';
 import { Notices, notifyError } from './Notices';
+import { useGrow } from './grow';
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 480;
@@ -502,6 +503,7 @@ function Agency() {
   }, []);
   // Logging out while one of your agents is mid-run asks first (it used to just happen).
   const [loggingOut, setLoggingOut] = useState<string[] | null>(null);
+  const logoutGrow = useGrow<HTMLDivElement>('dialog');
   const logInOut = async () => {
     if (!state.me) return setSigningIn({ mode: 'in', from: null });
     const live = await getLiveAgents(1).catch(() => ({}) as Record<string, { running: boolean }>);
@@ -856,7 +858,7 @@ function Agency() {
       )}
       {/* Signed in: the app starts again, with your organizations. */}
       {loggingOut && (
-        <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && setLoggingOut(null)}>
+        <div className="confirm-scrim" ref={logoutGrow} onMouseDown={e => e.target === e.currentTarget && setLoggingOut(null)}>
           <div className="confirm" role="alertdialog" aria-labelledby="logout-title">
             <h2 id="logout-title">Log out?</h2>
             <p>

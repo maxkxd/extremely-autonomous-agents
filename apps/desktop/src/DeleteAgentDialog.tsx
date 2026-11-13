@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { Agent } from './data';
+import { useGrow } from './grow';
 
 // Deleting an agent can't be undone, so you type its name to confirm.
 export function DeleteAgentDialog({
@@ -12,6 +13,7 @@ export function DeleteAgentDialog({
   onCancel: () => void;
   onConfirm: () => Promise<void>;
 }) {
+  const grow = useGrow<HTMLDivElement>('dialog');
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function DeleteAgentDialog({
   };
 
   return (
-    <div className="confirm-scrim" onMouseDown={e => e.target === e.currentTarget && !busy && onCancel()}>
+    <div className="confirm-scrim" ref={grow} onMouseDown={e => e.target === e.currentTarget && !busy && onCancel()}>
       <div className="confirm" role="alertdialog" aria-labelledby="del-title" aria-describedby="del-body">
         <h2 id="del-title">Delete {agent.name}?</h2>
         <p id="del-body">

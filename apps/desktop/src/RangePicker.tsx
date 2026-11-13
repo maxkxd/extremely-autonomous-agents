@@ -2,8 +2,10 @@ import { useRef, useState } from 'react';
 import { Calendar, Check, ChevronDown } from 'lucide-react';
 import { TIME_RANGES, rangeLabel, type TimeRange } from './data';
 import { useDismiss } from './useDismiss';
+import { useGrow } from './grow';
 
 export function RangePicker({ value, onChange }: { value: TimeRange; onChange: (r: TimeRange) => void }) {
+  const menu = useGrow<HTMLUListElement>('menu');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -17,7 +19,7 @@ export function RangePicker({ value, onChange }: { value: TimeRange; onChange: (
         <ChevronDown size={15} className="muted chev" />
       </button>
       {open && (
-        <ul className="dropdown-menu" role="listbox">
+        <ul className="dropdown-menu" role="listbox" ref={menu}>
           {TIME_RANGES.map(r => (
             <li key={r.value}>
               <button
