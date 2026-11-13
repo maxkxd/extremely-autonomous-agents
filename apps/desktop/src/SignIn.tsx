@@ -17,16 +17,29 @@ const Mark = ({ icon }: { icon: SimpleIcon }) => (
 );
 
 // The logo over the title (as on extremely.agency, extremely-agency-site/logo.svg).
-const Head = ({ title, sub }: { title: string; sub?: string }) => (
-  <div className="signin-head">
+// The title moves like the sign-in tab (main.tsx): its letters land as it opens,
+// wave while it works, shake when it fails, and float once you're signed in (the
+// logo launching off as it does at the end of onboarding). styles.css, .signin.
+type Mood = 'land' | 'wave' | 'shake' | 'done';
+const Head = ({ title, sub, mood = 'land' }: { title: string; sub?: string; mood?: Mood }) => (
+  <div className={`signin-head mood-${mood}`}>
     <svg className="signin-logo" viewBox="-42 0 164 96" aria-hidden>
       <polygon fill="#3f7bd6" points="2,32 56,50 2,68 24,50" />
       <polygon fill="#e5484d" points="-40,8 120,44 44,78 78,50" />
     </svg>
-    <h2 id="signin-title">{title}</h2>
+    {/* Keyed on the words, so a new title lands afresh. */}
+    <h2 id="signin-title" key={title} aria-label={title}>
+      {[...title].map((c, i) => (
+        <span key={i} aria-hidden style={{ '--i': i } as React.CSSProperties}>
+          {c === ' ' ? ' ' : c}
+        </span>
+      ))}
+    </h2>
     {sub && <p className="signin-sub">{sub}</p>}
   </div>
 );
+// How long "Signed in" shows before the app carries on.
+const DONE_MS = 900;
 
 const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 // The dialog, from the button's place and size to its own, or back.
@@ -52,7 +65,14 @@ function grow(box: HTMLElement, from: DOMRect, back = false) {
 // Looks like an email address: until it does, the button waits (greyed, saying why).
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function SignIn({ onDone, onCancel: close, mode: asked = 'in', from = null }: { onDone: () => void; onCancel: () => void; mode?: 'in' | 'up'; from?: DOMRect | null }) {
+export function SignIn({ onDone: finished, onCancel: close, mode: asked = 'in', from = null }: { onDone: () => void; onCancel: () => void; mode?: 'in' | 'up'; from?: DOMRect | null }) {
+  // Signed in: a moment of "Signed in" floating, the logo launching, then on.
+  const [signedIn, setSignedIn] = useState(false);
+  const onDone = () => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return finished();
+    setSignedIn(true);
+    window.setTimeout(finished, DONE_MS);
+  };
   // Either dialog links to the other ("Need an account? SIGN UP").
   const [mode, setMode] = useState(asked);
   const box = useRef<HTMLFormElement & HTMLDivElement>(null);
@@ -95,6 +115,7 @@ export function SignIn({ onDone, onCancel: close, mode: asked = 'in', from = nul
       if (inDesktopApp && !stop.signal.aborted) onDone();
     });
   const [error, setError] = useState<string | null>(null);
+  const [shaking, setShaking] = useState(false);
   const first = useRef<HTMLInputElement>(null);
   const dev = state.signIn === 'dev';
 
@@ -112,9 +133,13 @@ export function SignIn({ onDone, onCancel: close, mode: asked = 'in', from = nul
       await step();
     } catch (e) {
       setError((e as Error).message);
+      // The title gives a short shake as it says why.
+      setShaking(true);
+      window.setTimeout(() => setShaking(false), 520);
     }
     setBusy(false);
   };
+  const mood: Mood = signedIn ? 'done' : busy ? 'wave' : shaking ? 'shake' : 'land';
   const submit = () =>
     run(async () => {
       if (dev) return void (await devSignIn(email, name, mode), onDone());
@@ -151,8 +176,9 @@ export function SignIn({ onDone, onCancel: close, mode: asked = 'in', from = nul
         }}
       >
         <Head
-          title={finish ? 'Check your email' : mode === 'up' ? 'SIGN UP' : 'SIGN IN'}
-          sub={!finish && mode === 'up' ? 'to unlock EXTREMELY agentic collaboration' : undefined}
+          title={signedIn ? (mode === 'up' ? 'SIGNED UP' : 'SIGNED IN') : finish ? 'Check your email' : mode === 'up' ? 'SIGN UP' : 'SIGN IN'}
+          sub={!finish && !signedIn && mode === 'up' ? 'to unlock EXTREMELY agentic collaboration' : undefined}
+          mood={mood}
         />
         {finish ? (
           <>
