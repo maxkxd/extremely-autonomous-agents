@@ -4,6 +4,7 @@ import { availableParallelism, freemem, totalmem } from 'node:os';
 import { browserCensus, cleanUpBrowsers } from './browser.js';
 import { startDiskSweep } from './disk-sweep.js';
 import { claudeCrashes } from './harness.js';
+import { CLEAN_AT, memoryFraction } from './pressure.js';
 import { registerTools, type ToolDef } from './tools.js';
 
 // The machine the agency runs on, as the Agency Doctor and the Agency Engineer
@@ -190,13 +191,19 @@ registerTools(TOOLS);
 // once a day (disk-sweep.ts).
 startDiskSweep();
 
-// It looks after itself too: close to the process/thread limit, it clears what
-// nobody is using without waiting for the Doctor's next look.
+// It looks after itself too: close to the process/thread limit, or with memory
+// at CLEAN_AT or more (pressure.ts), it clears what nobody is using without
+// waiting for the Doctor's next look. (At BRAKE_AT the scheduler also starts no
+// new run until memory drops.)
 const SELF_CHECK_MS = 5 * 60_000;
 if (process.platform === 'linux')
   setInterval(async () => {
     const t = (await limits()).tasks;
-    if (!t || !Number.isFinite(t.max) || t.now < 0.9 * t.max) return;
+    const crowded = !!t && Number.isFinite(t.max) && t.now >= 0.9 * t.max;
+    const memory = await memoryFraction();
+    const full = memory != null && memory >= CLEAN_AT;
+    if (!crowded && !full) return;
     const { ended, closed } = await cleanUpBrowsers();
-    console.error(`[host] At ${t.now} of ${t.max} processes/threads: ended ${ended.length} leftover browsers, closed ${closed.length} idle agents' browsers.`);
+    const why = [crowded ? `At ${t!.now} of ${t!.max} processes/threads` : '', full ? `Memory at ${Math.round(memory! * 100)}%` : ''].filter(Boolean).join(', ');
+    console.error(`[host] ${why}: ended ${ended.length} leftover browsers, closed ${closed.length} idle agents' browsers.`);
   }, SELF_CHECK_MS).unref();
