@@ -380,11 +380,11 @@ export const runnerRoutes: Record<string, Route> = {
 
   // --- Requests (docs/requests.md) ---
   'GET /api/runner/requests': async () => {
-    const rows = all<Record<string, unknown> & { id: number }>(
     // Open ones, and ones closed in the last few minutes (the page plays them leaving),
     // plus any an open one joined. Not the whole history: the app polls this every few
     // seconds, and every request ever with its thread was 850 KB and nearly 2 s each time.
     const cols = 'id, agent_id, run_id, what, why, evidence, expected_effect, status, stage, answer, created_at, answered_at, joined_to';
+    const rows = all<Record<string, unknown> & { id: number }>(
       `SELECT ${cols} FROM requests WHERE status = 'open' OR answered_at > ? OR id IN (SELECT joined_to FROM requests WHERE status = 'open' AND joined_to IS NOT NULL) ORDER BY created_at DESC`,
       Date.now() - RECENTLY_CLOSED_MS,
     );
