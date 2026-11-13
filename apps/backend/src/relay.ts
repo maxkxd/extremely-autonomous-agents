@@ -19,17 +19,37 @@ import type { Auth } from './tokens.js';
 //   relay -> host: {t: 'open', c} / {t: 'close', c}; host -> relay: {t: 'close', c}
 // d is base64 (opaque here). Close codes: 4001 sign in, 4003 not a member,
 // 4004 host offline, 4008 too much.
+//
+// Once a minute it logs how many bytes passed each way ("[relay] ..."), and one
+// line for each app channel that carried any, with its user agent and address,
+// so a stream nobody means to be watching can be traced to the client.
 
 const MAX_FRAME = 4 * 1024 * 1024;
 const MAX_CHANNELS = 200;
 const AUTH_WITHIN = 10_000;
 
 type Host = { ws: WebSocket; orgId: string; channels: Map<number, WebSocket> };
+// What the traffic log keeps about one app channel: who opened it and what
+// passed in the current minute.
+type Chan = { ua: string; ip: string; since: number; toApp: number; fromApp: number };
 
-export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_000 } = {}) {
+const megabytes = (n: number) => `${(n / (1024 * 1024)).toFixed(1)} MB`;
+// Printable ASCII only, and short, so a header can't forge or flood a log line.
+const plain = (s: unknown, max: number) => String(s ?? '').replace(/[^\x20-\x7e]/g, '?').slice(0, max);
+
+export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_000, statsMs = 60_000 } = {}) {
   const hosts = new Map<string, Host>();
   let nextChannel = 1;
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME });
+
+  // Bytes (about: the length of each JSON frame) since the last log line.
+  const traffic = { fromHost: 0, toHost: 0, fromApps: 0, toApps: 0 };
+  const chans = new Map<number, Chan>();
+  const size = (raw: unknown) => (Buffer.isBuffer(raw) ? raw.length : Buffer.byteLength(String(raw)));
+  const toHost = (host: Host, text: string) => {
+    traffic.toHost += text.length;
+    host.ws.send(text);
+  };
 
   server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const path = new URL(req.url ?? '/', 'http://x').pathname;
@@ -37,7 +57,7 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
     wss.handleUpgrade(req, socket, head, ws => {
       // noServer doesn't emit it itself; the heartbeat below counts on it.
       wss.emit('connection', ws, req);
-      void (path === '/relay/host' ? hostSide(ws) : appSide(ws));
+      void (path === '/relay/host' ? hostSide(ws) : appSide(ws, req));
     });
   });
 
@@ -76,11 +96,17 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
     ws.send(JSON.stringify({ t: 'ready' }));
 
     ws.on('message', raw => {
+      traffic.fromHost += size(raw);
       const m = json(raw);
       const app = typeof m?.c === 'number' ? host.channels.get(m.c) : undefined;
       if (!app) return;
-      if (m!.t === 'data' && typeof m!.d === 'string') app.send(JSON.stringify({ t: 'data', d: m!.d }));
-      else if (m!.t === 'close') app.close(1000, 'The host closed it.');
+      if (m!.t === 'data' && typeof m!.d === 'string') {
+        const text = JSON.stringify({ t: 'data', d: m!.d });
+        traffic.toApps += text.length;
+        const chan = chans.get(m!.c!);
+        if (chan) chan.toApp += text.length;
+        app.send(text);
+      } else if (m!.t === 'close') app.close(1000, 'The host closed it.');
     });
     ws.on('close', () => {
       if (hosts.get(orgId) === host) hosts.delete(orgId);
@@ -88,7 +114,7 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
     });
   }
 
-  async function appSide(ws: WebSocket) {
+  async function appSide(ws: WebSocket, req: IncomingMessage) {
     const hello = await firstFrame(ws).catch(() => null);
     const userId = typeof hello?.token === 'string' ? await auth.session(hello.token).catch(() => null) : null;
     if (!userId) return ws.close(4001, 'Sign in first.');
@@ -100,14 +126,21 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
 
     const c = nextChannel++;
     host.channels.set(c, ws);
-    host.ws.send(JSON.stringify({ t: 'open', c }));
+    // Behind Railway's proxy the first x-forwarded-for entry is the client.
+    const ip = plain(String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim(), 45);
+    chans.set(c, { ua: plain(req.headers['user-agent'], 80), ip, since: Date.now(), toApp: 0, fromApp: 0 });
+    toHost(host, JSON.stringify({ t: 'open', c }));
     ws.send(JSON.stringify({ t: 'ready' }));
     ws.on('message', raw => {
+      traffic.fromApps += size(raw);
+      const chan = chans.get(c);
+      if (chan) chan.fromApp += size(raw);
       const m = json(raw);
-      if (m?.t === 'data' && typeof m.d === 'string') host.ws.send(JSON.stringify({ t: 'data', c, d: m.d }));
+      if (m?.t === 'data' && typeof m.d === 'string') toHost(host, JSON.stringify({ t: 'data', c, d: m.d }));
     });
     ws.on('close', () => {
-      if (host.channels.delete(c)) host.ws.send(JSON.stringify({ t: 'close', c }));
+      chans.delete(c);
+      if (host.channels.delete(c)) toHost(host, JSON.stringify({ t: 'close', c }));
     });
   }
 
@@ -125,5 +158,30 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
   }, beatMs);
   beat.unref();
 
-  return { online: (orgId: string) => hosts.has(orgId), close: () => (clearInterval(beat), wss.close()) };
+  // The traffic log: nothing at all while there is no host and no app channel.
+  let lastReport = Date.now();
+  const report = setInterval(() => {
+    const now = Date.now();
+    const secs = Math.round((now - lastReport) / 1000);
+    lastReport = now;
+    if (hosts.size || chans.size) {
+      console.log(
+        `[relay] last ${secs}s: ${hosts.size} host(s), ${chans.size} app channel(s); ` +
+          `from hosts ${megabytes(traffic.fromHost)}, to hosts ${megabytes(traffic.toHost)}, ` +
+          `from apps ${megabytes(traffic.fromApps)}, to apps ${megabytes(traffic.toApps)}`,
+      );
+      for (const [c, chan] of chans) {
+        if (!chan.toApp && !chan.fromApp) continue;
+        console.log(
+          `[relay]   channel ${c}: open ${Math.round((now - chan.since) / 1000)}s, ${chan.ip || 'unknown address'}, ` +
+            `"${chan.ua || 'no user agent'}", to app ${megabytes(chan.toApp)}, from app ${megabytes(chan.fromApp)}`,
+        );
+      }
+    }
+    traffic.fromHost = traffic.toHost = traffic.fromApps = traffic.toApps = 0;
+    for (const chan of chans.values()) chan.toApp = chan.fromApp = 0;
+  }, statsMs);
+  report.unref();
+
+  return { online: (orgId: string) => hosts.has(orgId), close: () => (clearInterval(beat), clearInterval(report), wss.close()) };
 }
