@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { availableParallelism, freemem, totalmem } from 'node:os';
 import { browserCensus, cleanUpBrowsers } from './browser.js';
+import { startDiskSweep } from './disk-sweep.js';
 import { claudeCrashes } from './harness.js';
 import { CLEAN_AT, memoryFraction } from './pressure.js';
 import { registerTools, type ToolDef } from './tools.js';
@@ -185,6 +186,10 @@ const TOOLS: ToolDef[] = [
 ];
 
 registerTools(TOOLS);
+
+// The caches and old agency copies the disk fills with are cleared at start and
+// once a day (disk-sweep.ts).
+startDiskSweep();
 
 // It looks after itself too: close to the process/thread limit, or with memory
 // at CLEAN_AT or more (pressure.ts), it clears what nobody is using without
