@@ -49,17 +49,22 @@ export async function pendingApprovals(now = Date.now()) {
     // The Agency Doctor's: about one agent (agent_id).
     const about = (JSON.parse(r.args) as { agent_id?: unknown }).agent_id;
     const id = r.agent_id === FLEET_ENGINEER && typeof forAgent === 'string' ? forAgent : r.agent_id === DOCTOR && typeof about === 'string' ? about : r.agent_id;
-    const meta = await readMeta(id);
-    return nameNow(meta?.ownerId, meta?.owner);
+    if (!ownerFor.has(id)) ownerFor.set(id, readMeta(id).then(meta => nameNow(meta?.ownerId, meta?.owner)));
+    return ownerFor.get(id)!;
   };
+  // Once per agent, not per card: a couple of hundred waiting cards are a handful of agents.
+  const ownerFor = new Map<string, Promise<ReturnType<typeof nameNow>>>();
   const owners = await Promise.all(rows.map(ownerOf));
+  const stopped = new Map<string, boolean>();
+  const stoppedNow = (id: string) => stopped.get(id) ?? stopped.set(id, stateOf(id, now).state === 'stopped').get(id)!;
+  const agencyIsStopped = agencyStopped();
   // A stopped agent's approvals stay (their clock keeps running) but wait for it to be turned back on.
   // Tools listed by name and plain level, also on cards queued before they were.
   const argsOf = (r: ApprovalRow) => {
     const args = JSON.parse(r.args) as Record<string, unknown>;
     return Array.isArray(args.tools) && typeof args.tools_list === 'string' ? { ...args, tools_list: toolsForPeople(args.tools as { id: string; tier: string }[]) } : args;
   };
-  return rows.map((r, i) => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, owner: owners[i], agentStopped: stateOf(r.agent_id, now).state === 'stopped', agencyStopped: agencyStopped(), tool: r.tool, args: argsOf(r), card: approvalCardOf(r.tool) ?? BUILT_IN_CARDS[r.tool] ?? null, createdAt: r.created_at, expiresAt: r.expires_at }));
+  return rows.map((r, i) => ({ id: r.id, agentId: r.agent_id, agentName: names.get(r.agent_id)!, owner: owners[i], agentStopped: stoppedNow(r.agent_id), agencyStopped: agencyIsStopped, tool: r.tool, args: argsOf(r), card: approvalCardOf(r.tool) ?? BUILT_IN_CARDS[r.tool] ?? null, createdAt: r.created_at, expiresAt: r.expires_at }));
 }
 
 const argsLine = (args: Record<string, unknown>) =>

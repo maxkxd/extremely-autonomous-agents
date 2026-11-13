@@ -56,6 +56,8 @@ const isId = (id: unknown): id is string => typeof id === 'string' && /^[a-z0-9-
 // A message drafted and waiting for a person's approval counts on the Dashboard as
 // sent: it's written, and one click sends it. Turned down or withdrawn, it doesn't.
 const SENDS = /(^|\.)[a-z_]*send_(mail|email|message)s?$/;
+// How long a closed request stays in the list the app polls, so it can play it leaving.
+const RECENTLY_CLOSED_MS = 15 * 60_000;
 const QUEUED_SENDS = "a.outcome = 'queued' AND (a.tool GLOB '*send_mail' OR a.tool GLOB '*send_email' OR a.tool GLOB '*send_message') AND NOT EXISTS (SELECT 1 FROM approvals p WHERE p.id = a.approval_id AND p.status IN ('rejected', 'withdrawn'))";
 
 // A label for output that isn't one of its KPI actions (extra effort, like
@@ -379,14 +381,30 @@ export const runnerRoutes: Record<string, Route> = {
   // --- Requests (docs/requests.md) ---
   'GET /api/runner/requests': async () => {
     const rows = all<Record<string, unknown> & { id: number }>(
-      'SELECT id, agent_id, run_id, what, why, evidence, expected_effect, status, stage, answer, created_at, answered_at, joined_to FROM requests ORDER BY created_at DESC',
+    // Open ones, and ones closed in the last few minutes (the page plays them leaving),
+    // plus any an open one joined. Not the whole history: the app polls this every few
+    // seconds, and every request ever with its thread was 850 KB and nearly 2 s each time.
+    const cols = 'id, agent_id, run_id, what, why, evidence, expected_effect, status, stage, answer, created_at, answered_at, joined_to';
+      `SELECT ${cols} FROM requests WHERE status = 'open' OR answered_at > ? OR id IN (SELECT joined_to FROM requests WHERE status = 'open' AND joined_to IS NOT NULL) ORDER BY created_at DESC`,
+      Date.now() - RECENTLY_CLOSED_MS,
     );
     // One request per connection (tools.ts): a joined one shows as the request it
     // joined stands - its stage, the connection, the Agency Engineer's steps, its
     // card - with its own agent's reason. Each of its people sees it on their own.
     const byId = new Map(rows.map(r => [r.id, r]));
     const leadOf = (r: Record<string, unknown>) => (r.joined_to != null && r.status === 'open' ? byId.get(Number(r.joined_to)) : undefined);
-    const messages = all<{ request_id: number; from_who: string; text: string; at: number }>('SELECT request_id, from_who, text, at FROM request_messages ORDER BY id');
+    // Their messages only, grouped once (each request used to scan every message there is).
+    const ids = rows.map(r => r.id);
+    const messages = ids.length
+      ? all<{ request_id: number; from_who: string; text: string; at: number }>(`SELECT request_id, from_who, text, at FROM request_messages WHERE request_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`, ...ids)
+      : [];
+    const threadOf = new Map<number, typeof messages>();
+    for (const m of messages) (threadOf.get(m.request_id) ?? threadOf.set(m.request_id, []).get(m.request_id)!).push(m);
+    const joinedTo = new Map<number, (typeof rows)[number][]>();
+    for (const j of rows) {
+      const lead = leadOf(j);
+      if (lead) (joinedTo.get(lead.id) ?? joinedTo.set(lead.id, []).get(lead.id)!).push(j);
+    }
     // What the Agency Engineer is doing and has waiting, to tell which request it's on.
     const onIt = {
       running: isRunning(FLEET_ENGINEER) ? all<{ task: string | null }>("SELECT task FROM runs WHERE agent_id = ? AND status = 'running'", FLEET_ENGINEER).map(x => x.task) : [],
@@ -403,14 +421,14 @@ export const runnerRoutes: Record<string, Route> = {
       const lead = leadOf(row);
       // The lead's for what it stands at; its engineer's steps with this one's own conversation.
       const r = lead ? { ...row, stage: row.stage === 'joined' ? lead.stage : row.stage } : row;
-      const said = messages.filter(m => m.request_id === r.id || (lead && m.request_id === lead.id && m.from_who === 'engineer')).sort((x, y) => x.at - y.at);
+      const said = [...(threadOf.get(r.id) ?? []), ...(lead ? (threadOf.get(lead.id) ?? []).filter(m => m.from_who === 'engineer') : [])].sort((x, y) => x.at - y.at);
       const on = lead ?? r;
       return {
       ...r,
       evidence: evidenceForPeople(r.evidence),
       // The request it joined, and the agents that joined it: one card for all of them.
       joinedTo: lead?.id ?? null,
-      alsoFor: rows.filter(j => leadOf(j)?.id === r.id).map(j => ({ requestId: j.id, agentId: j.agent_id, why: j.why })),
+      alsoFor: (joinedTo.get(r.id) ?? []).map(j => ({ requestId: j.id, agentId: j.agent_id, why: j.why })),
       thread: said.map(m => ({ from: m.from_who === 'you' ? 'you' : 'engineer', text: m.text, at: m.at })),
       // Its run for this request is going or waiting - not just any run of its.
       engineerBusy: r.stage === 'engineer' && (onIt.running.some(t => mentions(t, on.id)) || onIt.queued.some(t => mentions(t, on.id))),
@@ -418,7 +436,7 @@ export const runnerRoutes: Record<string, Route> = {
       // engineer asked them something, handed it to them, or its go-live waits
       // on them. While the engineer is still working it out, it isn't there.
       // Once they've joined in, it stays while the engineer works on their reply.
-      needsYou: ['waiting_you', 'approval', 'person'].includes(String(r.stage)) || messages.some(m => m.request_id === r.id && m.from_who === 'you'),
+      needsYou: ['waiting_you', 'approval', 'person'].includes(String(r.stage)) || (threadOf.get(r.id) ?? []).some(m => m.from_who === 'you'),
       approvalId: waiting.find(w => Number(w.request) === on.id)?.id ?? null,
       // The connection it waits for the person to connect, so the page can show one item per connection.
       waitingOn: r.stage === 'waiting_you' ? waitingOn(on.id, connections) : null,

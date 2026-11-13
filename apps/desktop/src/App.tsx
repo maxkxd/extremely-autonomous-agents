@@ -46,7 +46,7 @@ import {
 } from './Approvals';
 import { Notices, notifyError } from './Notices';
 import { useGrow } from './grow';
-import { every } from './poll';
+import { every, same } from './poll';
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 480;
@@ -209,7 +209,7 @@ function Agency() {
       getLiveApprovals().then(
         ({ list, withdrawn }) => {
           setApprovalsReady(true);
-          setLiveApprovals(prev => [
+          setLiveApprovals(prev => same(prev, [
             ...list.map(a => ({
               id: a.id,
               live: true,
@@ -237,7 +237,7 @@ function Agency() {
             ...[...decidedLive.current.values()].filter(d => !list.some(a => a.id === d.id)),
             // Taken back by its agent: kept long enough to play leaving.
             ...prev.filter(p => withdrawn.includes(p.id) && !list.some(a => a.id === p.id) && !decidedLive.current.has(p.id)).map(p => ({ ...p, withdrawn: true })),
-          ]);
+          ]));
         },
         () => {},
       );
@@ -313,7 +313,7 @@ function Agency() {
           const shown = list.filter(r => r.status === 'open' && r.needsYou);
           const closing = list.filter(r => r.status !== 'open' && shownRequests.current.has(r.id));
           shownRequests.current = new Set(shown.map(r => r.id));
-          setLiveRequests(
+          setLiveRequests(prev => same(prev,
             [...shown, ...closing]
               // Only once the Agency Engineer has worked out it needs you.
               .map(r => ({
@@ -336,7 +336,7 @@ function Agency() {
                 joinedTo: r.joinedTo ?? null,
                 closedAs: r.status === 'open' ? undefined : r.status === 'rejected' ? ('rejected' as const) : ('done' as const),
               })),
-          );
+          ));
         },
         () => {},
       );

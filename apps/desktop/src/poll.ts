@@ -45,3 +45,10 @@ export function every(fn: () => unknown, ms: number): () => void {
     document.removeEventListener('visibilitychange', back);
   };
 }
+
+// What a state setter returns for a check that came back the same: the old value,
+// so React skips the redraw. Most checks find nothing new, and redrawing a couple
+// of hundred approval cards every few seconds was most of what the window did.
+export function same<T>(prev: T, next: T): T {
+  return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+}
