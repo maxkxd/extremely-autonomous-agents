@@ -57,6 +57,7 @@ function useModelTests() {
   const current = connected.map(c => ({ c, test: tests[c.connection] ?? ({ state: 'testing' } as Test) }));
   return {
     ok: current.some(x => x.test.state === 'ok'),
+    working: current.filter(x => x.test.state === 'ok').map(x => x.c.connection),
     testing: current.some(x => x.test.state === 'testing'),
     failed: current.flatMap(x => (x.test.state === 'failed' ? [{ name: x.c.name, reason: x.test.reason }] : [])),
   };
@@ -90,9 +91,40 @@ function SkipDialog({ onCancel, onSkip }: { onCancel: () => void; onSkip: () => 
   );
 }
 
+// The motion (styles.css, .onboarding): arriving, the logo flies in from the left
+// and the rest fades up after it; an AI that answers its test lights its row
+// green, Next pops, the logo revs; Next launches the logo off to the right and
+// the dashboard opens behind it (App.tsx). Reduced motion: none of it.
+const LAUNCH_MS = 650;
+const ARRIVE_MS = 1400;
+
 export function Onboarding({ onDone }: { onDone: () => void }) {
-  const { ok, testing, failed } = useModelTests();
+  const { ok, working, testing, failed } = useModelTests();
   const [skipping, setSkipping] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  // Arriving: on for its length, then off (left on, any later animation change replayed it).
+  const [arriving, setArriving] = useState(true);
+  useEffect(() => {
+    const t = window.setTimeout(() => setArriving(false), ARRIVE_MS);
+    return () => window.clearTimeout(t);
+  }, []);
+  const root = useRef<HTMLDivElement>(null);
+  // The row that passed lights up (ModelConnectors' rows carry their connection id).
+  const lit = working.join(',');
+  useEffect(() => {
+    const rows = root.current?.querySelectorAll<HTMLElement>('.mrow[data-connection]') ?? [];
+    rows.forEach(r => r.classList.toggle('won', working.includes(r.dataset.connection ?? '')));
+  });
+  // The moment the first one works: Next pops and the logo revs, once.
+  const [justWon, setJustWon] = useState(false);
+  const wasOk = useRef(ok);
+  useEffect(() => {
+    if (ok && !wasOk.current) {
+      setJustWon(true);
+      window.setTimeout(() => setJustWon(false), 700);
+    }
+    wasOk.current = ok;
+  }, [ok, lit]);
   // What continues under the Skip / Next bar: a fade says so.
   const body = useRef<HTMLDivElement>(null);
   const moreBelow = useMoreBelow(body);
@@ -104,8 +136,15 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     }
     onDone();
   };
+  // Next: the logo launches off to the right, then the app opens behind it.
+  const launch = () => {
+    if (launching) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
+    setLaunching(true);
+    window.setTimeout(done, LAUNCH_MS);
+  };
   return (
-    <div className="onboarding">
+    <div className={`onboarding${arriving ? ' arriving' : ''}${ok ? ' ready' : ''}${justWon ? ' won' : ''}${launching ? ' launching' : ''}`} ref={root}>
       <div className={`onboarding-body${moreBelow ? ' more-below' : ''}`} ref={body}>
         <header className="onboarding-head">
           {/* The logo, as on extremely.agency (extremely-agency-site/logo.svg). */}
@@ -141,7 +180,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             Skip
           </button>
         )}
-        <button className="sbtn primary" disabled={!ok} onClick={done}>
+        <button className="sbtn primary onboarding-next" disabled={!ok} onClick={launch}>
           {!ok && testing ? 'Testing…' : 'Next'}
         </button>
       </footer>

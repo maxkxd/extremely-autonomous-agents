@@ -258,7 +258,7 @@ function useAction(refresh: () => Promise<unknown>) {
 
 function RowShell({ c, sub, children, below }: { c: Connection; sub: React.ReactNode; children: React.ReactNode; below?: React.ReactNode }) {
   return (
-    <div className="mrow">
+    <div className="mrow" data-connection={c.id}>
       <div className="srow2">
         <div className="srow2-text mrow-text">
           <Logo id={c.id} />

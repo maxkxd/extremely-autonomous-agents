@@ -106,7 +106,13 @@ const personEvidence = (evidence: string | null | undefined) =>
 export function App() {
   const org = currentOrg();
   const [firstRun, setFirstRun] = useState(() => !org && !onboarded());
-  const page = firstRun ? <Onboarding onDone={() => setFirstRun(false)} /> : org && state.unreachable ? <Elsewhere org={org} /> : <Agency />;
+  // Leaving onboarding: the dashboard opens up behind the launched logo (styles.css).
+  const finishOnboarding = () => {
+    document.body.classList.add('after-onboarding');
+    window.setTimeout(() => document.body.classList.remove('after-onboarding'), 900);
+    setFirstRun(false);
+  };
+  const page = firstRun ? <Onboarding onDone={finishOnboarding} /> : org && state.unreachable ? <Elsewhere org={org} /> : <Agency />;
   // The app's own notices (Notices.tsx) sit over every page.
   return (
     <>

@@ -2362,3 +2362,49 @@ textarea:focus-visible, input:focus-visible { outline: none; }
   .notice, .notice.error { animation: fade-in 0.2s both; }
   .notice.leaving { animation: fade-out 0.2s forwards; }
 }
+
+/* --- Onboarding motion (Onboarding.tsx) ---------------------------------------
+   Arriving: the logo flies in from the left, stretched, and eases into place; the
+   rest fades up after it. Connected: the row that answered glows green, Next pops,
+   the logo revs. Next: the logo launches off to the right and everything else lifts
+   away; the dashboard opens up behind it (body.after-onboarding). */
+.onboarding.arriving .onboarding-logo { animation: ob-arrive 0.7s cubic-bezier(0.2, 0.7, 0.4, 1) both; }
+.onboarding.arriving .onboarding-title,
+.onboarding.arriving .onboarding-lead,
+.onboarding.arriving .onboarding-models,
+.onboarding.arriving .onboarding-foot > * { animation: ob-fade-in 0.4s ease-out both; }
+.onboarding.arriving .onboarding-title { animation-delay: 0.58s; }
+.onboarding.arriving .onboarding-lead { animation-delay: 0.68s; }
+.onboarding.arriving .onboarding-models { animation-delay: 0.78s; }
+.onboarding.arriving .onboarding-foot > * { animation-delay: 0.9s; }
+@keyframes ob-arrive { from { transform: translateX(-60vw) scaleX(1.6); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ob-fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.onboarding .mrow { transition: box-shadow 0.35s ease, border-color 0.35s ease, background-color 0.35s ease; border-radius: 10px; }
+.onboarding .mrow.won {
+  box-shadow: 0 0 0 1px #3fb27f, 0 0 24px rgba(63, 178, 127, 0.4);
+  background-color: rgba(63, 178, 127, 0.05);
+}
+.onboarding .mrow.won .mconnected { color: #3fb27f; }
+.onboarding.ready .onboarding-next { box-shadow: 0 0 18px rgba(63, 123, 214, 0.6); }
+.onboarding.won .onboarding-next { animation: ob-pop 0.5s cubic-bezier(0.2, 0.9, 0.25, 1.4); }
+.onboarding.won .onboarding-logo { animation: ob-rev 0.6s ease-in-out; }
+@keyframes ob-pop { 0% { transform: scale(0.85); } 60% { transform: scale(1.12); } 100% { transform: none; } }
+@keyframes ob-rev { 0%, 100% { transform: none; } 30% { transform: translateX(-8px); } 60% { transform: translateX(5px); } }
+
+.onboarding.launching .onboarding-logo { animation: ob-launch 0.7s cubic-bezier(0.6, 0, 0.8, 0.3) forwards; }
+.onboarding.launching .onboarding-title,
+.onboarding.launching .onboarding-lead,
+.onboarding.launching .onboarding-models,
+.onboarding.launching .onboarding-foot > * { animation: ob-fade-out 0.35s ease-in forwards; }
+.onboarding.launching { pointer-events: none; }
+@keyframes ob-launch { to { transform: translateX(70vw) scaleX(1.6); opacity: 0; } }
+@keyframes ob-fade-out { to { opacity: 0; transform: translateY(-8px); } }
+body.after-onboarding .app { animation: ob-reveal 0.55s ease-out both; }
+@keyframes ob-reveal { from { opacity: 0; transform: scale(1.03); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding .onboarding-logo, .onboarding .onboarding-title, .onboarding .onboarding-lead,
+  .onboarding .onboarding-models, .onboarding .onboarding-foot > *, .onboarding .onboarding-next,
+  body.after-onboarding .app { animation: none !important; }
+}
