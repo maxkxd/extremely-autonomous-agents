@@ -24,6 +24,8 @@ const siteOf = (url: string) => {
     return url || 'a new page';
   }
 };
+const firstToShow = (tabs: LiveTab[]) =>
+  tabs.find(t => t.kind === 'agent' && t.held) ?? tabs.find(t => t.kind === 'agent' && t.request != null) ?? tabs.find(t => t.held) ?? tabs[0];
 const mods = (e: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
 const BUTTON = ['left', 'middle', 'right'] as const;
 // Keys whose character goes in as text (not Enter: it's a key with "\r").
@@ -82,11 +84,13 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
 
   const shown = (tabs ?? []).filter(t => profile === 'all' || t.profile === profile);
   const current = (tabs ?? []).find(t => t.id === selected) ?? null;
-  // Nothing picked (or it closed): yours first, then the first agent's.
+  // Nothing picked (or it closed): a page you've taken, then one kept waiting for you,
+  // then the rest. (In the cloud the profile's screen is always "yours", and it was
+  // picked first - showing whichever agent's window was on top, not the waiting page.)
   useEffect(() => {
     if (!tabs || (selected && tabs.some(t => t.id === selected))) return;
     if (selected && openTab === selected) return; // just opened: in the next list
-    setSelected((tabs.find(t => t.held) ?? tabs[0])?.id ?? null);
+    setSelected(firstToShow(tabs)?.id ?? null);
   }, [tabs, selected, openTab]);
 
   const openNeed = async (n: LiveNeed) => {
@@ -107,7 +111,7 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
   const next = async (from: string) => {
     const s = await refresh();
     const rest = (s?.tabs ?? []).filter(t => t.id !== from);
-    const yours = rest.find(t => t.held);
+    const yours = rest.find(t => t.kind === 'agent' && (t.held || t.request != null));
     if (yours) return setSelected(yours.id);
     const need = (s?.needs ?? []).find(n => !rest.some(t => t.request === n.request));
     if (need) return openNeed(need);

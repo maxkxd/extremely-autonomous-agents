@@ -673,8 +673,17 @@ const inPersonsHands = (w: Waiting) => {
   const id = sessions.get(w.key)?.cdp?.targetId;
   return !!id && heldSince(id) != null;
 };
+// Kept for a request that's closed now: the Engineer, the Doctor or a pack settles one
+// without the request's button (not through answerRequest), and its page stayed listed
+// as waiting on the person - #176's was, done already.
+export const keptForClosed = (waits: { id: string; request?: number }[], open: (request: number) => boolean) =>
+  waits.filter(w => w.request != null && !open(w.request)).map(w => w.id);
+const requestOpen = (request: number) => !!one("SELECT 1 FROM requests WHERE id = ? AND status = 'open'", request);
+
 const checkWaiting = async () => {
   const now = Date.now();
+  const settled = keptForClosed([...waitingPages.entries()].map(([id, w]) => ({ id, request: w.person?.request })), requestOpen);
+  if (settled.length) await letGoOf(settled);
   const free = [...waitingPages.entries()].filter(([, w]) => !inPersonsHands(w));
   // Closed by the person (or the browser): their request is done, or the page is gone.
   const shut = free.filter(([, w]) => w.person && sessions.get(w.key)?.page.isClosed());
@@ -774,9 +783,14 @@ async function keepForPerson(ctx: RunCtx, profile: number, what: string, why: st
   return `This page is kept for the person exactly as it is, in its own tab in profile ${profile}, and ${r.isNew ? `request #${r.id} is filed` : `request #${r.id} (already filed) points to it now`} with a button that brings them straight to it. Your next browser step starts on a new page. Don't file another request for this. You'll hear when they're done: then open the site again and check it worked.`;
 }
 
+// Where the app shows a kept page: on the person's own screen its window, brought in
+// front (no live view); in the cloud the kept tab itself, streamed on its own. (It was
+// the profile's whole screen, but with no window manager nothing raises a window there:
+// the button showed whichever agent's page was on top, and the kept one never.)
+export const keptPageView = (cloud: boolean, tab: string) => (cloud ? { live: tab, tab } : { tab });
+
 // The request's button: the page kept for it, if there is one - this request's own
-// first, then the newest kept on that site. On the person's screen it's their window,
-// brought in front; in the cloud the profile's screen shows it (live: the screen).
+// first, then the newest kept on that site.
 export async function takeKeptPage(profile: number, url: string, request?: number) {
   const site = siteOfUrl(url);
   const usable = [...waitingPages.values()].filter(w => w.person?.profile === profile && sessions.get(w.key)?.cdp && !sessions.get(w.key)!.page.isClosed());
@@ -789,7 +803,7 @@ export async function takeKeptPage(profile: number, url: string, request?: numbe
   s.request = kept.person!.request;
   hold(s.cdp!.targetId);
   await s.cdp!.bringToFront().catch(() => {});
-  return CLOUD ? { live: `${SCREEN_TAB}${profile}`, tab: s.cdp!.targetId } : { tab: s.cdp!.targetId };
+  return keptPageView(CLOUD, s.cdp!.targetId);
 }
 
 // The person's done with a kept page (closed its tab, or pressed Done): its request is
@@ -1752,8 +1766,10 @@ export async function personScreens() {
     // Still starting (or stuck starting): not listed yet, rather than holding the list.
     const up = await Promise.race([p.then(() => true, () => false), new Promise<boolean>(r => setTimeout(() => r(false), 1500).unref())]);
     if (!up) continue;
-    const kept = [...waitingPages.values()].find(w => w.person?.profile === n);
-    out.push({ profile: n, display: screenOf(n), since: screenSince.get(n) ?? Date.now(), url: kept?.person?.url ?? '', request: kept?.person?.request });
+    // Not a kept page's address or request: the screen shows whichever window is on top
+    // (there's no window manager to raise one), so it was labelled futuretools.io while
+    // showing another agent's page. Each kept page is listed as its own tab instead.
+    out.push({ profile: n, display: screenOf(n), since: screenSince.get(n) ?? Date.now(), url: '' });
   }
   if (personWindow && !out.some(o => o.profile === personWindow!.profile))
     out.push({ profile: personWindow.profile, display: screenOf(personWindow.profile), since: personWindow.since, url: personWindow.url, request: personWindow.request });
