@@ -634,6 +634,14 @@ export class CdpPage {
     return this.evaluate<string>('document.title');
   }
 
+  // Its address and title as the browser itself knows them: answered even when the
+  // page's own process is hung (a run-away script), where url() and title() - asked
+  // inside the page - wait the full minute. For listing pages, not for acting on one.
+  async info(ms = 3000): Promise<{ url: string; title: string }> {
+    const { targetInfo } = await this.cdp.send<{ targetInfo: { url: string; title: string } }>('Target.getTargetInfo', { targetId: this.targetId }, undefined, ms);
+    return { url: targetInfo.url, title: targetInfo.title };
+  }
+
   async wheel(deltaY: number) {
     const size = await this.evaluate<{ w: number; h: number }>('({ w: innerWidth, h: innerHeight })');
     await this.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: size.w / 2, y: size.h / 2, deltaX: 0, deltaY });

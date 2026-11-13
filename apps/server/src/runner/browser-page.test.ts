@@ -332,3 +332,19 @@ test("a security check's box is ticked by the agent, and it says when the check 
   await p.close();
   server.close();
 });
+
+test("a hung page is still listed with its address and title: the browser says them, not the page (the agents' browser screen, 2026-11-13)", { skip }, async () => {
+  // A run-away script, as six sign-up pages had: nothing inside the page answers any more.
+  const p = await page('<title>Stuck sign-up</title><p>Sign up</p><script>setTimeout(() => { for (;;) {} }, 1000)</script>');
+  await new Promise(r => setTimeout(r, 1400));
+  const asked = Date.now();
+  const info = await p.info();
+  assert.ok(Date.now() - asked < 2000, 'the browser answers at once');
+  assert.equal(info.title, 'Stuck sign-up');
+  assert.match(info.url, /^data:text\/html/);
+  // Asked inside the page it doesn't answer - what held the whole list for a minute.
+  const inside = await Promise.race([p.url().then(() => 'answered', () => 'failed'), new Promise(r => setTimeout(() => r('no answer'), 1500))]);
+  assert.equal(inside, 'no answer');
+  // Its renderer ended, so the test doesn't wait out the hung page.
+  await cdp.send('Target.closeTarget', { targetId: p.targetId }, undefined, 2000).catch(() => {});
+});

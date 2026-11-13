@@ -135,6 +135,10 @@ async function typeInto(display: string, e: PersonInput) {
 }
 
 // --- Every page there is to watch: agents' pages, and the person's screens ---
+// A thumbnail is drawn inside the page: a hung one gets none rather than holding the list.
+const THUMB_WAIT_MS = 2500;
+const soon = <T>(p: Promise<T>, ms: number, otherwise: T): Promise<T> =>
+  Promise.race([p.catch(() => otherwise), new Promise<T>(r => setTimeout(() => r(otherwise), ms).unref())]);
 async function sources(): Promise<Source[]> {
   const agents: Source[] = liveTabs().map(t => ({
     id: t.id,
@@ -144,9 +148,11 @@ async function sources(): Promise<Source[]> {
     request: t.request ?? null,
     since: t.since,
     held: heldSince(t.id),
-    url: () => t.page.url().catch(() => ''),
-    title: () => t.page.title().catch(() => ''),
-    thumb: () => t.page.thumbnail().catch(() => null),
+    // From the browser, not the page: one hung page (it happens - a run-away script on a
+    // sign-up form) held the whole list for a minute, so the screen never loaded.
+    url: () => t.page.info().then(i => i.url, () => ''),
+    title: () => t.page.info().then(i => i.title, () => ''),
+    thumb: () => soon(t.page.thumbnail(), THUMB_WAIT_MS, null),
     stream: async onFrame => {
       const stop = await t.page.screencast(onFrame);
       // A page that isn't changing sends no frames: how it looks now, to start.
@@ -168,7 +174,7 @@ async function sources(): Promise<Source[]> {
     held: s.since, // always theirs
     url: async () => s.url,
     title: async () => `Profile ${s.profile}'s browser`,
-    thumb: () => grabOne(s.display),
+    thumb: () => soon(grabOne(s.display), THUMB_WAIT_MS, null),
     stream: async onFrame => {
       const ff = grabStream(s.display, onFrame);
       return async () => void ff.kill();

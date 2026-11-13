@@ -1749,7 +1749,9 @@ export async function personScreens() {
   if (!CLOUD) return [];
   const out: { profile: number; display: string; since: number; url: string; request?: number }[] = [];
   for (const [n, p] of shared) {
-    if (!(await p.then(() => true, () => false))) continue;
+    // Still starting (or stuck starting): not listed yet, rather than holding the list.
+    const up = await Promise.race([p.then(() => true, () => false), new Promise<boolean>(r => setTimeout(() => r(false), 1500).unref())]);
+    if (!up) continue;
     const kept = [...waitingPages.values()].find(w => w.person?.profile === n);
     out.push({ profile: n, display: screenOf(n), since: screenSince.get(n) ?? Date.now(), url: kept?.person?.url ?? '', request: kept?.person?.request });
   }
