@@ -21,8 +21,11 @@ import type { Auth } from './tokens.js';
 // 4004 host offline, 4008 too much.
 //
 // Once a minute it logs how many bytes passed each way ("[relay] ..."), and one
-// line for each app channel that carried any, with its user agent and address,
-// so a stream nobody means to be watching can be traced to the client.
+// line for each app channel that carried any: its user agent, origin, address and
+// request path (query names only, never values), and how many frames went to the
+// app and how big the biggest was. A line also goes out when a channel that carried
+// anything closes. So a stream nobody means to be watching can be traced to the
+// client. (The frames are ciphertext: what is in them is the host's and the app's.)
 
 const MAX_FRAME = 4 * 1024 * 1024;
 const MAX_CHANNELS = 200;
@@ -30,12 +33,35 @@ const AUTH_WITHIN = 10_000;
 
 type Host = { ws: WebSocket; orgId: string; channels: Map<number, WebSocket> };
 // What the traffic log keeps about one app channel: who opened it and what
-// passed in the current minute.
-type Chan = { ua: string; ip: string; since: number; toApp: number; fromApp: number };
+// passed in the current minute (and, for the line when it closes, in all of it).
+type Chan = {
+  ua: string;
+  origin: string;
+  where: string;
+  ip: string;
+  since: number;
+  toApp: number;
+  fromApp: number;
+  frames: number;
+  biggest: number;
+  totalToApp: number;
+  totalFromApp: number;
+};
 
 const megabytes = (n: number) => `${(n / (1024 * 1024)).toFixed(1)} MB`;
+const kilobytes = (n: number) => `${Math.round(n / 1024)} KB`;
 // Printable ASCII only, and short, so a header can't forge or flood a log line.
 const plain = (s: unknown, max: number) => String(s ?? '').replace(/[^\x20-\x7e]/g, '?').slice(0, max);
+// The path, and the names (not the values) of any query parameters.
+const whereOf = (req: IncomingMessage) => {
+  try {
+    const u = new URL(req.url ?? '/', 'http://x');
+    const names = [...u.searchParams.keys()].join('&');
+    return plain(u.pathname + (names ? `?${names}` : ''), 100);
+  } catch {
+    return 'unknown path';
+  }
+};
 
 export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_000, statsMs = 60_000 } = {}) {
   const hosts = new Map<string, Host>();
@@ -104,7 +130,12 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
         const text = JSON.stringify({ t: 'data', d: m!.d });
         traffic.toApps += text.length;
         const chan = chans.get(m!.c!);
-        if (chan) chan.toApp += text.length;
+        if (chan) {
+          chan.toApp += text.length;
+          chan.totalToApp += text.length;
+          chan.frames++;
+          chan.biggest = Math.max(chan.biggest, text.length);
+        }
         app.send(text);
       } else if (m!.t === 'close') app.close(1000, 'The host closed it.');
     });
@@ -128,18 +159,39 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
     host.channels.set(c, ws);
     // Behind Railway's proxy the first x-forwarded-for entry is the client.
     const ip = plain(String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim(), 45);
-    chans.set(c, { ua: plain(req.headers['user-agent'], 80), ip, since: Date.now(), toApp: 0, fromApp: 0 });
+    chans.set(c, {
+      ua: plain(req.headers['user-agent'], 300),
+      origin: plain(req.headers.origin, 100),
+      where: whereOf(req),
+      ip,
+      since: Date.now(),
+      toApp: 0,
+      fromApp: 0,
+      frames: 0,
+      biggest: 0,
+      totalToApp: 0,
+      totalFromApp: 0,
+    });
     toHost(host, JSON.stringify({ t: 'open', c }));
     ws.send(JSON.stringify({ t: 'ready' }));
     ws.on('message', raw => {
       traffic.fromApps += size(raw);
       const chan = chans.get(c);
-      if (chan) chan.fromApp += size(raw);
+      if (chan) {
+        chan.fromApp += size(raw);
+        chan.totalFromApp += size(raw);
+      }
       const m = json(raw);
       if (m?.t === 'data' && typeof m.d === 'string') toHost(host, JSON.stringify({ t: 'data', c, d: m.d }));
     });
-    ws.on('close', () => {
+    ws.on('close', code => {
+      const chan = chans.get(c);
       chans.delete(c);
+      if (chan && (chan.totalToApp || chan.totalFromApp))
+        console.log(
+          `[relay]   channel ${c} closed (code ${code}) after ${Math.round((Date.now() - chan.since) / 1000)}s: ` +
+            `${chan.frames} frames to app in all, ${megabytes(chan.totalToApp)} to app, ${megabytes(chan.totalFromApp)} from app`,
+        );
       if (host.channels.delete(c)) toHost(host, JSON.stringify({ t: 'close', c }));
     });
   }
@@ -174,12 +226,16 @@ export function attachRelay(server: Server, db: Db, auth: Auth, { beatMs = 30_00
         if (!chan.toApp && !chan.fromApp) continue;
         console.log(
           `[relay]   channel ${c}: open ${Math.round((now - chan.since) / 1000)}s, ${chan.ip || 'unknown address'}, ` +
-            `"${chan.ua || 'no user agent'}", to app ${megabytes(chan.toApp)}, from app ${megabytes(chan.fromApp)}`,
+            `"${chan.ua || 'no user agent'}", origin ${chan.origin || 'none'}, ${chan.where}, ` +
+            `to app ${megabytes(chan.toApp)} in ${chan.frames} frames so far (biggest ${kilobytes(chan.biggest)}), from app ${megabytes(chan.fromApp)}`,
         );
       }
     }
     traffic.fromHost = traffic.toHost = traffic.fromApps = traffic.toApps = 0;
-    for (const chan of chans.values()) chan.toApp = chan.fromApp = 0;
+    for (const chan of chans.values()) {
+      chan.toApp = chan.fromApp = 0;
+      chan.frames = chan.biggest = 0;
+    }
   }, statsMs);
   report.unref();
 
