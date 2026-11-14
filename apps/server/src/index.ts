@@ -41,6 +41,7 @@ import { scrub } from './secrets.js';
 import { aiDisconnected } from './runner/helpers.js';
 import { pickDefaults } from './runner/defaults.js';
 import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, nameNow, noteName, personFor, recordAction, requireAdmin, requireMakerOrAdmin, setAccessConfig } from './access.js';
+import { handlePersonChromeHttp } from './runner/person-chrome.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
 const PORT = Number(process.env.PORT ?? 5175);
@@ -521,6 +522,10 @@ createServer(async (req, res) => {
       return send(res, 500, { error: 'Something went wrong on the server.' });
     }
   }
+  // The person's own Chrome (runner/person-chrome.ts): its pages, and the extension.
+  // Before the app's files, or /person-chrome/go would be the app. Before who-is-asking,
+  // because the extension signs in with its own token and only from this computer.
+  if ((url.pathname.startsWith('/person-chrome') || url.pathname.startsWith('/api/person-chrome/ext') || url.pathname.startsWith('/api/person-chrome/app/')) && (await handlePersonChromeHttp(req, res, url))) return;
   // The packaged app's own files (ui.ts): any GET that isn't the agency's - not
   // /api, and not a service's sign-in landing on the root (it carries state; the
   // app's own Google/GitHub sign-in in the browser carries state and handoff).

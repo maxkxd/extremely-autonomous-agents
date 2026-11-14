@@ -291,6 +291,18 @@ export class CdpPage {
     return this.run<T>(this.session, expression);
   }
 
+  // Cookies for this page, for a handoff into the person's own Chrome (person-chrome.ts).
+  async cookies(): Promise<{ name: string; value: string; domain: string; path: string; secure: boolean; httpOnly: boolean; sameSite?: string; expires: number; partitionKey?: unknown }[]> {
+    const read = () => this.send<{ cookies: { name: string; value: string; domain: string; path: string; secure: boolean; httpOnly: boolean; sameSite?: string; expires: number; partitionKey?: unknown }[] }>('Network.getCookies');
+    try {
+      return (await read()).cookies ?? [];
+    } catch (e) {
+      console.error('[person-chrome] Network.getCookies failed, enabling Network and trying once:', (e as Error).message);
+      await this.send('Network.enable');
+      return (await read()).cookies ?? [];
+    }
+  }
+
   private async run<T>(session: string, expression: string, contextId?: number): Promise<T> {
     const r = await this.cdp.send<{ result: { value?: T }; exceptionDetails?: { text: string; exception?: { description?: string } } }>('Runtime.evaluate', {
       expression,

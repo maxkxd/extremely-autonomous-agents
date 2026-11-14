@@ -5,6 +5,7 @@ import { mkdir, readFile, readdir, readlink, rename, rm, stat, writeFile } from 
 import { hostname, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { Cdp, CdpPage, FRAME_BASE, KEYS, type Bounds, type Key } from './cdp.js';
+import { SNAPSHOT_EXPR, dropHandoff, onPersonChromeDone, personChromeEvidence, prepareSnapshot, queueFreshHandoff, queueHandoff, type PersonCookie, type PersonHandoff, type RawCookie, type RawSnapshot } from './person-chrome.js';
 import { checkUrl, isPrivateIp } from './net.js';
 import { fileRequest, inWorkspace, onApprovalSettled, onRunEnd, registerTools, tooManyWaiting, type RunCtx, type ToolDef } from './tools.js';
 import { all, one, run as exec } from './db.js';
@@ -34,8 +35,10 @@ import { deleteSecret, getSecret, setSecret } from '../vault.js';
 // Every agent run gets its own window in it, on screen (or, in the cloud, on the
 // profile's own screen, streamed to the app), and the person uses that same browser
 // like any other: watches the agents, clicks in their windows, and does what only a
-// person can (a CAPTCHA, a code) in the very tab the agent left for them. Only
-// Google's own sign-in needs the browser started without its debugging address
+// person can (a CAPTCHA, a code) in the very tab the agent left for them. A check
+// that refuses this browser is also copied into the person's own Chrome
+// (person-chrome.ts): the form as the agent filled it, and they only pass the
+// check and press Submit. Only Google's own sign-in needs the browser started without its debugging address
 // (see "Signing in to Google").
 
 export const PROFILES_DIR = join(DATA_DIR, 'browser-profiles');
@@ -768,6 +771,21 @@ function requestFor(ctx: RunCtx, profile: number, url: string, what: string, why
   return { id, isNew: true };
 }
 
+async function copyForChrome(page: CdpPage, site: string) {
+  const raw = await page.evaluate<RawSnapshot>(SNAPSHOT_EXPR);
+  let cookies: RawCookie[] = [];
+  try {
+    cookies = await page.cookies();
+  } catch (e) {
+    console.error('[person-chrome] reading cookies failed:', (e as Error).message);
+  }
+  if (raw?.storageError) console.error('[person-chrome] page storage was not readable:', raw.storageError);
+  const prepared = prepareSnapshot({ ...raw, cookies }, site);
+  if (!prepared.fields.length) console.error(`[person-chrome] no filled fields on ${site}; the form may be inside a frame`);
+  if (prepared.droppedCookies || prepared.droppedStorage)
+    console.log(`[person-chrome] left out cookies=${prepared.droppedCookies} storage=${prepared.droppedStorage} on ${site}`);
+  return prepared;
+}
 async function keepForPerson(ctx: RunCtx, profile: number, what: string, why: string) {
   const key = `${ctx.runId}:profile:${profile}`;
   const s = sessions.get(key);
@@ -777,10 +795,47 @@ async function keepForPerson(ctx: RunCtx, profile: number, what: string, why: st
   if (!site) throw new Error("This page has no web address to keep. Open the page you need the person on first.");
   const r = requestFor(ctx, profile, url, what, why);
   if (typeof r === 'string') return r;
+  let handoffId: string | null = null;
+  let fields = 0;
+  let files: string[] = [];
+  // In the cloud the copy is made when the person opens it (copyKeptForChrome): a link
+  // to this computer's own address would be no use on theirs.
+  if (!CLOUD) try {
+    const prepared = await copyForChrome(s.page, site);
+    fields = prepared.fields.length;
+    files = prepared.files.map(f => f.fileName).filter(Boolean);
+    const saved = await queueHandoff({
+      requestId: r.id,
+      profile,
+      site,
+      url,
+      title: prepared.title,
+      what,
+      fields: prepared.fields,
+      files: prepared.files,
+      storage: prepared.storage,
+      cookies: prepared.cookies,
+    });
+    handoffId = saved.id;
+  } catch (e) {
+    console.error('[person-chrome] could not copy the page for Chrome:', (e as Error).message);
+  }
   // Kept before for this request (the agent filled it in again): the new page replaces it.
-  for (const [id, w] of waitingPages) if (w.person?.request === r.id) await letGoOf([id]);
-  await moveAside(ctx.runId, key, s, profile, { profile, site, url, request: r.id, agent: s.agent });
-  return `This page is kept for the person exactly as it is, in its own tab in profile ${profile}, and ${r.isNew ? `request #${r.id} is filed` : `request #${r.id} (already filed) points to it now`} with a button that brings them straight to it. Your next browser step starts on a new page. Don't file another request for this. You'll hear when they're done: then open the site again and check it worked.`;
+  try {
+    for (const [id, w] of waitingPages) if (w.person?.request === r.id) await letGoOf([id]);
+    await moveAside(ctx.runId, key, s, profile, { profile, site, url, request: r.id, agent: s.agent });
+  } catch (e) {
+    if (handoffId) await dropHandoff(handoffId).catch(err => console.error('[person-chrome] could not drop the copy:', (err as Error).message));
+    throw e;
+  }
+  if (handoffId) exec('UPDATE requests SET evidence = ? WHERE id = ?', personChromeEvidence(handoffId, BROWSER_LINE(url, profile)).slice(0, 4000), r.id);
+  const fileNote = files.length ? ` A file was attached (${files.join(', ')}). They have to choose it again in Chrome; a file can't be copied across.` : '';
+  const chromeNote = CLOUD
+    ? `They can open it in their own Chrome or Edge from the app with the form filled in, so they only pass the check and press Submit.`
+    : handoffId
+      ? `Request #${r.id} opens it in their own Chrome or Edge with the form filled in (${fields} fields), so they only pass the check and press Submit.${fileNote}`
+      : `Their Chrome didn't get a copy (it's in the log). The button opens this tab instead.`;
+  return `This page is kept for the person exactly as it is, in its own tab in profile ${profile}, and ${r.isNew ? `request #${r.id} is filed` : `request #${r.id} (already filed) points to it now`}. ${chromeNote} Your next browser step starts on a new page. Don't file another request for this. You'll hear when they're done: then open the site again and check it worked.`;
 }
 
 // Where the app shows a kept page: on the person's own screen its window, brought in
@@ -810,13 +865,129 @@ export async function takeKeptPage(profile: number, url: string, request?: numbe
 // answered, which tells the agent that kept it - not the Engineer, who'd only pass it on.
 let personDone: (request: number, text: string) => void = () => {};
 export const onPersonDone = (fn: typeof personDone) => void (personDone = fn);
-async function finishKept(id: string, how: 'closed' | 'done') {
+async function finishKept(id: string, how: 'closed' | 'done', note?: string) {
   const w = waitingPages.get(id);
   if (!w?.person) return;
   await letGoOf([id]);
   if (w.person.request != null)
-    personDone(w.person.request, `${how === 'closed' ? 'Closed' : 'Finished with'} the page kept for this on ${w.person.site}. Open ${w.person.url} again and check it worked.`);
+    personDone(w.person.request, note ?? `${how === 'closed' ? 'Closed' : 'Finished with'} the page kept for this on ${w.person.site}. Open ${w.person.url} again and check it worked.`);
 }
+// The person's Chrome finished it (person-chrome.ts): the kept tab is done too.
+export async function finishKeptByRequest(request: number, note: string) {
+  const found = [...waitingPages.entries()].find(([, w]) => w.person?.request === request);
+  if (!found) {
+    console.error(`[person-chrome] request #${request} has no kept page; telling the agent anyway`);
+    personDone(request, note);
+    return;
+  }
+  await finishKept(found[0], 'done', note);
+}
+// Sign-in cookies from the person's Chrome, into this profile, so the agent is signed in too.
+export async function giveProfileCookies(profile: number, cookies: PersonCookie[]): Promise<number> {
+  if (!cookies.length) {
+    console.log(`[person-chrome] no cookies to copy into profile ${profile}`);
+    return 0;
+  }
+  const sh = await profileBrowser(profile);
+  let n = 0;
+  for (const c of cookies) {
+    try {
+      const hostOnly = c.name.startsWith('__Host-');
+      await sh.cdp.send('Network.setCookie', {
+        name: c.name,
+        value: c.value,
+        ...(hostOnly ? {} : { domain: c.domain }),
+        path: c.path || '/',
+        secure: hostOnly ? true : c.secure,
+        httpOnly: c.httpOnly,
+        sameSite: c.sameSite,
+        ...(c.expires ? { expires: c.expires } : {}),
+      });
+      n++;
+    } catch (e) {
+      console.error(`[person-chrome] cookie ${c.name} was not copied into profile ${profile}:`, (e as Error).message);
+    }
+  }
+  console.log(`[person-chrome] copied ${n} of ${cookies.length} cookies into profile ${profile}`);
+  return n;
+}
+onPersonChromeDone(async (h, cookies) => {
+  let copied = 0;
+  let cookieError = '';
+  try {
+    copied = await giveProfileCookies(h.profile, cookies);
+  } catch (e) {
+    cookieError = (e as Error).message;
+    console.error('[person-chrome] copying cookies into the agents’ browser failed:', cookieError);
+  }
+    const note = cookieError
+      ? `Finished in their own browser on ${h.site}. The new sign-in could not be copied into profile ${h.profile}: ${cookieError}. Open ${h.url} and check, and sign in again if you need to.`
+      : copied
+        ? `Finished in their own browser on ${h.site}. ${copied} cookie${copied === 1 ? '' : 's'} from that visit are now in profile ${h.profile}. Open ${h.url} and check it worked.`
+        : `Finished in their own browser on ${h.site}. No new cookies came back. Open ${h.url} and check it worked.`;
+  if (h.requestId == null) {
+    console.error('[person-chrome] finished page had no request', h.id);
+    return;
+  }
+  await finishKeptByRequest(h.requestId, note);
+});
+// The page kept for a request, still open.
+function keptFor(request: number) {
+  for (const w of waitingPages.values()) {
+    const s = sessions.get(w.key);
+    if (w.person?.request === request && s?.cdp && !s.page.isClosed()) return { w, s };
+  }
+  return null;
+}
+
+// A kept page copied for the person's own Chrome as it is now: the app on their
+// computer asked (its "Open in my Chrome", or a check it opens by itself). The copy
+// goes to the app, which hands it to their browser; what they finish comes back
+// through finishFromApp (person-chrome.ts).
+export async function copyKeptForChrome(request: number): Promise<PersonHandoff> {
+  const found = keptFor(request);
+  if (!found) throw new Error('That page is no longer kept. Its agent will fill it in again.');
+  const p = found.w.person!;
+  const url = (await found.s.page.url().catch(() => '')) || p.url;
+  const prepared = await copyForChrome(found.s.page, p.site);
+  const what = one<{ what: string }>('SELECT what FROM requests WHERE id = ?', request)?.what ?? '';
+  return queueFreshHandoff({
+    requestId: request,
+    profile: p.profile,
+    site: p.site,
+    url,
+    title: prepared.title,
+    what,
+    fields: prepared.fields,
+    files: prepared.files,
+    storage: prepared.storage,
+    cookies: prepared.cookies,
+  });
+}
+
+// Whether a kept page shows a human check (Cloudflare's Turnstile, reCAPTCHA,
+// hCaptcha): the app opens those in the person's Chrome by itself. Looked at once a
+// page has one; a page without is looked at again now and then (it may load late).
+const CAPTCHA_EXPR = `!!document.querySelector('iframe[src*="challenges.cloudflare.com"], iframe[src*="/recaptcha/"], iframe[src*="hcaptcha.com"], .cf-turnstile, .g-recaptcha, .h-captcha, input[name="cf-turnstile-response"], textarea[name="g-recaptcha-response"], textarea[name="h-captcha-response"]')`;
+const captchaSeen = new Map<number, { yes: boolean; at: number }>();
+export async function keptCaptcha(request: number): Promise<boolean> {
+  const had = captchaSeen.get(request);
+  if (had?.yes || (had && Date.now() - had.at < 60_000)) return !!had?.yes;
+  const found = keptFor(request);
+  if (!found) {
+    captchaSeen.delete(request);
+    return false;
+  }
+  let yes = false;
+  try {
+    yes = !!(await Promise.race([found.s.page.evaluate<boolean>(CAPTCHA_EXPR), new Promise<boolean>(r => setTimeout(() => r(false), 2000))]));
+  } catch (e) {
+    console.error(`[person-chrome] could not look for a check on request #${request}'s page:`, (e as Error).message);
+  }
+  captchaSeen.set(request, { yes, at: Date.now() });
+  return yes;
+}
+
 export async function finishKeptPage(targetId: string) {
   const found = [...waitingPages.entries()].find(([, w]) => w.person && sessions.get(w.key)?.cdp?.targetId === targetId);
   if (found) await finishKept(found[0], 'done');
@@ -1663,7 +1834,7 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       id: 'signed_in_browser.show_person',
       tier: 'T1',
       description:
-        "For what only a person can do on a page: a CAPTCHA puzzle (after tick_security_check didn't pass it), a code sent to their phone, an ID check. Fill in everything else first and call this while you're still on that page: the page is kept for them exactly as it is, in its own tab in your browser, and a request is filed for you with a button that takes them straight to that tab - so they only do the check and press Submit. Don't file a request yourself as well. Your next browser step starts on a new page; get on with other work, and you'll hear when they're done. google true instead: the person signs in to Google in this profile (Google won't let an agent's browser sign in) - after that \"Sign in with Google\" on any site is yours: click it and choose the account.",
+        "For what only a person can do on a page: a CAPTCHA puzzle (after tick_security_check didn't pass it), a code sent to their phone, an ID check. Fill in everything else first and call this while you're still on that page: the page is kept as it is, and a request is filed whose button opens that same filled-in form in the person's own Chrome or Edge, where a check like Cloudflare can pass - they only do the check and press Submit. Their own login on that site is set aside until they close that tab. The agents' browser tab is kept too. Don't file a request yourself as well. Your next browser step starts on a new page; get on with other work, and you'll hear when they're done. google true instead: the person signs in to Google in this profile (Google won't let an agent's browser sign in) - after that \"Sign in with Google\" on any site is yours: click it and choose the account.",
       schema: obj(
         {
           what: { type: 'string', description: 'For the request\'s title, in 10 words or fewer: what they need to do and why - "Pass the CAPTCHA to send the Tech Talks Daily pitch"' },

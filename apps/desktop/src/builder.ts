@@ -287,6 +287,7 @@ export type LiveRequest = {
   approvalId: string | null;
   waitingOn: { id: string; name: string } | null; // the connection it waits for the person to connect
   joinedTo?: number | null; // the request for the same connection it was folded into (one card per connection)
+  captcha?: boolean; // its kept page shows a human check: opened in the person's Chrome (personChrome.ts)
 };
 export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
 
@@ -373,6 +374,34 @@ export const openAgentBrowser = async (profile = 1, url?: string, request?: numb
   if (r.live) window.dispatchEvent(new CustomEvent('eaa:agents-browser', { detail: { tab: r.live } }));
   return r;
 };
+// The person's own Chrome (apps/person-chrome, personChrome.ts): a filled-in page, or
+// the connect page. Their browser is on this computer wherever the agency runs, so its
+// connection is this computer's own server's, whichever agency the app is in.
+async function onThisComputer<T>(path: string, body?: object): Promise<T> {
+  const headers = { 'x-eaa-app': '1', ...(body === undefined ? {} : { 'content-type': 'application/json' }) };
+  let res: Response;
+  try {
+    res = await fetch(path, body === undefined ? { headers } : { method: 'POST', headers, body: JSON.stringify({ ...who(), ...body }) });
+  } catch {
+    throw new Error(OFFLINE);
+  }
+  const data = await res.json().catch(() => ({ error: OFFLINE }));
+  if (!res.ok) throw new Error(data.error ?? 'Something went wrong.');
+  return data as T;
+}
+export type PersonChromeStatus = { port: number; connectUrl: string; extensionId: string; pending: number; connected: boolean; browser: 'chrome' | 'edge' | null };
+export const personChromeStatus = () => onThisComputer<PersonChromeStatus>('/api/person-chrome');
+export const openPersonChrome = (id: string) => onThisComputer<{ ok: boolean }>('/api/person-chrome/open', { id });
+export const connectPersonChrome = (browser: 'chrome' | 'edge') => onThisComputer<{ ok: boolean }>('/api/person-chrome/connect', { browser });
+export const resetPersonChrome = () => onThisComputer<{ ok: boolean }>('/api/person-chrome/reset', {});
+// The agency's copy of a kept page, and what the person's browser finished, back to it.
+export type ChromeHandoff = { id: string } & Record<string, unknown>;
+export const copyForChrome = (request: number) => post<{ handoff: ChromeHandoff }>('/api/person-chrome/copy', { request });
+export const finishForChrome = (id: string, cookies: unknown) => post<{ ok: boolean }>('/api/person-chrome/finish', { id, cookies });
+// This computer's side, for an agency hosted elsewhere.
+export const stageInChrome = (handoff: ChromeHandoff) => onThisComputer<{ ok: boolean }>('/api/person-chrome/app/stage', { handoff });
+export const chromeFinished = () => onThisComputer<{ finished: { id: string; cookies: unknown }[] }>('/api/person-chrome/app/finished');
+export const ackChromeFinished = (id: string) => onThisComputer<{ ok: boolean }>('/api/person-chrome/app/finished/ack', { id });
 
 // --- The agents' browser, live (AgentsBrowser.tsx; server runner/live-view.ts) ---
 export type LiveTab = {

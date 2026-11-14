@@ -47,6 +47,7 @@ import {
 import { Notices, notifyError } from './Notices';
 import { useGrow } from './grow';
 import { every, same } from './poll';
+import { openChecksInChrome, relayChromeFinished } from './personChrome';
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 480;
@@ -310,6 +311,8 @@ function Agency() {
       getLiveRequests().then(
         list => {
           setRequestsReady(true);
+          // A human check waiting on a kept page opens in your own Chrome by itself.
+          void openChecksInChrome(list);
           const shown = list.filter(r => r.status === 'open' && r.needsYou);
           const closing = list.filter(r => r.status !== 'open' && shownRequests.current.has(r.id));
           shownRequests.current = new Set(shown.map(r => r.id));
@@ -343,6 +346,8 @@ function Agency() {
     load();
     return every(load, 5000);
   }, []);
+  // What your Chrome finished goes back to an agency hosted elsewhere.
+  useEffect(() => relayChromeFinished(), []);
   const pendingRequests = liveRequests.filter(r => !requestGone[r.id] && exists(r.agentId));
   // Still open: what the counts are (one flying off has already gone from them).
   const openRequests = pendingRequests.filter(r => !r.closedAs);

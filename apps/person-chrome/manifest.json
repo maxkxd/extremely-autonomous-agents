@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "EXTREMELY Autonomous Agents",
+  "version": "0.1.0",
+  "description": "Opens forms your EXTREMELY agents already filled, in this browser, so you can pass a check and press Submit.",
+  "minimum_chrome_version": "120",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2CS+pTfTN7yRinr0gonG8QJIwxR8drs9F5u0lAc0YqNYR39IQzYQcmuHaujjn+aCfBtOb+TviRbUlT17zaZIfsiEIYoqZvthYWxasprQSIgyJIOIa5COAAsns3w8nArCfnmhmncSfrXElWIEDyjlp6oc1dwum6juUAVJTYduRf0huf6tQr0fsJS5EHQO0Yn/H9O4BQ+pp8CoHethh1qw7nE/dkDaiAJiTBU3RvhX8ys6/pDDD8P07ht+5bfXSwihiZUlXXDnq4OYYosenxxUpj6EBVaPbforh7SPKPvQrx/dWt21XnbyHiKPzwlcscTxjgZcCjAM18TDdYROHgqLXwIDAQAB",
+  "permissions": [
+    "cookies",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "EXTREMELY Autonomous Agents",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "short_name": "EXTREMELY"
+}

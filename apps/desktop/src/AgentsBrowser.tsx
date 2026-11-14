@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Globe, Hand, MousePointerClick, Plus, Undo2, User } from 'lucide-react';
+import { ExternalLink, Globe, Hand, MousePointerClick, Plus, Undo2, User } from 'lucide-react';
 import { liveBrowser, liveControl, liveFrame, liveInput, liveOpen, openAgentBrowser, type LiveFrame, type LiveNeed, type LiveTab, type PersonInput } from './builder';
 import { notifyError } from './Notices';
+import { openInMyChrome } from './personChrome';
 import { BusyLabel, Working } from './Busy';
 
 // The agents' browser, live (server: runner/live-view.ts). On the left, what waits on
@@ -301,6 +302,7 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
           </span>
         </span>
         <span className="abrowser-bar-actions">
+          {tab.request != null && <OpenInChrome request={tab.request} />}
           {mine ? (
             <>
               <span className="abrowser-control">You have control</span>
@@ -347,5 +349,27 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
         )}
       </div>
     </div>
+  );
+}
+
+// The kept page in your own Chrome, filled in as the agent left it (personChrome.ts):
+// for a check this browser can't pass. You pass it and press Submit there.
+function OpenInChrome({ request }: { request: number }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      className="sbtn"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true);
+        openInMyChrome(request)
+          .catch(notifyError)
+          .finally(() => setBusy(false));
+      }}
+    >
+      <BusyLabel busy={busy} busyText="Opening">
+        <ExternalLink size={14} /> Open in my Chrome
+      </BusyLabel>
+    </button>
   );
 }

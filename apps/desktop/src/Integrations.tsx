@@ -18,6 +18,9 @@ import {
   getCodePlugins,
   getIntegrations,
   openAgentBrowser,
+  personChromeStatus,
+  connectPersonChrome,
+  resetPersonChrome,
   getPasswords,
   revealPassword,
   addPassword,
@@ -854,6 +857,65 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
   );
 }
 
+// Checks like Cloudflare fail in the agents' browser. This connects the person's
+// own Chrome, where a filled-in page opens and they only pass the check and press Submit.
+function PersonChromeConnect() {
+  const [st, setSt] = useState<Awaited<ReturnType<typeof personChromeStatus>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'chrome' | 'edge' | 'reset' | null>(null);
+  useEffect(() => {
+    personChromeStatus().then(setSt, e => setError((e as Error).message));
+  }, []);
+  const run = (which: 'chrome' | 'edge' | 'reset', fn: () => Promise<unknown>) => {
+    setBusy(which);
+    setError(null);
+    fn()
+      .then(() => personChromeStatus())
+      .then(next => {
+        setSt(next);
+        if (which !== 'reset' && !next.connected) {
+          window.setTimeout(() => {
+            personChromeStatus().then(setSt, e => setError((e as Error).message));
+          }, 1600);
+        }
+      }, e => setError((e as Error).message))
+      .finally(() => setBusy(null));
+  };
+  const where = st?.browser === 'edge' ? 'Edge' : st?.browser === 'chrome' ? 'Chrome' : '';
+  return (
+    <>
+      <p className="slead">
+        Checks like Cloudflare fail in the agents' browser even when you click them. Connect Chrome or Edge and the filled-in page opens there: you pass the check and press Submit. Your login on that site is put back when you close the tab.
+      </p>
+      <ul className="sconnectors">
+        <li>
+          <span className="sconn-name">
+            <Globe size={14} /> Your browser
+          </span>
+          <span className="sconn-what">
+            {!st && !error ? '…' : st?.connected ? `Connected in ${where}` : 'Not connected yet'}
+            {st && st.pending > 0 ? ` · ${st.pending} page${st.pending === 1 ? '' : 's'} waiting` : ''}
+          </span>
+          <span className="sint-actions">
+            <SpinButton spinning={busy === 'chrome'} className="sbtn primary" disabled={!st} onClick={() => run('chrome', () => connectPersonChrome('chrome'))}>
+              Connect Chrome
+            </SpinButton>
+            <SpinButton spinning={busy === 'edge'} className="sbtn primary" disabled={!st} onClick={() => run('edge', () => connectPersonChrome('edge'))}>
+              Connect Edge
+            </SpinButton>
+            {st?.connected && (
+              <SpinButton spinning={busy === 'reset'} onClick={() => run('reset', resetPersonChrome)}>
+                Reset
+              </SpinButton>
+            )}
+          </span>
+        </li>
+      </ul>
+      {error && <p className="custom-error">{error}</p>}
+    </>
+  );
+}
+
 // The agents' own browser: separate profiles the person signs in to, and agents
 // sign up in themselves. One opens in a real window on this computer.
 function AgentBrowser({ status }: { status: IntegrationsView['profile'] }) {
@@ -877,6 +939,7 @@ function AgentBrowser({ status }: { status: IntegrationsView['profile'] }) {
     <div className="sgroup">
       <h3>Signed-in browser</h3>
       <p className="slead">Edge or Chrome profiles just for agents, kept signed in. Sign in to your own accounts here; agents sign up for theirs.</p>
+      <PersonChromeConnect />
       <ul className="sconnectors">
         {profiles.map(p => (
           <li key={p.n}>

@@ -24,7 +24,8 @@ import { answerRemoteMcp, isRemoteMcpUrl, remoteMcpUrl, takeRemoteMcp } from './
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals, recentlyWithdrawn } from './approvals.js';
-import { listProfiles, onPersonDone, openProfileWindow, profileStatus, releaseKeptFor, takeKeptPage } from './browser.js';
+import { copyKeptForChrome, keptCaptcha, listProfiles, onPersonDone, openProfileWindow, profileStatus, releaseKeptFor, takeKeptPage } from './browser.js';
+import { finishFromApp, openPersonChromeConnect, openPersonChromePage, personChromeStatus, resetPersonChromeToken } from './person-chrome.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
 import { deletePassword, listPasswords, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
@@ -53,11 +54,11 @@ type Route = (req: IncomingMessage, q: URLSearchParams, body: <T>() => Promise<T
 
 const isId = (id: unknown): id is string => typeof id === 'string' && /^[a-z0-9-]+$/.test(id);
 
+// How long a closed request stays in the list the app polls, so it can play it leaving.
+const RECENTLY_CLOSED_MS = 15 * 60_000;
 // A message drafted and waiting for a person's approval counts on the Dashboard as
 // sent: it's written, and one click sends it. Turned down or withdrawn, it doesn't.
 const SENDS = /(^|\.)[a-z_]*send_(mail|email|message)s?$/;
-// How long a closed request stays in the list the app polls, so it can play it leaving.
-const RECENTLY_CLOSED_MS = 15 * 60_000;
 const QUEUED_SENDS = "a.outcome = 'queued' AND (a.tool GLOB '*send_mail' OR a.tool GLOB '*send_email' OR a.tool GLOB '*send_message') AND NOT EXISTS (SELECT 1 FROM approvals p WHERE p.id = a.approval_id AND p.status IN ('rejected', 'withdrawn'))";
 
 // A label for output that isn't one of its KPI actions (extra effort, like
@@ -417,6 +418,9 @@ export const runnerRoutes: Record<string, Route> = {
       FLEET_ENGINEER,
     );
     const connections = (await listIntegrations()).map(i => ({ id: i.id, name: i.name }));
+    // A human check on the page kept for it: the app opens those in the person's Chrome.
+    const captcha = new Set<number>();
+    for (const r of rows) if (r.status === 'open' && r.stage === 'person' && (await keptCaptcha(r.id))) captcha.add(r.id);
     return rows.map(row => {
       const lead = leadOf(row);
       // The lead's for what it stands at; its engineer's steps with this one's own conversation.
@@ -438,6 +442,7 @@ export const runnerRoutes: Record<string, Route> = {
       // Once they've joined in, it stays while the engineer works on their reply.
       needsYou: ['waiting_you', 'approval', 'person'].includes(String(r.stage)) || (threadOf.get(r.id) ?? []).some(m => m.from_who === 'you'),
       approvalId: waiting.find(w => Number(w.request) === on.id)?.id ?? null,
+      captcha: captcha.has(r.id),
       // The connection it waits for the person to connect, so the page can show one item per connection.
       waitingOn: r.stage === 'waiting_you' ? waitingOn(on.id, connections) : null,
       };
@@ -677,6 +682,35 @@ export const runnerRoutes: Record<string, Route> = {
     const kept = b.url ? await takeKeptPage(b.profile ?? 1, b.url, request) : null;
     if (kept) return { ok: true, profile: b.profile ?? 1, already: true, ...kept };
     return openProfileWindow(b.profile ?? 1, b.url || undefined, request);
+  },
+  // The person's own Chrome (person-chrome.ts): whether it's connected, and a new pairing.
+  'GET /api/person-chrome': async () => personChromeStatus(),
+  'POST /api/person-chrome/open': async (_req, _q, body) => {
+    const { id } = await body<{ id?: string }>();
+    await openPersonChromePage(String(id ?? ''));
+    return { ok: true };
+  },
+  'POST /api/person-chrome/connect': async (_req, _q, body) => {
+    const b = await body<{ browser?: string }>();
+    openPersonChromeConnect(b.browser === 'edge' ? 'edge' : 'chrome');
+    return { ok: true };
+  },
+  'POST /api/person-chrome/reset': async () => {
+    await resetPersonChromeToken();
+    return { ok: true };
+  },
+  // A kept page copied for the person's own browser, and what they finished there
+  // coming back: the app on their computer carries both (an agency in the cloud
+  // can't reach their browser). Admins only, like the agents' browser itself.
+  'POST /api/person-chrome/copy': async (_req, _q, body) => {
+    const { request } = await body<{ request?: number }>();
+    if (typeof request !== 'number') throw new Error('Which request?');
+    return { handoff: await copyKeptForChrome(request) };
+  },
+  'POST /api/person-chrome/finish': async (_req, _q, body) => {
+    const b = await body<{ id?: string; cookies?: unknown }>();
+    await finishFromApp(String(b.id ?? ''), b.cookies);
+    return { ok: true };
   },
 
   // --- The agents' browser, live (live-view.ts): owners and admins (access.ts) ---
