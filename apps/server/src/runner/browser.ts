@@ -831,7 +831,7 @@ async function keepForPerson(ctx: RunCtx, profile: number, what: string, why: st
   if (handoffId) exec('UPDATE requests SET evidence = ? WHERE id = ?', personChromeEvidence(handoffId, BROWSER_LINE(url, profile)).slice(0, 4000), r.id);
   const fileNote = files.length ? ` A file was attached (${files.join(', ')}). They have to choose it again in Chrome; a file can't be copied across.` : '';
   const chromeNote = CLOUD
-    ? `They can open it in their own Chrome or Edge from the app with the form filled in, so they only pass the check and press Submit.`
+    ? `It opens in their own Chrome or Edge with the form filled in; they do what's needed there and press Finished.`
     : handoffId
       ? `Request #${r.id} opens it in their own Chrome or Edge with the form filled in (${fields} fields), so they only pass the check and press Submit.${fileNote}`
       : `Their Chrome didn't get a copy (it's in the log). The button opens this tab instead.`;
@@ -964,6 +964,10 @@ export async function copyKeptForChrome(request: number): Promise<PersonHandoff>
     cookies: prepared.cookies,
   });
 }
+
+// Whether a request has a page kept for it: the app opens those in the person's own
+// browser by itself, every one, and shows Finished on the request.
+export const hasKeptPage = (request: number) => keptFor(request) != null;
 
 // Whether a kept page shows a human check (Cloudflare's Turnstile, reCAPTCHA,
 // hCaptcha): the app opens those in the person's Chrome by itself. Looked at once a

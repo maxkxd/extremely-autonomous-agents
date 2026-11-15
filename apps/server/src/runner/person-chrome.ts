@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { platform } from 'node:os';
 import { join } from 'node:path';
+import { LOGO, PAGE_CSS, letters } from '../signin-page.js';
 import { getSecret, setSecret } from '../vault.js';
 
 // The person's own Chrome (apps/person-chrome), for a check the agents' browser
@@ -64,6 +65,8 @@ export type PersonHandoff = {
   // Copied from an agency hosted elsewhere (the cloud), through the app on this
   // computer: finished here, it waits for the app to send it back (app routes below).
   remote?: true;
+  // The person pressed Finished in the app: the extension finishes the tab when it next asks.
+  finishAsked?: number;
 };
 
 export type RawField = {
@@ -344,7 +347,9 @@ export function personChromeEvidence(id: string, browserLine: string) {
 
 export type PersonBrowser = 'chrome' | 'edge';
 type Finished = { id: string; cookies: PersonCookie[]; at: number };
-type Store = { token?: string; seenAt?: number; browser?: PersonBrowser; handoffs: PersonHandoff[]; finished?: Finished[] };
+// `seen`: when each browser last checked in (Chrome and Edge can both be connected).
+// `seenAt`/`browser` are the older single-browser record, still read.
+type Store = { token?: string; seenAt?: number; browser?: PersonBrowser; seen?: Partial<Record<PersonBrowser, number>>; handoffs: PersonHandoff[]; finished?: Finished[] };
 
 let chain: Promise<void> = Promise.resolve();
 function update<T>(fn: (s: Store) => T | Promise<T>): Promise<T> {
@@ -396,13 +401,17 @@ export async function personChromeStatus() {
   const s = (await getSecret<Store>(VAULT_ID)) ?? { handoffs: [] };
   const now = Date.now();
   const pending = (s.handoffs ?? []).filter(h => now - h.created < MAX_AGE_MS).length;
+  const seen: Partial<Record<PersonBrowser, number>> = { ...s.seen };
+  if (typeof s.seenAt === 'number' && !seen[s.browser ?? 'chrome']) seen[s.browser ?? 'chrome'] = s.seenAt;
+  const browsers = (['chrome', 'edge'] as const).filter(b => seen[b]).sort((a, b) => seen[a]! - seen[b]!);
   return {
     port: personChromePort(),
     connectUrl: connectUrl(),
     extensionId: PERSON_CHROME_EXTENSION_ID,
     pending,
-    connected: typeof s.seenAt === 'number',
-    browser: s.browser === 'edge' ? 'edge' : typeof s.seenAt === 'number' ? 'chrome' : null,
+    connected: browsers.length > 0,
+    browser: browsers.at(-1) ?? null,
+    browsers,
   };
 }
 
@@ -421,6 +430,7 @@ export function resetPersonChromeToken() {
     s.token = randomBytes(32).toString('hex');
     delete s.seenAt;
     delete s.browser;
+    delete s.seen;
     console.log('[person-chrome] pairing token reset; Chrome or Edge has to be connected again');
   });
 }
@@ -469,7 +479,9 @@ export async function noteAbandoned(id: string) {
 
 export function markExtensionSeen(browser: PersonBrowser) {
   return update(s => {
-    if (!s.seenAt || Date.now() - s.seenAt > 3_600_000 || s.browser !== browser) console.log(`[person-chrome] ${browser} connected`);
+    const last = s.seen?.[browser];
+    if (!last || Date.now() - last > 3_600_000) console.log(`[person-chrome] ${browser} connected`);
+    s.seen = { ...s.seen, [browser]: Date.now() };
     s.seenAt = Date.now();
     s.browser = browser;
   });
@@ -607,32 +619,51 @@ async function authorized(req: IncomingMessage): Promise<boolean> {
   return got.length === want.length && timingSafeEqual(got, want);
 }
 
-const shell = (kind: 'connect' | 'go', extra: string, heading: string, copy: string) => `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>${heading}</title>
+// The connect and finish pages look like the sign-in pages (signin-page.ts). The
+// extension (apps/person-chrome/bridge.js) writes its outcome into #status and hides
+// #install when it worked; the page watches for that and settles the heading.
+const shell = (kind: 'connect' | 'go', extra: string, heading: string, copy: string, doneWord: string) => `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(heading)} · EXTREMELY</title>
+<link rel="icon" type="image/png" href="${LOGO}">
 <meta id="eaa-chrome" data-kind="${kind}" ${extra}>
 <style>
-  body { margin: 0; font: 15px/1.45 system-ui, sans-serif; background: #16161a; color: #f4f4f5; }
-  main { max-width: 28rem; margin: 0 auto; padding: 2.5rem 1.25rem; }
-  h1 { font-size: 1.15rem; font-weight: 650; margin: 0 0 .6rem; }
-  p { margin: 0 0 .8rem; color: #c4c4cc; }
-  ol { margin: 0; padding-left: 1.2rem; color: #c4c4cc; }
-  li { margin: .35rem 0; }
-  code { font-size: .9em; }
-  #status { color: #fff; }
+${PAGE_CSS}
+  .card { max-width: 30rem; }
+  #install { margin-top: 26px; color: #6f6f6f; font-size: 13px; line-height: 1.5; }
+  #install[hidden] { display: none; }
+  #install p { color: inherit; font-size: inherit; }
+  #install code { color: #a8a8a8; font-size: 12px; }
 </style></head>
-<body><main>
-  <h1>${heading}</h1>
-  <p id="status">${copy}</p>
-  <div id="install">
-    <p>If this doesn't change, the extension isn't installed in this browser yet.</p>
-    <ol>
-      <li>Install <b>EXTREMELY</b> from the Chrome Web Store, or load the <code>apps/person-chrome</code> folder unpacked (Developer mode, Load unpacked) at <code>chrome://extensions</code> or <code>edge://extensions</code>.</li>
-      <li>Come back to this page.</li>
-    </ol>
-  </div>
-</main></body></html>`;
+<body><div class="card">
+<img class="logo" src="${LOGO}" alt="">
+<h1 id="h" class="wave">${letters(heading)}</h1>
+<p id="status">${esc(copy)}</p>
+<div id="install"><p>No extension in this browser yet. Load <code>apps/person-chrome</code> unpacked at <code>chrome://extensions</code> or <code>edge://extensions</code> (Developer mode), then reload this page.</p></div>
+</div>
+<script>
+const letters = t => [...t].map((c, i) => '<span style="--i:' + i + '">' + (c === ' ' ? '&nbsp;' : c.replace(/[&<>"]/g, x => '&#' + x.charCodeAt(0) + ';')) + '</span>').join('');
+const h = document.getElementById('h'), p = document.getElementById('status'), install = document.getElementById('install');
+const first = p.textContent;
+let settled = false;
+function settle(ok) {
+  if (settled) return;
+  settled = true;
+  const word = ok ? ${JSON.stringify(doneWord)} : 'Not connected';
+  document.title = word + ' · EXTREMELY';
+  h.classList.add('swap');
+  setTimeout(() => { h.className = ok ? 'float' : 'still'; h.innerHTML = letters(word); }, 300);
+}
+new MutationObserver(() => {
+  if (install.hidden) settle(true);
+  else if (p.textContent !== first) settle(false);
+}).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden'] });
+</script></body></html>`;
 
 const ID_RE = /^[a-f0-9]{32}$/;
+// How long Finished in the app waits for the browser to finish the tab itself.
+const FINISH_WAIT_MS = 10_000;
 
 // True when this request was for the extension. Anything else falls through.
 export async function handlePersonChromeHttp(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
@@ -666,6 +697,32 @@ export async function handlePersonChromeHttp(req: IncomingMessage, res: ServerRe
         send(res, 200, { ok: true });
         return true;
       }
+      // Finished, pressed in the app: the extension finishes the tab (with the sign-in
+      // it holds) when it next asks, every few seconds. Says whether it did in time; if
+      // not (the tab was closed, or the browser is gone) the app tells the agency itself.
+      if (path === '/api/person-chrome/app/finish-now' && req.method === 'POST') {
+        const request = Number((await readJson(req)).request);
+        const h = await update(s => {
+          expire(s);
+          const found = [...s.handoffs].reverse().find(x => x.requestId === request);
+          if (found) found.finishAsked = Date.now();
+          return found ?? null;
+        });
+        if (!h) {
+          send(res, 200, { viaBrowser: false });
+          return true;
+        }
+        console.log(`[person-chrome] Finished pressed in the app for ${h.id} request=${request}`);
+        const until = Date.now() + FINISH_WAIT_MS;
+        let done = false;
+        while (!done && Date.now() < until) {
+          await new Promise(r => setTimeout(r, 500));
+          done = !(await readHandoff(h.id));
+        }
+        if (!done) console.error(`[person-chrome] the browser did not finish ${h.id} in time; the app tells the agency without it`);
+        send(res, 200, { viaBrowser: done });
+        return true;
+      }
       if (path === '/api/person-chrome/app/finished' && req.method === 'GET') {
         const s = (await getSecret<Store>(VAULT_ID)) ?? { handoffs: [] };
         send(res, 200, { finished: s.finished ?? [] });
@@ -687,7 +744,7 @@ export async function handlePersonChromeHttp(req: IncomingMessage, res: ServerRe
       const token = await ensurePersonChromeToken();
       const edge = url.searchParams.get('browser') === 'edge';
       const name = edge ? 'Edge' : 'Chrome';
-      page(res, shell('connect', `data-token="${esc(token)}"`, `Connect this ${name}`, `Connecting this ${name} to EXTREMELY…`));
+      page(res, shell('connect', `data-token="${esc(token)}"`, `Connecting ${name}`, `Connecting this ${name} to EXTREMELY…`, 'Connected'));
       return true;
     }
     if (path === '/person-chrome/go' && req.method === 'GET') {
@@ -697,7 +754,7 @@ export async function handlePersonChromeHttp(req: IncomingMessage, res: ServerRe
         send(res, 400, { error: 'That link is not a page waiting on you.' });
         return true;
       }
-      page(res, shell('go', `data-id="${esc(id)}"`, 'Finish in your browser', 'Opening the filled-in page…'));
+      page(res, shell('go', `data-id="${esc(id)}"`, 'Opening', 'Opening the filled-in page…', 'Opened'));
       return true;
     }
     if (!ext) {
@@ -729,6 +786,11 @@ export async function handlePersonChromeHttp(req: IncomingMessage, res: ServerRe
       }
       console.log(`[person-chrome] extension took ${id} site=${h.site} fields=${h.fields.length}`);
       send(res, 200, { handoff: h });
+      return true;
+    }
+    if (path === '/api/person-chrome/ext/wanted' && req.method === 'GET') {
+      const h = await readHandoff(url.searchParams.get('id') ?? '');
+      send(res, 200, { finish: !!h?.finishAsked, gone: !h });
       return true;
     }
     if (path === '/api/person-chrome/ext/done' && req.method === 'POST') {

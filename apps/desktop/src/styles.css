@@ -875,6 +875,11 @@ ul { list-style: none; margin: 0; padding: 0; }
 .rq-btn.ide:disabled { opacity: 1; color: #8a8a8a; border-style: dashed; cursor: not-allowed; }
 .rq-btn.ide svg { flex-shrink: 0; }
 
+/* A human step done in your own browser: Finished is the one big thing to press. */
+.own-step { display: flex; align-items: center; gap: 10px; margin: 2px 0 14px; }
+.rq-btn.finished { height: 40px; padding: 0 22px; font-size: 15px; background: var(--attention); border-color: var(--attention); color: var(--attention-text); }
+.rq-btn.finished:hover:not(:disabled) { background: var(--attention); filter: brightness(1.12); }
+
 /* DIY is neutral: green is kept for approvals. */
 .rq-btn.diy { background: #e6e6e6; border-color: #e6e6e6; color: #141414; }
 .rq-btn.diy:hover:not(:disabled), .rq-btn.diy.on { background: #fff; border-color: #fff; }

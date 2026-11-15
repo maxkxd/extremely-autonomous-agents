@@ -311,7 +311,7 @@ function Agency() {
       getLiveRequests().then(
         list => {
           setRequestsReady(true);
-          // A human check waiting on a kept page opens in your own Chrome by itself.
+          // Anything a person has to do on a kept page opens in their own browser by itself.
           void openChecksInChrome(list);
           const shown = list.filter(r => r.status === 'open' && r.needsYou);
           const closing = list.filter(r => r.status !== 'open' && shownRequests.current.has(r.id));
@@ -337,6 +337,7 @@ function Agency() {
                 approvalId: r.approvalId,
                 waitingOn: r.waitingOn,
                 joinedTo: r.joinedTo ?? null,
+                kept: r.status === 'open' && !!r.kept,
                 closedAs: r.status === 'open' ? undefined : r.status === 'rejected' ? ('rejected' as const) : ('done' as const),
               })),
           ));

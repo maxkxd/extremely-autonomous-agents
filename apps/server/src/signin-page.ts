@@ -3,27 +3,18 @@
 // While waiting the heading's letters ripple like a wave; once connected they
 // settle and float together; if it fails they just stop.
 
-const LOGO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAANsSURBVFhH7dVLbBtVFABQq0L8qm4qFi0fVQJBJTYUqXxUUWbGxs7c9zz3zfiDaPlIVC2brhClizSTSZMCqipU6CIbCgvYsECIRSWEyrKwAAlVfKImcRyIkzjzsx03SdMAvmgGWrkjEBsHAnpHehu/e2fuvHv1nEpJkiRJkiRJ/xE+4haXiV0+E883mXWkxQsvLbLinnr2uc3J2A0n0K27G9x6ts3N9xpMfNlg4jMfxEiTodbKlbYm4zeUuHiwDgdMXPABf/GY6CwAXnQBTwcgii3dvC+Zs2E0WGFHwPBln4lv1kSJqLiPmtykOhiXPMAPfMDDAcPHOohbkrn/utW+vp0Bw2Mew2+vYDEunqynqRF9gI51F8T5aIwaujBWhLgnmf+PyL5ycbPiTJp7R2b3dP++BrA74HjKAzG5ZBSoY5Yp6sAqFulyvkALurHy+xgZ74YgDjZ1fLhTKt3W/Yx1ow1Ud6qDlU8zI7PfqU716COvew9071/R85kQzLM+w/llo0ArRjE+9Ra3KOpEtHwmaAGw5oJxzgNhB3kzt2RZ27uf01uOs0kdnHgHTl8lbahKqj3xheb8eGTXycX7r4VQKnVTG/JFn+FHLuBiVGh82oBUB6SACYq6EXWhnbeorhuXXcCvPMDRAPDFdt58ouc3kjIwdlAdmlrOnJijp15bIGVg/FdtcPKCNlR99d6Tq9eLX0a8M+TmIR/EeRdwLWQmzeoGzf2x5nWDXMC4G1TaTz+LEoVcfDKv44M3vrEHnuz/4UB6eKajHBsj1R6n7BsesbfWKDNSI9WZev/xEzN3dccvsfI2D8THrbx1veBoZK5iKRqVVsjEaINbD3Xn9IzaP8a1oWotM1yLTzh9/CdS7cqk6lTOpO2prOJcuiPl0KbuHBfwhZALz2OCFvNWPBIBw+mAC3uZl274uJ5S7PGBvlPt+EQVe7yiOlNn0sentbLz/c3J2GtcEG9Ht0e0orkNmfi6yc0D9Wx2/f7+9/aPbdfsyofp4Zqbdqqjql3JlB36yyIjM7nc1oDh51TeH7c/AHEu5IIl43ou78zdrg1W9inO9DOKM31rcv/PzOT4o01uetGNEHLzrA+4OxmzbpzEPP6dOcBDDS4qS0bxzXnGdiT3N4wJXb/F14VRB+Ooy8rbkvuSJEmSJEnS/9FvuPrO5tXAaN4AAAAASUVORK5CYII=';
+export const LOGO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAANsSURBVFhH7dVLbBtVFABQq0L8qm4qFi0fVQJBJTYUqXxUUWbGxs7c9zz3zfiDaPlIVC2brhClizSTSZMCqipU6CIbCgvYsECIRSWEyrKwAAlVfKImcRyIkzjzsx03SdMAvmgGWrkjEBsHAnpHehu/e2fuvHv1nEpJkiRJkiRJ/xE+4haXiV0+E883mXWkxQsvLbLinnr2uc3J2A0n0K27G9x6ts3N9xpMfNlg4jMfxEiTodbKlbYm4zeUuHiwDgdMXPABf/GY6CwAXnQBTwcgii3dvC+Zs2E0WGFHwPBln4lv1kSJqLiPmtykOhiXPMAPfMDDAcPHOohbkrn/utW+vp0Bw2Mew2+vYDEunqynqRF9gI51F8T5aIwaujBWhLgnmf+PyL5ycbPiTJp7R2b3dP++BrA74HjKAzG5ZBSoY5Yp6sAqFulyvkALurHy+xgZ74YgDjZ1fLhTKt3W/Yx1ow1Ud6qDlU8zI7PfqU716COvew9071/R85kQzLM+w/llo0ArRjE+9Ra3KOpEtHwmaAGw5oJxzgNhB3kzt2RZ27uf01uOs0kdnHgHTl8lbahKqj3xheb8eGTXycX7r4VQKnVTG/JFn+FHLuBiVGh82oBUB6SACYq6EXWhnbeorhuXXcCvPMDRAPDFdt58ouc3kjIwdlAdmlrOnJijp15bIGVg/FdtcPKCNlR99d6Tq9eLX0a8M+TmIR/EeRdwLWQmzeoGzf2x5nWDXMC4G1TaTz+LEoVcfDKv44M3vrEHnuz/4UB6eKajHBsj1R6n7BsesbfWKDNSI9WZev/xEzN3dccvsfI2D8THrbx1veBoZK5iKRqVVsjEaINbD3Xn9IzaP8a1oWotM1yLTzh9/CdS7cqk6lTOpO2prOJcuiPl0KbuHBfwhZALz2OCFvNWPBIBw+mAC3uZl274uJ5S7PGBvlPt+EQVe7yiOlNn0sentbLz/c3J2GtcEG9Ht0e0orkNmfi6yc0D9Wx2/f7+9/aPbdfsyofp4Zqbdqqjql3JlB36yyIjM7nc1oDh51TeH7c/AHEu5IIl43ou78zdrg1W9inO9DOKM31rcv/PzOT4o01uetGNEHLzrA+4OxmzbpzEPP6dOcBDDS4qS0bxzXnGdiT3N4wJXb/F14VRB+Ooy8rbkvuSJEmSJEnS/9FvuPrO5tXAaN4AAAAASUVORK5CYII=';
 
 export type SignInState = { done: false } | { done: true; ok: boolean; message: string };
 
-const escape = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+export const escape = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const heading = (s: { done: boolean; ok?: boolean }) => (!s.done ? 'Signing in' : s.ok ? 'Connected' : 'Not connected');
 const title = (s: { done: boolean; ok?: boolean }) => `${heading(s)} · EXTREMELY`;
-const letters = (text: string) =>
+export const letters = (text: string) =>
   [...text].map((c, i) => `<span style="--i:${i}">${c === ' ' ? '&nbsp;' : escape(c)}</span>`).join('');
 
-// `pollState`: when set, the page asks /api/oauth/held/status for that state
-// until the app says how it went.
-export function signInPage(s: SignInState, pollState?: string) {
-  const cls = !s.done ? 'wave' : s.ok ? 'float' : 'still';
-  const message = s.done ? s.message : 'Finishing in the app…';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escape(title(s))}</title>
-<link rel="icon" type="image/png" href="${LOGO}">
-<style>
-  :root { color-scheme: dark; }
+// The look of these pages, shared with the browser-extension pages (runner/person-chrome.ts).
+export const PAGE_CSS = `  :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; }
   body {
     display: grid; place-items: center; text-align: center;
@@ -56,7 +47,19 @@ export function signInPage(s: SignInState, pollState?: string) {
   @media (prefers-reduced-motion: reduce) {
     h1, h1 span { animation: none !important; }
   }
-</style></head>
+`;
+
+// `pollState`: when set, the page asks /api/oauth/held/status for that state
+// until the app says how it went.
+export function signInPage(s: SignInState, pollState?: string) {
+  const cls = !s.done ? 'wave' : s.ok ? 'float' : 'still';
+  const message = s.done ? s.message : 'Finishing in the app…';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escape(title(s))}</title>
+<link rel="icon" type="image/png" href="${LOGO}">
+<style>
+${PAGE_CSS}</style></head>
 <body><div class="card">
 <img class="logo" src="${LOGO}" alt="">
 <h1 id="h" class="${cls}">${letters(heading(s))}</h1>

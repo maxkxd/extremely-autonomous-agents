@@ -25,7 +25,7 @@ function jobForHere() {
         reject(new Error(err.message));
         return;
       }
-      resolve(res?.job || null);
+      resolve(res?.job ? { ...res.job, elsewhere: !!res.elsewhere } : null);
     });
   });
 }
@@ -120,6 +120,20 @@ function applyStorage(storage) {
   }
 }
 
+// The bar along the bottom of the page: what to do, and Finished. Finished (here, or on
+// the request in the app) sends the sign-in this tab holds to EXTREMELY, puts the
+// person's own login back, and tells the agent to carry on.
+// On the page's global, and `var`: this file can be injected twice into one page.
+var isSent = () => globalThis.__eaaSent === true;
+function say(bar, text) {
+  const t = bar.querySelector('[data-eaa-text]');
+  if (t) t.textContent = text;
+}
+function markSent(bar) {
+  globalThis.__eaaSent = true;
+  say(bar, 'Sent to EXTREMELY. The agent carries on from here. You can close this tab.');
+  bar.querySelector('[data-eaa-finish]')?.remove();
+}
 function banner(job, filled) {
   if (document.getElementById('eaa-person-chrome')) return;
   const bar = document.createElement('div');
@@ -127,17 +141,39 @@ function banner(job, filled) {
   bar.setAttribute('role', 'status');
   const files = (job.files || []).filter(f => f.fileName).map(f => f.fileName);
   const text = document.createElement('div');
-  text.textContent = filled
-    ? 'EXTREMELY filled this form. Pass the check, then press the site’s submit button. Your own login for this site comes back when you close this tab.'
-    : 'EXTREMELY opened this page, but no filled fields were copied. Pass the check if you can, or use the agents’ browser tab.';
-  if (files.length) text.textContent += ' Choose the file again: ' + files.join(', ') + '.';
+  text.setAttribute('data-eaa-text', '');
+  text.textContent = isSent()
+    ? 'Sent to EXTREMELY. The agent carries on from here. You can close this tab.'
+    : (filled ? 'EXTREMELY filled this in. ' : '') + 'Do what’s needed on this page, then press Finished and the agent carries on.';
+  if (!isSent() && files.length) text.textContent += ' Choose the file again: ' + files.join(', ') + '.';
+  const finishBtn = document.createElement('button');
+  finishBtn.type = 'button';
+  finishBtn.textContent = 'Finished';
+  finishBtn.setAttribute('data-eaa-finish', '');
+  finishBtn.addEventListener('click', () => {
+    finishBtn.disabled = true;
+    finishBtn.textContent = 'Sending…';
+    chrome.runtime.sendMessage({ type: 'finish-now', id: job.id }, (res) => {
+      if (chrome.runtime.lastError || res?.error) {
+        console.error('[person-chrome] Finished failed', chrome.runtime.lastError?.message || res.error);
+        finishBtn.disabled = false;
+        finishBtn.textContent = 'Finished';
+        say(bar, res?.error || 'EXTREMELY did not answer. Is the app open? Try Finished again.');
+        return;
+      }
+      markSent(bar);
+    });
+  });
   const close = document.createElement('button');
   close.type = 'button';
   close.textContent = 'Hide';
   close.addEventListener('click', () => bar.remove());
-  bar.append(text, close);
-  bar.style.cssText = 'position:fixed;bottom:12px;left:12px;right:12px;z-index:2147483647;display:flex;gap:12px;align-items:center;background:#1c1b22;color:#fff;padding:12px 14px;border-radius:10px;font:13px/1.4 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.35)';
-  close.style.cssText = 'margin-left:auto;background:transparent;color:#fff;border:1px solid #fff;border-radius:8px;padding:4px 8px;cursor:pointer';
+  if (isSent()) bar.append(text, close);
+  else bar.append(text, finishBtn, close);
+  bar.style.cssText = 'position:fixed;bottom:12px;left:12px;right:12px;z-index:2147483647;display:flex;gap:12px;align-items:center;background:#1c1b22;color:#fff;padding:12px 14px;border-radius:10px;font:14px/1.4 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.35)';
+  text.style.cssText = 'flex:1;min-width:0';
+  finishBtn.style.cssText = 'background:#fff;color:#141414;border:0;border-radius:8px;padding:9px 22px;font:600 15px system-ui,sans-serif;cursor:pointer;white-space:nowrap';
+  close.style.cssText = 'background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:8px;padding:6px 10px;cursor:pointer';
   (document.body || document.documentElement).append(bar);
 }
 
@@ -155,13 +191,13 @@ function banner(job, filled) {
   const first = globalThis.__eaaPersonChrome !== job.id;
   globalThis.__eaaPersonChrome = job.id;
   console.log('[person-chrome] restoring', job.id, 'fields', (job.fields || []).length);
-  applyStorage(job.storage);
+  if (!job.elsewhere) applyStorage(job.storage);
   // The bar shows even if filling failed. A page that redraws itself (most sites
   // built with React and the like) can drop it: it's put back while the page settles.
   let filled = 0;
   const run = () => {
     try {
-      filled = Math.max(filled, fill(job));
+      if (!job.elsewhere) filled = Math.max(filled, fill(job));
     } catch (e) {
       console.error('[person-chrome] fill failed', e.message);
     }
@@ -171,26 +207,18 @@ function banner(job, filled) {
   else run();
   if (!first) return;
   for (const ms of [300, 1000, 2500, 5000, 8000, 12000]) setTimeout(run, ms);
-  document.addEventListener(
-    'submit',
-    () => {
-      console.log('[person-chrome] form submitted', job.id);
-      chrome.runtime.sendMessage({ type: 'submitted', id: job.id });
-    },
-    true,
-  );
-  document.addEventListener(
-    'click',
-    (event) => {
-      const button = event.target?.closest?.('button, input[type="submit"]');
-      if (!button || button.id === 'eaa-person-chrome' || button.closest('#eaa-person-chrome')) return;
-      const type = (button.getAttribute('type') || (button.tagName === 'BUTTON' ? 'submit' : '')).toLowerCase();
-      if (type === 'button' || type === 'reset') return;
-      const label = (button.innerText || button.value || '').replace(/\s+/g, ' ').trim();
-      if (type !== 'submit' && !/submit|create|sign ?up|register|continue/i.test(label)) return;
-      console.log('[person-chrome] submit control clicked', job.id);
-      chrome.runtime.sendMessage({ type: 'submitted', id: job.id });
-    },
-    true,
-  );
+  // Finished pressed in the app instead: asked every few seconds while the tab is open.
+  const timer = setInterval(() => {
+    if (isSent()) return clearInterval(timer);
+    chrome.runtime.sendMessage({ type: 'wanted', id: job.id }, (res) => {
+      if (chrome.runtime.lastError) return;
+      if (res?.gone) return clearInterval(timer);
+      if (res?.finished) {
+        clearInterval(timer);
+        const bar = document.getElementById('eaa-person-chrome');
+        if (bar) markSent(bar);
+        else globalThis.__eaaSent = true;
+      }
+    });
+  }, 3000);
 })().catch(e => console.error('[person-chrome] restore failed', e.message));

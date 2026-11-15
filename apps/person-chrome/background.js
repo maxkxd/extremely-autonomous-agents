@@ -376,34 +376,38 @@ function openOnce(id) {
   return p;
 }
 
+// Finished, pressed in the bar on the page or in the app: the sign-in this tab holds
+// goes to EXTREMELY, and the person's own login for the site is put back. True once
+// EXTREMELY has it.
 const finishing = new Set();
 async function finish(id, tabId) {
-  if (finishing.has(id)) return;
+  if (finishing.has(id)) return false;
   finishing.add(id);
   try {
     const { finished = {} } = await chrome.storage.session.get('finished');
-    if (finished[id]) return;
+    if (finished[id]) return true;
     const got = await chrome.storage.session.get('job:' + id);
     const job = got['job:' + id];
     if (!job) {
-      console.error('[person-chrome] submit for a page that is gone', id);
+      console.error('[person-chrome] Finished for a page that is gone', id);
       await restoreTab(id, tabId);
-      return;
+      return false;
     }
     const cookies = (await readJar(domainsOf(job))).map(toPerson);
-    console.log('[person-chrome] submit', id, 'cookies', cookies.length);
+    console.log('[person-chrome] finished', id, 'cookies', cookies.length);
     const res = await api('/api/person-chrome/ext/done', { method: 'POST', body: JSON.stringify({ id, cookies }) });
     if (res.error) {
       console.error('[person-chrome] EXTREMELY did not take the result:', res.error);
       await restoreTab(id, tabId);
-      return;
+      return false;
     }
     finished[id] = Date.now();
     await chrome.storage.session.set({ finished });
     await chrome.storage.session.remove('job:' + id);
     await restoreTab(id, tabId);
     await forgetTab(tabId);
-    console.log('[person-chrome] finished', id);
+    console.log('[person-chrome] sent to EXTREMELY', id);
+    return true;
   } catch (e) {
     console.error('[person-chrome] finishing failed', id, e.message);
     try {
@@ -411,42 +415,10 @@ async function finish(id, tabId) {
     } catch (err) {
       console.error('[person-chrome] cookies were not put back after a failed finish', err.message);
     }
+    return false;
   } finally {
     finishing.delete(id);
   }
-}
-
-async function afterSubmit(id, tabId) {
-  console.log('[person-chrome] submit clicked', id);
-  await new Promise(r => setTimeout(r, 2500));
-  // A failed read must not count as "the check is gone", or we'd copy cookies
-  // before the page has actually moved on.
-  let still = true;
-  let href = '';
-  let read = false;
-  try {
-    const [got] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => ({
-        captcha: [...document.querySelectorAll('iframe')].some(f => {
-          if (!/challenges\.cloudflare|recaptcha|hcaptcha|turnstile/i.test(f.src || '')) return false;
-          const box = f.getBoundingClientRect();
-          return box.width > 8 && box.height > 8;
-        }),
-        href: location.href,
-      }),
-    });
-    still = !!got?.result?.captcha;
-    href = got?.result?.href || '';
-    read = true;
-  } catch (e) {
-    console.error('[person-chrome] could not read the page after submit', e.message);
-  }
-  const got = await chrome.storage.session.get('job:' + id);
-  const job = got['job:' + id];
-  const moved = job && href && !samePage(href, job.url);
-  if (moved || (read && !still)) await finish(id, tabId);
-  else console.log('[person-chrome] the check is still on the page, or the page could not be read; waiting for another submit', id);
 }
 
 async function abandon(tabId) {
@@ -457,7 +429,7 @@ async function abandon(tabId) {
     await forgetTab(tabId);
     return;
   }
-  console.log('[person-chrome] tab closed before submit', id);
+  console.log('[person-chrome] tab closed before Finished', id);
   const res = await api('/api/person-chrome/ext/abandon', { method: 'POST', body: JSON.stringify({ id }) });
   if (res.error) console.error('[person-chrome] abandon was not recorded:', res.error);
   try {
@@ -523,16 +495,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === 'open-handoff') {
     return reply(openOnce(String(msg.id || '')));
   }
-  if (msg?.type === 'submitted') {
+  // Finished in the bar on the page, or asked about by the page every few seconds in
+  // case Finished was pressed in the app instead.
+  if (msg?.type === 'finish-now' || msg?.type === 'wanted') {
     const tabId = sender.tab?.id;
     if (tabId == null) {
-      console.error('[person-chrome] submit with no tab');
+      console.error('[person-chrome]', msg.type, 'with no tab');
       sendResponse({ error: 'No tab.' });
       return false;
     }
-    afterSubmit(String(msg.id || ''), tabId).catch(e => console.error('[person-chrome] submit handling failed', e.message));
-    sendResponse({ ok: true });
-    return false;
+    const id = String(msg.id || '');
+    return reply((async () => {
+      if (msg.type === 'wanted') {
+        const w = await api('/api/person-chrome/ext/wanted?id=' + encodeURIComponent(id));
+        if (w.error || !w.finish) return { finished: false, gone: !!w.gone };
+        console.log('[person-chrome] Finished was pressed in the app', id);
+      }
+      const ok = await finish(id, tabId);
+      return ok ? { finished: true } : { error: 'EXTREMELY did not take it. Try Finished again.' };
+    })());
   }
   if (msg?.type === 'job-here') {
     return reply((async () => {
@@ -541,6 +522,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (!key.startsWith('job:') || !value?.url) continue;
         if (samePage(String(msg.url || ''), value.url)) return { job: value };
       }
+      // The tab moved on from the page (the site's next step): still this job, so
+      // Finished stays on it, but nothing is filled in here.
+      const id = sender.tab?.id != null ? await jobOfTab(sender.tab.id) : null;
+      if (id && all['job:' + id]) return { job: all['job:' + id], elsewhere: true };
       return { job: null };
     })());
   }

@@ -9,7 +9,7 @@
 // copy there and what was finished back (server: runner/person-chrome.ts, app routes).
 
 import { currentOrg, reachedHere } from './account';
-import { ackChromeFinished, chromeFinished, copyForChrome, finishForChrome, openPersonChrome, personChromeStatus, stageInChrome } from './builder';
+import { ackChromeFinished, chromeFinished, copyForChrome, finishForChrome, finishNow, finishedElsewhere, openPersonChrome, personChromeStatus, stageInChrome } from './builder';
 
 const agencyHere = () => {
   const org = currentOrg();
@@ -27,9 +27,8 @@ export async function openInMyChrome(request: number) {
 // this computer's own server every few seconds, focused or not: they're in Chrome
 // when they finish, and the agent is waiting on it.
 const RELAY_MS = 4000;
-export function relayChromeFinished(): () => void {
-  let busy = false;
-  const tick = async () => {
+let busy = false;
+const tick = async () => {
     if (busy || agencyHere()) return;
     busy = true;
     try {
@@ -50,14 +49,30 @@ export function relayChromeFinished(): () => void {
     } finally {
       busy = false;
     }
-  };
+};
+export function relayChromeFinished(): () => void {
   void tick();
   const timer = window.setInterval(() => void tick(), RELAY_MS);
   return () => window.clearInterval(timer);
 }
 
-// A request whose kept page shows a human check opens in the person's Chrome by
-// itself, once, if that browser is connected (an unconnected one would only get the
+// Finished, pressed in the app: the person did it in their own browser. That browser
+// sends the page back with the sign-in it holds if it still has the tab; otherwise
+// (they closed it) the agency is told they're done, and the agent checks for itself.
+export async function finishedInMyBrowser(request: number) {
+  const r = await finishNow(request).catch(e => {
+    console.error(`[person-chrome] request #${request}: this computer's browser could not be asked:`, (e as Error).message);
+    return { viaBrowser: false };
+  });
+  if (r.viaBrowser) {
+    if (!agencyHere()) await tick();
+    return;
+  }
+  await finishedElsewhere(request);
+}
+
+// A request with a page kept for it (a human check or anything else a person has to
+// do) opens in the person's own browser by itself, once, if that browser is connected (an unconnected one would only get the
 // install page each time). Remembered per agency, so a restart doesn't open it again.
 const openedKey = () => `eaa.chromeOpened.${currentOrg()?.id ?? 'here'}`;
 const readOpened = (): number[] => {
@@ -76,10 +91,10 @@ const saveOpened = (ids: number[]) => {
   }
 };
 let opening = false;
-export async function openChecksInChrome(requests: { id: number; status: string; captcha?: boolean }[]) {
+export async function openChecksInChrome(requests: { id: number; status: string; captcha?: boolean; kept?: boolean }[]) {
   if (opening) return;
   const opened = readOpened();
-  const due = requests.filter(r => r.status === 'open' && r.captcha && !opened.includes(r.id));
+  const due = requests.filter(r => r.status === 'open' && (r.kept || r.captcha) && !opened.includes(r.id));
   if (!due.length) return;
   opening = true;
   try {

@@ -24,7 +24,7 @@ import { answerRemoteMcp, isRemoteMcpUrl, remoteMcpUrl, takeRemoteMcp } from './
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals, recentlyWithdrawn } from './approvals.js';
-import { copyKeptForChrome, keptCaptcha, listProfiles, onPersonDone, openProfileWindow, profileStatus, releaseKeptFor, takeKeptPage } from './browser.js';
+import { copyKeptForChrome, finishKeptByRequest, hasKeptPage, keptCaptcha, listProfiles, onPersonDone, openProfileWindow, profileStatus, releaseKeptFor, takeKeptPage } from './browser.js';
 import { finishFromApp, openPersonChromeConnect, openPersonChromePage, personChromeStatus, resetPersonChromeToken } from './person-chrome.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
 import { deletePassword, listPasswords, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
@@ -420,7 +420,12 @@ export const runnerRoutes: Record<string, Route> = {
     const connections = (await listIntegrations()).map(i => ({ id: i.id, name: i.name }));
     // A human check on the page kept for it: the app opens those in the person's Chrome.
     const captcha = new Set<number>();
-    for (const r of rows) if (r.status === 'open' && r.stage === 'person' && (await keptCaptcha(r.id))) captcha.add(r.id);
+    const kept = new Set<number>();
+    for (const r of rows) {
+      if (r.status !== 'open' || r.stage !== 'person' || !hasKeptPage(r.id)) continue;
+      kept.add(r.id);
+      if (await keptCaptcha(r.id)) captcha.add(r.id);
+    }
     return rows.map(row => {
       const lead = leadOf(row);
       // The lead's for what it stands at; its engineer's steps with this one's own conversation.
@@ -443,6 +448,7 @@ export const runnerRoutes: Record<string, Route> = {
       needsYou: ['waiting_you', 'approval', 'person'].includes(String(r.stage)) || (threadOf.get(r.id) ?? []).some(m => m.from_who === 'you'),
       approvalId: waiting.find(w => Number(w.request) === on.id)?.id ?? null,
       captcha: captcha.has(r.id),
+      kept: kept.has(r.id),
       // The connection it waits for the person to connect, so the page can show one item per connection.
       waitingOn: r.stage === 'waiting_you' ? waitingOn(on.id, connections) : null,
       };
@@ -706,6 +712,17 @@ export const runnerRoutes: Record<string, Route> = {
     const { request } = await body<{ request?: number }>();
     if (typeof request !== 'number') throw new Error('Which request?');
     return { handoff: await copyKeptForChrome(request) };
+  },
+  // Finished, pressed by the person, when their browser didn't send the page back
+  // (its tab was closed first): the agent hears they're done and checks for itself.
+  'POST /api/person-chrome/finished-elsewhere': async (_req, _q, body) => {
+    const { request } = await body<{ request?: number }>();
+    if (typeof request !== 'number') throw new Error('Which request?');
+    await finishKeptByRequest(
+      request,
+      'They finished this in their own browser and pressed Finished. No sign-in came back with it, so open the page again and check it worked (sign in with the saved password if it asks).',
+    );
+    return { ok: true };
   },
   'POST /api/person-chrome/finish': async (_req, _q, body) => {
     const b = await body<{ id?: string; cookies?: unknown }>();

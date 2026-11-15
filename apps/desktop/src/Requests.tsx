@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, Code2, Globe, Hammer, Hand, Plug, SendHorizontal, User, X } from 'lucide-react';
+import { Check, ChevronRight, Code2, ExternalLink, Globe, Hammer, Hand, Plug, SendHorizontal, User, X } from 'lucide-react';
 import { siClaude, siCursor, type SimpleIcon } from 'simple-icons';
 import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
@@ -13,6 +13,7 @@ import { scrollToCard } from './scrollToCard';
 import { notify, notifyError } from './Notices';
 import { Spinner } from './Busy';
 import { every } from './poll';
+import { finishedInMyBrowser, openInMyChrome } from './personChrome';
 
 // A request waiting for a sign-in the whole organization shares (Gmail, Square...)
 // is everyone's to see, not just its agent's owner's: a teammate's request can
@@ -368,6 +369,9 @@ function RequestRow({
                 )}
               </div>
 
+              {/* A page an agent kept for you: you do it in your own browser, then Finished. */}
+              {request.kept && request.live != null && !leaving && <OwnBrowserStep request={request.live} />}
+
               <div className="request-actions">
                 {/* Your AI assistant, with this request and the agency's tools as you (runner/ide.ts). */}
                 <button
@@ -624,6 +628,31 @@ export function Requests({
         placed.add(id);
         return <ConnectGroup key={`connect-${id}`} name={name} members={byConnection.get(id)!} row={row} refs={refs} focus={focus} />;
       })}
+    </div>
+  );
+}
+
+// A human step on a page an agent kept: it opens in your own browser (by itself, too),
+// you do it there, and Finished tells the agent to carry on (personChrome.ts).
+function OwnBrowserStep({ request }: { request: number }) {
+  const [busy, setBusy] = useState<'open' | 'finish' | null>(null);
+  const [finished, setFinished] = useState(false);
+  const act = (which: 'open' | 'finish') => {
+    setBusy(which);
+    (which === 'open' ? openInMyChrome(request) : finishedInMyBrowser(request).then(() => setFinished(true)))
+      .catch(notifyError)
+      .finally(() => setBusy(null));
+  };
+  return (
+    <div className="own-step">
+      <button className="rq-btn finished" disabled={!!busy || finished} onClick={() => act('finish')}>
+        {busy === 'finish' ? <Spinner size={14} /> : <Check size={16} strokeWidth={2.25} />}
+        {finished ? 'Sent to the agent' : 'Finished?'}
+      </button>
+      <button className="rq-btn" disabled={!!busy || finished} onClick={() => act('open')}>
+        {busy === 'open' ? <Spinner size={12} /> : <ExternalLink size={14} />}
+        Open in my browser
+      </button>
     </div>
   );
 }

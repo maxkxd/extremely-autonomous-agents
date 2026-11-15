@@ -101,6 +101,22 @@ test('a page from an agency in the cloud is held for the browser here, and finis
     await app('/api/person-chrome/app/finished/ack', { id });
     assert.deepEqual(((await (await app('/api/person-chrome/app/finished')).json()) as { finished: unknown[] }).finished, []);
 
+    // Finished pressed in the app: the browser here hears it on its next ask and sends the page back.
+    assert.deepEqual(await (await app('/api/person-chrome/app/finish-now', { request: 999 })).json(), { viaBrowser: false }, 'nothing open for it: the app tells the agency itself');
+    const id2 = 'd'.repeat(32);
+    await app('/api/person-chrome/app/stage', { handoff: { ...handoff, id: id2, requestId: 190 } });
+    assert.deepEqual(await (await ext(`/api/person-chrome/ext/wanted?id=${id2}`)).json(), { finish: false, gone: false });
+    const pressed = app('/api/person-chrome/app/finish-now', { request: 190 }).then(r => r.json());
+    let asked = false;
+    for (let i = 0; i < 20 && !asked; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      asked = ((await (await ext(`/api/person-chrome/ext/wanted?id=${id2}`)).json()) as { finish: boolean }).finish;
+    }
+    assert.ok(asked, 'the extension is told Finished was pressed');
+    assert.equal((await ext('/api/person-chrome/ext/done', { id: id2, cookies: [] })).status, 200);
+    assert.deepEqual(await pressed, { viaBrowser: true });
+    assert.deepEqual(await (await ext(`/api/person-chrome/ext/wanted?id=${id2}`)).json(), { finish: false, gone: true });
+
     // The agency's half: a fresh copy replaces the last for the request, and what comes back finishes it there.
     const fields = { requestId: 183, profile: 1, site: 'changelog.com', url: 'https://changelog.com/join', title: 'Join', what: 'x', fields: [], files: [], storage: { local: {}, session: {} }, cookies: [] };
     const first = await pc.queueFreshHandoff(fields);

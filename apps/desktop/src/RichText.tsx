@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react';
 import { openAgentBrowser } from './builder';
 import { notifyError } from './Notices';
+import { openInMyChrome } from './personChrome';
 
 // Agents' and the Agency Engineer's text, made easy to follow: numbered steps as a
 // numbered list (also when they're written inline, "1. Do this. 2. Then that."),
@@ -56,12 +57,34 @@ const hostOf = (url: string) => {
 // Once open, it says what's next: closing that tab (or Google's sign-in window) answers
 // the request, and the agent that asked hears (runner/api.ts). Pressed again, it's
 // brought in front again.
+// A request with a page kept for it opens that page in the person's own browser instead
+// (personChrome.ts), where they do it and press Finished; only without one does it go
+// to the agents' browser.
 function BrowserButton({ url, profile, request }: { url: string; profile: number; request?: number }) {
-  const [opened, setOpened] = useState(false);
+  const [opened, setOpened] = useState<'own' | 'agents' | null>(null);
   const google = /^accounts\.(google|youtube)\.com$/.test(hostOf(url));
+  const agents = () => openAgentBrowser(profile, url, request).then(() => setOpened('agents'));
+  const open = () =>
+    (request != null
+      ? openInMyChrome(request).then(
+          () => setOpened('own'),
+          e => (/no longer kept/i.test((e as Error).message) ? agents() : Promise.reject(e)),
+        )
+      : agents()
+    ).catch(notifyError);
   return (
-    <button className="rt-settings" onClick={() => openAgentBrowser(profile, url, request).then(() => setOpened(true), notifyError)}>
-      {opened ? (google ? 'Close the sign-in window when you’re signed in' : 'Close that tab when you’re done') : google ? 'Sign in to Google in the signed-in browser' : `Go to ${hostOf(url)} in the signed-in browser`}
+    <button className="rt-settings" onClick={open}>
+      {opened === 'own'
+        ? 'Do it in your browser, then press Finished'
+        : opened === 'agents'
+          ? google
+            ? 'Close the sign-in window when you’re signed in'
+            : 'Close that tab when you’re done'
+          : google
+            ? 'Sign in to Google in the signed-in browser'
+            : request != null
+              ? `Open ${hostOf(url)} in my browser`
+              : `Go to ${hostOf(url)} in the signed-in browser`}
     </button>
   );
 }

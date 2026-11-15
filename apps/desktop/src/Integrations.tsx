@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ExternalLink, Globe, Plug, Plus } from 'lucide-react';
+import { Check, ExternalLink, Globe, Plug, Plus } from 'lucide-react';
 import { siBrave, siGithub, siGmail, siGoogleanalytics, siGoogledrive, siGooglecalendar, siGooglesearchconsole, siHubspot, siNotion, siPosthog, siSentry, siShopify, siSquare, siStripe, siYoutube, siZoho, type SimpleIcon } from 'simple-icons';
 import { SpinButton } from './ModelConnectors';
 import { SkelRows } from './Skeleton';
@@ -863,8 +863,17 @@ function PersonChromeConnect() {
   const [st, setSt] = useState<Awaited<ReturnType<typeof personChromeStatus>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'chrome' | 'edge' | 'reset' | null>(null);
+  // Connecting finishes in the other browser, so look again every few seconds and
+  // whenever the app comes back to the front.
   useEffect(() => {
-    personChromeStatus().then(setSt, e => setError((e as Error).message));
+    const load = () => personChromeStatus().then(setSt, e => setError((e as Error).message));
+    load();
+    const timer = window.setInterval(load, 3000);
+    window.addEventListener('focus', load);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', load);
+    };
   }, []);
   const run = (which: 'chrome' | 'edge' | 'reset', fn: () => Promise<unknown>) => {
     setBusy(which);
@@ -881,7 +890,19 @@ function PersonChromeConnect() {
       }, e => setError((e as Error).message))
       .finally(() => setBusy(null));
   };
-  const where = st?.browser === 'edge' ? 'Edge' : st?.browser === 'chrome' ? 'Chrome' : '';
+  const on = st?.browsers ?? (st?.browser ? [st.browser] : []);
+  const where = on.map(b => (b === 'edge' ? 'Edge' : 'Chrome')).join(' and ');
+  const button = (b: 'chrome' | 'edge', name: string) => (
+    <SpinButton spinning={busy === b} className={on.includes(b) ? 'sbtn' : 'sbtn primary'} disabled={!st} onClick={() => run(b, () => connectPersonChrome(b))}>
+      {on.includes(b) ? (
+        <>
+          <Check size={14} /> {name} connected
+        </>
+      ) : (
+        `Connect ${name}`
+      )}
+    </SpinButton>
+  );
   return (
     <>
       <p className="slead">
@@ -897,12 +918,8 @@ function PersonChromeConnect() {
             {st && st.pending > 0 ? ` · ${st.pending} page${st.pending === 1 ? '' : 's'} waiting` : ''}
           </span>
           <span className="sint-actions">
-            <SpinButton spinning={busy === 'chrome'} className="sbtn primary" disabled={!st} onClick={() => run('chrome', () => connectPersonChrome('chrome'))}>
-              Connect Chrome
-            </SpinButton>
-            <SpinButton spinning={busy === 'edge'} className="sbtn primary" disabled={!st} onClick={() => run('edge', () => connectPersonChrome('edge'))}>
-              Connect Edge
-            </SpinButton>
+            {button('chrome', 'Chrome')}
+            {button('edge', 'Edge')}
             {st?.connected && (
               <SpinButton spinning={busy === 'reset'} onClick={() => run('reset', resetPersonChrome)}>
                 Reset

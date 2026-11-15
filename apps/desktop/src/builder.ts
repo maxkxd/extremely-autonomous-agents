@@ -288,6 +288,7 @@ export type LiveRequest = {
   waitingOn: { id: string; name: string } | null; // the connection it waits for the person to connect
   joinedTo?: number | null; // the request for the same connection it was folded into (one card per connection)
   captcha?: boolean; // its kept page shows a human check: opened in the person's Chrome (personChrome.ts)
+  kept?: boolean; // an agent kept a page for it: done in the person's own browser, then Finished
 };
 export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
 
@@ -389,7 +390,7 @@ async function onThisComputer<T>(path: string, body?: object): Promise<T> {
   if (!res.ok) throw new Error(data.error ?? 'Something went wrong.');
   return data as T;
 }
-export type PersonChromeStatus = { port: number; connectUrl: string; extensionId: string; pending: number; connected: boolean; browser: 'chrome' | 'edge' | null };
+export type PersonChromeStatus = { port: number; connectUrl: string; extensionId: string; pending: number; connected: boolean; browser: 'chrome' | 'edge' | null; browsers?: ('chrome' | 'edge')[] };
 export const personChromeStatus = () => onThisComputer<PersonChromeStatus>('/api/person-chrome');
 export const openPersonChrome = (id: string) => onThisComputer<{ ok: boolean }>('/api/person-chrome/open', { id });
 export const connectPersonChrome = (browser: 'chrome' | 'edge') => onThisComputer<{ ok: boolean }>('/api/person-chrome/connect', { browser });
@@ -400,6 +401,10 @@ export const copyForChrome = (request: number) => post<{ handoff: ChromeHandoff 
 export const finishForChrome = (id: string, cookies: unknown) => post<{ ok: boolean }>('/api/person-chrome/finish', { id, cookies });
 // This computer's side, for an agency hosted elsewhere.
 export const stageInChrome = (handoff: ChromeHandoff) => onThisComputer<{ ok: boolean }>('/api/person-chrome/app/stage', { handoff });
+// Finished, pressed in the app: this computer's browser sends the page back if it still has it.
+export const finishNow = (request: number) => onThisComputer<{ viaBrowser: boolean }>('/api/person-chrome/app/finish-now', { request });
+// ...and if it didn't, the agency hears it from the app.
+export const finishedElsewhere = (request: number) => post<{ ok: boolean }>('/api/person-chrome/finished-elsewhere', { request });
 export const chromeFinished = () => onThisComputer<{ finished: { id: string; cookies: unknown }[] }>('/api/person-chrome/app/finished');
 export const ackChromeFinished = (id: string) => onThisComputer<{ ok: boolean }>('/api/person-chrome/app/finished/ack', { id });
 
