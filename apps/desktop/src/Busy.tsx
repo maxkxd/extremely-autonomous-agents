@@ -7,7 +7,8 @@ import { LoaderCircle } from 'lucide-react';
 //   - waiting on something else: a small spinner and a muted line ("Checking the key…")
 // One ellipsis, "…", and only for something in progress.
 
-export const Spinner = ({ size = 13 }: { size?: number }) => <LoaderCircle size={size} strokeWidth={2.2} className="spin" aria-hidden />;
+// An even size: an odd one puts the middle of the turn on half a pixel, and the circle wobbles off its axis.
+export const Spinner = ({ size = 14 }: { size?: number }) => <LoaderCircle size={size} strokeWidth={2.2} className="spin" aria-hidden />;
 
 // A button's label while it works. Both texts sit in the same spot, so the
 // button is as wide as the longer one and doesn't jump.
