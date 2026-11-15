@@ -2091,6 +2091,55 @@ let personWindow: PersonWindow | null = null;
 const isGoogleSignIn = (url: string) => /^(accounts\.google\.com|accounts\.youtube\.com)$/.test(siteOfUrl(url));
 export const GOOGLE_SIGN_IN = 'https://accounts.google.com/';
 
+// The browser processes on a profile's folder, by their command line. While any is
+// alive the folder is taken: a browser started on it hands its window to that one and
+// quits at once (on Windows Edge does this even while the old one is shutting down).
+// Read from the system, not from what this app started: a browser it found running
+// after a restart has no process here to wait on.
+export const profileArg = (dir: string) => new RegExp(`--user-data-dir="?${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=["\\s]|$)`, 'i');
+async function profileProcesses(dir: string): Promise<number[]> {
+  const want = profileArg(dir);
+  const out = await new Promise<string>(resolve => {
+    const p =
+      process.platform === 'win32'
+        ? spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" | ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" }`], { windowsHide: true })
+        : spawn('ps', ['-eo', 'pid=,args=']);
+    let text = '';
+    p.stdout?.on('data', d => (text += d));
+    p.on('close', () => resolve(text));
+    p.on('error', e => {
+      console.error('[browser] listing browser processes failed:', e.message);
+      resolve('');
+    });
+  });
+  return out
+    .split(/\r?\n/)
+    .filter(l => want.test(l))
+    .map(l => Number(l.trim().split(/\s+/)[0]))
+    .filter(pid => pid > 0 && pid !== process.pid);
+}
+// Every process on the profile gone, or ended after FREE_DEADLINE_MS.
+const FREE_DEADLINE_MS = 15_000;
+async function profileFree(n: number) {
+  const dir = profileDir(n);
+  const until = Date.now() + FREE_DEADLINE_MS;
+  let left = await profileProcesses(dir);
+  while (left.length && Date.now() < until) {
+    await sleep(500);
+    left = await profileProcesses(dir);
+  }
+  if (!left.length) return;
+  console.error(`[browser] Profile ${n}: ${left.length} browser process(es) still on it ${FREE_DEADLINE_MS / 1000} s after closing; ending them.`);
+  for (const pid of left)
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {}
+  await sleep(1_000);
+}
+// Google's window closed that soon never really opened (it handed off and quit): the
+// request stays open rather than read as "they signed in".
+const GOOGLE_WINDOW_MIN_MS = 8_000;
+
 async function googleSignIn(n: number, url: string, request?: number) {
   if (personWindow) {
     if (personWindow.profile === n) return { ok: true, profile: n, already: true, ...(CLOUD ? { live: `${SCREEN_TAB}${n}` } : {}) };
@@ -2106,6 +2155,8 @@ async function googleSignIn(n: number, url: string, request?: number) {
       await closeShared(n, sh);
     }
     await closing.get(n);
+    // Really gone, every process: closing only asks it to quit.
+    await profileFree(n);
     const dir = profileDir(n);
     await keepSignedIn(dir, false);
     await clearStaleLock(dir);
@@ -2118,15 +2169,22 @@ async function googleSignIn(n: number, url: string, request?: number) {
     const w: PersonWindow = { profile: n, pid: proc.pid, proc, since: Date.now(), url, request };
     personWindow = w;
     proc.once('error', e => console.error(`[browser] Profile ${n}: Google's sign-in window failed to start:`, e.message));
-    proc.once('exit', () => {
-      running.delete(proc);
-      if (personWindow === w) personWindow = null;
-      signingIn.delete(n);
-      console.log(`[browser] Profile ${n}: Google's sign-in window closed; the agents' browser starts again.`);
-      // Back for the agents now, with its kept pages and the new sign-in.
-      void profileBrowser(n).catch(e => console.error(`[browser] Profile ${n}: starting the agents' browser again failed:`, (e as Error).message));
-      if (request != null) personDone(request, 'Closed the Google sign-in window. Check you are signed in to Google now (open the site and sign in with Google - choose the account, nothing to type).');
-    });
+    proc.once('exit', () =>
+      void (async () => {
+        running.delete(proc);
+        // The process started can hand its window to another and quit: the window is
+        // closed once nothing is left on the profile.
+        while ((await profileProcesses(dir)).length) await sleep(2_000);
+        if (personWindow === w) personWindow = null;
+        signingIn.delete(n);
+        const quick = Date.now() - w.since < GOOGLE_WINDOW_MIN_MS;
+        if (quick) console.error(`[browser] Profile ${n}: Google's sign-in window closed within ${GOOGLE_WINDOW_MIN_MS / 1000} s of opening; the request stays open.`);
+        else console.log(`[browser] Profile ${n}: Google's sign-in window closed; the agents' browser starts again.`);
+        // Back for the agents now, with its kept pages and the new sign-in.
+        void profileBrowser(n).catch(e => console.error(`[browser] Profile ${n}: starting the agents' browser again failed:`, (e as Error).message));
+        if (request != null && !quick) personDone(request, 'Closed the Google sign-in window. Check you are signed in to Google now (open the site and sign in with Google - choose the account, nothing to type).');
+      })().catch(e => console.error(`[browser] Profile ${n}: after Google's sign-in window closed:`, (e as Error).message)),
+    );
     console.log(`[browser] Profile ${n}: Google's sign-in open for the person${display ? ` on ${display}` : ''} (pid ${proc.pid ?? 'unknown'}).`);
     return { ok: true, profile: n, already: false, ...(display ? { live: `${SCREEN_TAB}${n}` } : {}) };
   } catch (e) {
