@@ -130,7 +130,10 @@ export function noModelReason(agent: AgentDef, deps: RunDeps): string {
 
 // --- The instructions -----------------------------------------------------------
 
-async function instructions(agent: AgentDef, level: number, notReady: string[], deps: RunDeps): Promise<string> {
+// What a run was told under "Since your last run": handed back if a person stops it part-way.
+type Told = { requests: number[]; tasks: number[] };
+
+async function instructions(agent: AgentDef, level: number, notReady: string[], deps: RunDeps, told?: Told): Promise<string> {
   const now = deps.now();
   const fleet = await fleetOf(agent.id);
   // Everyone the agency works for (agent owners): none has pronouns on file yet.
@@ -157,6 +160,8 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
   );
   exec("UPDATE requests SET delivered_at = ? WHERE agent_id = ? AND status != 'open' AND delivered_at IS NULL", now, agent.id);
   exec("UPDATE tasks SET delivered_at = ? WHERE from_agent = ? AND status = 'done' AND delivered_at IS NULL", now, agent.id);
+  told?.requests.push(...answered.map(r => r.id));
+  told?.tasks.push(...results.map(t => t.id));
   // Told now, so a wake still waiting to tell it has nothing left to say.
   if (results.length) exec("DELETE FROM bookings WHERE agent_id = ? AND trigger = 'task done'", agent.id);
   const news = [
@@ -365,12 +370,13 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   let input = 0;
   let output = 0;
   let cost: number | null = 0;
+  const told: Told = { requests: [], tasks: [] };
   let used: ModelChoice | null = null;
   let summary = '';
   let error: string | undefined;
 
   try {
-    const system = await instructions(agent, level, notReady, deps);
+    const system = await instructions(agent, level, notReady, deps, told);
     let health = getHealth();
     const guard = loopGuard();
     let stuck: string | null = null;
@@ -535,8 +541,21 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
     person,
   );
 
-  // Backoff after failures in a row; a success clears it.
+  // Stopped part-way by a person (the agent, or the whole agency): what this run was
+  // carrying isn't lost. Its message - a rejection, a lost page, a request answered,
+  // a handoff - waits for it to be turned back on, told what it already did; and the
+  // news it was shown counts as not yet told. Scheduled runs simply come round again;
+  // a Run now a person then stopped isn't run again. An agent deleted mid-run isn't
+  // stopped, so nothing is left behind for it.
   const st = stateOf(agent.id, endedAt);
+  if (stopped && st.state === 'stopped') {
+    if (!['scheduled', 'apocalyptic', 'run now'].includes(trigger))
+      exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at, resume_from, person_id) VALUES (?, ?, ?, ?, ?, ?, ?)', agent.id, trigger, task, endedAt, endedAt, id, person);
+    for (const r of told.requests) exec('UPDATE requests SET delivered_at = NULL WHERE id = ?', r);
+    for (const t of told.tasks) exec('UPDATE tasks SET delivered_at = NULL WHERE id = ?', t);
+  }
+
+  // Backoff after failures in a row; a success clears it.
   if (!stopped) {
     const streak = status === 'failed' ? st.fail_streak + 1 : 0;
     exec('UPDATE agent_state SET fail_streak = ?, backoff_until = ?, updated_at = ? WHERE agent_id = ?', streak, streak ? endedAt + backoffMs(streak) : null, endedAt, agent.id);
