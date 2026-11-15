@@ -1555,16 +1555,16 @@ function toolsFor(kind: Session['kind'], prefix: string, actTier: 'T0' | 'T1', w
     {
       id: `${prefix}.type`,
       tier: actTier,
-      description: `Type into a numbered field on the current page in ${where} (replacing what's there); submit presses Enter afterwards.${kind === 'profile' ? ' Never a password: type_password types one from the store.' : ''}`,
+      description: `Type into a numbered field on the current page in ${where} (replacing what's there); submit presses Enter afterwards. It reads the field back, and one that ignores typing (a date or birthdate box, a masked MM/DD/YYYY or phone field) gets it key by key, then set directly. A date: as the page shows it (01/15/1990) or 1990-01-15.${kind === 'profile' ? ' Never a password: type_password types one from the store.' : ''}`,
       schema: obj(withProfile({ ref: { type: 'number' }, text: { type: 'string' }, submit: { type: 'boolean' } }), ['ref', 'text']),
       impl: async (a, ctx) => {
         const s = await open(ctx, a);
-        await s.page.fill(Number(a.ref), String(a.text ?? ''));
+        const typed = await s.page.fill(Number(a.ref), String(a.text ?? ''));
         if (a.submit) await s.page.pressEnter();
         await wait(150);
         await settleAt(s.page, Number(a.ref), a.submit ? 4_000 : 1_500);
         if (backFromClosedWindow(s)) return `That window closed, so you're back on the page that opened it.\n\n${await snapshot(s.page)}`;
-        return snapshot(s.page);
+        return `${typed.ok ? '' : `${didntTake(Number(a.ref), typed.value)}\n\n`}${await snapshot(s.page)}`;
       },
     },
     {
@@ -1692,7 +1692,7 @@ async function chooseFromList(page: Driver, ref: number, option: string): Promis
   let found = await look();
   if (found.ref == null) {
     // A searchable list: what's typed narrows it (and some only show options once you type).
-    await page.fill(ref, want).catch(() => {});
+    await page.fill(ref, want, { retry: false }).catch(() => {});
     await wait(150);
     await settleAt(page, ref, 2_000);
     found = await look();
@@ -1707,6 +1707,12 @@ async function chooseFromList(page: Driver, ref: number, option: string): Promis
   await wait(150);
   await settleAt(page, ref, 1_500);
   return snapshot(page);
+}
+
+// The field still doesn't hold what was typed after every way in (typed, key by key,
+// set directly): said plainly, with what to try next - never a request for a person.
+function didntTake(ref: number, value: string) {
+  return `[${ref}] didn't keep what you typed: it holds ${value ? `"${value.slice(0, 80)}"` : 'nothing'} (typed, typed key by key, and set directly). Look at the field again: a date may want the form it shows (01/15/1990, or 1990-01-15); separate day, month and year boxes each take their own part; a calendar or list that opens on a click wants its day clicked, or signed_in_browser.choose. A field that won't take typing is never a reason to ask a person.`;
 }
 
 // For tests: the page view and its steps, on a page made there.
@@ -1820,10 +1826,11 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
         const row = passwordRow(String(a.password_id ?? ''));
         const s = await session(ctx, 'profile', await knownProfile(a.profile ?? row?.profile));
         await stopIfWindowClosed(s);
-        await s.page.fill(Number(a.ref), await readPassword(String(a.password_id ?? '')));
+        const typed = await s.page.fill(Number(a.ref), await readPassword(String(a.password_id ?? '')));
         if (a.submit) await s.page.pressEnter();
         await wait(a.submit ? 1500 : 200);
-        return snapshot(s.page);
+        // Never what the field holds: that's the password.
+        return `${typed.ok ? '' : `[${a.ref}] didn't keep the password as typed (typed, typed key by key, and set directly). Check it's the password field, not one beside it.\n\n`}${await snapshot(s.page)}`;
       },
     },
     {

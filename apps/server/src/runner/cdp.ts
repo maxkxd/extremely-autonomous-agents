@@ -107,6 +107,101 @@ export const KEYS = {
   Space: { code: 'Space', vk: 32, text: ' ' },
 } as const satisfies Record<string, { code: string; vk: number; text?: string }>;
 export type Key = keyof typeof KEYS;
+
+// A character's key, for typing key by key (a masked field that only listens to keys).
+// Null: no key of its own here, so it goes in as text.
+function keyOf(ch: string): { code: string; vk: number; shift?: boolean } | null {
+  if (/^[0-9]$/.test(ch)) return { code: `Digit${ch}`, vk: ch.charCodeAt(0) };
+  if (/^[a-z]$/.test(ch)) return { code: `Key${ch.toUpperCase()}`, vk: ch.toUpperCase().charCodeAt(0) };
+  if (/^[A-Z]$/.test(ch)) return { code: `Key${ch}`, vk: ch.charCodeAt(0), shift: true };
+  const other: Record<string, { code: string; vk: number; shift?: boolean }> = {
+    ' ': { code: 'Space', vk: 32 }, '/': { code: 'Slash', vk: 191 }, '-': { code: 'Minus', vk: 189 }, '.': { code: 'Period', vk: 190 },
+    ',': { code: 'Comma', vk: 188 }, '@': { code: 'Digit2', vk: 50, shift: true }, '+': { code: 'Equal', vk: 187, shift: true },
+    '(': { code: 'Digit9', vk: 57, shift: true }, ')': { code: 'Digit0', vk: 48, shift: true }, ':': { code: 'Semicolon', vk: 186, shift: true },
+    '_': { code: 'Minus', vk: 189, shift: true },
+  };
+  return other[ch] ?? null;
+}
+
+// The same text, a mask's own separators aside: "01/15/1990" is "01151990", and
+// "(555) 010-1234" is "5550101234".
+export const looseText = (s: string) => s.normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+
+// The browser's own date fields, and what each takes.
+const DATE_FORMS = { date: 'a date, e.g. 1990-01-15 or 01/15/1990', month: 'a month, e.g. 1990-01', 'datetime-local': 'a date and time, e.g. 1990-01-15 09:30', time: 'a time, e.g. 09:30 or 9:30 pm', week: 'a week, e.g. 1990-W03' } as const;
+type DateKind = keyof typeof DATE_FORMS;
+// The order a page's date field shows its parts in (from its language): month-day-year in the US.
+export type DateOrder = 'mdy' | 'dmy' | 'ymd';
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+const fullYear = (y: number) => (y >= 100 ? y : y + (y > (new Date().getFullYear() % 100) ? 1900 : 2000));
+const realDate = (y: number, m: number, d: number) => {
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+};
+
+function dateParts(text: string, order: DateOrder): { y: number; m: number; d: number } | null {
+  const s = text.trim().toLowerCase();
+  let m: RegExpExecArray | null;
+  if ((m = /^(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})/.exec(s))) return { y: +m[1], m: +m[2], d: +m[3] };
+  if ((m = /^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2}|\d{4})\b/.exec(s))) {
+    const a = +m[1], b = +m[2], y = fullYear(+m[3]);
+    if (a > 12) return { y, m: b, d: a };
+    if (b > 12) return { y, m: a, d: b };
+    return order === 'dmy' ? { y, m: b, d: a } : { y, m: a, d: b };
+  }
+  if ((m = /^(\d{8})$/.exec(s))) {
+    const t = m[1];
+    if (order === 'ymd' || +t.slice(0, 4) > 1300) return { y: +t.slice(0, 4), m: +t.slice(4, 6), d: +t.slice(6) };
+    return order === 'dmy' ? { y: +t.slice(4), m: +t.slice(2, 4), d: +t.slice(0, 2) } : { y: +t.slice(4), m: +t.slice(0, 2), d: +t.slice(2, 4) };
+  }
+  // Words: "January 15, 1990", "15 Jan 1990".
+  const month = MONTHS.findIndex(n => new RegExp(`\\b${n}`).test(s));
+  if (month >= 0) {
+    const year = /\b(\d{4})\b/.exec(s);
+    const day = /\b(\d{1,2})(?:st|nd|rd|th)?\b/.exec(s.replace(/\b\d{4}\b/, ''));
+    if (year && day) return { y: +year[1], m: month + 1, d: +day[1] };
+  }
+  return null;
+}
+
+function timePart(text: string): string | null {
+  const m = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap])?\.?m?\.?\s*$/i.exec(text.trim()) ?? /(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(text);
+  if (!m) return null;
+  let h = +m[1];
+  const ap = m[4]?.toLowerCase();
+  if (ap === 'p' && h < 12) h += 12;
+  if (ap === 'a' && h === 12) h = 0;
+  if (h > 23 || +m[2] > 59) return null;
+  return `${pad(h)}:${m[2]}${m[3] ? `:${m[3]}` : ''}`;
+}
+
+// What a browser date field's value is for what the agent typed: "01/15/1990",
+// "15 January 1990" and "1990-01-15" are all 1990-01-15. Null when it isn't one.
+export function dateValue(kind: DateKind, text: string, order: DateOrder = 'mdy'): string | null {
+  const s = text.trim();
+  if (kind === 'time') return timePart(s);
+  if (kind === 'week') {
+    const w = /^(\d{4})-?w(\d{1,2})$/i.exec(s);
+    return w && +w[2] >= 1 && +w[2] <= 53 ? `${w[1]}-W${pad(+w[2])}` : null;
+  }
+  if (kind === 'month') {
+    let m = /^(\d{4})[-/. ](\d{1,2})$/.exec(s);
+    if (m && +m[2] >= 1 && +m[2] <= 12) return `${m[1]}-${pad(+m[2])}`;
+    m = /^(\d{1,2})[-/. ](\d{4})$/.exec(s);
+    if (m && +m[1] >= 1 && +m[1] <= 12) return `${m[2]}-${pad(+m[1])}`;
+    const month = MONTHS.findIndex(n => new RegExp(`\\b${n}`, 'i').test(s));
+    const year = /\b(\d{4})\b/.exec(s);
+    if (month >= 0 && year) return `${year[1]}-${pad(month + 1)}`;
+    const p = dateParts(s, order);
+    return p && realDate(p.y, p.m, p.d) ? `${pad(p.y, 4)}-${pad(p.m)}` : null;
+  }
+  const p = dateParts(s, order);
+  if (!p || !realDate(p.y, p.m, p.d)) return null;
+  const date = `${pad(p.y, 4)}-${pad(p.m)}-${pad(p.d)}`;
+  if (kind === 'date') return date;
+  return `${date}T${timePart(s) ?? '00:00'}`;
+}
 // A numbered control in the page: through the page view's finder (browser.ts), which
 // also finds one the page drew again since it was numbered.
 const EL = (ref: number) => `(window.__eaa ? window.__eaa.find(${Number(ref)}) : document.querySelector('[data-eaa-ref="${Number(ref)}"]'))`;
@@ -544,21 +639,131 @@ export class CdpPage {
     await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }, session);
   }
 
-  // Replaces what's in a field, typed in as a person would (so the page sees input).
-  async fill(ref: number, text: string) {
+  // Replaces what's in a field, typed in as a person would (so the page sees input),
+  // and reads it back. A field that ignores typed-in text gets it another way: a
+  // date field (Pinterest's birthdate, request #378) takes no typing at all, so it's
+  // set in its own yyyy-mm-dd form; a masked field (MM/DD/YYYY, a phone number) that
+  // only listens to keys gets the text key by key; and last, the value is set
+  // directly with the events a page's framework listens for. ok: what's in the field
+  // now is what was asked for (a mask's own slashes and spaces aside).
+  // retry false: typed once and left as the page made it (a searchable list clears
+  // or narrows what's typed, and that's not a failure).
+  async fill(ref: number, text: string, opts: { retry?: boolean } = {}): Promise<{ ok: boolean; value: string }> {
     const f = this.frameOf(ref);
     if (f) await this.offset(f, true);
-    const ok = await this.evaluateFor<boolean>(
+    const field = await this.evaluateFor<{ kind: string; order: DateOrder } | null>(
       ref,
-      `(() => { const e = ${EL(ref)}; if (!e) return false; e.scrollIntoView({ block: 'center', behavior: 'instant' }); e.focus();
-        if (typeof e.select === 'function') e.select();
-        else { const r = document.createRange(); r.selectNodeContents(e); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
-        return true; })()`,
+      `(() => { const e = ${EL(ref)}; if (!e) return null; e.scrollIntoView({ block: 'center', behavior: 'instant' }); e.focus();
+        const kind = e.tagName === 'INPUT' ? (e.type || 'text') : e.tagName === 'TEXTAREA' ? 'textarea' : e.isContentEditable ? 'editable' : e.tagName.toLowerCase();
+        let order = 'mdy';
+        try { order = new Intl.DateTimeFormat(navigator.language).formatToParts(new Date(2000, 10, 22)).filter(p => p.type === 'month' || p.type === 'day' || p.type === 'year').map(p => p.type[0]).join(''); } catch {}
+        return { kind, order: ['mdy', 'dmy', 'ymd'].includes(order) ? order : 'mdy' }; })()`,
     );
-    if (!ok) await this.point(ref); // says it's gone
+    if (!field) {
+      await this.point(ref); // says it's gone
+      throw new Error(gone(ref));
+    }
     const session = f?.session ?? this.session;
+    const read = async () => {
+      await sleep(60); // a framework's redraw after the input event
+      return (await this.evaluateFor<string | null>(ref, `(() => { const e = ${EL(ref)}; if (!e) return null; return 'value' in e && !e.isContentEditable ? String(e.value) : (e.innerText || '').trim(); })()`)) ?? '';
+    };
+
+    if (Object.hasOwn(DATE_FORMS, field.kind)) {
+      const kind = field.kind as DateKind;
+      const want = text.trim() ? dateValue(kind, text, field.order) : '';
+      if (want == null) throw new Error(`[${ref}] is a ${kind} field, and "${text}" doesn't read as one. Give it as ${DATE_FORMS[kind]}.`);
+      await this.setValue(ref, want);
+      let value = await read();
+      if (value !== want && kind === 'date' && want) {
+        await this.typeDateKeys(ref, want, field.order, session);
+        value = await read();
+      }
+      return { ok: value === want, value };
+    }
+
+    const same = (v: string) => v === text || (!!text && looseText(v) === looseText(text));
+    await this.selectAll(ref);
     if (text) await this.cdp.send('Input.insertText', { text }, session);
     else for (const type of ['keyDown', 'keyUp']) await this.cdp.send('Input.dispatchKeyEvent', { type, key: 'Delete', code: 'Delete', windowsVirtualKeyCode: 46 }, session);
+    let value = await read();
+    if (same(value) || opts.retry === false) return { ok: same(value), value };
+    // Key by key, as a keyboard sends it: a mask that builds the value from keydowns.
+    await this.clearByKeys(ref, session, read);
+    if (text) await this.typeKeys(text, session);
+    value = await read();
+    if (same(value)) return { ok: true, value };
+    // Set outright, with the input and change events a framework listens for.
+    await this.setValue(ref, text);
+    value = await read();
+    return { ok: same(value), value };
+  }
+
+  private async selectAll(ref: number) {
+    await this.evaluateFor(
+      ref,
+      `(() => { const e = ${EL(ref)}; if (!e) return; e.focus();
+        if (typeof e.select === 'function') e.select();
+        else { const r = document.createRange(); r.selectNodeContents(e); const s = getSelection(); s.removeAllRanges(); s.addRange(r); } })()`,
+    );
+  }
+
+  // Empties a field with the keyboard: all selected and Backspace, then (a mask that
+  // takes one character per Backspace) from the end, one at a time.
+  private async clearByKeys(ref: number, session: string, read: () => Promise<string>) {
+    await this.selectAll(ref);
+    await this.key('Backspace', session);
+    let left = (await read()).length;
+    if (!left) return;
+    await this.evaluateFor(ref, `(() => { const e = ${EL(ref)}; if (!e) return; e.focus(); try { const n = (e.value || '').length; e.setSelectionRange(n, n); } catch {} })()`);
+    for (let i = 0; i < Math.min(left, 120); i++) await this.key('Backspace', session);
+  }
+
+  private async key(name: Key, session: string) {
+    const k: { code: string; vk: number } = KEYS[name];
+    for (const type of ['rawKeyDown', 'keyUp']) await this.cdp.send('Input.dispatchKeyEvent', { type, key: name, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk }, session);
+  }
+
+  // Each character as its key: keydown (with the character), keyup, a person's pace.
+  private async typeKeys(text: string, session: string) {
+    for (const ch of text) {
+      const k = keyOf(ch);
+      if (!k) {
+        await this.cdp.send('Input.insertText', { text: ch }, session);
+      } else {
+        const base = { key: ch, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk, modifiers: k.shift ? 8 : 0 };
+        await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...base, text: ch, unmodifiedText: k.shift ? ch.toLowerCase() : ch }, session);
+        await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base }, session);
+      }
+      await sleep(12 + Math.random() * 25);
+    }
+  }
+
+  // A date field typed as a person does: its parts in the order it shows them
+  // (01 22 1990 where it reads mm/dd/yyyy), the field moving on by itself.
+  private async typeDateKeys(ref: number, iso: string, order: DateOrder, session: string) {
+    const [y, m, d] = iso.split('-');
+    const parts = { y, m, d };
+    await this.evaluateFor(ref, `(() => { const e = ${EL(ref)}; if (e) { e.blur(); e.focus(); } })()`);
+    for (const p of order) {
+      await this.typeKeys(parts[p as 'y' | 'm' | 'd'], session);
+      await sleep(40);
+    }
+  }
+
+  // The field's value set outright: the browser's own setter (a framework like React
+  // keeps its own copy of the value on the element and ignores a plain assignment),
+  // then the input and change events it listens for.
+  private async setValue(ref: number, value: string) {
+    await this.evaluateFor(
+      ref,
+      `(() => { const e = ${EL(ref)}; if (!e) return; e.focus(); const v = ${JSON.stringify(value)};
+        if (e.isContentEditable && !('value' in e)) { e.textContent = v; }
+        else { const proto = e instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : e instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+          const set = Object.getOwnPropertyDescriptor(proto, 'value').set; set.call(e, v); }
+        e.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: v }));
+        e.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+    );
   }
 
   async pressEnter() {
