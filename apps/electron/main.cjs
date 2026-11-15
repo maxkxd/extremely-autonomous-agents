@@ -5,7 +5,7 @@
 // standby and running agents finish, so no run is cut off. The Microsoft Store
 // package (process.windowsStore) is updated by the Store instead.
 
-const { app, BrowserWindow, Menu, Tray, dialog, powerSaveBlocker, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, nativeImage, powerSaveBlocker, safeStorage, shell } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
@@ -60,6 +60,31 @@ function setKeepAwake(on) {
   }
   applyKeepAwake();
 }
+
+// --- The PATH on a Mac or Linux --------------------------------------------------------------
+// Opened from Finder or a launcher, the app gets a bare PATH (/usr/bin:/bin...), so the
+// agency wouldn't find Claude Code, Homebrew's programs or anything else the person
+// installed. Their login shell's PATH is the one they see in a terminal: use that,
+// plus the usual install folders in case the shell says nothing.
+function fixPath() {
+  if (process.platform === 'win32' || !app.isPackaged) return;
+  const home = app.getPath('home');
+  let fromShell = '';
+  try {
+    const out = require('node:child_process').execFileSync(process.env.SHELL || '/bin/zsh', ['-ilc', 'printf "__PATH__%s__PATH__" "$PATH"'], {
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    fromShell = /__PATH__(.*)__PATH__/s.exec(out)?.[1] ?? '';
+  } catch {
+    // A slow or broken shell profile: the usual folders below still apply.
+  }
+  const usual = [path.join(home, '.local', 'bin'), path.join(home, '.claude', 'local'), path.join(home, '.npm-global', 'bin'), '/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
+  const all = [...fromShell.split(':'), ...(process.env.PATH ?? '').split(':'), ...usual].filter(Boolean);
+  process.env.PATH = [...new Set(all)].join(':');
+}
+fixPath();
 
 let server = null;
 let quitting = false;
@@ -243,10 +268,12 @@ function show() {
 // The Store package can't use the Run key: Windows starts it through the package's
 // startup task (build/appx-extensions.xml), which only the person can turn on, in Settings.
 const startWithWindows = () =>
-  process.windowsStore
+  process.platform === 'linux'
+    ? null // Electron can't set a login item on Linux: the desktop's own startup settings do it.
+    : process.windowsStore
     ? { label: 'Start with Windows…', click: () => void shell.openExternal('ms-settings:startupapps') }
     : {
-        label: 'Start with Windows',
+        label: process.platform === 'darwin' ? 'Open at login' : 'Start with Windows',
         type: 'checkbox',
         checked: app.getLoginItemSettings().openAtLogin,
         click: item => {
@@ -258,7 +285,7 @@ const startWithWindows = () =>
 function trayMenu() {
   return Menu.buildFromTemplate([
     { label: 'Open', click: show },
-    startWithWindows(),
+    ...[startWithWindows()].filter(Boolean),
     {
       label: 'Keep this computer awake while agents work',
       type: 'checkbox',
@@ -274,7 +301,9 @@ function trayMenu() {
 }
 
 function createTray() {
-  tray = new Tray(path.join(__dirname, 'build', 'icon.png'));
+  // The icon is 512 px: a Mac's menu bar and Linux's panels show an image at its own size.
+  const icon = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png'));
+  tray = new Tray(process.platform === 'win32' ? icon : icon.resize({ height: process.platform === 'darwin' ? 18 : 22 }));
   tray.setToolTip('Extremely Autonomous Agents');
   tray.setContextMenu(trayMenu());
   tray.on('click', show);
@@ -357,8 +386,22 @@ function watchForUpdates() {
 
 // --- Start -----------------------------------------------------------------------------------
 
+// A Mac needs its menu bar for the keys everyone uses there (Cmd+C, Cmd+V, Cmd+Q...).
+// Quit there stops the agents, as the tray's does. Elsewhere, no menu.
+function appMenu() {
+  if (process.platform !== 'darwin') return null;
+  return Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { label: 'Quit (stops the agents)', accelerator: 'Cmd+Q', click: () => quit() }],
+    },
+    { role: 'editMenu' },
+    { role: 'windowMenu' },
+  ]);
+}
+
 async function start() {
-  Menu.setApplicationMenu(null);
+  Menu.setApplicationMenu(appMenu());
   const busy = [];
   for (const [name, port] of Object.entries(PORTS)) if (!(await portFree(port))) busy.push(`${port} (${name})`);
   if (busy.length) {
@@ -383,6 +426,8 @@ async function start() {
   watchForUpdates();
 }
 
+// A Mac: clicking the app in the Dock brings the window back.
+app.on('activate', () => show());
 app.on('window-all-closed', () => {
   // The tray keeps it running.
 });

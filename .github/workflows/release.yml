@@ -1,7 +1,8 @@
 name: Release
 
-# Builds the Windows installer and publishes it as a draft GitHub Release, which
-# the app's auto-update reads once it's published - or, with "store", the
+# Builds the Windows installer, the Mac apps (Apple silicon and Intel, signed and
+# notarized) and the Linux AppImage and .deb, and publishes them as one draft
+# GitHub Release, which the app's auto-update reads once it's published - or, with "store", the
 # Microsoft Store package, kept as this run's artifact to upload to Partner
 # Center by hand (docs/packaging.md).
 #
@@ -106,3 +107,95 @@ jobs:
           name: store-package-${{ inputs.version }}
           path: apps/electron/dist/*.appx
           if-no-files-found: error
+
+  # Linux: an AppImage (the format electron-updater updates) and a .deb, added to
+  # the same draft release. Linux needs no code signing. Staged here, on Linux: the
+  # server's dependencies are the platform's own. After Windows, so every job adds
+  # to the one draft rather than each making its own.
+  linux:
+    needs: windows
+    if: inputs.target == 'installer'
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Set the version
+        working-directory: apps/electron
+        run: npm version ${{ inputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Stage the agency and the app
+        working-directory: apps/electron
+        env:
+          VITE_EAA_BACKEND_URL: ${{ vars.EAA_BACKEND_URL }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+          EAA_GOOGLE_CLIENT_ID: ${{ vars.EAA_GOOGLE_CLIENT_ID }}
+          EAA_GOOGLE_CLIENT_SECRET: ${{ secrets.EAA_GOOGLE_CLIENT_SECRET }}
+        run: node scripts/stage.cjs
+
+      - name: Install the packager
+        working-directory: apps/electron
+        run: npm ci --no-audit --no-fund
+
+      - name: Build, publish to the draft release
+        working-directory: apps/electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux --publish always
+
+  # Mac: Apple silicon and Intel apps from one job, so the updater gets a single
+  # latest-mac.yml listing both. The server's native parts differ by processor, so
+  # Intel's are staged beside them (EAA_EXTRA_ARCHS). Signed with the Developer ID
+  # certificate (MAC_CSC_LINK, a base64 .p12) and notarized with the App Store
+  # Connect API key (APPLE_API_KEY, the .p8's text) - both only in `release`.
+  mac:
+    needs: windows
+    if: inputs.target == 'installer'
+    runs-on: macos-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Set the version
+        working-directory: apps/electron
+        run: npm version ${{ inputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Stage the agency and the app (Apple silicon and Intel)
+        working-directory: apps/electron
+        env:
+          VITE_EAA_BACKEND_URL: ${{ vars.EAA_BACKEND_URL }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+          EAA_GOOGLE_CLIENT_ID: ${{ vars.EAA_GOOGLE_CLIENT_ID }}
+          EAA_GOOGLE_CLIENT_SECRET: ${{ secrets.EAA_GOOGLE_CLIENT_SECRET }}
+          EAA_EXTRA_ARCHS: x64
+        run: node scripts/stage.cjs
+
+      - name: Install the packager
+        working-directory: apps/electron
+        run: npm ci --no-audit --no-fund
+
+      - name: Build, sign, notarize, publish to the draft release
+        working-directory: apps/electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_TEXT: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$CSC_LINK" ] || [ -z "$APPLE_API_KEY_TEXT" ]; then
+            echo "::error::Set MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD and APPLE_API_KEY(_ID, _ISSUER) in the release environment: an unsigned Mac app won't open."
+            exit 1
+          fi
+          # electron-builder wants the notarization key as a file.
+          export APPLE_API_KEY="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8"
+          printf '%s' "$APPLE_API_KEY_TEXT" > "$APPLE_API_KEY"
+          npx electron-builder --mac --publish always

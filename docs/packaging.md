@@ -1,7 +1,7 @@
 # Packaging: the downloadable app
 
-Windows and Mac, both at launch (owner, 2026-11-13; replaces "Windows first"
-from 2026-10-30). The app is Electron (`apps/electron`) around the same agency that
+Windows, Mac and Linux, all at launch (owner, 2026-11-13; replaces "Windows
+first" from 2026-10-30). The app is Electron (`apps/electron`) around the same agency that
 runs in development.
 
 ## What the app is
@@ -125,10 +125,27 @@ people get no "unknown publisher" warning.
 
 ## Open
 
-- **Signing**: Azure Artifact Signing is set up (certificate profile
-  `eaa-public`, signed as WORLD ASSET REGISTER PTY LTD); it signs once the
-  `AZURE_*` secrets are in the `release` environment. Apple Developer applied for.
-- **Size**: about 130 MB, nearly all Electron.
+- **Signing**: Windows is signed with Azure Artifact Signing (certificate
+  profile `eaa-public`, WORLD ASSET REGISTER PTY LTD). The Mac apps are signed
+  with the Developer ID certificate (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`) and
+  notarized with the App Store Connect API key (`APPLE_API_KEY`,
+  `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`), all in the `release` environment.
+  Linux needs none.
+- **Size**: about 90 MB of the download is Electron (Chromium). Left out to
+  keep the rest small (2026-11-16): Chromium's translations except English
+  (`electronLanguages`), its WebGPU shader compiler on Windows
+  (`after-pack.cjs`), and the server dependencies' type declarations,
+  TypeScript sources, source maps and docs (`stage.cjs`). Much smaller than
+  that means a shell on the system's own web view instead of Electron.
+- **Mac**: one job builds Apple silicon and Intel (`dmg` to install, `zip` for
+  the updater) and one `latest-mac.yml`. The server's native parts differ by
+  processor: `EAA_EXTRA_ARCHS=x64` stages Intel's as
+  `build/stage/node_modules-x64`, and `after-pack.cjs` uses them for the Intel
+  app. Hardened runtime with `build/entitlements.mac.plist` (JIT, unsigned
+  memory and other libraries, for the agency on Electron's Node).
+- **Linux**: AppImage (updates itself) and `.deb`, x64.
 - The installer's name has no version in it (`Extremely-Autonomous-Agents-Setup.exe`), so
   `https://github.com/maxkxd/extremely-autonomous-agents/releases/latest/download/Extremely-Autonomous-Agents-Setup.exe`
-  always gets the newest - that's the website's Download link.
+  always gets the newest - that's the website's Download link. The same goes
+  for `Extremely-Autonomous-Agents-arm64.dmg`, `Extremely-Autonomous-Agents-x64.dmg`,
+  `Extremely-Autonomous-Agents.AppImage` and `Extremely-Autonomous-Agents.deb`.
