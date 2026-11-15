@@ -421,8 +421,11 @@ export const runnerRoutes: Record<string, Route> = {
     // A human check on the page kept for it: the app opens those in the person's Chrome.
     const captcha = new Set<number>();
     const kept = new Set<number>();
+    // Any open request with a page still kept for it - not only one at the person's
+    // stage: a question on the card and the Agency Engineer's answer move it to
+    // waiting_you, and the Finished button went with it while the page waited.
     for (const r of rows) {
-      if (r.status !== 'open' || r.stage !== 'person' || !hasKeptPage(r.id)) continue;
+      if (r.status !== 'open' || !hasKeptPage(r.id)) continue;
       kept.add(r.id);
       if (await keptCaptcha(r.id)) captcha.add(r.id);
     }
