@@ -9,18 +9,24 @@
 // copy there and what was finished back (server: runner/person-chrome.ts, app routes).
 
 import { currentOrg, reachedHere } from './account';
-import { ackChromeFinished, chromeFinished, copyForChrome, finishForChrome, finishNow, finishedElsewhere, openPersonChrome, stageInChrome } from './builder';
+import { ackChromeFinished, chromeFinished, copyForChrome, finishForChrome, finishNow, finishedElsewhere, showKeptHere, stageInChrome } from './builder';
 
 const agencyHere = () => {
   const org = currentOrg();
   return !org || reachedHere(org);
 };
 
-// "Open in my Chrome": the kept page for this request, in the person's browser.
+// "Open in my browser": the kept page for this request. On the computer that runs the
+// agency it's right here, in the agents' browser: that window comes to the front, on
+// the page as the agent left it. Hosted elsewhere, a copy opens in the person's own
+// Chrome or Edge (the extension).
 export async function openInMyChrome(request: number) {
+  if (agencyHere()) {
+    await showKeptHere(request);
+    return;
+  }
   const { handoff } = await copyForChrome(request);
-  if (agencyHere()) await openPersonChrome(handoff.id);
-  else await stageInChrome(handoff);
+  await stageInChrome(handoff);
 }
 
 // What the person's browser finished, sent on to an agency hosted elsewhere. Asked of

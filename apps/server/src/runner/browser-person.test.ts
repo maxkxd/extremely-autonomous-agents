@@ -26,3 +26,8 @@ test("A kept page goes once its request is closed some other way", async () => {
   // #176 was settled by the Engineer: its page isn't waiting on anyone. A click's page (no request) is the sweep's.
   assert.deepEqual(keptForClosed(waits, r => open.has(r)), ['b']);
 });
+
+test("Open in my browser on the agency's own computer: a request with no kept page says so, so the button can say it's gone", async () => {
+  const { showKeptPage } = await import('./browser.js');
+  assert.equal(await showKeptPage(424242), false);
+});

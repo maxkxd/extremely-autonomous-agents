@@ -24,7 +24,7 @@ import { answerRemoteMcp, isRemoteMcpUrl, remoteMcpUrl, takeRemoteMcp } from './
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals, recentlyWithdrawn, runApprovedNow, scheduledApprovals } from './approvals.js';
-import { copyKeptForChrome, finishKeptByRequest, hasKeptPage, keptCaptcha, listProfiles, onPersonDone, openProfileWindow, profileStatus, releaseKeptFor, takeKeptPage } from './browser.js';
+import { copyKeptForChrome, finishKeptByRequest, hasKeptPage, keptCaptcha, listProfiles, onPersonDone, openProfileWindow, profileStatus, releaseKeptFor, showKeptPage, takeKeptPage } from './browser.js';
 import { finishFromApp, openPersonChromeConnect, openPersonChromePage, personChromeStatus, resetPersonChromeToken } from './person-chrome.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
 import { deletePassword, listPasswords, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
@@ -701,6 +701,15 @@ export const runnerRoutes: Record<string, Route> = {
     const kept = b.url ? await takeKeptPage(b.profile ?? 1, b.url, request) : null;
     if (kept) return { ok: true, profile: b.profile ?? 1, already: true, ...kept };
     return openProfileWindow(b.profile ?? 1, b.url || undefined, request);
+  },
+  // A request's kept page, brought up in the agents' browser on this computer.
+  'POST /api/browser/kept/show': async (_req, _q, body) => {
+    const { request } = await body<{ request?: number }>();
+    if (typeof request !== 'number') throw new Error('Which request?');
+    const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', request);
+    if (r) await requireMakerOrAdmin(r.agent_id);
+    if (!(await showKeptPage(request))) throw new Error("That page is no longer kept. Its agent will fill it in again.");
+    return { ok: true };
   },
   // The person's own Chrome (person-chrome.ts): whether it's connected, and a new pairing.
   'GET /api/person-chrome': async () => personChromeStatus(),
