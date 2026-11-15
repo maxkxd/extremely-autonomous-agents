@@ -160,7 +160,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
   // Told now, so a wake still waiting to tell it has nothing left to say.
   if (results.length) exec("DELETE FROM bookings WHERE agent_id = ? AND trigger = 'task done'", agent.id);
   const news = [
-    ...answered.map(r => `- Your request #${r.id} ("${r.what}") was ${r.status === 'done' ? 'answered' : 'turned down'}: ${r.answer ?? '(no note)'}`),
+    ...answered.map(r => `- Your request #${r.id} ("${r.what}") was ${r.status === 'done' ? 'answered' : r.status === 'withdrawn' ? 'closed by the agency (not by a person - not a no)' : 'turned down'}: ${r.answer ?? '(no note)'}`),
     ...results.map(t => `- Task #${t.id} you handed to ${t.agent_id} is done: ${t.result ?? '(no result given)'}`),
   ];
   const openTasks = one<{ n: number }>("SELECT COUNT(*) AS n FROM tasks WHERE agent_id = ? AND status = 'open'", agent.id)?.n ?? 0;

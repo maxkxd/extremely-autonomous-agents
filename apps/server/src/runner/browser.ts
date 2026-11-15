@@ -1004,15 +1004,33 @@ export async function releaseKeptFor(request: number) {
 }
 
 // A kept page gone before the person got to it (the browser closed, it waited too
-// long): the request says so, and the agent hears, to fill it in and keep it again.
-async function keptPageLost(p: KeptFor, why: string) {
+// long). Everything filled in on it is gone, so the request is closed - a request
+// left open would say "everything is filled in" with nothing behind it, and its
+// button would open an empty form. The agent is woken and told plainly that nobody
+// turned it down: if it still needs it, it fills the page in again and files anew.
+export async function keptPageLost(p: Pick<KeptFor, 'request' | 'site' | 'url'>, why: string) {
   if (p.request == null) return;
-  const open = one<{ agent_id: string }>("SELECT agent_id FROM requests WHERE id = ? AND status = 'open'", p.request);
+  const open = one<{ agent_id: string; what: string }>("SELECT agent_id, what FROM requests WHERE id = ? AND status = 'open'", p.request);
   if (!open) return;
+  const now = Date.now();
+  const note = `Closed by the agency, not by a person: the page kept for this on ${p.site} closed before anyone got to it (${why}), and what was filled in on it went with it.`;
+  // Told in the wake below, so its next run's news doesn't tell it again.
+  const closed = exec(
+    "UPDATE requests SET status = 'withdrawn', answer = ?, answered_at = ?, delivered_at = ?, stage = NULL WHERE id = ? AND status = 'open'",
+    note,
+    now,
+    now,
+    p.request,
+  ).changes;
+  if (!closed) return;
   const { postToRequest } = await import('./engineer.js');
   const { book } = await import('./scheduler.js');
-  postToRequest(p.request, 'engineer', `The page kept for this on ${p.site} closed before it was done (${why}). The agent will fill it in again; the button opens ${p.site} meanwhile.`);
-  book(open.agent_id, 'request reply', `The page you kept for the person for request #${p.request} on ${p.site} closed before they got to it (${why}). Open ${p.url} again, fill it in, and call signed_in_browser.show_person: the same request points to the new page.`);
+  postToRequest(p.request, 'engineer', `${note} ${open.agent_id} has been told, and will do it again if it still needs it.`);
+  book(
+    open.agent_id,
+    'request done',
+    `Your request #${p.request} ("${open.what.slice(0, 200)}") was closed by the agency - NOT turned down by a person. The page you kept for them on ${p.site} closed before they got to it (${why}), so everything you filled in on it is gone. If you still need it: open ${p.url} again, fill it all in again, and call signed_in_browser.show_person, which files a new request. If you no longer need it, do nothing.`,
+  );
 }
 
 // --- Kept across restarts --------------------------------------------------------------
