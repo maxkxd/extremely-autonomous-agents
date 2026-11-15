@@ -7,6 +7,7 @@ import { pickModel, recordFailure, recordSuccess, choiceKey, type Health } from 
 import { FLEET_ENGINEER, type AgentDef } from './agent.js';
 import { ALLOWANCE_WHAT, BUILT_IN_IDS } from './helpers.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
+import { queueForPrompt } from './action-queue.js';
 import { backoffMs, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
 import { costOf, isFree, spentThisMonth } from './pricing.js';
@@ -173,6 +174,9 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
     return `${q.id} ${q.tool}${label ? ` (${String(label).slice(0, 80)})` : ''}`;
   });
 
+  // Approved and not run yet, paused, or failing (action-queue.ts): one line, when there's any.
+  const approvedQueue = queueForPrompt(agent.id, now);
+
   const org = agent.org ? await loadProfile(agent.org) : null;
   const person = agent.owner ? await loadPerson(agent.owner) : null;
   const who = [
@@ -207,6 +211,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - A limit your instructions set (a cap of 4 drafts a week, 15 leads a day) is the end of that work for now: say so in your summary and stop (a person asked you for more? tell them the limit stopped it, and that the Agency Engineer can lift it if they ask) - never produce work of another kind (briefs, notes, extra files) to reach a target. Reaching your limit is a complete run.
 - A missing tool blocks only the part of your job that needs it: do everything else you can with what you have (research, drafts, analysis - the tools you hold and your workspace). Never record that you're blocked: no email, document or file just to say so - your open requests already show the person what's waiting. Email when there's something new - work done, a finding, a change.
 - Who approves your queued actions is the app's job (the Approvals page): never ask who approves - queue it.
+- An approved action runs as soon as it's approved, unless you decide otherwise: for a batch from one account that a provider may block as a burst (cold email from one mailbox), set approvals.pace_mine when you queue it; one that fails pauses the rest on its account until you reschedule them (approvals.schedule_mine). Different accounts, a handful of actions or anything a person is waiting on: leave them to run now.
 - A tool you hold that isn't connected yet is already being asked for: don't file a request for it.
 - When a person must review or confirm something you wrote, put the content itself in the request (evidence) - they can't open your workspace files, and neither can the Agency Engineer.
 - To people, name tools by what they do ("Web search"), not their ids (web.web_search), and their levels as silent, logged or approval, not T0, T1 or T2.
@@ -220,7 +225,7 @@ ${working.join('\n')}${notReady.length ? `\n\nIn your toolkit but not connected 
 Agents you can hand work to: ${fleet.length ? fleet.map(f => `${f.id} (${f.name})`).join(', ') : 'none yet'}.
 Tasks you owe right now: ${openTasks}${openTasks ? ' (tasks.list_my_tasks)' : ''}.
 Your open requests (already asked - don't ask again): ${myOpen.length ? myOpen.map(r => `#${r.id} ${r.what.slice(0, 120)}`).join('; ') : 'none'}.
-Your actions waiting for a person's approval (already queued - don't queue them again): ${myQueued.length ? myQueued.join('; ') : 'none'}.`,
+Your actions waiting for a person's approval (already queued - don't queue them again): ${myQueued.length ? myQueued.join('; ') : 'none'}.${approvedQueue ? `\n${approvedQueue}` : ''}`,
     `## Your memory (newest first)\n${memoryForPrompt(agent.id, now)}`,
     news.length ? `## Since your last run\n${news.join('\n')}` : '',
     who.length ? `## Who you work for\n${who.join('\n\n')}` : '',
