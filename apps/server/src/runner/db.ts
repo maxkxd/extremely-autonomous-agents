@@ -55,6 +55,11 @@ export function openDb(path = FILE): DatabaseSync {
     // answering it, belong to (null: the Engineer's own work, everyone's).
     'ALTER TABLE dm ADD COLUMN person_id TEXT',
     'ALTER TABLE bookings ADD COLUMN person_id TEXT',
+    // When a password-store account was seen to work (passwords.ts); NULL: not yet - the
+    // sign-up may never have finished.
+    'ALTER TABLE passwords ADD COLUMN confirmed_at INTEGER',
+    // A person added those themselves: they work.
+    'UPDATE passwords SET confirmed_at = created_at WHERE agent_id IS NULL AND confirmed_at IS NULL',
     // Messages to the Engineer from before: whoever wrote them.
     "UPDATE dm SET person_id = json_extract(body, '$.byId') WHERE agent_id = 'fleet' AND kind = 'you' AND person_id IS NULL",
   ])

@@ -2,7 +2,7 @@ import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openDb, run as exec } from './db.js';
-import { ACCOUNTS_PER_SITE, deletePassword, listPasswords, makePassword, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
+import { ACCOUNTS_PER_SITE, confirmPassword, deletePassword, listPasswords, makePassword, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { onScreen, SIGNED_IN_TOOLS } from './browser.js';
 import { BASELINE, BROWSER_KIT } from '../catalog.js';
 
@@ -74,4 +74,18 @@ test("a browser window saved off its screen isn't opened there again", () => {
   assert.equal(onScreen({ ...screen, left: 120, top: 80, right: 1400, bottom: 980 }), true);
   assert.equal(onScreen({ ...screen, left: 1500, top: 80, right: 2780, bottom: 980 }), false); // a second screen since unplugged
   assert.equal(onScreen({ ...screen, left: 200, top: -400, right: 1480, bottom: 500 }), false); // title bar above the screen
+});
+
+test("an agent's new account is not confirmed until it's seen to work; a person's is", async () => {
+  exec('DELETE FROM passwords');
+  const mine = await savePassword({ site: 'proton.me', username: 'desk@proton.me', password: 'p', profile: 1, agentId: 'zz-a' });
+  const theirs = await savePassword({ site: 'proton.me', username: 'me@proton.me', password: 'p', profile: 1, agentId: null, confirmed: true });
+  const byId = () => new Map(listPasswords('proton.me').map(r => [r.id, r.confirmed_at]));
+  assert.equal(byId().get(mine), null, 'the sign-up may never finish');
+  assert.ok(byId().get(theirs));
+  const list = SIGNED_IN_TOOLS.find(t => t.id === 'signed_in_browser.passwords')!;
+  assert.match(String(await list.impl({ site: 'proton.me' }, {} as never)), /desk@proton\.me \(profile 1\) - NOT CONFIRMED[\s\S]*Sign in with it yourself/);
+  confirmPassword(mine);
+  assert.ok(byId().get(mine));
+  assert.doesNotMatch(String(await list.impl({ site: 'proton.me' }, {} as never)), /NOT CONFIRMED/);
 });

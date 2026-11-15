@@ -12,7 +12,11 @@ import { all, one, run as exec } from './db.js';
 
 export const ACCOUNTS_PER_SITE = 10;
 
-export type PasswordRow = { id: string; site: string; username: string; profile: number; agent_id: string | null; note: string | null; created_at: number };
+// confirmed_at: when the account was seen to work (an agent finished the sign-up or
+// signed in with it, or a person added it). Until then it may not exist at all: an
+// agent saves the password before the sign-up, and a site can refuse the sign-up
+// after (Proton blocked one from the cloud's network and the inbox was never made).
+export type PasswordRow = { id: string; site: string; username: string; profile: number; agent_id: string | null; note: string | null; created_at: number; confirmed_at: number | null };
 
 // "https://www.LinkedIn.com/login" -> "linkedin.com"; "YouTube" -> "youtube.com" is
 // left to the agent: a bare word stays a word.
@@ -50,11 +54,11 @@ export function profileFor(site: string, profiles: number[]): { profile: number;
   return { profile: Math.max(0, ...profiles) + 1, isNew: true };
 }
 
-export async function savePassword(p: { site: string; username: string; password: string; profile: number; agentId: string | null; note?: string | null }) {
+export async function savePassword(p: { site: string; username: string; password: string; profile: number; agentId: string | null; note?: string | null; confirmed?: boolean }) {
   const id = randomBytes(6).toString('hex');
   await setSecret(`pw:${id}`, p.password);
   exec(
-    'INSERT INTO passwords (id, site, username, profile, agent_id, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO passwords (id, site, username, profile, agent_id, note, created_at, confirmed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     id,
     siteOf(p.site),
     p.username.trim(),
@@ -62,8 +66,17 @@ export async function savePassword(p: { site: string; username: string; password
     p.agentId,
     p.note?.trim() || null,
     Date.now(),
+    p.confirmed ? Date.now() : null,
   );
   return id;
+}
+
+// The account was seen to work: the sign-up finished, or it signed in.
+export function confirmPassword(id: string) {
+  const row = passwordRow(id);
+  if (!row) throw new Error(`No password #${id}. signed_in_browser.passwords lists them.`);
+  exec('UPDATE passwords SET confirmed_at = ? WHERE id = ?', Date.now(), row.id);
+  return row;
 }
 
 export const listPasswords = (site?: string | null) =>

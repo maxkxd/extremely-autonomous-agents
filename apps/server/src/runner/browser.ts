@@ -10,7 +10,7 @@ import { checkUrl, isPrivateIp } from './net.js';
 import { fileRequest, inWorkspace, onApprovalSettled, onRunEnd, registerTools, tooManyWaiting, type RunCtx, type ToolDef } from './tools.js';
 import { all, one, run as exec } from './db.js';
 import { setKeptPageCheck } from './kept-pages.js';
-import { ACCOUNTS_PER_SITE, listPasswords, makePassword, passwordRow, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
+import { ACCOUNTS_PER_SITE, confirmPassword, listPasswords, makePassword, passwordRow, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { DATA_DIR } from '../paths.js';
 import { deleteSecret, getSecret, setSecret } from '../vault.js';
 
@@ -831,7 +831,7 @@ async function keepForPerson(ctx: RunCtx, profile: number, what: string, why: st
   if (handoffId) exec('UPDATE requests SET evidence = ? WHERE id = ?', personChromeEvidence(handoffId, BROWSER_LINE(url, profile)).slice(0, 4000), r.id);
   const fileNote = files.length ? ` A file was attached (${files.join(', ')}). They have to choose it again in Chrome; a file can't be copied across.` : '';
   const chromeNote = CLOUD
-    ? `It opens in their own Chrome or Edge with the form filled in; they do what's needed there and press Finished.`
+    ? `They open it in their own Chrome or Edge with the form filled in, do what's needed there and press Finished.`
     : handoffId
       ? `Request #${r.id} opens it in their own Chrome or Edge with the form filled in (${fields} fields), so they only pass the check and press Submit.${fileNote}`
       : `Their Chrome didn't get a copy (it's in the log). The button opens this tab instead.`;
@@ -965,8 +965,10 @@ export async function copyKeptForChrome(request: number): Promise<PersonHandoff>
   });
 }
 
-// Whether a request has a page kept for it: the app opens those in the person's own
-// browser by itself, every one, and shows Finished on the request.
+const UNCONFIRMED = "Not confirmed: the sign-up may never have finished, so the account may not exist. Sign in with it yourself before you use it or ask a person to sign in with it; if the site says there's no such account, it was never made - sign up again, or if the site blocks sign-ups from your network, ask the person to create it in their own browser (show_person on the filled-in sign-up page). Once it works, confirm_password.";
+
+// Whether a request has a page kept for it: the app offers to open it in the person's
+// own browser, and shows Finished on the request.
 export const hasKeptPage = (request: number) => keptFor(request) != null;
 
 // Whether a kept page shows a human check (Cloudflare's Turnstile, reCAPTCHA,
@@ -1806,7 +1808,7 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
         const { profile, isNew } = profileFor(site, await listProfiles());
         if (isNew) await mkdir(profileDir(profile), { recursive: true });
         const id = await savePassword({ site, username, password: makePassword(), profile, agentId: ctx.agent.id, note: a.note ? String(a.note) : null });
-        return `Password #${id} made for ${username} at ${site} and kept in the store. Sign up in browser profile ${profile}${isNew ? ` (new: profile ${profile - 1} already has ${ACCOUNTS_PER_SITE} ${site} accounts)` : ''}: pass profile ${profile} to the signed_in_browser tools, and type the password with signed_in_browser.type_password, password_id "${id}".`;
+        return `Password #${id} made for ${username} at ${site} and kept in the store, marked not confirmed. Sign up in browser profile ${profile}${isNew ? ` (new: profile ${profile - 1} already has ${ACCOUNTS_PER_SITE} ${site} accounts)` : ''}: pass profile ${profile} to the signed_in_browser tools, and type the password with signed_in_browser.type_password, password_id "${id}". Once the sign-up has really finished (you're in the account, or its confirmation is done), call signed_in_browser.confirm_password with "${id}". If the site refuses the sign-up, say so in your notes and memory: the account doesn't exist.`;
       },
     },
     {
@@ -1831,7 +1833,19 @@ function profileOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       schema: obj({ site: { type: 'string', description: 'Only this site (optional)' } }, []),
       impl: async a => {
         const rows = listPasswords(a.site ? String(a.site) : null);
-        return rows.length ? rows.map(r => `#${r.id} ${r.site} - ${r.username} (profile ${r.profile})${r.note ? ` - ${r.note}` : ''}`).join('\n') : 'No accounts in the store yet.';
+        if (!rows.length) return 'No accounts in the store yet.';
+        const list = rows.map(r => `#${r.id} ${r.site} - ${r.username} (profile ${r.profile})${r.confirmed_at ? '' : ' - NOT CONFIRMED'}${r.note ? ` - ${r.note}` : ''}`).join('\n');
+        return rows.some(r => !r.confirmed_at) ? `${list}\n\n${UNCONFIRMED}` : list;
+      },
+    },
+    {
+      id: 'signed_in_browser.confirm_password',
+      tier: 'T0',
+      description: "Mark a store account as working: call once you've seen it work - the sign-up finished (you're in the account, its email or code confirmation is done) or you signed in with it. Until then it's NOT CONFIRMED and may not exist.",
+      schema: obj({ password_id: { type: 'string', description: 'The password number from make_password or passwords' } }, ['password_id']),
+      impl: async a => {
+        const row = confirmPassword(String(a.password_id ?? ''));
+        return `#${row.id} (${row.username} at ${row.site}) is confirmed.`;
       },
     },
     {

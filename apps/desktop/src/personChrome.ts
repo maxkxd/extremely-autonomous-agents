@@ -9,7 +9,7 @@
 // copy there and what was finished back (server: runner/person-chrome.ts, app routes).
 
 import { currentOrg, reachedHere } from './account';
-import { ackChromeFinished, chromeFinished, copyForChrome, finishForChrome, finishNow, finishedElsewhere, openPersonChrome, personChromeStatus, stageInChrome } from './builder';
+import { ackChromeFinished, chromeFinished, copyForChrome, finishForChrome, finishNow, finishedElsewhere, openPersonChrome, stageInChrome } from './builder';
 
 const agencyHere = () => {
   const org = currentOrg();
@@ -69,42 +69,4 @@ export async function finishedInMyBrowser(request: number) {
     return;
   }
   await finishedElsewhere(request);
-}
-
-// A request with a page kept for it (a human check or anything else a person has to
-// do) opens in the person's own browser by itself, once, if that browser is connected (an unconnected one would only get the
-// install page each time). Remembered per agency, so a restart doesn't open it again.
-const openedKey = () => `eaa.chromeOpened.${currentOrg()?.id ?? 'here'}`;
-const readOpened = (): number[] => {
-  try {
-    const v = JSON.parse(localStorage.getItem(openedKey()) ?? '[]') as unknown;
-    return Array.isArray(v) ? v.filter((n): n is number => typeof n === 'number') : [];
-  } catch {
-    return [];
-  }
-};
-const saveOpened = (ids: number[]) => {
-  try {
-    localStorage.setItem(openedKey(), JSON.stringify(ids.slice(-200)));
-  } catch {
-    // Storage unavailable: it may open again after a restart.
-  }
-};
-let opening = false;
-export async function openChecksInChrome(requests: { id: number; status: string; captcha?: boolean; kept?: boolean }[]) {
-  if (opening) return;
-  const opened = readOpened();
-  const due = requests.filter(r => r.status === 'open' && (r.kept || r.captcha) && !opened.includes(r.id));
-  if (!due.length) return;
-  opening = true;
-  try {
-    const st = await personChromeStatus().catch(() => null);
-    if (!st?.connected) return;
-    for (const r of due) {
-      saveOpened([...readOpened(), r.id]);
-      await openInMyChrome(r.id).catch(e => console.error(`[person-chrome] request #${r.id} did not open in Chrome:`, (e as Error).message));
-    }
-  } finally {
-    opening = false;
-  }
 }

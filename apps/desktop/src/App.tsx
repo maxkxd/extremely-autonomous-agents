@@ -47,7 +47,7 @@ import {
 import { Notices, notifyError } from './Notices';
 import { useGrow } from './grow';
 import { every, same } from './poll';
-import { openChecksInChrome, relayChromeFinished } from './personChrome';
+import { relayChromeFinished } from './personChrome';
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 480;
@@ -311,8 +311,6 @@ function Agency() {
       getLiveRequests().then(
         list => {
           setRequestsReady(true);
-          // Anything a person has to do on a kept page opens in their own browser by itself.
-          void openChecksInChrome(list);
           const shown = list.filter(r => r.status === 'open' && r.needsYou);
           const closing = list.filter(r => r.status !== 'open' && shownRequests.current.has(r.id));
           shownRequests.current = new Set(shown.map(r => r.id));

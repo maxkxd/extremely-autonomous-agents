@@ -758,7 +758,7 @@ export const runnerRoutes: Record<string, Route> = {
     if (!b.username?.trim() || !b.password) throw new Error('A username and a password, please.');
     const site = siteOf(b.site);
     const { profile } = profileFor(site, await listProfiles());
-    return { id: await savePassword({ site, username: b.username, password: b.password, profile, agentId: null, note: b.note ?? null }), profile };
+    return { id: await savePassword({ site, username: b.username, password: b.password, profile, agentId: null, note: b.note ?? null, confirmed: true }), profile };
   },
   'POST /api/passwords/delete': async (_req, _q, body) => {
     const { id } = await body<{ id: string }>();

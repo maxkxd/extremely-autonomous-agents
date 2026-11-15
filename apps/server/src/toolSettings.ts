@@ -56,6 +56,7 @@ const NAMES: Record<string, string> = {
   'signed_in_browser.make_password': 'Make a password for a new account',
   'signed_in_browser.type_password': 'Type a saved password',
   'signed_in_browser.passwords': 'List saved accounts',
+  'signed_in_browser.confirm_password': 'Mark a saved account as working',
   'signed_in_browser.show_person': 'Keep a page for you to finish',
   'signed_in_browser.press': 'Press a key in a page',
   'signed_in_browser.tick_security_check': 'Tick a "Verify you are human" box',
