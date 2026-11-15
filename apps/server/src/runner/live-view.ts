@@ -18,11 +18,17 @@ import { closePersonWindow, finishKeptPage, heldSince, hold, listProfiles, liveT
 // input typed into it (xdotool), never through DevTools: it's theirs to use any time.
 //
 // Frames are pulled, not pushed: the app asks for the next one after the one it has,
-// and a page is only streamed while somebody keeps asking.
+// and a page is only streamed while somebody keeps asking. Egress through the relay is
+// billed, so the cloud screen is a few frames a second at modest JPEG quality, and a
+// frame identical to the one before is not sent at all: a screen nobody is changing
+// costs next to nothing.
 
 const THUMB_MS = 1000;
 const WATCH_IDLE_MS = 5000;
 const FRAME_WAIT_MS = 2500;
+// The cloud screen stream: frames a second, and ffmpeg's JPEG quality (2 best, 31 worst).
+const SCREEN_FPS = 4;
+const SCREEN_QUALITY = 9;
 
 type Frame = { data: string; width: number; height: number };
 type Source = {
@@ -43,12 +49,16 @@ type Source = {
 
 // --- A person's screen in the cloud: frames from the display, input with xdotool ---
 const SCREEN_PREFIX = 'screen:';
-function grabStream(display: string, onFrame: (f: Frame) => void, fps = 6): ChildProcess {
-  const ff = spawn('ffmpeg', ['-loglevel', 'error', '-f', 'x11grab', '-framerate', String(fps), '-video_size', `${screenSize.width}x${screenSize.height}`, '-i', display, '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '7', 'pipe:1'], {
+function grabStream(display: string, onFrame: (f: Frame) => void, fps = SCREEN_FPS): ChildProcess {
+  const ff = spawn('ffmpeg', ['-loglevel', 'error', '-f', 'x11grab', '-framerate', String(fps), '-video_size', `${screenSize.width}x${screenSize.height}`, '-i', display, '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', String(SCREEN_QUALITY), 'pipe:1'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let buf = Buffer.alloc(0);
   let err = '';
+  // The last frame sent, and what this stream has sent in all (logged when it stops).
+  let last: Buffer | null = null;
+  const began = Date.now();
+  const totals = { sent: 0, same: 0, bytes: 0 };
   ff.stderr?.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-2_000)));
   ff.stdout!.on('data', (d: Buffer) => {
     buf = Buffer.concat([buf, d]);
@@ -57,7 +67,15 @@ function grabStream(display: string, onFrame: (f: Frame) => void, fps = 6): Chil
       const start = buf.indexOf(Buffer.from([0xff, 0xd8]));
       const end = start < 0 ? -1 : buf.indexOf(Buffer.from([0xff, 0xd9]), start + 2);
       if (start < 0 || end < 0) break;
-      onFrame({ data: buf.subarray(start, end + 2).toString('base64'), ...screenSize });
+      const jpeg = buf.subarray(start, end + 2);
+      // The same picture as the last one: the screen hasn't changed, so nothing to send.
+      if (last && jpeg.equals(last)) totals.same++;
+      else {
+        last = Buffer.from(jpeg);
+        totals.sent++;
+        totals.bytes += jpeg.length;
+        onFrame({ data: jpeg.toString('base64'), ...screenSize });
+      }
       buf = buf.subarray(end + 2);
     }
     if (buf.length > 8 * 1024 * 1024) {
@@ -67,6 +85,10 @@ function grabStream(display: string, onFrame: (f: Frame) => void, fps = 6): Chil
   });
   ff.on('error', e => console.error(`[browser] ffmpeg on ${display} failed to start:`, e.message));
   ff.on('exit', (code, signal) => {
+    console.log(
+      `[browser] screen stream on ${display} stopped after ${Math.round((Date.now() - began) / 1000)}s: ` +
+        `${totals.sent} frames sent (${(totals.bytes / (1024 * 1024)).toFixed(1)} MB of JPEG), ${totals.same} unchanged ones not sent`,
+    );
     if (code !== 0 && code !== null) console.error(`[browser] ffmpeg on ${display} exited (code ${code}${signal ? `, ${signal}` : ''}).${err.trim() ? ` ${err.trim()}` : ''}`);
   });
   return ff;

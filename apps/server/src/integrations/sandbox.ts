@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transform } from 'esbuild';
 import { safeFetch } from '../runner/net.js';
 import { DATA_DIR } from '../paths.js';
-import { programCommands, programEnv, programsChecked } from './programs.js';
+import { programCommands, programEnv, programsChecked, programsRoot } from './programs.js';
 
 // Where code plugins run (docs/integrations.md): a separate Node process under
 // Node's permission model, allowed only what the plugin declared - the folders
@@ -39,6 +39,24 @@ export const resolvePermissions = (p?: { read?: string[]; write?: string[]; comm
   write: (p?.write ?? []).map(declaredPath),
   commands: !!p?.commands,
 });
+
+// A plugin that may start programs (commands: true) starts Node-based ones (an npm
+// tool, run with this agency's Node) under the plugin's own permission flags. Such a
+// tool reads its own install folder and the system's libraries, fonts, certificates
+// and browsers, which the plugin's author can't list in advance - and when Node
+// refuses a read it just says "Access to this API has been restricted", without the
+// path. These read-only folders are therefore added for plugins with commands: true.
+// Nothing here is writable, and a plugin with commands: true can already start any
+// program as this user (the approval card says so), so it grants no new reach.
+export function programReads(platform: string = process.platform): string[] {
+  const system =
+    platform === 'win32'
+      ? []
+      : platform === 'darwin'
+        ? ['/usr', '/opt', '/System', '/Library', '/Applications', '/private/etc/ssl']
+        : ['/usr', '/lib', '/lib32', '/lib64', '/opt', '/etc/fonts', '/etc/ssl', '/etc/ca-certificates', '/etc/alternatives', '/etc/ld.so.cache', '/etc/ld.so.conf', '/etc/ld.so.conf.d', '/etc/os-release'];
+  return [programsRoot(), ...system];
+}
 
 // TypeScript -> plain JavaScript, so the locked-down process needs no loader.
 export async function buildPlugin(module: string, code: string, hash: string): Promise<string> {
@@ -87,9 +105,10 @@ function runChild(
 ): Promise<Done> {
   for (const d of perms.write) void mkdir(d, { recursive: true }).catch(() => {});
   // One flag per path (Node 24 doesn't take a comma-separated list).
+  const reads = [...new Set([BUILT, ...perms.read, ...perms.write, ...(perms.commands ? programReads() : [])])];
   const execArgv = [
     '--permission',
-    ...[BUILT, ...perms.read, ...perms.write].map(p => `--allow-fs-read=${p}`),
+    ...reads.map(p => `--allow-fs-read=${p}`),
     ...perms.write.map(p => `--allow-fs-write=${p}`),
     ...(perms.commands ? ['--allow-child-process'] : []),
   ];
