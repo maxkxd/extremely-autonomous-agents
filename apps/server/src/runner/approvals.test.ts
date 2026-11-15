@@ -2,7 +2,8 @@ import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import { DEFAULT_PLAN, type AgentDef } from './agent.js';
-import { decideApproval, expireApprovals, pendingApprovals, recentlyWithdrawn } from './approvals.js';
+import { decideApproval, expireApprovals, pendingApprovals, recentlyWithdrawn, runDueActions } from './approvals.js';
+import { scheduleMine } from './action-queue.js';
 import { setKeptPageCheck } from './kept-pages.js';
 import { one, resetDbForTests, run as exec } from './db.js';
 import { stateOf } from './run.js';
@@ -113,6 +114,16 @@ test('an approved call that keeps failing goes to the Agency Engineer, and the a
   for (const to of ['a@acme.com', 'b@acme.com', 'c@acme.com']) {
     const out = await execute(ctx, { id: to, name: 'mail__send', args: { to, body: 'hi' } }, new Map([['mail__send', 'mail.send']]));
     await decideApproval(out.approvalId!, 'approved', null, wake, now, async () => agent);
+  }
+  // One burst is one failure: the other two wait for the agent (action-queue.ts), so
+  // nothing is called broken yet.
+  assert.equal(one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE exec_state = 'paused'")!.n, 2);
+  assert.equal(one("SELECT 1 FROM requests WHERE what = 'Fix the tool mail.send: it keeps failing'"), undefined);
+  // The agent tries them again, and they keep failing, every input: that one is broken.
+  for (const at of [now + 60_000, now + 120_000]) {
+    scheduleMine(agent.id, { run: 'later', delay_minutes: 0.5, why: 'Trying again' }, at);
+    runDueActions({ wake, load: async () => agent, now: () => at + 30_000 });
+    for (let i = 0; i < 100 && one("SELECT 1 FROM approvals WHERE exec_state = 'running'"); i++) await new Promise(r => setTimeout(r, 5));
   }
   assert.ok(one("SELECT 1 FROM requests WHERE what = 'Fix the tool mail.send: it keeps failing' AND status = 'open'"));
   const told = woken.filter(w => w.agent === agent.id).map(w => w.task);

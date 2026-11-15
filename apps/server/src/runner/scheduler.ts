@@ -14,7 +14,7 @@ import { allChecks } from '../models/check.js';
 import { choiceKey } from '../models/health.js';
 import type { ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
-import { expireApprovals } from './approvals.js';
+import { expireApprovals, recoverInterruptedActions, runDueActions, setQueueWake } from './approvals.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, apocalypticWait, backstop, scheduledDue, SHORT_RUNS_TO_RELENTLESS } from './ferocity.js';
 
@@ -118,6 +118,13 @@ export function dropStaleRequestRuns() {
   }
 }
 
+// Hearing how approvals went waits a moment after the last one, so a person approving
+// 50 in a minute wakes the agent once, not 50 times (or 10: a run starting on the first
+// few, then another for the ones decided meanwhile, and so on). A steady stream still
+// gets heard within APPROVAL_MAX_WAIT_MS of the first.
+export const APPROVAL_SETTLE_MS = 45_000;
+export const APPROVAL_MAX_WAIT_MS = 10 * 60_000;
+
 // A run to start as soon as it can (handoffs, your messages, Run now).
 // person: whose message it answers - the Agency Engineer keeps one chat per person.
 export function book(agentId: string, trigger: Trigger, task: string | null, dueAt = Date.now(), person: string | null = null) {
@@ -128,14 +135,24 @@ export function book(agentId: string, trigger: Trigger, task: string | null, due
   // Messages sent while it was stopped (or before it got to them) are answered in
   // one run, not one run each.
   if ((trigger === 'approval' || trigger === 'your message') && task) {
-    const waiting = one<{ id: number }>('SELECT id FROM bookings WHERE agent_id = ? AND trigger = ? AND person_id IS ? ORDER BY id LIMIT 1', agentId, trigger, person);
+    const waiting = one<{ id: number; task: string | null; created_at: number }>('SELECT id, task, created_at FROM bookings WHERE agent_id = ? AND trigger = ? AND person_id IS ? ORDER BY id LIMIT 1', agentId, trigger, person);
     if (waiting) {
-      exec("UPDATE bookings SET task = COALESCE(task, '') || ? WHERE id = ?", `\n\n${task}`, waiting.id);
+      // A big batch's outcomes: the first lot in full, then a pointer (they're all in approvals.queue_mine).
+      const full = trigger === 'approval' && (waiting.task?.length ?? 0) > MAX_WAKE_CHARS;
+      const more = '\n\n(More outcomes came in after these: approvals.queue_mine lists them, with recent failures.)';
+      const add = !full ? `\n\n${task}` : waiting.task!.endsWith(more) ? '' : more;
+      if (trigger === 'approval') exec("UPDATE bookings SET task = COALESCE(task, '') || ?, due_at = MIN(created_at + ?, MAX(due_at, ?)) WHERE id = ?", add, APPROVAL_MAX_WAIT_MS, dueAt + APPROVAL_SETTLE_MS, waiting.id);
+      else exec("UPDATE bookings SET task = COALESCE(task, '') || ? WHERE id = ?", add, waiting.id);
       return;
     }
   }
+  if (trigger === 'approval') dueAt += APPROVAL_SETTLE_MS;
   exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at, person_id) VALUES (?, ?, ?, ?, ?, ?)', agentId, trigger, task, dueAt, Date.now(), person);
 }
+
+const MAX_WAKE_CHARS = 12_000;
+// Approved actions are run by the queue (approvals.ts), which wakes agents through here.
+setQueueWake((agentId, trigger, task) => book(agentId, trigger as Trigger, task));
 
 const runsToday = (agentId: string, now: number) =>
   one<{ n: number }>('SELECT COUNT(*) AS n FROM runs WHERE agent_id = ? AND started_at >= ?', agentId, startOfDay(now))?.n ?? 0;
@@ -157,6 +174,9 @@ export async function tick(deps: RunDeps = liveDeps) {
     // goes to the Agency Engineer) - not only when someone opens Settings.
     void recheckStale()?.catch(() => {});
     expireApprovals(now, book);
+    // Approved actions whose time has come (action-queue.ts): in the background, one at a
+    // time per account, never holding up a tick.
+    runDueActions({ wake: (agentId, trigger, task) => book(agentId, trigger as Trigger, task), load: loadAgent, now: deps.now });
     dropStaleRequestRuns();
     // Requests that joined another agent's (one per connection), once it's settled.
     settleJoined((agentId, trigger, task) => book(agentId, trigger as Trigger, task), now);
@@ -397,6 +417,8 @@ export function startScheduler() {
   // or it would be lost; scheduled ones simply come round again.
   // Run now on a helper was booked and never ran (they work only when called).
   exec(`DELETE FROM bookings WHERE trigger = 'run now' AND agent_id IN (${HELPER_IDS.map(() => '?').join(', ')})`, ...HELPER_IDS);
+  // Approved actions it was running: never run twice - their agents are told (approvals.ts).
+  recoverInterruptedActions(Date.now(), (agentId, trigger, task) => book(agentId, trigger as Trigger, task));
   const cut = all<{ id: string; agent_id: string; trigger: Trigger; task: string | null }>("SELECT id, agent_id, trigger, task FROM runs WHERE status = 'running'");
   exec("UPDATE runs SET status = 'failed', error = 'The server stopped during this run.', ended_at = started_at WHERE status = 'running'");
   // A helper's call isn't a run to start again: whoever called it already moved on.

@@ -12,6 +12,7 @@ import { SELF_SETTINGS } from './selfsettings.js';
 import type { Call, ToolSpec } from './providers.js';
 import { DATA_DIR } from '../paths.js';
 import { hasIntegration, repairingConnectionOf } from '../integrations/index.js';
+import { paceMine, queueMine, scheduleMine } from './action-queue.js';
 
 // The tools a run can call (docs/runner.md). Built-in agency tools work for
 // every agent; integration tools (web, email, GitHub...) are added one area
@@ -289,6 +290,10 @@ export function tooManyWaiting(agentId: string): string | null {
 // engineer.rewrite_instructions answers it).
 export const INSTRUCTIONS_CHANGE = 'Rewrite my instructions the way my person asked in my chat';
 
+// When spacing approved actions out is worth it (approvals.schedule_mine, approvals.pace_mine).
+const SPACING =
+  "When spacing is worth it: cold or bulk email from one mailbox (providers block a mailbox that sends dozens in a minute - Zoho did at about one a second - so a few minutes apart is safer for a batch of pitches), a service that states a rate limit, or the same post or message to many places. Not worth it for different accounts (each goes at once), a handful of actions, or anything a person is waiting on now. The default is now; delay only with a reason you can give.";
+
 const BUILTIN: ToolDef[] = [
   {
     id: 'memory.remember',
@@ -481,6 +486,50 @@ const BUILTIN: ToolDef[] = [
       ['approval_ids', 'why'],
     ),
     impl: (a, ctx) => withdrawMine(ctx.agent.id, a, ctx.now()),
+  },
+  // When its approved actions run (action-queue.ts): its call, never a pace the system forces.
+  {
+    id: 'approvals.queue_mine',
+    tier: 'T0',
+    description:
+      'Your approved actions that have not run yet (scheduled, or PAUSED after one failed) with when each runs, how many of your approved actions ran lately on each account (last hour / 24 hours), recent failures with their errors, and any pace or hold you have. Read it before deciding when the rest go.',
+    schema: obj({}),
+    impl: (_a, ctx) => queueMine(ctx.agent.id, ctx.now()),
+  },
+  {
+    id: 'approvals.schedule_mine',
+    tier: 'T0',
+    description:
+      `Decide when your approved actions that have not run yet go: run "now", "later" (after delay_minutes), "spread" (over over_minutes, each account's on its own, starting after delay_minutes), or "cancel". Pick them by approval_ids, or by tool and/or account (default: all of yours waiting). Paused ones (after a failure) wait for this. ${SPACING} After a failure that looks like a sending or rate limit (a 500 or "blocked" right after a burst that was working), spread the rest out or set them for later rather than cancelling; cancel only what should no longer happen.`,
+    schema: obj(
+      {
+        run: { type: 'string', enum: ['now', 'later', 'spread', 'cancel'], description: 'When they go' },
+        approval_ids: { type: 'array', items: { type: 'string' }, description: 'Optional: which ones (apv_...); default all matching tool/account' },
+        tool: str('Optional: only this tool (its id)'),
+        account: str('Optional: only this account (the mailbox or account they are sent as)'),
+        delay_minutes: { type: 'number', description: 'later/spread: minutes from now before the first, up to 10080' },
+        over_minutes: { type: 'number', description: 'spread: the time to spread them over, per account' },
+        why: str('In a sentence, why - shown to the person on each action'),
+      },
+      ['run', 'why'],
+    ),
+    impl: (a, ctx) => scheduleMine(ctx.agent.id, a, ctx.now()),
+  },
+  {
+    id: 'approvals.pace_mine',
+    tier: 'T0',
+    description: `Before a batch is approved: space out a tool's approved actions on one account (or on each account of it) - ones approved while the pace lasts run at least every_minutes apart, so a person approving them all at once never sends them in one burst. every_minutes 0 removes it. Use it when you queue a batch that needs it (e.g. 40 cold pitches from one mailbox), not by habit. ${SPACING}`,
+    schema: obj(
+      {
+        tool: str('The tool (its id, e.g. zoho-mail.zohomail_send_mail)'),
+        account: str('Optional: the account (the mailbox they are sent from); default each account of the tool, separately'),
+        every_minutes: { type: 'number', description: 'At least this far apart (0 removes the pace), up to 1440' },
+        for_hours: { type: 'number', description: 'How long the pace lasts, default 24, up to 168' },
+        why: str('In a sentence, why - shown to the person on each action it delays'),
+      },
+      ['tool', 'every_minutes'],
+    ),
+    impl: (a, ctx) => paceMine(ctx.agent.id, a, ctx.now()),
   },
   {
     id: 'ops.book_next_run',

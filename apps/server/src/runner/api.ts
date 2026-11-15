@@ -23,7 +23,7 @@ import { connectAssistant, type Assistant } from './assistant.js';
 import { answerRemoteMcp, isRemoteMcpUrl, remoteMcpUrl, takeRemoteMcp } from './remote-mcp.js';
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
-import { decideApproval, pendingApprovals, recentlyWithdrawn } from './approvals.js';
+import { decideApproval, pendingApprovals, recentlyWithdrawn, runApprovedNow, scheduledApprovals } from './approvals.js';
 import { copyKeptForChrome, finishKeptByRequest, hasKeptPage, keptCaptcha, listProfiles, onPersonDone, openProfileWindow, profileStatus, releaseKeptFor, takeKeptPage } from './browser.js';
 import { finishFromApp, openPersonChromeConnect, openPersonChromePage, personChromeStatus, resetPersonChromeToken } from './person-chrome.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
@@ -567,7 +567,20 @@ export const runnerRoutes: Record<string, Route> = {
   },
 
   // --- Approvals: T2 calls waiting on a person ---
-  'GET /api/runner/approvals': async () => ({ approvals: await pendingApprovals(), withdrawn: recentlyWithdrawn() }),
+  // scheduled: approved and not run yet - its agent spaced them out, or one failed and
+  // the rest on that account wait (action-queue.ts).
+  'GET /api/runner/approvals': async () => ({ approvals: await pendingApprovals(), withdrawn: recentlyWithdrawn(), scheduled: await scheduledApprovals() }),
+  // A person saying "run now" to one of those.
+  'POST /api/runner/approvals/run-now': async (_req, _q, body) => {
+    const { id } = await body<{ id: string }>();
+    const a = one<{ agent_id: string; request: number | null; about: string | null }>(
+      "SELECT agent_id, json_extract(args, '$.request_id') AS request, json_extract(args, '$.agent_id') AS about FROM approvals WHERE id = ?",
+      String(id),
+    );
+    if (!a) throw new Error('That approval no longer exists.');
+    await requireMakerOrAdmin(a.agent_id, a.request == null ? null : Number(a.request), undefined, undefined, a.agent_id === DOCTOR ? a.about : null);
+    return runApprovedNow(String(id), book);
+  },
   'POST /api/runner/approvals/decide': async (_req, _q, body) => {
     const { id, decision, note: typed } = await body<{ id: string; decision: 'approved' | 'rejected'; note?: string }>();
     const note = typed && scrub(typed);

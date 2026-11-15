@@ -269,7 +269,22 @@ Step 1 is built and tested:
 - **Approvals**: a T2 call is queued with its exact arguments and the run
   carries on. Approved on the Approvals page, it runs then and there
   (exactly once); rejected (with your note) or expired, it never does.
-  Either way the agent gets a run to hear the outcome.
+  Either way the agent gets a run to hear the outcome - one run for a batch:
+  outcomes gather for 45 seconds after the last decision (at most 10 minutes
+  from the first), so approving 50 at once wakes it once.
+- **When approved actions run** (`runner/action-queue.ts`): straight away by
+  default, one at a time per agent, tool and account, every account at once.
+  No pace is forced. The agent can choose to space them out, with a reason
+  shown on the action: `approvals.pace_mine` before a batch is approved (cold
+  email from one mailbox), `approvals.schedule_mine` for ones approved and
+  not run yet (now, later, spread over a time per account, or cancel), and
+  `approvals.queue_mine` to see them, recent sends per account and failures.
+  Each is a row with its due time, so a restart keeps the schedule. One that
+  fails pauses the rest on that account, holds new approvals for it, and
+  wakes the agent once to decide: a burst tripping a sending limit isn't a
+  broken tool. One running when the agency stopped is never run again by
+  itself; its agent is told it may or may not have happened. A person can
+  still run any of them now (`POST /api/runner/approvals/run-now`).
 - **Every run opens with today's date and time**: models don't know it, and
   research, dating work and "this year" need it.
 - **In the app**: real agents' cards (state, stats, ferocity, Standby/Stop,

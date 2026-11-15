@@ -23,6 +23,17 @@ export function openDb(path = FILE): DatabaseSync {
   for (const sql of [
     'ALTER TABLE approvals ADD COLUMN note TEXT',
     'ALTER TABLE approvals ADD COLUMN result TEXT',
+    // When an approved action runs (action-queue.ts): its state, when it's due, the
+    // account it's sent as, whether it waited past its approval (deferred), why it
+    // waits (plan), when it ran, and when its agent was told how it went.
+    'ALTER TABLE approvals ADD COLUMN exec_state TEXT',
+    'ALTER TABLE approvals ADD COLUMN due_at INTEGER',
+    "ALTER TABLE approvals ADD COLUMN account TEXT NOT NULL DEFAULT ''",
+    'ALTER TABLE approvals ADD COLUMN deferred INTEGER',
+    'ALTER TABLE approvals ADD COLUMN plan TEXT',
+    'ALTER TABLE approvals ADD COLUMN ran_at INTEGER',
+    'ALTER TABLE approvals ADD COLUMN told_at INTEGER',
+    'CREATE INDEX IF NOT EXISTS approvals_exec ON approvals(exec_state, due_at)',
     // Requests: where each stands (docs/requests.md) - engineer (the Agency Engineer
     // has it), waiting_you (it asked you something), approval (its go-live waits on
     // you), person (it handed it to you); null on ones from before routing.
@@ -71,11 +82,11 @@ export function openDb(path = FILE): DatabaseSync {
   return db;
 }
 
-// Tests start from a clean store.
-export function resetDbForTests() {
+// Tests start from a clean store - or, given a file, open it again as a restarted agency would.
+export function resetDbForTests(path = ':memory:') {
   db?.close();
   db = null;
-  return openDb(':memory:');
+  return openDb(path);
 }
 
 const SCHEMA = `
@@ -203,6 +214,21 @@ CREATE TABLE IF NOT EXISTS approvals (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   decided_at INTEGER                -- (+ note: the person's reason; result: what running it returned)
+);
+
+-- An agent's own choices for when its approved actions on one tool and account run
+-- (action-queue.ts): a pace it set, and a hold after one failed. account '*': every account.
+CREATE TABLE IF NOT EXISTS action_pace (
+  agent_id TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  account TEXT NOT NULL,
+  every_ms INTEGER,
+  until INTEGER,
+  why TEXT,
+  held_since INTEGER,
+  held_error TEXT,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agent_id, tool, account)
 );
 
 CREATE TABLE IF NOT EXISTS bookings (

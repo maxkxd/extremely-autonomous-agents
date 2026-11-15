@@ -455,6 +455,7 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
       const by = currentActor();
       const out = await decideApproval(id, decision, note, book, undefined, undefined, by);
       if (decision === 'rejected') return 'Rejected; the agent is told.';
+      if (out.ok && !out.ran) return String(out.result ?? 'Approved; it runs when its agent scheduled it.');
       return out.ok ? `Approved and done: ${String(out.result ?? '').slice(0, 2000)}` : `Approved, but it failed when it ran: ${String(out.result ?? '').slice(0, 2000)}`;
     },
   },
