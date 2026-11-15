@@ -36,6 +36,9 @@ let sends: { to: string; from: string; at: number }[] = [];
 let failTo = new Set<string>();
 let failAfter = Infinity; // every send after this many fails (a mailbox blocked mid-burst)
 let delayMs = 0;
+// The most sends running at the same moment.
+let inFlight = 0;
+let maxInFlight = 0;
 registerTools([
   {
     id: 'qmail.send',
@@ -43,7 +46,9 @@ registerTools([
     description: 'send an email',
     schema: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' }, body: { type: 'string' } }, required: ['to', 'body'] },
     impl: async args => {
-      if (delayMs) await new Promise(r => setTimeout(r, delayMs));
+      maxInFlight = Math.max(maxInFlight, ++inFlight);
+      if (delayMs) await new Promise(r => setTimeout(r, delayMs)).finally(() => inFlight--);
+      else inFlight--;
       if (failTo.has(String(args.to)) || sends.length >= failAfter) throw new Error('500 INTERNAL_SERVER_ERROR');
       sends.push({ to: String(args.to), from: String(args.from ?? ''), at: Date.now() });
       return `Sent to ${String(args.to)}.`;
@@ -78,6 +83,8 @@ beforeEach(() => {
   failTo = new Set();
   failAfter = Infinity;
   delayMs = 0;
+  inFlight = 0;
+  maxInFlight = 0;
   woken.length = 0;
 });
 
@@ -101,12 +108,11 @@ test('by default every approved action runs at once - 100 mailboxes in parallel,
   delayMs = 20;
   const ids = [];
   for (let i = 0; i < 100; i++) ids.push(await queue(`p${i}@press.com`, `box${i}@example.com`));
-  const t0 = Date.now();
   const outs = await Promise.all(ids.map(id => decideApproval(id, 'approved', null, wake, Date.now(), load)));
   assert.ok(outs.every(o => o.ok && o.ran));
   assert.equal(sends.length, 100);
-  // 100 x 20 ms one after another would be 2 s: different accounts don't wait on each other.
-  assert.ok(Date.now() - t0 < 1_500, `took ${Date.now() - t0} ms`);
+  // Different accounts don't wait on each other: many were sending at the same moment.
+  assert.ok(maxInFlight >= 50, `at most ${maxInFlight} at once`);
   assert.ok(ids.every(id => stateOf(id).exec_state === 'done' && stateOf(id).due_at <= stateOf(id).ran_at!));
   // One account, no pace: each runs as it's approved, with nothing scheduled for later.
   delayMs = 0;
