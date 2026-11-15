@@ -303,6 +303,9 @@ const TOOLS: Tool[] = [
         exec('UPDATE agent_state SET state = ?, updated_at = ? WHERE agent_id = ?', state, now, agentId);
         if (state === 'stopped') abortRun(agentId);
         if (state === 'active') exec('UPDATE agent_state SET fail_streak = 0, backoff_until = NULL WHERE agent_id = ?', agentId);
+        // Same as POST /api/runner/agent: leaving stopped ends setup so the card
+        // doesn't keep "Start the agent" while Stop/Standby already show.
+        if (state !== 'stopped') exec('UPDATE agent_state SET setup = NULL WHERE agent_id = ?', agentId);
       }
       const st = stateOf(agentId);
       return `${meta.name}: ${st.state}, ${LEVELS[st.ferocity]}.`;

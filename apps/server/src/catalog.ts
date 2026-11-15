@@ -34,7 +34,7 @@ const BROWSER_KIT_TOOLS: CatalogTool[] = [
   t('make_password', 'T1', "Sign up for an account: a strong password kept in the agency's store"),
   t('type_password', 'T1', 'Type a password from the store'),
   t('passwords', 'T0', "List the store's accounts (never the passwords)"),
-  t('show_person', 'T1', 'Keep a page for the person (a CAPTCHA puzzle, a phone code) and file the request for it'),
+  t('show_person', 'T1', 'Keep a filled-in page for the person and open it in their Chrome (a CAPTCHA, a phone code)'),
 ];
 
 export const CATALOG: CatalogServer[] = [
