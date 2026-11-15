@@ -861,6 +861,19 @@ export async function takeKeptPage(profile: number, url: string, request?: numbe
   return keptPageView(CLOUD, s.cdp!.targetId);
 }
 
+// Open in my browser, on the computer that runs the agency: the page kept for this
+// request, brought up in front where it is - the agents' browser window - instead of
+// a copy in the person's own browser (that's for an agency hosted elsewhere).
+export async function showKeptPage(request: number): Promise<boolean> {
+  const kept = [...waitingPages.values()].find(w => w.person?.request === request && sessions.get(w.key)?.cdp && !sessions.get(w.key)!.page.isClosed());
+  if (!kept) return false;
+  const s = sessions.get(kept.key)!;
+  s.request = request;
+  hold(s.cdp!.targetId);
+  await s.cdp!.bringToFront(true);
+  return true;
+}
+
 // The person's done with a kept page (closed its tab, or pressed Done): its request is
 // answered, which tells the agent that kept it - not the Engineer, who'd only pass it on.
 let personDone: (request: number, text: string) => void = () => {};

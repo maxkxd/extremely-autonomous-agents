@@ -326,9 +326,12 @@ export class CdpPage {
   }
 
   // In front of the person's other windows: its window shown (not minimised) and this tab in it.
-  async bringToFront() {
+  // raise: in front of the person's other windows too. Windows won't let another
+  // program take the front, but a window that comes back from minimized does.
+  async bringToFront(raise = false) {
     const w = await this.cdp.send<{ windowId: number; bounds: { windowState?: string } }>('Browser.getWindowForTarget', { targetId: this.targetId }).catch(() => null);
-    if (w?.bounds.windowState === 'minimized') await this.cdp.send('Browser.setWindowBounds', { windowId: w.windowId, bounds: { windowState: 'normal' } }).catch(() => {});
+    if (w && raise && w.bounds.windowState !== 'minimized') await this.cdp.send('Browser.setWindowBounds', { windowId: w.windowId, bounds: { windowState: 'minimized' } }).catch(() => {});
+    if (w && (raise || w.bounds.windowState === 'minimized')) await this.cdp.send('Browser.setWindowBounds', { windowId: w.windowId, bounds: { windowState: w.bounds.windowState === 'maximized' ? 'maximized' : 'normal' } }).catch(() => {});
     await this.send('Page.bringToFront');
   }
 

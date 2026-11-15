@@ -396,6 +396,8 @@ export const connectPersonChrome = (browser: 'chrome' | 'edge') => onThisCompute
 export const resetPersonChrome = () => onThisComputer<{ ok: boolean }>('/api/person-chrome/reset', {});
 // The agency's copy of a kept page, and what the person's browser finished, back to it.
 export type ChromeHandoff = { id: string } & Record<string, unknown>;
+// A request's kept page, in front in the agents' browser on this computer (the agency's own).
+export const showKeptHere = (request: number) => post<{ ok: boolean }>('/api/browser/kept/show', { request });
 export const copyForChrome = (request: number) => post<{ handoff: ChromeHandoff }>('/api/person-chrome/copy', { request });
 export const finishForChrome = (id: string, cookies: unknown) => post<{ ok: boolean }>('/api/person-chrome/finish', { id, cookies });
 // This computer's side, for an agency hosted elsewhere.
