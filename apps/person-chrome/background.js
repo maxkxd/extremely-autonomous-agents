@@ -492,8 +492,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return hello.error ? hello : { ok: true };
     })());
   }
+  // The go page only hands over the id: once the filled-in page is open in its own
+  // tab, the go page's tab is closed (it was left behind, one per page).
   if (msg?.type === 'open-handoff') {
-    return reply(openOnce(String(msg.id || '')));
+    const goTab = sender.tab?.id;
+    return reply(openOnce(String(msg.id || '')).then(res => {
+      if (!res?.error && goTab != null) {
+        chrome.tabs.remove(goTab).catch(e => console.error('[person-chrome] could not close the go page', e.message));
+      }
+      return res;
+    }));
   }
   // Finished in the bar on the page, or asked about by the page every few seconds in
   // case Finished was pressed in the app instead.
