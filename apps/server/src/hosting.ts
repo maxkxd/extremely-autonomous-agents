@@ -208,16 +208,61 @@ if (desktop)
 
 // The app's requests for the organization's agency, passed on as they are. The
 // agency checks them itself: a token, or this computer.
+// The organization is hosted right here, so the app never says it "isn't answering"
+// because of how it's passed on: a request that comes while it's starting (the app
+// just opened, or it's starting again after falling over) waits for it instead of
+// failing; each goes on its own connection (a reused one the agency had just closed
+// failed as "isn't answering"); and one that never reached it is tried again.
+// Only a read is retried after it may have reached the agency: an approval or a
+// message is never sent twice.
 export function forwardToHosted(req: IncomingMessage, res: ServerResponse, path: string) {
-  if (!up) return res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The organization’s agency is starting.' }));
+  return forward(req, res, path, { port: HOSTED_PORT, isUp: () => up, hosted: () => !!hosting() }).catch(
+    () => res.headersSent || res.writeHead(502, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The organization’s agency isn’t answering.' })),
+  );
+}
+
+const START_WAIT_MS = 90_000;
+const TRIES = 4;
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+export async function forward(
+  req: IncomingMessage,
+  res: ServerResponse,
+  path: string,
+  o: { port: number; isUp: () => boolean; hosted: () => boolean; startWaitMs?: number; retryMs?: number },
+) {
+  const fail = (status: number, error: string) => res.headersSent || res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify({ error }));
   // Whether it came from this computer: only we say so, never the request itself.
-  const headers: Record<string, string | string[] | undefined> = { ...req.headers, host: `127.0.0.1:${HOSTED_PORT}` };
+  const headers: Record<string, string | string[] | undefined> = { ...req.headers, host: `127.0.0.1:${o.port}` };
   delete headers[HERE_HEADER];
   if (/^(127\.\d+\.\d+\.\d+|::1|::ffff:127\.\d+\.\d+\.\d+)$/.test(req.socket.remoteAddress ?? '')) headers[HERE_HEADER] = '1';
-  const out = request({ host: '127.0.0.1', port: HOSTED_PORT, method: req.method, path, headers }, r => {
-    res.writeHead(r.statusCode ?? 502, r.headers);
-    r.pipe(res);
-  });
-  out.on('error', () => res.headersSent || res.writeHead(502, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The organization’s agency isn’t answering.' })));
-  req.pipe(out);
+  // Kept whole, so it can be sent again; a connection of its own each time.
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  const body = Buffer.concat(chunks);
+  for (const h of ['connection', 'keep-alive', 'transfer-encoding', 'content-length']) delete headers[h];
+  if (body.length || !['GET', 'HEAD'].includes(req.method ?? 'GET')) headers['content-length'] = String(body.length);
+  const read = ['GET', 'HEAD', 'OPTIONS'].includes(req.method ?? 'GET');
+  for (let attempt = 1; ; attempt++) {
+    const until = Date.now() + (o.startWaitMs ?? START_WAIT_MS);
+    while (!o.isUp()) {
+      if (!o.hosted()) return fail(503, 'This computer no longer hosts the organization.');
+      if (Date.now() > until) return fail(503, 'The organization’s agency didn’t start. Restart the app; if it keeps happening, its log says why.');
+      await sleep(200);
+    }
+    const outcome = await new Promise<'done' | { reached: boolean }>(done => {
+      const out = request({ host: '127.0.0.1', port: o.port, method: req.method, path, headers, agent: false }, r => {
+        res.writeHead(r.statusCode ?? 502, r.headers);
+        r.pipe(res);
+        r.on('end', () => done('done'));
+        r.on('error', () => done('done'));
+      });
+      // Refused: nothing reached it (it's starting again), so sending again is safe.
+      out.on('error', e => done({ reached: (e as NodeJS.ErrnoException).code !== 'ECONNREFUSED' }));
+      out.end(body);
+    });
+    if (outcome === 'done') return;
+    if (res.headersSent || attempt >= TRIES || (outcome.reached && !read)) return fail(502, 'The organization’s agency isn’t answering.');
+    await sleep(o.retryMs ?? 500);
+  }
 }
