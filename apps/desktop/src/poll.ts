@@ -9,10 +9,32 @@
 //   page never reports itself hidden there; focus is the signal that still works.
 // - Hidden browser tab: not at all.
 // Coming back (focus, or the tab shown again) checks straight away if one is due.
+//
+// The Agents' browser page is a loop of its own (a list and a frame pulled again as
+// soon as the last one lands), so it waits here instead: untilLooking().
 
 const IDLE_MS = 60_000;
 
 const looking = () => document.visibilityState === 'visible' && document.hasFocus();
+
+// Resolves at once (false) if someone is looking; otherwise when they are (true: it had
+// to wait), or when `signal` aborts, so a page that went away leaves no listener behind.
+export function untilLooking(signal?: AbortSignal): Promise<boolean> {
+  if (looking()) return Promise.resolve(false);
+  if (signal?.aborted) return Promise.resolve(true);
+  return new Promise<boolean>(resolve => {
+    const done = () => {
+      window.removeEventListener('focus', check);
+      document.removeEventListener('visibilitychange', check);
+      signal?.removeEventListener('abort', done);
+      resolve(true);
+    };
+    const check = () => looking() && done();
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    signal?.addEventListener('abort', done);
+  });
+}
 
 export function every(fn: () => unknown, ms: number): () => void {
   let last = Date.now();

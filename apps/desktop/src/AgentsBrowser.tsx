@@ -4,6 +4,7 @@ import { liveBrowser, liveControl, liveFrame, liveInput, liveOpen, openAgentBrow
 import { notifyError } from './Notices';
 import { finishedInMyBrowser, openInMyChrome } from './personChrome';
 import { BusyLabel, Working } from './Busy';
+import { untilLooking } from './poll';
 
 // The agents' browser, live (server: runner/live-view.ts). On the left, what waits on
 // you (CAPTCHAs, sign-ins, codes an agent asked for) and every page the agents have
@@ -31,6 +32,17 @@ const BUTTON = ['left', 'middle', 'right'] as const;
 // Keys whose character goes in as text (not Enter: it's a key with "\r").
 const textOf = (e: React.KeyboardEvent) => (e.ctrlKey || e.metaKey ? undefined : e.key === 'Enter' ? '\r' : e.key.length === 1 ? e.key : undefined);
 
+// A window left open and focused, with nobody at it, would keep pulling the list and the
+// live frames for good - and each one goes through the relay, which bills egress. After
+// IDLE_SLOW_MS with no mouse, key, wheel or touch in this window, they slow to a trickle
+// (the list every 5 s, a frame every 2 s); the next movement brings them straight back.
+const IDLE_SLOW_MS = 10 * 60_000;
+let lastTouch = Date.now();
+if (typeof window !== 'undefined')
+  for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'])
+    window.addEventListener(ev, () => (lastTouch = Date.now()), { passive: true, capture: true });
+const untouched = () => Date.now() - lastTouch > IDLE_SLOW_MS;
+
 export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; onOpened: () => void }) {
   const [tabs, setTabs] = useState<LiveTab[] | null>(null);
   const [needs, setNeeds] = useState<LiveNeed[]>([]);
@@ -55,14 +67,19 @@ export function AgentsBrowser({ openTab, onOpened }: { openTab: string | null; o
       return null;
     }
   }, []);
+  // Only while someone is looking (poll.ts): the desktop window keeps running in the tray
+  // after it's closed, and this was a request a second, with thumbnails, through the relay.
   useEffect(() => {
-    let alive = true;
+    const stop = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
+      await untilLooking(stop.signal);
+      if (stop.signal.aborted) return;
       await refresh();
-      if (alive) timer = setTimeout(tick, 1000);
+      if (!stop.signal.aborted) timer = setTimeout(tick, untouched() ? 5000 : 1000);
     };
-    let timer = setTimeout(tick, 0);
-    return () => ((alive = false), clearTimeout(timer));
+    void tick();
+    return () => (stop.abort(), clearTimeout(timer));
   }, [refresh]);
 
   // A page opened for you elsewhere (a request's button, Connectors): shown here.
@@ -216,15 +233,32 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
   mineRef.current = mine;
   const size = useRef({ width: 1280, height: 900 });
 
-  // The next frame after the one shown, for as long as it's on screen.
+  // The next frame after the one shown, for as long as it's on screen - and only while
+  // someone is looking (poll.ts). Away, it stops asking, and the host stops streaming a
+  // few seconds later; back, it starts again from the first frame (the stream's count
+  // starts over when it does). Untouched for a long while (IDLE_SLOW_MS), a 2 s pause
+  // before each ask: that plus the host's 2.5 s wait for a frame on an unchanged screen
+  // stays under the host's 5 s (WATCH_IDLE_MS), so the stream stays up but barely runs.
   useEffect(() => {
-    let alive = true;
+    const stop = new AbortController();
+    const alive = () => !stop.signal.aborted;
     let seq = 0;
     void (async () => {
-      while (alive) {
+      while (alive()) {
         try {
+          if (await untilLooking(stop.signal)) seq = 0;
+          if (!alive()) return;
+          if (untouched()) {
+            await new Promise(r => setTimeout(r, 2000));
+            if (!alive()) return;
+          }
           const f = await liveFrame(tab.id, seq);
-          if (!alive) return;
+          if (!alive()) return;
+          // The host's stream started over (its count is back below ours): start over too.
+          if (f.seq < seq) {
+            seq = 0;
+            continue;
+          }
           if (f.data) {
             seq = f.seq;
             size.current = { width: f.width, height: f.height };
@@ -232,7 +266,7 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
             setStreamError(null);
           }
         } catch (e) {
-          if (!alive) return;
+          if (!alive()) return;
           const message = (e as Error).message;
           console.error(`[browser] frame ${tab.id}:`, message);
           setStreamError(message);
@@ -240,7 +274,7 @@ function LivePage({ tab, onAct }: { tab: LiveTab; onAct: (a: 'take' | 'done' | '
         }
       }
     })();
-    return () => void (alive = false);
+    return () => stop.abort();
   }, [tab.id]);
 
   // Input goes out every 40 ms, mouse moves only the latest.

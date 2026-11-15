@@ -40,7 +40,7 @@ ENV NODE_ENV=production \
     EAA_CLOUD_HOST=1 \
     DISPLAY=:99 \
     EAA_BROWSER=/usr/bin/google-chrome-stable \
-    EAA_BROWSER_ARGS="--no-sandbox --password-store=basic --disable-dev-shm-usage --renderer-process-limit=6 --disable-site-isolation-trials --disable-features=IsolateOrigins,site-per-process --js-flags=--single-threaded-gc --num-raster-threads=1"
+    EAA_BROWSER_ARGS="--no-sandbox --password-store=basic --disable-dev-shm-usage --renderer-process-limit=6 --disable-site-isolation-trials --disable-features=IsolateOrigins,site-per-process --js-flags=--single-threaded-gc --num-raster-threads=1 --disk-cache-size=104857600"
 
 # Nothing listens outside the container: members reach it through the relay,
 # over the agency's own outbound connection. Sign-ins (OAuth) come back to the

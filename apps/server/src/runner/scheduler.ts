@@ -26,6 +26,7 @@ import { costOf, isFree, spentThisMonth, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
 import { adapterFor } from './providers.js';
 import { eligibleModels, runAgent, stateOf, type RunDeps, type Trigger } from './run.js';
+import { holdsBack, memoryBrake, memoryFraction } from './pressure.js';
 
 // Decides when each agent runs (docs/runner.md). Every tick, for each agent
 // that isn't running: a booking that's due (your messages first), else at
@@ -162,6 +163,9 @@ export async function tick(deps: RunDeps = liveDeps) {
     settleJoined((agentId, trigger, task) => book(agentId, trigger as Trigger, task), now);
     // Events due a check (events.ts): in the background, so a slow service never holds up a tick.
     void pollEvents(book).catch(e => console.error('Polling events failed:', (e as Error).message));
+    // Memory nearly full (pressure.ts): runs already going carry on, but no new one
+    // starts until it drops. What's booked or due waits; nothing is dropped.
+    const braked = memoryBrake.update(await memoryFraction());
     for (const id of await listIds()) {
       const engineer = id === FLEET_ENGINEER;
       const others = runsOf(id);
@@ -191,6 +195,8 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (!eligible.length && next.trigger !== 'your message') continue;
       const local = eligible[0]?.connection === 'ollama';
       if (local && [...running.values()].some(r => r.connection === 'ollama')) continue;
+      // Memory nearly full: it waits (its booking stays, its schedule keeps counting) and starts once memory drops.
+      if (holdsBack(braked, running.size)) continue;
       const booked = next.bookingId ? one<{ r: string | null; p: string | null }>('SELECT resume_from AS r, person_id AS p FROM bookings WHERE id = ?', next.bookingId) : null;
       const resumeFrom = booked?.r ?? null;
       if (next.bookingId) exec('DELETE FROM bookings WHERE id = ?', next.bookingId);
