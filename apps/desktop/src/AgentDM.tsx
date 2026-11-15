@@ -151,7 +151,6 @@ export function AgentDM({
   // Everyone may write to the Agency Engineer.
   const readOnly = !!currentOrg() && !isAdmin() && agent.id !== 'fleet' && (agent.builtIn || agent.ownerId !== myAccountId());
   const readOnlyWhy = readOnly ? `Only ${agent.builtIn ? 'the owner' : agent.owner || 'its owner'} or an admin can message ${agent.name}` : null;
-  const [draft, setDraft] = useState('');
   const off = useOffline(); // the host is offline: nothing can be sent until it's back
   const end = useRef<HTMLDivElement>(null);
   // Its Silent tools, which its posts leave out.
@@ -209,12 +208,6 @@ export function AgentDM({
       follow.disconnect();
     };
   }, [agentId]);
-
-  const send = () => {
-    if (!draft.trim() || thinking) return;
-    onSend(draft.trim());
-    setDraft('');
-  };
 
   let lastDay = '';
   return (
@@ -329,26 +322,40 @@ export function AgentDM({
       </div>
 
       {/* A helper's channel is its log: it runs only when the agency calls it. */}
-      {!agent.service && <div className="dm-composer">
-        <textarea
-          rows={1}
-          placeholder={`Message ${agent.name}`}
-          disabled={!!off || readOnly}
-          title={off ?? readOnlyWhy ?? undefined}
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => {
-            // Enter sends, Shift+Enter is a new line.
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              if (!off && !readOnly) send();
-            }
-          }}
-        />
-        <button className="dm-send" onClick={send} disabled={!draft.trim() || thinking || !!off || readOnly} title={off ?? readOnlyWhy ?? (!draft.trim() ? 'Type a message first' : undefined)} aria-label="Send">
-          <SendHorizontal size={16} strokeWidth={1.9} />
-        </button>
-      </div>}
+      {!agent.service && <Composer agentName={agent.name} thinking={thinking} blocked={off ?? readOnlyWhy} onSend={onSend} />}
+    </div>
+  );
+}
+
+// The message box keeps its own draft: held by the chat above, every key pressed redrew
+// every post in the history (the Agency Engineer's runs into the hundreds), and typing lagged.
+function Composer({ agentName, thinking, blocked, onSend }: { agentName: string; thinking: boolean; blocked: string | null; onSend: (text: string) => void }) {
+  const [draft, setDraft] = useState('');
+  const send = () => {
+    if (!draft.trim() || thinking || blocked) return;
+    onSend(draft.trim());
+    setDraft('');
+  };
+  return (
+    <div className="dm-composer">
+      <textarea
+        rows={1}
+        placeholder={`Message ${agentName}`}
+        disabled={!!blocked}
+        title={blocked ?? undefined}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => {
+          // Enter sends, Shift+Enter is a new line.
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            send();
+          }
+        }}
+      />
+      <button className="dm-send" onClick={send} disabled={!draft.trim() || thinking || !!blocked} title={blocked ?? (!draft.trim() ? 'Type a message first' : undefined)} aria-label="Send">
+        <SendHorizontal size={16} strokeWidth={1.9} />
+      </button>
     </div>
   );
 }
