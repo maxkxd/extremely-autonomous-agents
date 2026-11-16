@@ -98,6 +98,28 @@ test('pairCode: code shape, address and link', () => {
   assert.throws(() => pairCode('not an address'), /web address/);
 });
 
+test('pairCode: a hosted organization’s address', () => {
+  const was = process.env.PORT;
+  try {
+    // Hosted on this computer: the organization's agency gets PORT=5185 (hosting.ts),
+    // and the extension connects to it there directly.
+    process.env.PORT = '5185';
+    assert.equal(pairCode().url, 'ws://127.0.0.1:5185/api/browser-link');
+    // Self-hosted: the app passes its host's /hosted, which passes the link on.
+    assert.equal(pairCode('https://agency.example.test/hosted').url, 'wss://agency.example.test/hosted/api/browser-link');
+    // In the cloud on Railway: its public domain, over wss.
+    process.env.RAILWAY_PUBLIC_DOMAIN = 'org-agency.up.railway.example';
+    assert.equal(pairCode('http://ignored.example.test').url, 'wss://org-agency.up.railway.example/api/browser-link');
+    process.env.EAA_PUBLIC_URL = 'https://agents.example.test';
+    assert.equal(pairCode().url, 'wss://agents.example.test/api/browser-link');
+  } finally {
+    if (was === undefined) delete process.env.PORT;
+    else process.env.PORT = was;
+    delete process.env.RAILWAY_PUBLIC_DOMAIN;
+    delete process.env.EAA_PUBLIC_URL;
+  }
+});
+
 test('pairing with a code works once; the code is spent', async () => {
   const { code } = pairCode();
   const a = new Ext();

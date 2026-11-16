@@ -370,11 +370,12 @@ export const decideApproval = (id: string, decision: 'approved' | 'rejected', no
 export type PairedBrowser = { n: number; name: string; kind: 'chrome' | 'edge'; online: boolean; since?: number; lastSeen?: number; version?: string; agentTabs: number };
 export type BrowsersView = { browsers: PairedBrowser[]; storeLinks: { chrome?: string; edge?: string } };
 export const getBrowsers = () => request<BrowsersView>('/api/browser');
-// A one-time pairing. An organization at its own address passes that address, so the
-// extension knows where to connect (the agency can't tell what it's reached at).
+// A one-time pairing. An organization at its own address passes where the app reaches
+// it there (its host's /hosted, which passes the link on too), so the extension knows
+// where to connect (the agency can't tell what it's reached at).
 export const pairBrowser = () => {
-  const base = currentOrg()?.self?.address;
-  return post<{ code: string; url: string; link: string }>('/api/browser/pair', base ? { base } : {});
+  const address = currentOrg()?.self?.address;
+  return post<{ code: string; url: string; link: string }>('/api/browser/pair', address ? { base: `${address.replace(/\/+$/, '')}/hosted` } : {});
 };
 export const renameBrowser = (n: number, name: string) => post<{ ok: boolean }>('/api/browser/rename', { n, name });
 export const removeBrowser = (n: number) => post<{ ok: boolean }>('/api/browser/remove', { n });

@@ -151,7 +151,10 @@ export function pairCode(base?: string): { code: string; url: string; link: stri
   } while (codes.has(code));
   codes.set(code, Date.now() + codeTtlMs);
   wrongCodes = 0;
-  const pub = process.env.EAA_PUBLIC_URL?.trim();
+  // Hosted on a server: its public address (Railway names it for us), so the person's
+  // browser reaches it over wss from their own computer.
+  const railway = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
+  const pub = process.env.EAA_PUBLIC_URL?.trim() || (railway ? `https://${railway}` : '');
   const url = pub ? wsAddress(pub) : base ? wsAddress(base) : `ws://127.0.0.1:${linkPort()}${PATH}`;
   const n = process.env.EAA_ORG_NAME?.trim() || 'EXTREMELY';
   const link = 'eaa1:' + Buffer.from(JSON.stringify({ u: url, c: code, n })).toString('base64url');

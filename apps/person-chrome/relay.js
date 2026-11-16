@@ -20,6 +20,11 @@ const MAX_DOWNLOAD = 50 * 1024 * 1024;
 const HINT_MS = 30_000; // how long a "download will begin" from a tab is matched to a new download
 const KEEP_DOWNLOADS = 500;
 const GROUP_COLORS = new Set(['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange']);
+// The record of agent tabs that outlives a browser restart (chrome.storage.local).
+const RECORD_KEY = 'eaaAgentTabs';
+const RECORD_MS = 1_000; // written this long after the last change
+const RECORD_MAX = 300; // tabs per agency
+const WAITING_KEY = 'waiting'; // the "Waiting on you" group: kept pages, the person's
 
 // Inside a tab's session, the Target domain could reach other targets (the person's tabs
 // included). Only these act on the tab itself or its own frames.
@@ -92,7 +97,11 @@ export function createRelay(chromeApi, send, opts = {}) {
     children: {}, // Chrome's child sessionId (an iframe) -> its tab's id
     downloads: {}, // download id -> {agency, tabId}
     windows: [], // windows this extension opened (the only ones it resizes)
+    groupInfo: {}, // agency + "\n" + key -> {title, color}, as the browser has the group
   };
+  // The agent tabs recorded before this browser session (a restart: Chrome may restore
+  // them, with new ids): agency -> [{url, title, color, waiting}]. Swept by sweepRestored.
+  let previous = {};
   let paused = false;
   const closing = new Set(); // tabs closed for a Target.closeTarget, so that close isn't the person's
   const hints = []; // {url, tabId, at}: Page.downloadWillBegin seen in an agent tab
@@ -103,9 +112,22 @@ export function createRelay(chromeApi, send, opts = {}) {
 
   const ready = (async () => {
     try {
-      const [{ eaaRelay }, { paused: p }] = await Promise.all([c.storage.session.get('eaaRelay'), c.storage.local.get('paused')]);
+      const [{ eaaRelay, eaaSession, eaaPrevious }, { paused: p, [RECORD_KEY]: rec }] = await Promise.all([
+        c.storage.session.get(['eaaRelay', 'eaaSession', 'eaaPrevious']),
+        c.storage.local.get(['paused', RECORD_KEY]),
+      ]);
       if (eaaRelay) Object.assign(state, eaaRelay);
+      state.groupInfo ||= {};
       paused = !!p;
+      if (eaaSession) previous = eaaPrevious || {};
+      else {
+        // A new browser session (a restart, or the extension reloaded): what was recorded
+        // is what Chrome may bring back. Held for this session until swept; the record
+        // itself starts again from this session's agent tabs.
+        previous = rec?.v === 1 && rec.agencies && typeof rec.agencies === 'object' ? rec.agencies : {};
+        await c.storage.session.set({ eaaSession: true, eaaPrevious: previous });
+        await c.storage.local.set({ [RECORD_KEY]: recordOf() });
+      }
     } catch (e) {
       console.error('[eaa] could not read the relay state, starting empty', e?.message);
     }
@@ -133,7 +155,89 @@ export function createRelay(chromeApi, send, opts = {}) {
     saving = saving
       .then(() => c.storage.session.set({ eaaRelay: state }))
       .catch(e => console.error('[eaa] could not save the relay state', e?.message));
+    scheduleRecord();
     return saving;
+  }
+
+  // ---------- The record that outlives a restart ----------
+
+  // Each agency's agent tabs that sit in one of its groups: the page and the group's
+  // title and color. After a restart that's all there is to know them by.
+  function recordOf() {
+    const agencies = {};
+    for (const rec of Object.values(state.tabs)) {
+      if (rec.groupKey == null || !rec.url) continue;
+      const g = state.groupInfo[rec.agency + '\n' + rec.groupKey];
+      if (!g || !g.title) continue;
+      const list = (agencies[rec.agency] ||= []);
+      if (list.length < RECORD_MAX) list.push({ url: String(rec.url).slice(0, 2000), title: g.title, color: g.color || '', waiting: rec.groupKey === WAITING_KEY });
+    }
+    return { v: 1, agencies };
+  }
+
+  let recordTimer = null;
+  let recording = Promise.resolve();
+  function scheduleRecord() {
+    clearTimeout(recordTimer);
+    recordTimer = setTimeout(() => void writeRecord(), RECORD_MS);
+    recordTimer?.unref?.(); // Node (tests): not what keeps it running
+  }
+  function writeRecord() {
+    clearTimeout(recordTimer);
+    recordTimer = null;
+    recording = recording
+      .then(() => c.storage.local.set({ [RECORD_KEY]: recordOf() }))
+      .catch(e => console.error('[eaa] could not save the agent tabs record', e?.message));
+    return recording;
+  }
+
+  // After a restart: tabs Chrome brought back that were an agency's agent tabs - in a
+  // group with a recorded group's title and color, at a recorded agent tab's address.
+  // An agent's are closed (the server has let them go: nothing knows them now). A kept
+  // page ("Waiting on you") is the person's: it stays, out of the group, as a normal tab.
+  // Nothing else is touched: not a tab of the person's, not one an agency has now.
+  // agency: just that one's, on its first connection (and its record is done with);
+  // none: every agency's, when the browser starts (kept for those first connections,
+  // since Chrome may still be restoring tabs).
+  async function sweepRestored(agency) {
+    await ready;
+    const wanted = (agency != null ? [agency] : Object.keys(previous)).filter(a => Array.isArray(previous[a]) && previous[a].length);
+    let closed = 0;
+    let ungrouped = 0;
+    if (wanted.length) {
+      const all = await c.tabs.query({}).catch(() => []);
+      const groupOf = new Map();
+      for (const tab of all) {
+        if (tab.groupId == null || tab.groupId === -1 || state.tabs[tab.id]) continue;
+        if (!groupOf.has(tab.groupId)) groupOf.set(tab.groupId, await c.tabGroups.get(tab.groupId).catch(() => null));
+        const g = groupOf.get(tab.groupId);
+        if (!g) continue;
+        const url = tab.url || tab.pendingUrl || '';
+        let hit = null;
+        for (const a of wanted) {
+          hit = previous[a].find(r => r.url === url && r.title === (g.title || '') && (r.color || '') === (g.color || ''));
+          if (hit) break;
+        }
+        if (!hit) continue;
+        try {
+          if (hit.waiting) {
+            await c.tabs.ungroup(tab.id);
+            ungrouped++;
+          } else {
+            await c.tabs.remove(tab.id);
+            closed++;
+          }
+        } catch (e) {
+          console.warn('[eaa] could not tidy a restored agent tab', tab.id, e?.message);
+        }
+      }
+      if (closed || ungrouped) console.log('[eaa] after a restart: closed', closed, 'agent tabs; left', ungrouped, 'kept pages as normal tabs');
+    }
+    if (agency != null && previous[agency]) {
+      delete previous[agency];
+      await c.storage.session.set({ eaaPrevious: previous }).catch(e => console.warn('[eaa] could not save the restore list', e?.message));
+    }
+    return { closed, ungrouped };
   }
 
   function emit(agency, method, params, sessionId) {
@@ -316,8 +420,10 @@ export function createRelay(chromeApi, send, opts = {}) {
     const props = { collapsed: collapsed ?? collapsedByDefault };
     if (title != null) props.title = String(title).slice(0, 80);
     if (GROUP_COLORS.has(color)) props.color = color;
-    await c.tabGroups.update(groupId, props);
+    const g = await c.tabGroups.update(groupId, props);
     state.collapsed[gk] = !!props.collapsed;
+    // Chrome picks a color when none is given: the one it has is what a restart brings back.
+    state.groupInfo[gk] = { title: g?.title ?? props.title ?? '', color: g?.color ?? props.color ?? '' };
     if (state.tabs[tabId]) state.tabs[tabId].groupKey = String(key);
     void save();
     return groupId;
@@ -686,7 +792,7 @@ export function createRelay(chromeApi, send, opts = {}) {
 
   async function onGroupRemoved(group) {
     await ready;
-    for (const [k, id] of Object.entries(state.groups)) if (id === group?.id) delete state.groups[k], delete state.collapsed[k];
+    for (const [k, id] of Object.entries(state.groups)) if (id === group?.id) delete state.groups[k], delete state.collapsed[k], delete state.groupInfo[k];
     void save();
   }
 
@@ -765,9 +871,12 @@ export function createRelay(chromeApi, send, opts = {}) {
       await quietDetach(id);
       delete state.tabs[id];
     }
-    for (const k of Object.keys(state.groups)) if (k.startsWith(agency + '\n')) delete state.groups[k], delete state.collapsed[k];
+    for (const k of Object.keys(state.groups)) if (k.startsWith(agency + '\n')) delete state.groups[k], delete state.collapsed[k], delete state.groupInfo[k];
+    delete previous[agency];
+    await c.storage.session.set({ eaaPrevious: previous }).catch(() => {});
     for (const [id, d] of Object.entries(state.downloads)) if (d.agency === agency) delete state.downloads[id];
     await save();
+    await writeRecord();
     onChange();
   }
 
@@ -790,6 +899,8 @@ export function createRelay(chromeApi, send, opts = {}) {
     on(c.windows.onRemoved, onWindowRemoved);
     on(c.webNavigation.onCreatedNavigationTarget, onCreatedNavigationTarget);
     on(c.downloads.onCreated, onDownloadCreated);
+    // The browser started: it may have brought back agent tabs from last time.
+    if (c.runtime.onStartup) on(c.runtime.onStartup, () => sweepRestored());
   }
 
   return {
@@ -800,6 +911,9 @@ export function createRelay(chromeApi, send, opts = {}) {
     isPaused: () => paused,
     forgetAgency,
     agentTabCount,
+    sweepRestored,
     saved: () => saving,
+    // The record written now, not after its pause (tests).
+    flushRecord: writeRecord,
   };
 }

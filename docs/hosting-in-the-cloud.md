@@ -22,10 +22,11 @@ run it (accounts, keys, monitoring), which isn't in this repository.
   computer the person's own agency keeps it, here nothing else would;
 - no browser: agents browse in the members' own Chrome or Edge, through the
   EXTREMELY extension (docs/browser-extension.md, "Pairing" says which address
-  it connects to);
+  it connects to), which reaches the agency at the container's public address
+  through the link front (`src/link-forward.ts`);
 - Claude Code, for agents on a Claude plan.
 
-Nothing listens outside the container. Its volume, mounted at `/data`, holds:
+Only the browser link listens outside the container (below). Its volume, mounted at `/data`, holds:
 
 | Path | What |
 |---|---|
@@ -50,10 +51,28 @@ agency and no bundle it waits for one to arrive in `/data/incoming`
 | `EAA_MOVE_IN_URL` | optional: where to fetch the bundle, instead of putting it in `/data/incoming` |
 | `EAA_MOVE_IN_REPLACE` | `1`: that bundle replaces the agency here even when it's already the host (moving in again from a better copy), once per address; the old agency is kept as `agency.replaced-<when>` |
 | `EAA_GOOGLE_CLIENT_ID`, `EAA_GOOGLE_CLIENT_SECRET` | the build's Google client, so Google sign-ins made with it keep renewing |
+| `EAA_PUBLIC_URL` | the container's public https address, for the browser link (below); on Railway, `RAILWAY_PUBLIC_DOMAIN` does when this isn't set |
+| `EAA_AGENCY_PORT` | optional: the port the agency listens on inside the container (5195) |
 
 Sidecars get the container's variables too, except `EAA_VAULT_KEY`.
 
-The platform sets `PORT` (often 8080). That is only the port the process listens on inside the container. A sign-in the person's browser completes — a service, ChatGPT, OpenRouter — comes back to the app on their computer, port 5175 (`EAA_CALLBACK_PORT` when that app is not the usual one). Their app sends the result to this host. Nothing on their computer is listening on the container's port.
+The platform sets `PORT` (often 8080), the port its public address goes to. Only the browser link front listens there (`src/link-forward.ts`): it passes WebSocket upgrades on `/api/browser-link` to the agency and answers anything else with a 404. The agency itself listens inside the container only, on `EAA_AGENCY_PORT` (5195 by default), and sidecars get that address. A sign-in the person's browser completes — a service, ChatGPT, OpenRouter — comes back to the app on their computer, port 5175 (`EAA_CALLBACK_PORT` when that app is not the usual one). Their app sends the result to this host. Nothing on their computer is listening on the container's port.
+
+### The browser link needs the public address
+
+Members pair their own Chrome or Edge with the hosted agency (Connectors >
+Browser), and the extension connects to it from their computer over `wss`. The
+pairing tells it where: `wss://<public host>/api/browser-link`, the host from
+`EAA_PUBLIC_URL`, or on Railway from `RAILWAY_PUBLIC_DOMAIN` (Railway sets it
+once the service has a public domain) when `EAA_PUBLIC_URL` isn't set.
+
+So give the service a public domain aimed at `PORT` (Railway: Settings >
+Networking > Generate Domain), or set `EAA_PUBLIC_URL` to the address in front of
+it. With neither, the pairing falls back to the address the app reached the
+agency at, which for a cloud host isn't one a browser can reach.
+
+The link authenticates itself (a one-time pairing code, then the browser's
+token). The front adds nothing to that and opens nothing else.
 
 ## Moving an organisation in
 

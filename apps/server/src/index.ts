@@ -42,6 +42,7 @@ import { aiDisconnected } from './runner/helpers.js';
 import { pickDefaults } from './runner/defaults.js';
 import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, nameNow, noteName, personFor, recordAction, requireAdmin, requireMakerOrAdmin, setAccessConfig } from './access.js';
 import { handleBrowserConnectPage, handleBrowserLinkUpgrade } from './runner/browser-link.js';
+import { forwardLinkUpgrade, LINK_PATH } from './link-forward.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
 const PORT = Number(process.env.PORT ?? 5175);
@@ -564,10 +565,13 @@ const server = createServer(async (req, res) => {
   }
   // An organization's agency is reached through the person's own (hosting.ts), so only from this computer.
 });
-// WebSocket upgrades: only the extension's link (runner/browser-link.ts) takes one.
-// Any other is ended, so a stray upgrade doesn't hold a socket open.
+// WebSocket upgrades: only the extension's link (runner/browser-link.ts) takes one,
+// this agency's own or (at /hosted/api/browser-link) the organization's it hosts, for
+// a self-hosted one's members at this computer's address (link-forward.ts). Any other
+// is ended, so a stray upgrade doesn't hold a socket open.
 server.on('upgrade', (req, socket, head) => {
   if (handleBrowserLinkUpgrade(req, socket, head)) return;
+  if (!HOSTED_ORG && hostingStatus() && new URL(req.url ?? '/', 'http://x').pathname === `/hosted${LINK_PATH}`) return forwardLinkUpgrade(req, socket, head, HOSTED_PORT);
   socket.on('error', e => console.error('[upgrade] socket error:', e.message));
   socket.end('HTTP/1.1 404 Not Found\r\nconnection: close\r\ncontent-length: 0\r\n\r\n');
 });

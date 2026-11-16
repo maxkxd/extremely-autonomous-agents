@@ -38,8 +38,10 @@ ENV NODE_ENV=production \
     EAA_CALLBACK_PORT=5175 \
     EAA_CLOUD_HOST=1
 
-# Nothing listens outside the container: members reach it through the relay,
-# over the agency's own outbound connection. Sign-ins (OAuth) come back to the
+# Members' apps reach it through the relay, over the agency's own outbound
+# connection. The only thing listening on PORT (the platform's public address) is
+# the browser link front (src/link-forward.ts): members' EXTREMELY extensions
+# connect to the agency there, over wss. The agency itself listens inside only. Sign-ins (OAuth) come back to the
 # member's own app on 5175, the address registered with services, which hands
 # them on through the relay: EAA_CALLBACK_PORT, not the host's PORT.
 ENTRYPOINT ["/usr/bin/tini", "--", "/bin/sh", "/app/start.sh"]

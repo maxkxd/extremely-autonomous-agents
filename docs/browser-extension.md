@@ -109,7 +109,17 @@ What `chrome.debugger` can't do, or what would reach past the tab, is reported a
 
 - `chrome.storage.local`: pairings, a list of `{url, token, browser, name}`. A browser may be paired with more than one agency, each a separate connection.
 - `chrome.storage.session`: agent tabs `{tabId: {agencyUrl, groupKey}}` and groups `{key: groupId}`. This survives worker restarts but not browser restarts.
+- `chrome.storage.local`, `eaaAgentTabs`: a small record that outlives a restart, `{v: 1, agencies: {<agencyUrl>: [{url, title, color, waiting}]}}`. One entry per agent tab in a group: its address and its group's title and color (the color Chrome has; Chrome picks one when none was given). Written about a second after the agent tabs change (opened, navigated, regrouped, closed).
 - After a browser restart there are no agent tabs. The server sees `Target.getTargets` without the old ones and handles kept pages it can't find as lost.
+
+### Restored tabs after a restart
+
+Chrome may restore the last session. The agent tabs and groups come back with new tab ids, which nothing knows, so they'd sit in the person's window for good. So:
+- At the start of a browser session (no session state yet), the extension takes the record as "last session" and starts a new record.
+- On `chrome.runtime.onStartup`, and on each agency's first connection (`hello-ok`) in the session, it looks at every tab in a group. A tab is a restored agent tab only when its group's title and color match a recorded group **and** its address matches a recorded agent tab of that group.
+- A restored agent tab is closed. A restored "Waiting on you" tab (group key `waiting`) is the person's: it stays open and is taken out of the group, a normal tab. The server has already counted kept pages as lost.
+- Nothing else is touched: a tab of the person's, one in a group of theirs, or one an agency opened in this session.
+- An agency's part of the record is used once, on its first connection; a removed pairing's is dropped. A worker restart within the same browser session sweeps nothing.
 
 ### Tab groups and closing
 
@@ -129,7 +139,12 @@ What `chrome.debugger` can't do, or what would reach past the tab, is reported a
 
 **Address `url`:**
 - The agency's own address as the browser reaches it: `ws://127.0.0.1:<its port>/api/browser-link` when it runs on this computer.
-- `wss://<its public host>/api/browser-link` when it's hosted. That uses `EAA_PUBLIC_URL` if set, otherwise the address the app reached it at, passed by the app as `base` in the pair request.
+- **An organization hosted on this computer:** its agency runs with `PORT=5185` (hosting.ts) and listens on loopback, so the address is `ws://127.0.0.1:5185/api/browser-link`. The extension connects to it directly; the person's own agency (5175) isn't in between.
+- **Hosted in the cloud:** `wss://<its public host>/api/browser-link`, from `EAA_PUBLIC_URL`, or on Railway `https://$RAILWAY_PUBLIC_DOMAIN` when that isn't set. The container's only public listener is the link front (`src/link-forward.ts`, started by `scripts/cloud-host.ts` on `PORT`). It passes WebSocket upgrades on `/api/browser-link` to the agency inside the container and answers everything else with a 404. Path: browser, `wss://` (TLS ends at the platform's edge), the front on `PORT`, then `ws://127.0.0.1:<agency port>/api/browser-link`.
+- **Self-hosted** (an organization at its own address): the app passes `<address>/hosted` as `base`, giving `wss://<address>/hosted/api/browser-link`. The host's own agency passes that upgrade on to the organization's agency on 5185.
+- Otherwise the address the app reached it at, passed by the app as `base` in the pair request.
+
+**Forwarding hops** (`src/link-forward.ts`): a hop ends the browser's WebSocket and opens its own to the agency, then passes frames both ways, close codes included. Only WebSocket frames reach the agency, never a raw HTTP request (which it would take as coming from this computer). The hop passes `Origin` on and adds no sign-in of its own: the link checks the code or token, and the extension's origin, as it always does. A refusal by the agency (403 for a web page's origin) comes back as the same status; an agency that isn't up gives a 502, and the extension tries again.
 
 **Rules:**
 - Loopback connections and any `wss` connection are accepted only with a valid token or code.

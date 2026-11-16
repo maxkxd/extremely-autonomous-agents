@@ -22,6 +22,7 @@ function store() {
       Object.assign(data, clone(o));
     },
     dump: () => clone(data),
+    clear: () => void (data = {}),
   };
 }
 
@@ -39,7 +40,7 @@ export function fakeChrome() {
   let lastFocused = 1;
 
   const chrome = {
-    runtime: { id: 'ext-id', getManifest: () => ({ version: '0.2.0' }) },
+    runtime: { id: 'ext-id', getManifest: () => ({ version: '0.2.0' }), onStartup: event() },
     storage: { local: store(), session: store() },
     windows: {
       async getLastFocused() {
@@ -113,6 +114,7 @@ export function fakeChrome() {
         return g.id;
       },
       async ungroup(id) {
+        if (!tabs.has(id)) throw new Error('No tab with id: ' + id);
         tabs.get(id).groupId = -1;
       },
       onCreated: event(),
@@ -184,11 +186,39 @@ export function fakeChrome() {
     cookies,
     downloads,
     setLastFocused: id => (lastFocused = id),
-    // A tab the person opened themselves.
-    personTab(url = 'https://mail.example.com/') {
-      const t = { id: nextTab++, windowId: 1, url, title: 'Inbox', active: true, groupId: -1 };
+    // A tab the person opened themselves (in a group of theirs, with groupId).
+    personTab(url = 'https://mail.example.com/', groupId = -1) {
+      const t = { id: nextTab++, windowId: 1, url, title: 'Inbox', active: true, groupId };
       tabs.set(t.id, t);
       return t.id;
+    },
+    // A tab group the person made themselves.
+    personGroup(title, color) {
+      const g = { id: nextGroup++, windowId: 1, collapsed: false, title, color };
+      groups.set(g.id, g);
+      return g.id;
+    },
+    // The browser quits and starts again, restoring its last session: every tab and
+    // group comes back with a new id (same address, same group title and color), the
+    // debugger is off, chrome.storage.session is empty and chrome.storage.local isn't.
+    restartBrowser() {
+      chrome.storage.session.clear();
+      attached.clear();
+      const newGroup = new Map();
+      for (const g of [...groups.values()]) {
+        groups.delete(g.id);
+        const n = { ...g, id: nextGroup++ };
+        groups.set(n.id, n);
+        newGroup.set(g.id, n.id);
+      }
+      const newTab = new Map();
+      for (const t of [...tabs.values()]) {
+        tabs.delete(t.id);
+        const n = { ...t, id: nextTab++, url: t.url || t.pendingUrl || '', pendingUrl: undefined, groupId: t.groupId === -1 ? -1 : newGroup.get(t.groupId), openerTabId: undefined };
+        tabs.set(n.id, n);
+        newTab.set(t.id, n.id);
+      }
+      return { tab: id => newTab.get(id), group: id => newGroup.get(id) };
     },
   };
 }

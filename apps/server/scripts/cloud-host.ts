@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
+import { startLinkFront } from '../src/link-forward.js';
 import { openSealed, unpackBundle, vaultKeyBytes } from '../src/move.js';
 
 // An organization's agency in a container (docs/hosting-in-the-cloud.md): what
@@ -24,7 +25,11 @@ const DATA = resolve(process.env.EAA_DATA_DIR ?? '/data/agency');
 const ROOT = dirname(DATA);
 const INCOMING = join(ROOT, 'incoming');
 const SIDECARS = join(ROOT, 'sidecars');
+// PORT is the one the platform sends the public address to (Railway's public domain).
+// Only the browser link listens there (src/link-forward.ts): the agency itself listens
+// inside the container, on AGENCY_PORT.
 const PORT = Number(process.env.PORT ?? 5185);
+const AGENCY_PORT = Number(process.env.EAA_AGENCY_PORT || (PORT === 5195 ? 5196 : 5195));
 const SERVER = fileURLToPath(new URL('../src/index.ts', import.meta.url));
 const log = (m: string) => console.log(`[cloud] ${m}`);
 
@@ -106,13 +111,17 @@ function keep(name: string, args: string[], env: NodeJS.ProcessEnv, again: boole
 }
 
 await moveIn();
+// The person's browser reaches the agency's link at the public address (EAA_PUBLIC_URL,
+// or Railway's RAILWAY_PUBLIC_DOMAIN): it pairs and stays connected through here.
+await startLinkFront(PORT, AGENCY_PORT);
+log(`The browser link is reachable on port ${PORT}; the agency listens inside, on ${AGENCY_PORT}.`);
 // The agency: when it stops, so does the container (and the host starts it again).
-keep('The agency', ['--import', 'tsx', SERVER], { ...process.env, EAA_DATA_DIR: DATA, PORT: String(PORT), EAA_CLOUD_HOST: '1' }, false);
+keep('The agency', ['--import', 'tsx', SERVER], { ...process.env, EAA_DATA_DIR: DATA, PORT: String(AGENCY_PORT), EAA_CLOUD_HOST: '1' }, false);
 if (existsSync(SIDECARS))
   for (const f of (await readdir(SIDECARS)).filter(f => f.endsWith('.mjs')).sort()) {
     log(`Starting ${f}.`);
     // Not the agency's own keys: a sidecar reads the agency through its address.
-    const env: NodeJS.ProcessEnv = { ...process.env, EAA_URL: `http://127.0.0.1:${PORT}` };
+    const env: NodeJS.ProcessEnv = { ...process.env, EAA_URL: `http://127.0.0.1:${AGENCY_PORT}`, PORT: String(AGENCY_PORT) };
     delete env.EAA_VAULT_KEY;
     keep(f, [join(SIDECARS, f)], env, true);
   }

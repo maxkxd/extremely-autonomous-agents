@@ -127,6 +127,9 @@ function online(url, c, ws, msg) {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
   }, PING_MS);
   void rememberNumber(url, msg);
+  // The first time this agency is online since the browser started: agent tabs of its
+  // that Chrome brought back from last time are closed (relay.js, sweepRestored).
+  void relay.sweepRestored(url).catch(e => console.error('[eaa] tidying restored agent tabs', e?.message));
   void badge();
 }
 
