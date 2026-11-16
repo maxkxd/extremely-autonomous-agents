@@ -4,16 +4,42 @@
   <meta charset="utf-8">
   <title>EXTREMELY</title>
   <style>
-    body { margin: 0; width: 280px; font: 13px/1.4 system-ui, sans-serif; background: #16161a; color: #f4f4f5; }
-    main { padding: 14px; }
-    h1 { font-size: 14px; margin: 0 0 8px; }
-    p { margin: 0; color: #c4c4cc; }
+    :root { color-scheme: light dark; --bg: #ffffff; --fg: #18181b; --dim: #71717a; --line: #e4e4e7; --field: #f4f4f5; --on: #16a34a; --off: #a1a1aa; --warn: #d97706; --bad: #dc2626; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #16161a; --fg: #f4f4f5; --dim: #a1a1aa; --line: #2e2e35; --field: #222228; }
+    }
+    body { margin: 0; width: 300px; font: 13px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+    main { padding: 12px 14px; display: grid; gap: 12px; }
+    h1 { font-size: 14px; margin: 0; display: flex; justify-content: space-between; align-items: center; }
+    ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+    li { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--off); }
+    .dot.online { background: var(--on); }
+    .dim { color: var(--dim); }
+    .bad { color: var(--bad); }
+    input[type=text] { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--fg); font: inherit; }
+    button { padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--fg); font: inherit; cursor: pointer; }
+    button.link { border: 0; background: none; padding: 0; color: var(--dim); }
+    form { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+    label { display: grid; gap: 4px; }
+    .switch { display: flex; gap: 6px; align-items: center; font-weight: normal; font-size: 12px; }
+    .paused { color: var(--warn); }
   </style>
 </head>
 <body>
   <main>
-    <h1>EXTREMELY</h1>
-    <p id="state">Checking the connection…</p>
+    <h1>EXTREMELY <label class="switch"><input type="checkbox" id="pause"> Pause agents</label></h1>
+    <p id="paused" class="paused" hidden>Agents can't use this browser until you resume.</p>
+    <ul id="list"></ul>
+    <p id="none" class="dim" hidden>Not paired yet.</p>
+    <div>
+      <form id="pair">
+        <input type="text" id="link" placeholder="Pair with EXTREMELY: paste the eaa1: link" autocomplete="off" spellcheck="false">
+        <button type="submit">Pair</button>
+      </form>
+      <p id="pairMsg" class="dim" hidden></p>
+    </div>
+    <label class="dim">This browser's name <input type="text" id="label" maxlength="60"></label>
   </main>
   <script src="popup.js"></script>
 </body>

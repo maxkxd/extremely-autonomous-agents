@@ -67,20 +67,17 @@ export function groupProcesses(ps: string): Group[] {
     const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
     if (!m) continue;
     const [threads, kb, args] = [Number(m[1]), Number(m[2]), m[3]];
+    // A browser here is the person's own (agents work in it through the extension) or a plugin's.
     const what = /chrome|chromium|msedge/i.test(args)
-      ? /--user-data-dir=\S*playwright/.test(args)
-        ? 'throwaway browser'
-        : /--user-data-dir=\S*person-\d/.test(args)
-          ? "person's sign-in window"
-          : 'agents’ browser'
+      ? 'browsers (Chrome or Edge)'
       : /^claude\b|claude-code|claude\.exe/.test(args)
         ? 'Claude Code'
         : /^(\/\S*\/)?node\b/.test(args)
           ? 'Node (the agency, plugins, sidecars)'
           : /esbuild/.test(args)
             ? 'esbuild'
-            : /Xvfb|ffmpeg|xdotool/.test(args)
-              ? 'virtual screens'
+            : /ffmpeg/.test(args)
+              ? 'ffmpeg'
               : 'other';
     const g = groups.get(what) ?? { what, processes: 0, threads: 0, mb: 0 };
     g.processes++;
@@ -122,18 +119,16 @@ export async function hostHealth(now = Date.now()): Promise<string> {
   if (groups.length)
     out.push(`## What's using it\n${groups.map(g => `- ${g.what}: ${g.processes} processes, ${g.threads} threads, ${g.mb} MB`).join('\n')}`);
 
-  const b = browsers;
-  out.push(
-    `## Browsers\n${[
-      ...b.agents.map(a => `- Agents' browser, profile ${a.profile} (pid ${a.pid}): ${a.runs} run${a.runs === 1 ? '' : 's'} using it, ${a.pages} pages open${a.stray ? ` (${a.stray} no run is using - host.clean_up closes them)` : ''}`),
-      ...b.personWindows.map(p => `- A person's sign-in window, profile ${p.profile} (pid ${p.pid})`),
-      ...(b.throwaway ? [`- Throwaway browsers in runs: ${b.throwaway}`] : []),
-      ...(b.leftovers.length ? [`- Leftovers nobody is using: ${b.leftovers.length} (pids ${b.leftovers.join(', ')}) - host.clean_up ends them`] : []),
-    ].join('\n') || '- None open'}`,
-  );
-  const strays = b.agents.reduce((n, a) => n + a.stray, 0);
-  if (strays >= 5) warn.push(`${strays} pages are open in the agents' browser that no run is using.`);
-  if (b.leftovers.length) warn.push(`${b.leftovers.length} leftover browser${b.leftovers.length === 1 ? '' : 's'} nobody is using.`);
+  // The person's own browsers, paired through the extension: the agents' tabs in them.
+  const b = browsers.browsers;
+  const browserLine = (x: (typeof b)[number]) =>
+    x.online
+      ? `- Browser ${x.n} (${x.name}): online, ${x.runs} run${x.runs === 1 ? '' : 's'} using it, ${x.tabs} agent tab${x.tabs === 1 ? '' : 's'} open${x.kept ? `, ${x.kept} kept for the person` : ''}${x.stray ? ` (${x.stray} no run is using - host.clean_up closes them)` : ''}`
+      : `- Browser ${x.n} (${x.name}): offline${x.kept ? `, ${x.kept} page${x.kept === 1 ? '' : 's'} kept for the person in it` : ''}`;
+  out.push(`## Browsers (the person's, through the extension)\n${b.map(browserLine).join('\n') || "- None connected: agents can't browse until the person connects one (Settings > Connectors > Browser)"}`);
+  const strays = b.reduce((n, x) => n + x.stray, 0);
+  if (strays >= 5) warn.push(`${strays} agent tabs are open in the person's browser that no run is using.`);
+  if (b.length && !b.some(x => x.online)) warn.push("No browser is online: agents can't browse until the person opens one with the EXTREMELY extension.");
 
   const crashes = claudeCrashes.filter(c => c.at >= now - 24 * HOUR);
   if (crashes.length) {
@@ -164,7 +159,7 @@ const TOOLS: ToolDef[] = [
     id: 'host.health',
     tier: 'T0',
     description:
-      "The machine the agency runs on: its process/thread and memory limits and how close they are, what's using them (browsers, Claude Code, plugins), the browsers open and any leftovers, Claude Code crashes and their cause, and errors the agency logged. Look here first when runs fail with \"exit null\", \"EAGAIN\", \"Failed to start ... thread\", \"Target crashed\" or \"The server stopped\".",
+      "The machine the agency runs on: its process/thread and memory limits and how close they are, what's using them (Claude Code, plugins), the person's browsers agents work in (online or not, agent tabs open), Claude Code crashes and their cause, and errors the agency logged. Look here first when runs fail with \"exit null\", \"EAGAIN\", \"Failed to start ... thread\", \"Target crashed\" or \"The server stopped\".",
     schema: obj({}),
     impl: () => hostHealth(),
   },
@@ -172,15 +167,15 @@ const TOOLS: ToolDef[] = [
     id: 'host.clean_up',
     tier: 'T1',
     description:
-      "Free the machine: closes pages in the agents' browser no run is using (a site's popups and tabs from runs that ended), ends leftover browsers nobody is using, and closes agents' browsers no run is using right now (sign-ins are kept; each starts again fresh when a run needs it). Never touches a run in progress or a person's window. Says what it did, with the numbers before and after.",
+      "Free memory: closes agent tabs no run is using in the person's browsers (a site's popups and tabs from runs that ended). Never touches a run in progress, a page kept for the person, or the person's own tabs. Says what it did, with the numbers before and after.",
     schema: obj({}),
     impl: async () => {
       const before = await limits();
-      const { ended, closed, pages } = await cleanUpBrowsers();
+      const { pages } = await cleanUpBrowsers();
       const after = await limits();
       const t = (x: Limits) => (x.tasks ? `${x.tasks.now} processes/threads, ` : '') + `${x.memory.nowMb} MB`;
-      if (!ended.length && !closed.length && !pages) return `Nothing to clear: no leftover browsers, and every agents' browser is in use by a run. Now ${t(after)}.`;
-      return `Closed ${pages} page${pages === 1 ? '' : 's'} no run was using; ended ${ended.length} leftover browser${ended.length === 1 ? '' : 's'}; closed the agents' browser for profile${closed.length === 1 ? '' : 's'} ${closed.join(', ') || '-'}. Before: ${t(before)}. After: ${t(after)}.`;
+      if (!pages) return `Nothing to clear: every agent tab open is in use by a run or kept for the person. Now ${t(after)}.`;
+      return `Closed ${pages} agent tab${pages === 1 ? '' : 's'} no run was using. Before: ${t(before)}. After: ${t(after)}.`;
     },
   },
 ];
@@ -203,7 +198,7 @@ if (process.platform === 'linux')
     const memory = await memoryFraction();
     const full = memory != null && memory >= CLEAN_AT;
     if (!crowded && !full) return;
-    const { ended, closed } = await cleanUpBrowsers();
+    const { pages } = await cleanUpBrowsers();
     const why = [crowded ? `At ${t!.now} of ${t!.max} processes/threads` : '', full ? `Memory at ${Math.round(memory! * 100)}%` : ''].filter(Boolean).join(', ');
-    console.error(`[host] ${why}: ended ${ended.length} leftover browsers, closed ${closed.length} idle agents' browsers.`);
+    console.error(`[host] ${why}: closed ${pages} agent tab${pages === 1 ? '' : 's'} no run was using.`);
   }, SELF_CHECK_MS).unref();

@@ -7,7 +7,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { browserExe, inPage, pageViewForTests as view } from './browser.js';
+import { inPage, pageViewForTests as view } from './browser.js';
+import { testBrowserExe } from './browser-test-exe.js';
 import { Cdp, CdpPage } from './cdp.js';
 
 // The page view against a real browser, on pages built to fail the way directory
@@ -16,7 +17,7 @@ import { Cdp, CdpPage } from './cdp.js';
 // 80 controls, typed values nobody could see, a dropdown made of page elements, a
 // page that draws itself after it loads, and a logo upload behind a styled button.
 
-const exe = browserExe();
+const exe = testBrowserExe();
 let proc: ChildProcess | undefined;
 let cdp: Cdp;
 let dir: string;

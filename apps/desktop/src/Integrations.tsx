@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ExternalLink, Globe, Plug, Plus } from 'lucide-react';
+import { AppWindow, Check, Chrome, ExternalLink, Globe, Plug, Plus } from 'lucide-react';
 import { siBrave, siGithub, siGmail, siGoogleanalytics, siGoogledrive, siGooglecalendar, siGooglesearchconsole, siHubspot, siNotion, siPosthog, siSentry, siShopify, siSquare, siStripe, siYoutube, siZoho, type SimpleIcon } from 'simple-icons';
 import { SpinButton } from './ModelConnectors';
 import { SkelRows } from './Skeleton';
@@ -17,10 +17,12 @@ import {
   getEvents,
   getCodePlugins,
   getIntegrations,
-  openAgentBrowser,
-  personChromeStatus,
-  connectPersonChrome,
-  resetPersonChrome,
+  getBrowsers,
+  pairBrowser,
+  openBrowserConnect,
+  renameBrowser,
+  removeBrowser,
+  type BrowsersView,
   getPasswords,
   revealPassword,
   addPassword,
@@ -37,6 +39,7 @@ import {
   type TunnelState,
 } from './builder';
 import { Working } from './Busy';
+import { notify } from './Notices';
 import { every } from './poll';
 import { scrollToCard, whenOpened } from './scrollToCard';
 
@@ -110,7 +113,7 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
           </p>
         ))}
       </div>
-      {isAdmin() && <AgentBrowser status={view.profile} />}
+      {isAdmin() && <BrowserCard />}
     </>
   );
 }
@@ -857,130 +860,203 @@ function AddMcp({ refresh, open, setOpen }: { refresh: () => void; open: boolean
   );
 }
 
-// Checks like Cloudflare fail in the agents' browser. This connects the person's
-// own Chrome, where a filled-in page opens and they only pass the check and press Submit.
-function PersonChromeConnect() {
-  const [st, setSt] = useState<Awaited<ReturnType<typeof personChromeStatus>> | null>(null);
+// "3 min ago": when a browser that's offline was last online.
+const ago = (t: number) => {
+  const mins = Math.round((Date.now() - (t < 1e12 ? t * 1000 : t)) / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 48 * 60) return `${Math.round(mins / 60)} h ago`;
+  return `${Math.round(mins / 1440)} days ago`;
+};
+const PAIR_WAIT_MS = 10 * 60_000; // a pairing code's life
+
+// Connectors > Browser (docs/browser-extension.md): the person's own Chrome or Edge
+// profiles, paired through the EXTREMELY extension. Agents work there in collapsed tab
+// groups of their own; the person's tabs are never touched.
+function BrowserCard() {
+  const [view, setView] = useLastSeen<BrowsersView | null>('integrations:browsers', null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'chrome' | 'edge' | 'reset' | null>(null);
-  // Connecting finishes in the other browser, so look again every few seconds and
-  // whenever the app comes back to the front.
+  const [busy, setBusy] = useState<'here' | 'other' | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState<{ n: number; name: string } | null>(null);
+  const [confirm, setConfirm] = useState<number | null>(null);
+  // Counted from the password list, so each browser shows how many accounts agents have there.
+  const [saved, setSaved] = useState<SavedPassword[] | null>(null);
+  // After pairing: the browsers there were, until a new one shows up (then "Browser connected").
+  const [waiting, setWaiting] = useState<{ known: number[]; until: number } | null>(null);
+  const waitRef = useRef(waiting);
+  waitRef.current = waiting;
+  const load = () =>
+    getBrowsers().then(
+      v => {
+        setView(v);
+        setError(null);
+        const w = waitRef.current;
+        if (!w) return;
+        if (v.browsers.some(b => !w.known.includes(b.n))) {
+          waitRef.current = null;
+          setWaiting(null);
+          setLink(null);
+          notify('Browser connected', 'done');
+        } else if (Date.now() > w.until) setWaiting(null);
+      },
+      e => setError((e as Error).message),
+    );
   useEffect(() => {
-    const load = () => personChromeStatus().then(setSt, e => setError((e as Error).message));
-    load();
-    const timer = window.setInterval(load, 3000);
-    window.addEventListener('focus', load);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('focus', load);
-    };
+    void load();
+    return every(load, 5000);
   }, []);
-  const run = (which: 'chrome' | 'edge' | 'reset', fn: () => Promise<unknown>) => {
+  // Pairing finishes in the browser, with the app behind it: looked at every couple of
+  // seconds meanwhile, focused or not.
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = window.setInterval(() => void load(), 2000);
+    return () => window.clearInterval(timer);
+  }, [!!waiting]);
+  const pair = async (which: 'here' | 'other') => {
     setBusy(which);
     setError(null);
-    fn()
-      .then(() => personChromeStatus())
-      .then(next => {
-        setSt(next);
-        if (which !== 'reset' && !next.connected) {
-          window.setTimeout(() => {
-            personChromeStatus().then(setSt, e => setError((e as Error).message));
-          }, 1600);
-        }
-      }, e => setError((e as Error).message))
-      .finally(() => setBusy(null));
-  };
-  const on = st?.browsers ?? (st?.browser ? [st.browser] : []);
-  const where = on.map(b => (b === 'edge' ? 'Edge' : 'Chrome')).join(' and ');
-  const button = (b: 'chrome' | 'edge', name: string) => (
-    <SpinButton spinning={busy === b} className={on.includes(b) ? 'sbtn' : 'sbtn primary'} disabled={!st} onClick={() => run(b, () => connectPersonChrome(b))}>
-      {on.includes(b) ? (
-        <>
-          <Check size={14} /> {name} connected
-        </>
-      ) : (
-        `Connect ${name}`
-      )}
-    </SpinButton>
-  );
-  return (
-    <>
-      <p className="slead">
-        Checks like Cloudflare fail in the agents' browser even when you click them. Connect Chrome or Edge and the filled-in page opens there: you pass the check and press Submit. Your login on that site is put back when you close the tab.
-      </p>
-      <ul className="sconnectors">
-        <li>
-          <span className="sconn-name">
-            <Globe size={14} /> Your browser
-          </span>
-          <span className="sconn-what">
-            {!st && !error ? '…' : st?.connected ? `Connected in ${where}` : 'Not connected yet'}
-            {st && st.pending > 0 ? ` · ${st.pending} page${st.pending === 1 ? '' : 's'} waiting` : ''}
-          </span>
-          <span className="sint-actions">
-            {button('chrome', 'Chrome')}
-            {button('edge', 'Edge')}
-            {st?.connected && (
-              <SpinButton spinning={busy === 'reset'} onClick={() => run('reset', resetPersonChrome)}>
-                Reset
-              </SpinButton>
-            )}
-          </span>
-        </li>
-      </ul>
-      {error && <p className="custom-error">{error}</p>}
-    </>
-  );
-}
-
-// The agents' own browser: separate profiles the person signs in to, and agents
-// sign up in themselves. One opens in a real window on this computer.
-function AgentBrowser({ status }: { status: IntegrationsView['profile'] }) {
-  const [busy, setBusy] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // Counted from the password list once it's in, so adding or deleting one shows here at once.
-  const [saved, setSaved] = useState<SavedPassword[] | null>(null);
-  const profiles = (status.profiles ?? [{ n: 1, open: status.open, inUse: status.inUse, accounts: 0 }]).map(p => (saved ? { ...p, accounts: saved.filter(r => r.profile === p.n).length } : p));
-  const open = async (n: number) => {
-    setBusy(n);
-    setError(null);
+    setCopied(false);
     try {
-      await openAgentBrowser(n);
+      const p = await pairBrowser();
+      if (which === 'here') await openBrowserConnect(p.link);
+      else setLink(p.link);
+      setWaiting({ known: (view?.browsers ?? []).map(b => b.n), until: Date.now() + PAIR_WAIT_MS });
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(null);
     }
   };
+  const act = async (fn: () => Promise<unknown>) => {
+    setError(null);
+    try {
+      await fn();
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const rename = () => {
+    if (!editing) return;
+    const { n, name } = editing;
+    setEditing(null);
+    const was = view?.browsers.find(b => b.n === n)?.name;
+    if (name.trim() && name.trim() !== was) void act(() => renameBrowser(n, name.trim()));
+  };
+  const copy = () => {
+    if (!link) return;
+    navigator.clipboard?.writeText(link).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    }, () => {});
+  };
+  const browsers = view?.browsers ?? [];
+  const online = browsers.filter(b => b.online).length;
+  const stores = view?.storeLinks ?? {};
   return (
     <div className="sgroup">
-      <h3>Signed-in browser</h3>
-      <p className="slead">Edge or Chrome profiles just for agents, kept signed in. Sign in to your own accounts here; agents sign up for theirs.</p>
-      <PersonChromeConnect />
-      <ul className="sconnectors">
-        {profiles.map(p => (
-          <li key={p.n}>
-            <span className="sconn-name">
-              <Globe size={14} /> Profile {p.n}
-            </span>
-            <span className="sconn-what">
-              {p.open ? "Open on your screen - close the window when you're done" : `${p.accounts} saved account${p.accounts === 1 ? '' : 's'}${p.inUse ? ' - agents are working in it too' : ''}`}
-            </span>
-            <span className="sint-actions">
-              <SpinButton spinning={busy === p.n} onClick={() => open(p.n)}>
-                Open
-              </SpinButton>
-            </span>
-          </li>
-        ))}
-      </ul>
+      <h3 className="sbrowser-head">
+        <AppWindow size={16} /> Browser
+        {online > 0 && <span className="sbrowser-count">{online} online</span>}
+      </h3>
+      <p className="slead">Agents work in your own Chrome or Edge, in their own collapsed tab groups.</p>
+      {!view && !error ? (
+        <SkelRows n={1} h={54} what="browsers" />
+      ) : (
+        <ul className="sconnectors">
+          {browsers.map(b => {
+            const accounts = saved?.filter(r => r.profile === b.n).length ?? 0;
+            return (
+              <li key={b.n}>
+                <span className="sconn-name">
+                  <span className="mlogo">{b.kind === 'edge' ? <Globe size={16} strokeWidth={1.8} /> : <Chrome size={16} strokeWidth={1.8} />}</span>
+                  {editing?.n === b.n ? (
+                    <input
+                      className="srow2-input sbrowser-name"
+                      autoFocus
+                      value={editing.name}
+                      onChange={e => setEditing({ n: b.n, name: e.target.value })}
+                      onBlur={rename}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') rename();
+                        if (e.key === 'Escape') setEditing(null);
+                      }}
+                    />
+                  ) : (
+                    <button className="sbrowser-rename" title="Rename" onClick={() => setEditing({ n: b.n, name: b.name })}>
+                      {b.name}
+                    </button>
+                  )}
+                </span>
+                <span className="sconn-what">
+                  <span className={b.online ? 'sbrowser-on' : undefined}>{b.online ? 'Online' : `Offline${b.lastSeen ? ` · last seen ${ago(b.lastSeen)}` : ''}`}</span>
+                  {b.agentTabs > 0 && ` · ${b.agentTabs} agent tab${b.agentTabs === 1 ? '' : 's'}`}
+                  {accounts > 0 && ` · ${accounts} saved account${accounts === 1 ? '' : 's'}`}
+                </span>
+                <span className="sint-actions">
+                  <button
+                    className="slink"
+                    onClick={() => (confirm === b.n ? act(async () => (await removeBrowser(b.n), setConfirm(null))) : setConfirm(b.n))}
+                    onMouseLeave={() => confirm === b.n && setConfirm(null)}
+                  >
+                    {confirm === b.n ? 'Sure?' : 'Remove'}
+                  </button>
+                </span>
+              </li>
+            );
+          })}
+          {!browsers.length && !link && (
+            <li>
+              <span className="sconn-what">No browser connected yet.</span>
+            </li>
+          )}
+          {link && (
+            <li className="sint-wide">
+              <span className="sconn-name">Another profile</span>
+              <span className="sconn-what">{stores.chrome || stores.edge ? 'Paste this into the EXTREMELY extension in that profile.' : 'Install the EXTREMELY extension, then paste this into it.'}</span>
+              <span className="sint-actions">
+                <code className="spw sbrowser-link">{link}</code>
+                <button className="sbtn primary" onClick={copy}>
+                  {copied ? (
+                    <>
+                      <Check size={14} /> Copied
+                    </>
+                  ) : (
+                    'Copy'
+                  )}
+                </button>
+                {stores.chrome && (
+                  <a className="sbtn" href={stores.chrome} target="_blank" rel="noreferrer">
+                    <ExternalLink size={14} /> Install for Chrome
+                  </a>
+                )}
+                {stores.edge && (
+                  <a className="sbtn" href={stores.edge} target="_blank" rel="noreferrer">
+                    <ExternalLink size={14} /> Install for Edge
+                  </a>
+                )}
+              </span>
+            </li>
+          )}
+        </ul>
+      )}
+      <div className="sbrowser-actions">
+        <SpinButton className={browsers.length ? 'sbtn' : 'sbtn primary'} spinning={busy === 'here'} disabled={!!busy} onClick={() => void pair('here')}>
+          Connect this browser
+        </SpinButton>
+        <SpinButton spinning={busy === 'other'} disabled={!!busy} onClick={() => void pair('other')}>
+          Connect another profile
+        </SpinButton>
+      </div>
       {error && <p className="custom-error">{error}</p>}
       <Passwords onRows={setSaved} />
     </div>
   );
 }
 
-// The agents' accounts and passwords: who made each, in which profile. Revealed one at
+// The agents' accounts and passwords: who made each, in which browser. Revealed one at
 // a time; agents never see them (they type them straight into the page).
 function Passwords({ onRows }: { onRows: (rows: SavedPassword[]) => void }) {
   const [rows, setRowsState] = useLastSeen<SavedPassword[] | null>('integrations:passwords', null);
@@ -1016,7 +1092,7 @@ function Passwords({ onRows }: { onRows: (rows: SavedPassword[]) => void }) {
               {r.site} <span className="muted">{r.username}</span>
             </span>
             <span className="sconn-what">
-              {shown[r.id] ? <code className="spw">{shown[r.id]}</code> : `Profile ${r.profile} - ${r.agent_id ? `made by ${r.agent_id}` : 'added by a person'}${r.note ? ` - ${r.note}` : ''}`}
+              {shown[r.id] ? <code className="spw">{shown[r.id]}</code> : `Browser ${r.profile} - ${r.agent_id ? `made by ${r.agent_id}` : 'added by a person'}${r.note ? ` - ${r.note}` : ''}`}
             </span>
             <span className="sint-actions">
               <button className="slink" onClick={() => reveal(r.id)}>

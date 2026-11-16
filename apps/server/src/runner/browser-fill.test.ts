@@ -5,7 +5,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { browserExe, pageViewForTests as view } from './browser.js';
+import { pageViewForTests as view } from './browser.js';
+import { testBrowserExe } from './browser-test-exe.js';
 import { Cdp, CdpPage, dateValue, looseText } from './cdp.js';
 
 // Fields that won't take typed-in text, against a real browser. Request #378: on
@@ -16,7 +17,7 @@ import { Cdp, CdpPage, dateValue, looseText } from './cdp.js';
 // value and puts it back over one set the plain way. The agent's type fills each,
 // and reads it back.
 
-const exe = browserExe();
+const exe = testBrowserExe();
 let proc: ChildProcess | undefined;
 let cdp: Cdp;
 let dir: string;

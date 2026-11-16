@@ -1,11 +1,11 @@
-// A browser driven over its own DevTools address, one page at a time, with
-// Node's WebSocket - no automation library.
+// A browser driven one page at a time over the DevTools protocol - no automation
+// library. In the app the connection is the EXTREMELY extension's relay in the
+// person's own Chrome or Edge (browser-link.ts, docs/browser-extension.md); in tests
+// it's a browser's own DevTools address (Cdp, below).
 //
-// Why not Playwright on the agents' profiles: connected to a browser, it attaches
-// to every page in it, the person's too, and Google's sign-in refuses a page that's
-// attached ("This browser or app may not be secure"). Here only an agent's own page
-// is ever attached; a window opened for the person never is, so to Google it's the
-// plain browser it is. (World Asset Register's runner drives Chrome the same way.)
+// Only an agent's own tab is ever attached, never the person's, and a tab kept for
+// the person is detached first: to Google, Cloudflare and hCaptcha it's the plain
+// browser it is.
 //
 // Nothing here turns on Runtime events (Runtime.enable), which pages can notice:
 // scripts are run with Runtime.evaluate alone - and in a world of their own
@@ -13,11 +13,21 @@
 
 type Listener = (params: any, sessionId?: string) => void;
 
+// What CdpPage needs from a browser connection. Cdp (a DevTools address, used by
+// tests) and the extension's relay (browser-link.ts) both are one.
+export interface CdpConn {
+  readonly closed: boolean;
+  send<T = any>(method: string, params?: Record<string, unknown>, sessionId?: string, timeout?: number): Promise<T>;
+  on(method: string, fn: Listener): () => void;
+  onClose(fn: () => void): void;
+  close(): void;
+}
+
 // A call the browser never answers (a page stuck in a dialog, a renderer that hung)
 // fails after this, instead of holding its run for ever.
 const SEND_TIMEOUT_MS = 60_000;
 
-export class Cdp {
+export class Cdp implements CdpConn {
   private seq = 0;
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   private listeners = new Map<string, Set<Listener>>();
@@ -232,12 +242,13 @@ export class CdpPage {
   private mainFrame?: string;
   private mainContext?: number; // the page view's own world in the page's document
   private dialogs: string[] = []; // what the page said in alerts and confirms since last asked
+  private offs: (() => void)[] = []; // its listeners on the connection, removed when it's let go
   private constructor(
-    private cdp: Cdp,
+    private cdp: CdpConn,
     readonly targetId: string,
     private session: string,
   ) {
-    const off = [
+    this.offs = [
       cdp.on('Target.detachedFromTarget', p => {
         if (p.sessionId === session) this.closedFlag = true;
         for (const [id, c] of this.children) if (c.session === p.sessionId) this.children.delete(id);
@@ -262,14 +273,20 @@ export class CdpPage {
     ];
     cdp.onClose(() => {
       this.closedFlag = true;
-      off.forEach(f => f());
+      this.dispose();
     });
   }
 
-  // A new window (shown, but not brought in front of what the person's doing) - in a
-  // browser context of its own when given one (a throwaway, nothing signed in).
-  static async open(cdp: Cdp, bounds: Bounds, url = 'about:blank', browserContextId?: string): Promise<CdpPage> {
-    const { targetId } = await cdp.send<{ targetId: string }>('Target.createTarget', { url, newWindow: true, background: true, ...bounds, ...(browserContextId ? { browserContextId } : {}) });
+  private dispose() {
+    this.offs.forEach(f => f());
+    this.offs = [];
+  }
+
+  // A new tab, not brought in front of what the person's doing. eaaGroup: the
+  // extension's tab group it goes in (a run's: its id and the agent's name). Without
+  // one (a browser's own DevTools address, in tests) it's a window of its own.
+  static async open(cdp: CdpConn, bounds: Bounds, url = 'about:blank', opts: { eaaGroup?: { key: string; title: string; color?: string } } = {}): Promise<CdpPage> {
+    const { targetId } = await cdp.send<{ targetId: string }>('Target.createTarget', opts.eaaGroup ? { url, background: true, eaaGroup: opts.eaaGroup } : { url, newWindow: true, background: true, ...bounds });
     const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
     const page = new CdpPage(cdp, targetId, sessionId);
     await page.watchFrames(sessionId);
@@ -277,7 +294,7 @@ export class CdpPage {
   }
 
   // A page already open in the browser (one kept for the person, found again after the app restarted).
-  static async attach(cdp: Cdp, targetId: string): Promise<CdpPage> {
+  static async attach(cdp: CdpConn, targetId: string): Promise<CdpPage> {
     const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
     const page = new CdpPage(cdp, targetId, sessionId);
     await page.watchFrames(sessionId);
@@ -320,7 +337,7 @@ export class CdpPage {
     return this.closedFlag || this.cdp.closed;
   }
 
-  // Closed with its whole browser (quit, crashed, closed for Google's sign-in), not on its own.
+  // Closed with its whole browser (it went offline, or quit), not on its own.
   browserGone() {
     return this.cdp.closed;
   }
@@ -345,6 +362,16 @@ export class CdpPage {
   async close() {
     await this.cdp.send('Target.closeTarget', { targetId: this.targetId }).catch(() => {});
     this.closedFlag = true;
+    this.dispose();
+  }
+
+  // The debugger off the tab, which stays open as it is: a security check, or the
+  // person, sees a browser nobody is driving. This page object is done with; attach()
+  // makes a new one on the same tab.
+  async detach() {
+    this.closedFlag = true;
+    this.dispose();
+    await this.cdp.send('Target.detachFromTarget', { sessionId: this.session }).catch(() => {});
   }
 
   // Every page and frame the page loads goes through allow() first: the addresses an
@@ -354,13 +381,13 @@ export class CdpPage {
   // sites time (a CAPTCHA that wouldn't load).
   async guard(allow: (url: string) => Promise<boolean>) {
     this.allow = allow;
-    this.cdp.on('Fetch.requestPaused', (p, sessionId) => {
+    this.offs.push(this.cdp.on('Fetch.requestPaused', (p, sessionId) => {
       if (!sessionId || !this.owns(sessionId)) return;
       void allow(p.request.url).then(
         ok => this.cdp.send(ok ? 'Fetch.continueRequest' : 'Fetch.failRequest', ok ? { requestId: p.requestId } : { requestId: p.requestId, errorReason: 'BlockedByClient' }, sessionId).catch(() => {}),
         () => this.cdp.send('Fetch.failRequest', { requestId: p.requestId, errorReason: 'BlockedByClient' }, sessionId).catch(() => {}),
       );
-    });
+    }));
     await Promise.all([this.session, ...[...this.children.values()].map(c => c.session)].map(s => this.fetchOn(s)));
   }
 
@@ -387,18 +414,6 @@ export class CdpPage {
   // In the page's own world: only for what has to be there for a moment (watching a Copy button).
   evaluateInPage<T = unknown>(expression: string): Promise<T> {
     return this.run<T>(this.session, expression);
-  }
-
-  // Cookies for this page, for a handoff into the person's own Chrome (person-chrome.ts).
-  async cookies(): Promise<{ name: string; value: string; domain: string; path: string; secure: boolean; httpOnly: boolean; sameSite?: string; expires: number; partitionKey?: unknown }[]> {
-    const read = () => this.send<{ cookies: { name: string; value: string; domain: string; path: string; secure: boolean; httpOnly: boolean; sameSite?: string; expires: number; partitionKey?: unknown }[] }>('Network.getCookies');
-    try {
-      return (await read()).cookies ?? [];
-    } catch (e) {
-      console.error('[person-chrome] Network.getCookies failed, enabling Network and trying once:', (e as Error).message);
-      await this.send('Network.enable');
-      return (await read()).cookies ?? [];
-    }
   }
 
   private async run<T>(session: string, expression: string, contextId?: number): Promise<T> {
@@ -808,6 +823,20 @@ export class CdpPage {
     if (!r.result.objectId || r.result.subtype === 'null') return false;
     await this.cdp.send('DOM.setFileInputFiles', { files, objectId: r.result.objectId }, session);
     return true;
+  }
+
+  // The same, with the files' contents (base64) instead of paths: put into the input
+  // inside the page, as a dropped file is. The browser may be on another computer than
+  // the agency (one hosted elsewhere), where a path here means nothing.
+  async setFileData(findInput: string, files: { name: string; type: string; base64: string }[], ref = 0) {
+    const expr = `(() => { const input = ${findInput}; if (!input) return false;
+      const dt = new DataTransfer();
+      for (const f of ${JSON.stringify(files)}) { const bin = atob(f.base64); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); dt.items.add(new File([bytes], f.name, { type: f.type })); }
+      input.files = dt.files;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return true; })()`;
+    return !!(await this.evaluateFor<boolean>(ref, expr));
   }
 
   // --- Watched by a person (live-view.ts) ---------------------------------------------

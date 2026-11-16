@@ -1596,7 +1596,17 @@ ul { list-style: none; margin: 0; padding: 0; }
 .sconnectors li > :last-child { grid-column: 2; grid-row: 1 / span 2; }
 .sconnectors li.with-form { grid-template-rows: auto auto auto; }
 .sint-form { grid-column: 1 / -1; grid-row: 3; padding: 10px 0 0; }
-/* The agents' password store, under Signed-in browser. */
+/* Connectors > Browser: the person's paired Chrome and Edge profiles. */
+.sgroup > h3.sbrowser-head { display: flex; align-items: center; gap: 8px; }
+.sbrowser-head svg { color: var(--muted); }
+.sbrowser-count { padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: #7cc4a0; background: rgba(124, 196, 160, 0.14); }
+.sbrowser-on { color: #7cc4a0; }
+.sbrowser-rename { padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: text; }
+.sbrowser-rename:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
+.sconn-name .srow2-input.sbrowser-name { height: 28px; width: 220px; font-size: 14px; }
+.sbrowser-link { flex: 1 1 100%; padding: 8px 10px; border: 1px solid var(--hairline); border-radius: 8px; word-break: break-all; }
+.sbrowser-actions { display: flex; gap: 8px; margin-top: 10px; }
+/* The agents' password store, under Browser. */
 .sgroup h3.ssub { margin-top: 20px; }
 .spasswords .sint-form { display: flex; flex-direction: column; gap: 8px; }
 .spasswords .sconn-name .muted { font-weight: 400; margin-left: 6px; }

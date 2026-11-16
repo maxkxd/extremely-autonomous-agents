@@ -8,7 +8,7 @@ import { servedHere } from './tools.js';
 // The Doctor once called a crash storm "cleared" minutes before it came back: it
 // could only guess at the machine. These are the numbers it reads now.
 
-test("what's using the machine, grouped: the agents' browser's threads stand out", () => {
+test("what's using the machine, grouped: a browser's threads stand out", () => {
   const ps = [
     '   29 315000 /usr/bin/google-chrome-stable --user-data-dir=/data/agency/browser-profiles/1 --remote-debugging-port=0',
     '   31 450000 /opt/google/chrome/chrome --type=renderer --user-data-dir=/data/agency/browser-profiles/1',
@@ -20,10 +20,8 @@ test("what's using the machine, grouped: the agents' browser's threads stand out
     '    9  12000 /app/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.2 --ping',
   ].join('\n');
   const g = groupProcesses(ps);
-  assert.equal(g[0].what, 'agents’ browser');
-  assert.deepEqual([g[0].processes, g[0].threads], [3, 90]);
-  assert.equal(g.find(x => x.what === "person's sign-in window")?.processes, 1);
-  assert.equal(g.find(x => x.what === 'throwaway browser')?.threads, 18);
+  assert.equal(g[0].what, 'browsers (Chrome or Edge)');
+  assert.deepEqual([g[0].processes, g[0].threads], [5, 128]);
   assert.equal(g.find(x => x.what === 'Claude Code')?.threads, 12);
   assert.ok(g.find(x => x.what.startsWith('Node')));
 });

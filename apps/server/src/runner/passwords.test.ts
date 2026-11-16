@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openDb, run as exec } from './db.js';
 import { ACCOUNTS_PER_SITE, confirmPassword, deletePassword, listPasswords, makePassword, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
-import { onScreen, SIGNED_IN_TOOLS } from './browser.js';
+import { SIGNED_IN_TOOLS } from './browser.js';
 import { BASELINE, BROWSER_KIT } from '../catalog.js';
 
 openDb();
@@ -22,7 +22,7 @@ test('a made password is strong and has every kind of character', () => {
   assert.notEqual(makePassword(), pw);
 });
 
-test('a profile holds 10 accounts on one site; the 11th goes in a new profile, other sites still fit', async () => {
+test('a browser holds 10 accounts on one site; the 11th goes in another browser, other sites still fit', async () => {
   exec('DELETE FROM passwords');
   for (let i = 0; i < ACCOUNTS_PER_SITE; i++) {
     const { profile } = profileFor('google.com', [1]);
@@ -52,11 +52,11 @@ test("the agents' tools never hand a password back, and every agent holds the ki
   await savePassword({ site: 'linkedin.com', username: 'me@x.test', password: 'Hidden#Pass1', profile: 1, agentId: 'zz-a' });
   const list = SIGNED_IN_TOOLS.find(t => t.id === 'signed_in_browser.passwords')!;
   const out = await list.impl({}, {} as never);
-  assert.match(out, /linkedin\.com - me@x\.test \(profile 1\)/);
+  assert.match(out, /linkedin\.com - me@x\.test \(browser 1\)/);
   assert.ok(!out.includes('Hidden#Pass1'));
   const made = SIGNED_IN_TOOLS.find(t => t.id === 'signed_in_browser.make_password')!;
   const said = await made.impl({ site: 'linkedin.com', username: 'second@x.test' }, { agent: { id: 'zz-a' } } as never);
-  assert.match(said, /profile 1/);
+  assert.match(said, /browser 1/);
   assert.ok(!/[A-Za-z0-9!@#$%*?]{20}/.test(said.replace(/#\w+|password_id "\w+"/g, '')), 'the password itself is not in what the agent sees');
   // Every agent's baseline includes it; paying, posting and starting a new tool wait for a person.
   for (const { id, tier } of BROWSER_KIT) assert.ok(BASELINE.some(b => `${b.server}.${b.tool.name}` === id && b.tool.tier === tier), id);
@@ -68,14 +68,6 @@ test("the agents' tools never hand a password back, and every agent holds the ki
   exec('DELETE FROM passwords');
 });
 
-test("a browser window saved off its screen isn't opened there again", () => {
-  const screen = { work_area_left: 0, work_area_top: 0, work_area_right: 1920, work_area_bottom: 1032 };
-  assert.equal(onScreen({ ...screen, left: -1250, top: 0, right: 30, bottom: 900 }), false); // the old hidden placeholder's spot
-  assert.equal(onScreen({ ...screen, left: 120, top: 80, right: 1400, bottom: 980 }), true);
-  assert.equal(onScreen({ ...screen, left: 1500, top: 80, right: 2780, bottom: 980 }), false); // a second screen since unplugged
-  assert.equal(onScreen({ ...screen, left: 200, top: -400, right: 1480, bottom: 500 }), false); // title bar above the screen
-});
-
 test("an agent's new account is not confirmed until it's seen to work; a person's is", async () => {
   exec('DELETE FROM passwords');
   const mine = await savePassword({ site: 'proton.me', username: 'desk@proton.me', password: 'p', profile: 1, agentId: 'zz-a' });
@@ -84,7 +76,7 @@ test("an agent's new account is not confirmed until it's seen to work; a person'
   assert.equal(byId().get(mine), null, 'the sign-up may never finish');
   assert.ok(byId().get(theirs));
   const list = SIGNED_IN_TOOLS.find(t => t.id === 'signed_in_browser.passwords')!;
-  assert.match(String(await list.impl({ site: 'proton.me' }, {} as never)), /desk@proton\.me \(profile 1\) - NOT CONFIRMED[\s\S]*Sign in with it yourself/);
+  assert.match(String(await list.impl({ site: 'proton.me' }, {} as never)), /desk@proton\.me \(browser 1\) - NOT CONFIRMED[\s\S]*Sign in with it yourself/);
   confirmPassword(mine);
   assert.ok(byId().get(mine));
   assert.doesNotMatch(String(await list.impl({ site: 'proton.me' }, {} as never)), /NOT CONFIRMED/);

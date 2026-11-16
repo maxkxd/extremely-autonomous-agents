@@ -1,31 +1,40 @@
 # EXTREMELY Autonomous Agents — browser privacy policy
 
-Last updated 14 November 2026.
+Last updated 16 November 2026. Published at `https://extremely.agency/privacy#browser-extension`.
 
-EXTREMELY is an extension for the EXTREMELY app, for Google Chrome and Microsoft Edge. It opens a web form an EXTREMELY agent has already filled, in your own browser, so you can pass a human check (such as Cloudflare) and press Submit.
+EXTREMELY is an extension for the EXTREMELY app, for Google Chrome and Microsoft Edge. It lets your EXTREMELY agents use this browser: they work in their own collapsed tab groups and hand you pages to finish.
+
+## What changed
+
+Version 0.1.0 only reopened a form an agent had filled, so you could pass a check and press Submit. Version 0.2.0 lets agents work in this browser directly, in tabs they open themselves, using the browser's debugger for those tabs only. The 0.1.0 form and cookie handoff is gone.
 
 ## What it handles
 
-For the one site you just agreed to finish:
+In the tabs the agents open (and pop-ups those tabs open), never in your own tabs:
 
-- the form fields the agent filled in, which can include a password the agent created for that signup
-- that page's local storage and session storage
-- cookies for that site (its own domain only, never another site's), so the page opens the way the agent left it
+- the pages: what the agent reads, clicks and types, and screenshots it takes
+- those tabs' addresses and titles
+- files those tabs download
 
-Before it does that, it saves your own cookies for that site and puts them back when you close the tab, when you finish, or when the browser next starts if a finish was interrupted.
+For this browser profile, only when your agency asks:
+
+- cookies, read and set, so your agents can stay signed in to the sites they work on
+
+The extension never attaches to, reads, lists or closes a tab it did not open for an agent. A page handed to you (a CAPTCHA, a code, a sign-in) has the debugger detached before you see it. **Pause agents** in the toolbar popup detaches it from every tab and stops new agent tabs until you resume.
 
 ## Where it goes
 
-The filled-in page is read from the EXTREMELY app on the same computer (`127.0.0.1`). After you submit, cookies for that site are sent back to that same app so the agent can continue signed in.
+Only to the EXTREMELY agency you paired this browser with: the app on the same computer (`127.0.0.1`), or your own hosted agency over an encrypted (`wss`) connection. A browser paired with more than one agency keeps them apart: each one sees only the tabs it opened.
 
-This data is not sold, not used for advertising, and not sent to a server operated as a general EXTREMELY service. It stays between your browser and your EXTREMELY app.
+This data is not sold, not used for advertising, and not sent to a server operated as a general EXTREMELY service.
 
-The extension does not read other sites. A script that can run on the site you are finishing returns immediately on any tab that is not that handoff.
+## What it keeps
 
-## How long it is kept
+- In the browser's extension storage: each pairing (the agency's address, its name, and a token that proves the pairing), the pause switch, and the name you gave this browser.
+- For the current browser session only: which tabs are agent tabs, and which downloads came from them. This is gone when the browser restarts.
 
-EXTREMELY deletes its copy of the page when you finish, or after 7 days. The browser deletes the backup of your own cookies as soon as they are restored.
+What the agency keeps about its agents' work is covered by the rest of this policy and the agency's own settings.
 
 ## Removing it
 
-Remove the extension in `chrome://extensions` or `edge://extensions`. Disconnect or reset it in EXTREMELY under Settings → Connectors → Signed-in browser. Resetting means the browser must be connected again, and the previous pairing stops working.
+Remove a pairing in the toolbar popup, or remove this browser in EXTREMELY under Connectors → Browser; either stops that agency's access. Remove the extension in `chrome://extensions` or `edge://extensions` to stop all of it.

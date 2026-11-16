@@ -91,7 +91,7 @@ export const APPROVAL_TOOLS = {
     body: null,
     expiresAfterHours: 24,
   },
-  // The agents' signed-in browser: acting as the person.
+  // The agents' browser tools (the person's own Chrome or Edge): acting as the person.
   // The decisive clicks: what it does, in the agent's words.
   'signed_in_browser.click_to_pay': {
     wantsTo: 'pay for something, in its browser',
@@ -112,13 +112,13 @@ export const APPROVAL_TOOLS = {
     expiresAfterHours: 24,
   },
   'signed_in_browser.click': {
-    wantsTo: 'click something as you, in the signed-in browser',
+    wantsTo: 'click something as you, in your browser',
     headers: [],
     body: null,
     expiresAfterHours: 24,
   },
   'signed_in_browser.type': {
-    wantsTo: 'type something as you, in the signed-in browser',
+    wantsTo: 'type something as you, in your browser',
     headers: [],
     body: '{text}',
     expiresAfterHours: 24,

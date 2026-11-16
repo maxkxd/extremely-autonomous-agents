@@ -41,7 +41,7 @@ import { scrub } from './secrets.js';
 import { aiDisconnected } from './runner/helpers.js';
 import { pickDefaults } from './runner/defaults.js';
 import { AccessError, accessConfig, actorFor, asActor, authorize, currentActor, nameNow, noteName, personFor, recordAction, requireAdmin, requireMakerOrAdmin, setAccessConfig } from './access.js';
-import { handlePersonChromeHttp } from './runner/person-chrome.js';
+import { handleBrowserConnectPage, handleBrowserLinkUpgrade } from './runner/browser-link.js';
 
 // The desktop app's backend. Local only; Vite proxies /api here.
 const PORT = Number(process.env.PORT ?? 5175);
@@ -479,7 +479,7 @@ const routes: Record<string, Route> = {
   },
 };
 
-createServer(async (req, res) => {
+const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   // A run's tools, for Claude Code (runner/mcp.ts).
   // A teammate's AI assistant, for an organization hosted elsewhere (runner/remote-mcp.ts):
@@ -522,10 +522,10 @@ createServer(async (req, res) => {
       return send(res, 500, { error: 'Something went wrong on the server.' });
     }
   }
-  // The person's own Chrome (runner/person-chrome.ts): its pages, and the extension.
-  // Before the app's files, or /person-chrome/go would be the app. Before who-is-asking,
-  // because the extension signs in with its own token and only from this computer.
-  if ((url.pathname.startsWith('/person-chrome') || url.pathname.startsWith('/api/person-chrome/ext') || url.pathname.startsWith('/api/person-chrome/app/')) && (await handlePersonChromeHttp(req, res, url))) return;
+  // The page that pairs the person's browser with the EXTREMELY extension
+  // (runner/browser-link.ts). Before the app's files, or it would be the app; before
+  // who-is-asking, since the browser opening it isn't signed in. Loopback only.
+  if (url.pathname === '/browser/connect' && handleBrowserConnectPage(req, res, url)) return;
   // The packaged app's own files (ui.ts): any GET that isn't the agency's - not
   // /api, and not a service's sign-in landing on the root (it carries state; the
   // app's own Google/GitHub sign-in in the browser carries state and handoff).
@@ -563,7 +563,15 @@ createServer(async (req, res) => {
     send(res, 500, { error: 'Something went wrong on the server.' });
   }
   // An organization's agency is reached through the person's own (hosting.ts), so only from this computer.
-}).listen(PORT, HOSTED_ORG ? '127.0.0.1' : undefined, () => {
+});
+// WebSocket upgrades: only the extension's link (runner/browser-link.ts) takes one.
+// Any other is ended, so a stray upgrade doesn't hold a socket open.
+server.on('upgrade', (req, socket, head) => {
+  if (handleBrowserLinkUpgrade(req, socket, head)) return;
+  socket.on('error', e => console.error('[upgrade] socket error:', e.message));
+  socket.end('HTTP/1.1 404 Not Found\r\nconnection: close\r\ncontent-length: 0\r\n\r\n');
+});
+server.listen(PORT, HOSTED_ORG ? '127.0.0.1' : undefined, () => {
   console.log(`eaa server on http://localhost:${PORT}`);
   if (HOSTED_ORG && process.env.EAA_HOST_PERSON) setSetting('host_person', process.env.EAA_HOST_PERSON);
   resumeHosting();

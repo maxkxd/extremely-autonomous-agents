@@ -13,12 +13,12 @@ export type CatalogServer = { server: string; what: string; tools: CatalogTool[]
 
 const t = (name: string, tier: Tier, does: string): CatalogTool => ({ name, tier, does });
 
-// The agents' own browser and password store (runner/browser.ts): every agent holds
+// The agents' browser and password store (runner/browser.ts): every agent holds
 // these, whatever its job - signing up, signing in and getting things done on any
 // website is theirs to do, not "only a person can". Paying, posting publicly and
 // starting a new business tool each have their own click, at approval.
 const BROWSER_KIT_TOOLS: CatalogTool[] = [
-  t('open', 'T0', 'Open a page in its own browser profile and read it'),
+  t('open', 'T0', 'Open a page in its own tab in the browser and read it'),
   t('scroll', 'T0', 'Scroll the current page'),
   t('back', 'T0', 'Go back a page'),
   t('look', 'T0', 'See the current page again without reloading it'),
@@ -34,7 +34,7 @@ const BROWSER_KIT_TOOLS: CatalogTool[] = [
   t('make_password', 'T1', "Sign up for an account: a strong password kept in the agency's store"),
   t('type_password', 'T1', 'Type a password from the store'),
   t('passwords', 'T0', "List the store's accounts (never the passwords)"),
-  t('show_person', 'T1', 'Keep a filled-in page for the person and open it in their Chrome (a CAPTCHA, a phone code)'),
+  t('show_person', 'T1', 'Keep a filled-in page for the person in their browser (a CAPTCHA, a phone code)'),
 ];
 
 export const CATALOG: CatalogServer[] = [
@@ -44,12 +44,12 @@ export const CATALOG: CatalogServer[] = [
     tools: [
       t('web_search', 'T0', 'Search the public web'),
       t('fetch_page', 'T0', 'Read one public page'),
-      t('browse', 'T0', 'Click through public sites in a blank throwaway browser (no sign-ins): open, click, type, scroll'),
+      t('browse', 'T0', 'Click through public sites in the browser: open, click, type, scroll'),
     ],
   },
   {
     server: 'signed_in_browser',
-    what: "The agents' own browser profiles: signed in to sites by the person or by agents, who sign up for accounts themselves (passwords in the agency's store)",
+    what: "The person's own Chrome or Edge, through the EXTREMELY extension: agents work in tabs of their own there, signed in to sites by the person or by agents, who sign up for accounts themselves (passwords in the agency's store)",
     tools: BROWSER_KIT_TOOLS,
   },
   {
@@ -270,7 +270,7 @@ export const toolsForPeople = (tools: { id: string; tier: string }[]) =>
 // Each area by what a person connects for it, for "Connect ..." requests.
 export const CONNECT_LABEL: Record<string, string> = {
   web: 'a web search provider',
-  signed_in_browser: "the agents' signed-in browser",
+  signed_in_browser: 'a browser (Chrome or Edge, with the EXTREMELY extension)',
   gmail: 'email (Gmail or Outlook)',
   calendar: 'a calendar',
   slack: 'Slack',

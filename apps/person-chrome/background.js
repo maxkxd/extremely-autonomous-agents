@@ -1,544 +1,370 @@
-// EXTREMELY in Chrome.
-//
-// Phase A: the agency has filled a form in the agents' browser. This opens that
-// same page in the person's own Chrome, with those fields, that site's storage,
-// and that site's cookies, so they only pass the check and press Submit. Their
-// own cookies for the site are put back when the tab closes.
-//
-// Phase B (not built): the same tab can take click / type / read commands from
-// the agency, delivered to restore.js. Do not add the debugger permission for
-// that. Attaching a debugger is what makes Cloudflare fail.
+// EXTREMELY in this browser: the connections to paired agencies, pairing, the
+// badge, and the popup's and pairing page's messages. What the agency can do in the
+// browser is all in relay.js. The contract is docs/browser-extension.md.
 
-function browserKind() {
-  return /Edg\//.test(navigator.userAgent) ? 'edge' : 'chrome';
+import { createRelay } from './relay.js';
+import { PROTOCOL, decodeLink, browserKind, defaultLabel, isLoopbackHost } from './pairing.js';
+
+const VERSION = chrome.runtime.getManifest().version;
+const KIND = browserKind(navigator.userAgent);
+const PING_MS = 20_000; // the server answers; the traffic also keeps this worker running
+const FIRST_RETRY_MS = 1_000;
+const MAX_RETRY_MS = 30_000;
+const PAIR_TIMEOUT_MS = 15_000;
+const REVIVE_ALARM = 'eaa-revive';
+
+// One per pairing, by its url: {ws, state: 'connecting'|'online'|'offline', backoff, retry, ping, error, stopped}
+const conns = new Map();
+
+const relay = createRelay(chrome, sendTo, {
+  userAgent: navigator.userAgent,
+  version: VERSION,
+  onChange: () => void badge(),
+});
+relay.listen();
+
+// ---------- Stored settings ----------
+
+async function pairings() {
+  const { pairings: list } = await chrome.storage.local.get('pairings');
+  return Array.isArray(list) ? list : [];
 }
-function helloBody() {
-  return JSON.stringify({ browser: browserKind() });
+
+async function savePairings(list) {
+  await chrome.storage.local.set({ pairings: list });
 }
 
-const LOOPBACK = /^(127\.0\.0\.1|localhost)$/;
-// EXTREMELY's own port (the app's fixed one). Pairing to anything else is refused: a
-// local page on another port could otherwise pair this browser to itself and hand it
-// cookies to set, or collect a site's cookies after Submit.
-const EXTREMELY_PORT = '5175';
+async function label() {
+  const { label: l } = await chrome.storage.local.get('label');
+  return String(l || '').trim() || defaultLabel(KIND);
+}
 
-function samePage(href, want) {
-  try {
-    const a = new URL(href);
-    const b = new URL(want);
-    return a.origin === b.origin && a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '');
-  } catch (e) {
-    console.error('[person-chrome] bad url', e.message);
-    return false;
+// ---------- Connections ----------
+
+function connOf(url) {
+  let c = conns.get(url);
+  if (!c) {
+    c = { ws: null, state: 'offline', backoff: FIRST_RETRY_MS, retry: null, ping: null, error: null, stopped: false, starting: false };
+    conns.set(url, c);
   }
+  return c;
 }
 
-async function pair() {
-  const { pair: saved } = await chrome.storage.local.get('pair');
-  if (!saved?.token || !saved.apiBase) return null;
-  return saved;
-}
-
-async function api(path, opts = {}) {
-  const saved = await pair();
-  if (!saved) {
-    console.error('[person-chrome] not connected');
-    return { error: 'Connect Chrome or Edge from EXTREMELY, in Settings.' };
-  }
-  let res;
-  try {
-    res = await fetch(saved.apiBase + path, {
-      method: opts.method || 'GET',
-      headers: { authorization: 'Bearer ' + saved.token, 'content-type': 'application/json' },
-      body: opts.body,
-    });
-  } catch (e) {
-    console.error('[person-chrome] the agency did not answer', path, e.message);
-    return { error: 'Could not reach EXTREMELY on this computer.' };
-  }
-  const data = await res.json().catch(e => {
-    console.error('[person-chrome] the agency answered with something that was not JSON', path, e.message);
-    return {};
-  });
-  if (!res.ok) {
-    console.error('[person-chrome]', path, res.status, data.error || '');
-    return { error: data.error || 'EXTREMELY refused that.' };
-  }
-  return data;
-}
-
-function cookieUrl(c) {
-  const host = String(c.domain || '').replace(/^\./, '');
-  const path = c.path && c.path.startsWith('/') ? c.path : '/' + (c.path || '');
-  return `${c.secure ? 'https' : 'http'}://${host}${path}`;
-}
-
-function toSet(c) {
-  const same = c.sameSite === 'None' || c.sameSite === 'no_restriction' ? 'no_restriction' : c.sameSite === 'Strict' || c.sameSite === 'strict' ? 'strict' : 'lax';
-  const secure = same === 'no_restriction' ? true : !!c.secure;
-  const spec = {
-    url: cookieUrl({ ...c, secure }),
-    name: c.name,
-    value: c.value,
-    path: c.path || '/',
-    secure,
-    httpOnly: !!c.httpOnly,
-    sameSite: same,
-  };
-  if (!c.name.startsWith('__Host-') && c.domain) spec.domain = c.domain;
-  const exp = c.expirationDate || c.expires;
-  if (typeof exp === 'number' && exp > 0) spec.expirationDate = exp;
-  return spec;
-}
-
-function toPerson(c) {
-  const sameSite = c.sameSite === 'strict' ? 'Strict' : c.sameSite === 'no_restriction' ? 'None' : 'Lax';
-  return {
-    name: c.name,
-    value: c.value,
-    domain: c.domain,
-    path: c.path || '/',
-    secure: !!c.secure,
-    httpOnly: !!c.httpOnly,
-    sameSite,
-    ...(c.expirationDate ? { expires: c.expirationDate } : {}),
-  };
-}
-
-// Only the cookies of the site being opened (and its own subdomains or parent
-// domain): a handoff never sets or reads another site's cookies, whatever it lists.
-function siteCookies(job) {
-  let host;
-  try {
-    const u = new URL(job.url);
-    if (!/^https?:$/.test(u.protocol)) return [];
-    host = u.hostname;
-  } catch (e) {
-    console.error('[person-chrome] handoff has no address', e.message);
-    return [];
-  }
-  // The site's registered domain (aitoolfame.com for www.aitoolfame.com; a two-part
-  // ending like co.uk or com.au keeps one more label): any of its subdomains is the site.
-  const labels = host.split('.');
-  const twoPart = labels.length >= 3 && labels.at(-1).length === 2 && labels.at(-2).length <= 3;
-  const site = labels.slice(twoPart ? -3 : -2).join('.');
-  const kept = (job.cookies || []).filter(c => {
-    const d = String(c.domain || '').replace(/^\./, '').toLowerCase();
-    if (!d.includes('.')) return false;
-    return d === site || d.endsWith('.' + site);
-  });
-  const dropped = (job.cookies || []).length - kept.length;
-  if (dropped) console.error('[person-chrome]', dropped, 'cookies for other sites were left out');
-  return kept;
-}
-
-function domainsOf(job) {
-  const set = new Set();
-  try {
-    const host = new URL(job.url).hostname;
-    set.add(host);
-    set.add(host.replace(/^www\./, ''));
-  } catch (e) {
-    console.error('[person-chrome] handoff has no address', e.message);
-  }
-  for (const c of job.cookies || []) set.add(String(c.domain || '').replace(/^\./, ''));
-  return [...set].filter(Boolean);
-}
-
-async function readJar(domains) {
-  const seen = new Set();
-  const all = [];
-  for (const domain of domains) {
-    let list = [];
-    try {
-      list = await chrome.cookies.getAll({ domain });
-    } catch (e) {
-      console.error('[person-chrome] could not read cookies for', domain, e.message);
-      continue;
-    }
-    for (const c of list) {
-      const key = `${c.domain}|${c.path}|${c.name}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      all.push(c);
-    }
-  }
-  return all;
-}
-
-async function writeJar(cookies) {
-  const failed = [];
-  for (const c of cookies) {
-    try {
-      const set = await chrome.cookies.set(toSet(c));
-      if (!set) failed.push(c.name);
-    } catch (e) {
-      failed.push(c.name);
-      console.error('[person-chrome] cookie was not set', c.name, e.message);
-    }
-  }
-  if (failed.length) console.error('[person-chrome]', failed.length, 'cookies were not set');
-  return failed;
-}
-
-async function removeJar(cookies) {
-  for (const c of cookies) {
-    try {
-      await chrome.cookies.remove({ url: cookieUrl(c), name: c.name });
-    } catch (e) {
-      console.error('[person-chrome] cookie was not removed', c.name, e.message);
-    }
-  }
-}
-
-function backupKey(id, tabId) {
-  return `backup:${id}:${tabId}`;
-}
-
-// Their own cookies for the site, written down before the agent's are put in
-// their place. Written before anything is removed, so a crash can put them back.
-// Happens before the tab opens, so the first load is already the agent's page.
-async function setAside(job, key) {
-  const domains = domainsOf(job);
-  const backup = await readJar(domains);
-  await chrome.storage.local.set({ [key]: { backup, domains, at: Date.now() } });
-  console.log('[person-chrome] set aside', backup.length, 'cookies for', job.site || job.url);
-  await removeJar(backup);
-  const failed = await writeJar(job.cookies || []);
-  console.log('[person-chrome] put in', (job.cookies || []).length - failed.length, 'of the agent cookies');
-  return failed;
-}
-
-async function restoreKey(key) {
-  const got = await chrome.storage.local.get(key);
-  const rec = got[key];
-  if (!rec?.backup) return;
-  const now = await readJar(rec.domains || []);
-  await removeJar(now);
-  const failed = await writeJar(rec.backup);
-  await chrome.storage.local.remove(key);
-  console.log('[person-chrome] put back', rec.backup.length - failed.length, 'cookies from', key);
-}
-
-async function restoreTab(id, tabId) {
-  await restoreKey(backupKey(id, tabId));
-}
-
-async function restoreStrays() {
-  const all = await chrome.storage.local.get(null);
-  const keys = Object.keys(all).filter(k => k.startsWith('backup:'));
-  if (!keys.length) return;
-  console.log('[person-chrome] browser started: putting back', keys.length, 'sets of cookies that were set aside');
-  for (const key of keys) {
-    try {
-      await restoreKey(key);
-    } catch (e) {
-      console.error('[person-chrome] could not put cookies back', key, e.message);
-    }
-  }
-}
-
-function matchesFor(url) {
-  let host;
-  try {
-    host = new URL(url).hostname;
-  } catch (e) {
-    console.error('[person-chrome] no host to watch', e.message);
-    return [];
-  }
-  const apex = host.replace(/^www\./, '');
-  const list = [`*://${host}/*`];
-  if (apex !== host) list.push(`*://${apex}/*`);
-  if (!/^\d+(\.\d+){3}$/.test(apex) && apex.includes('.')) list.push(`*://*.${apex}/*`);
-  return [...new Set(list)];
-}
-
-async function watchSite(url) {
-  const matches = matchesFor(url);
-  if (!matches.length) return;
-  // A wildcard Chrome rejects must not drop the exact host. Register the set
-  // that has worked so far, then try adding the next pattern.
-  const accepted = [];
-  for (const match of matches) {
-    const next = [...accepted, match];
-    await chrome.scripting.unregisterContentScripts({ ids: ['eaa-restore'] }).catch(e => {
-      console.log('[person-chrome] no restore script to replace', e.message);
-    });
-    try {
-      await chrome.scripting.registerContentScripts([
-        { id: 'eaa-restore', matches: next, js: ['restore.js'], runAt: 'document_start', persistAcrossSessions: false },
-      ]);
-      accepted.push(match);
-    } catch (e) {
-      console.error('[person-chrome] not watching', match, e.message);
-      if (accepted.length) {
-        await chrome.scripting.registerContentScripts([
-          { id: 'eaa-restore', matches: accepted, js: ['restore.js'], runAt: 'document_start', persistAcrossSessions: false },
-        ]).catch(err => console.error('[person-chrome] could not put the watch back', err.message));
-      }
-    }
-  }
-  if (accepted.length) console.log('[person-chrome] watching', accepted.join(', '));
-  else console.error('[person-chrome] could not watch the site; the page will still be filled once it loads');
-}
-
-async function rememberTab(tabId, id) {
-  const { tabJob = {} } = await chrome.storage.session.get('tabJob');
-  tabJob[tabId] = id;
-  await chrome.storage.session.set({ tabJob });
-}
-
-async function forgetTab(tabId) {
-  const { tabJob = {} } = await chrome.storage.session.get('tabJob');
-  delete tabJob[tabId];
-  await chrome.storage.session.set({ tabJob });
-}
-
-async function jobOfTab(tabId) {
-  const { tabJob = {} } = await chrome.storage.session.get('tabJob');
-  return tabJob[tabId] || null;
-}
-
-async function focusExisting(id) {
-  const { tabJob = {} } = await chrome.storage.session.get('tabJob');
-  for (const [tabId, jobId] of Object.entries(tabJob)) {
-    if (jobId !== id) continue;
-    try {
-      const tab = await chrome.tabs.get(Number(tabId));
-      await chrome.tabs.update(tab.id, { active: true });
-      if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
-      console.log('[person-chrome] already open', id);
-      return true;
-    } catch (e) {
-      console.log('[person-chrome] remembered tab is gone', tabId, e.message);
-      await forgetTab(Number(tabId));
-    }
-  }
-  return false;
-}
-
-async function openHandoff(id) {
-  if (await focusExisting(id)) return { ok: true, already: true };
-  const data = await api('/api/person-chrome/ext/job?id=' + encodeURIComponent(id));
-  if (data.error) return data;
-  const job = data.handoff;
-  if (!job?.url || !/^https?:\/\//i.test(job.url)) {
-    console.error('[person-chrome] handoff had no web page', id);
-    return { error: 'That page had nothing to open.' };
-  }
-  job.cookies = siteCookies(job);
-  await chrome.storage.session.set({ ['job:' + job.id]: job });
-  await watchSite(job.url);
-  const pending = `backup:${job.id}:pending`;
-  try {
-    await setAside(job, pending);
-  } catch (e) {
-    console.error('[person-chrome] could not move the site into this Chrome:', e.message);
-    try {
-      await restoreKey(pending);
-    } catch (err) {
-      console.error('[person-chrome] cookies were not put back after a failed copy', err.message);
-    }
-    return { error: 'The saved sign-in could not be copied, so the page was not opened.' };
-  }
-  let tab;
-  try {
-    tab = await chrome.tabs.create({ url: job.url, active: true });
-  } catch (e) {
-    console.error('[person-chrome] could not open the tab', e.message);
-    await restoreKey(pending);
-    return { error: 'Could not open a tab in this Chrome.' };
-  }
-  const saved = await chrome.storage.local.get(pending);
-  if (saved[pending]) {
-    await chrome.storage.local.set({ [backupKey(job.id, tab.id)]: saved[pending] });
-    await chrome.storage.local.remove(pending);
-  } else {
-    console.error('[person-chrome] the cookie backup was missing after the tab opened', job.id);
-  }
-  await rememberTab(tab.id, job.id);
-  // A local page can finish loading before the tab is remembered, so the
-  // complete event never fills it. Fill now as well.
-  try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['restore.js'] });
-  } catch (e) {
-    console.error('[person-chrome] could not fill the page just opened', e.message);
-  }
-  console.log('[person-chrome] opened', job.id, 'fields', (job.fields || []).length, 'tab', tab.id);
-  return { ok: true };
-}
-
-const opening = new Map();
-function openOnce(id) {
-  if (opening.has(id)) return opening.get(id);
-  const p = openHandoff(id).finally(() => opening.delete(id));
-  opening.set(id, p);
-  return p;
-}
-
-// Finished, pressed in the bar on the page or in the app: the sign-in this tab holds
-// goes to EXTREMELY, and the person's own login for the site is put back. True once
-// EXTREMELY has it.
-const finishing = new Set();
-async function finish(id, tabId) {
-  if (finishing.has(id)) return false;
-  finishing.add(id);
-  try {
-    const { finished = {} } = await chrome.storage.session.get('finished');
-    if (finished[id]) return true;
-    const got = await chrome.storage.session.get('job:' + id);
-    const job = got['job:' + id];
-    if (!job) {
-      console.error('[person-chrome] Finished for a page that is gone', id);
-      await restoreTab(id, tabId);
-      return false;
-    }
-    const cookies = (await readJar(domainsOf(job))).map(toPerson);
-    console.log('[person-chrome] finished', id, 'cookies', cookies.length);
-    const res = await api('/api/person-chrome/ext/done', { method: 'POST', body: JSON.stringify({ id, cookies }) });
-    if (res.error) {
-      console.error('[person-chrome] EXTREMELY did not take the result:', res.error);
-      await restoreTab(id, tabId);
-      return false;
-    }
-    finished[id] = Date.now();
-    await chrome.storage.session.set({ finished });
-    await chrome.storage.session.remove('job:' + id);
-    await restoreTab(id, tabId);
-    await forgetTab(tabId);
-    console.log('[person-chrome] sent to EXTREMELY', id);
-    return true;
-  } catch (e) {
-    console.error('[person-chrome] finishing failed', id, e.message);
-    try {
-      await restoreTab(id, tabId);
-    } catch (err) {
-      console.error('[person-chrome] cookies were not put back after a failed finish', err.message);
-    }
-    return false;
-  } finally {
-    finishing.delete(id);
-  }
-}
-
-async function abandon(tabId) {
-  const id = await jobOfTab(tabId);
-  if (!id) return;
-  const { finished = {} } = await chrome.storage.session.get('finished');
-  if (finished[id]) {
-    await forgetTab(tabId);
+function sendTo(url, frame) {
+  const c = conns.get(url);
+  if (!c?.ws || c.state !== 'online' || c.ws.readyState !== WebSocket.OPEN) {
+    console.warn('[eaa] not connected to', url, '- dropped', frame.method || ('answer ' + frame.id));
     return;
   }
-  console.log('[person-chrome] tab closed before Finished', id);
-  const res = await api('/api/person-chrome/ext/abandon', { method: 'POST', body: JSON.stringify({ id }) });
-  if (res.error) console.error('[person-chrome] abandon was not recorded:', res.error);
-  try {
-    await restoreTab(id, tabId);
-  } catch (e) {
-    console.error('[person-chrome] cookies were not put back when the tab closed', e.message);
-  }
-  await forgetTab(tabId);
+  c.ws.send(JSON.stringify(frame));
 }
 
-chrome.runtime.onStartup.addListener(() => {
-  restoreStrays().catch(e => console.error('[person-chrome] startup restore failed', e.message));
-});
+async function connect(url) {
+  const c = connOf(url);
+  if (c.stopped || c.starting || (c.ws && c.ws.readyState <= WebSocket.OPEN)) return;
+  c.starting = true;
+  clearTimeout(c.retry);
+  try {
+    const p = (await pairings()).find(x => x.url === url);
+    if (!p) {
+      conns.delete(url);
+      return;
+    }
+    const hello = { type: 'hello', token: p.token, protocol: PROTOCOL, version: VERSION, browser: KIND, label: await label() };
+    let ws;
+    try {
+      ws = new WebSocket(url);
+    } catch (e) {
+      console.error('[eaa] bad agency address', url, e?.message);
+      c.error = 'Bad agency address. Pair again.';
+      c.stopped = true;
+      return;
+    }
+    c.ws = ws;
+    c.state = 'connecting';
+    ws.onopen = () => {
+      if (c.ws === ws) ws.send(JSON.stringify(hello));
+    };
+    ws.onmessage = ev => {
+      if (c.ws === ws) onFrame(url, c, ws, ev.data);
+    };
+    ws.onerror = () => {
+      // The browser gives no detail here; onclose follows and retries.
+      if (c.ws === ws) console.warn('[eaa] connection error', url);
+    };
+    ws.onclose = ev => {
+      if (c.ws !== ws) return;
+      clearInterval(c.ping);
+      c.ws = null;
+      c.state = 'offline';
+      void badge();
+      if (c.stopped) return;
+      console.warn('[eaa] disconnected from', url, ev.code, ev.reason || '', '- retrying in', c.backoff, 'ms');
+      c.retry = setTimeout(() => void connect(url), c.backoff);
+      c.backoff = Math.min(c.backoff * 2, MAX_RETRY_MS);
+    };
+  } catch (e) {
+    console.error('[eaa] could not connect', url, e?.message);
+  } finally {
+    c.starting = false;
+    void badge();
+  }
+}
 
-chrome.tabs.onRemoved.addListener(tabId => {
-  abandon(tabId).catch(e => console.error('[person-chrome] tab close failed', e.message));
-});
+function onFrame(url, c, ws, data) {
+  let msg;
+  try {
+    msg = JSON.parse(data);
+  } catch (e) {
+    console.error('[eaa] a frame that is not JSON from', url, e?.message);
+    return;
+  }
+  if (msg.type === 'pong') return;
+  if (msg.type === 'hello-ok') {
+    c.state = 'online';
+    c.backoff = FIRST_RETRY_MS;
+    c.error = null;
+    clearInterval(c.ping);
+    c.ping = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
+    }, PING_MS);
+    void rememberNumber(url, msg);
+    void badge();
+    return;
+  }
+  if (msg.type === 'error') {
+    // The agency turned this browser away (removed, or this version is too old).
+    // Trying again every 30 s won't change that: wait for the person.
+    console.error('[eaa]', url, 'refused:', msg.error);
+    c.error = String(msg.error || 'The agency refused this browser.');
+    c.stopped = true;
+    void badge();
+    return;
+  }
+  if (msg.id != null && typeof msg.method === 'string') {
+    if (c.state !== 'online') {
+      ws.send(JSON.stringify({ id: msg.id, error: { message: 'Not ready: no hello-ok yet.' } }));
+      return;
+    }
+    void relay.handle(url, msg);
+    return;
+  }
+  console.warn('[eaa] unknown frame from', url, String(data).slice(0, 200));
+}
 
-chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
-  if (info.status !== 'complete') return;
-  if (tab.url && !/^https?:/i.test(tab.url)) return;
-  jobOfTab(tabId)
-    .then(id => {
-      if (!id) return;
-      return chrome.scripting.executeScript({ target: { tabId }, files: ['restore.js'] }).catch(e => {
-        console.error('[person-chrome] could not fill the page', e.message);
-      });
-    })
-    .catch(e => console.error('[person-chrome] tab update failed', e.message));
-});
+// The agency may renumber or rename this browser (Connectors > Browser); the popup
+// shows what it says.
+async function rememberNumber(url, msg) {
+  const list = await pairings();
+  const p = list.find(x => x.url === url);
+  if (!p) return;
+  const browser = msg.browser ?? p.browser;
+  const name = msg.name || p.name;
+  if (browser === p.browser && name === p.name) return;
+  Object.assign(p, { browser, name });
+  await savePairings(list);
+}
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  const reply = (p) => {
-    p.then(v => sendResponse(v)).catch(e => {
-      console.error('[person-chrome]', e.message);
-      sendResponse({ error: e.message || 'Something went wrong.' });
-    });
-    return true;
-  };
-  if (msg?.type === 'pair') {
-    return reply((async () => {
-      let url;
+function disconnect(url, stop) {
+  const c = conns.get(url);
+  if (!c) return;
+  clearTimeout(c.retry);
+  clearInterval(c.ping);
+  if (stop) c.stopped = true;
+  const ws = c.ws;
+  if (ws) {
+    // With stop: forget it now, so its onclose doesn't schedule a retry.
+    if (stop) c.ws = null;
+    try {
+      ws.close(1000, stop ? 'removed' : 'reconnect');
+    } catch (e) {
+      console.warn('[eaa] close', url, e?.message);
+    }
+  }
+  if (stop) c.state = 'offline';
+}
+
+// Every pairing that isn't connected and wasn't refused: connect. Runs when the worker
+// starts and every 30 s from an alarm, because a stopped worker loses its sockets
+// and timers but the alarm wakes it.
+async function reviveAll() {
+  for (const p of await pairings()) void connect(p.url);
+}
+
+// ---------- Pairing ----------
+
+// A pairing is {url, token, browser, name, agency}: browser and name are this browser's
+// number and name in that agency, agency is the agency's own name from the link.
+function pair(link) {
+  const { url, code, name: agency } = decodeLink(link);
+  return new Promise((resolve, reject) => {
+    let ws;
+    let done = false;
+    let gotToken = false; // the agency may close right after "paired", while it's being saved
+    const finish = (err, value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
       try {
-        url = new URL(String(msg.apiBase || ''));
+        ws?.close(1000, 'paired');
+      } catch {
+        // already closed
+      }
+      if (err) {
+        console.error('[eaa] pairing with', url, 'failed:', err);
+        reject(new Error(err));
+      } else resolve(value);
+    };
+    const timer = setTimeout(() => finish('The agency did not answer. Is EXTREMELY running?'), PAIR_TIMEOUT_MS);
+    label().then(lbl => {
+      try {
+        ws = new WebSocket(url);
       } catch (e) {
-        console.error('[person-chrome] bad connect address', e.message);
-        return { error: 'That address is not EXTREMELY.' };
+        return finish('Bad agency address in that link.');
       }
-      if (!LOOPBACK.test(url.hostname) || url.port !== EXTREMELY_PORT) {
-        console.error('[person-chrome] refused to connect to', url.hostname);
-        return { error: 'Only EXTREMELY on this computer.' };
-      }
-      if (!/^[a-f0-9]{64}$/.test(msg.token || '')) {
-        console.error('[person-chrome] connect page had no pairing token');
-        return { error: 'That page had no pairing token. Open Connect Chrome or Connect Edge from Settings.' };
-      }
-      await chrome.storage.local.set({ pair: { apiBase: url.origin, token: msg.token, at: Date.now() } });
-      console.log('[person-chrome] paired with', url.origin);
-      const hello = await api('/api/person-chrome/ext/hello', { method: 'POST', body: helloBody() });
-      return hello.error ? hello : { ok: true };
-    })());
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'pair', code, protocol: PROTOCOL, version: VERSION, browser: KIND, label: lbl }));
+      ws.onmessage = async ev => {
+        let msg;
+        try {
+          msg = JSON.parse(ev.data);
+        } catch {
+          return finish('The agency answered with something that is not JSON.');
+        }
+        if (msg.type === 'error') return finish(String(msg.error || 'The agency refused that code.'));
+        if (msg.type !== 'paired' || !msg.token) return;
+        gotToken = true;
+        try {
+          const list = (await pairings()).filter(p => p.url !== url);
+          list.push({ url, token: msg.token, browser: msg.browser ?? null, name: msg.name || '', agency });
+          await savePairings(list);
+        } catch (e) {
+          return finish('Could not save the pairing: ' + (e?.message || e));
+        }
+        // A fresh start for this agency: the old connection (an earlier pairing) goes.
+        disconnect(url, true);
+        conns.delete(url);
+        finish(null, { ok: true, agency, name: msg.name || '', browser: msg.browser ?? null });
+        void connect(url);
+      };
+      ws.onerror = () => {}; // onclose follows
+      ws.onclose = () => {
+        if (!gotToken) finish('The connection closed before pairing finished. Is EXTREMELY running?');
+      };
+    }, e => finish('Could not read settings: ' + (e?.message || e)));
+  });
+}
+
+async function removePairing(url) {
+  disconnect(url, true);
+  conns.delete(url);
+  await savePairings((await pairings()).filter(p => p.url !== url));
+  await relay.forgetAgency(url);
+  void badge();
+}
+
+// ---------- Badge ----------
+
+async function badge() {
+  try {
+    const list = await pairings();
+    const online = list.some(p => conns.get(p.url)?.state === 'online');
+    const tabs = relay.agentTabCount();
+    let text = '';
+    let color = '#6b7280';
+    let title = 'EXTREMELY Autonomous Agents';
+    if (relay.isPaused()) {
+      text = 'II';
+      color = '#d97706';
+      title += ': paused';
+    } else if (!list.length) {
+      title += ': not paired';
+    } else if (online) {
+      text = tabs ? String(tabs) : ' ';
+      color = '#16a34a';
+      title += tabs ? `: connected, ${tabs} agent tab${tabs === 1 ? '' : 's'}` : ': connected';
+    } else {
+      text = ' ';
+      title += ': offline';
+    }
+    await chrome.action.setBadgeText({ text });
+    await chrome.action.setBadgeBackgroundColor({ color });
+    await chrome.action.setTitle({ title });
+  } catch (e) {
+    console.error('[eaa] badge', e?.message);
   }
-  // The go page only hands over the id: once the filled-in page is open in its own
-  // tab, the go page's tab is closed (it was left behind, one per page).
-  if (msg?.type === 'open-handoff') {
-    const goTab = sender.tab?.id;
-    return reply(openOnce(String(msg.id || '')).then(res => {
-      if (!res?.error && goTab != null) {
-        chrome.tabs.remove(goTab).catch(e => console.error('[person-chrome] could not close the go page', e.message));
+}
+
+// ---------- Popup and pairing page ----------
+
+async function status() {
+  const list = await pairings();
+  return {
+    kind: KIND,
+    label: await label(),
+    paused: relay.isPaused(),
+    pairings: list.map(p => {
+      const c = conns.get(p.url);
+      return { url: p.url, agency: p.agency || new URL(p.url).host, name: p.name, browser: p.browser, state: c?.state || 'offline', error: c?.error || null, agentTabs: relay.agentTabCount(p.url) };
+    }),
+  };
+}
+
+async function onMessage(msg, sender) {
+  await relay.ready;
+  switch (msg?.type) {
+    case 'pair': {
+      // From the pairing page: an agency on this computer pairs straight away. Any other
+      // address asks first, because any website can open the pairing page with a link
+      // of its own in it.
+      if (sender.tab && !msg.confirmed) {
+        const { url, name } = decodeLink(msg.link);
+        const host = new URL(url).hostname;
+        if (!isLoopbackHost(host)) return { confirm: { agency: name, host } };
       }
-      return res;
-    }));
+      return await pair(msg.link);
+    }
+    case 'status': return status();
+    case 'remove': await removePairing(msg.url); return status();
+    case 'retry': {
+      const c = connOf(msg.url);
+      c.stopped = false;
+      c.error = null;
+      c.backoff = FIRST_RETRY_MS;
+      await connect(msg.url);
+      return status();
+    }
+    case 'pause': await relay.setPaused(!!msg.paused); return status();
+    case 'label': {
+      await chrome.storage.local.set({ label: String(msg.label || '').trim().slice(0, 60) });
+      // The agency learns the name from hello: say it again.
+      for (const p of await pairings()) disconnect(p.url, false);
+      return status();
+    }
+    default: throw new Error('Unknown message: ' + msg?.type);
   }
-  // Finished in the bar on the page, or asked about by the page every few seconds in
-  // case Finished was pressed in the app instead.
-  if (msg?.type === 'finish-now' || msg?.type === 'wanted') {
-    const tabId = sender.tab?.id;
-    if (tabId == null) {
-      console.error('[person-chrome]', msg.type, 'with no tab');
-      sendResponse({ error: 'No tab.' });
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (sender.id !== chrome.runtime.id) return false;
+  // A content script only ever pairs; the rest is the popup's.
+  if (sender.tab) {
+    const ok = msg?.type === 'pair' && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/browser\/connect(\?|#|$)/.test(sender.url || '');
+    if (!ok) {
+      reply({ error: 'Not allowed from a page.' });
       return false;
     }
-    const id = String(msg.id || '');
-    return reply((async () => {
-      if (msg.type === 'wanted') {
-        const w = await api('/api/person-chrome/ext/wanted?id=' + encodeURIComponent(id));
-        if (w.error || !w.finish) return { finished: false, gone: !!w.gone };
-        console.log('[person-chrome] Finished was pressed in the app', id);
-      }
-      const ok = await finish(id, tabId);
-      return ok ? { finished: true } : { error: 'EXTREMELY did not take it. Try Finished again.' };
-    })());
   }
-  if (msg?.type === 'job-here') {
-    return reply((async () => {
-      const all = await chrome.storage.session.get(null);
-      for (const [key, value] of Object.entries(all)) {
-        if (!key.startsWith('job:') || !value?.url) continue;
-        if (samePage(String(msg.url || ''), value.url)) return { job: value };
-      }
-      // The tab moved on from the page (the site's next step): still this job, so
-      // Finished stays on it, but nothing is filled in here.
-      const id = sender.tab?.id != null ? await jobOfTab(sender.tab.id) : null;
-      if (id && all['job:' + id]) return { job: all['job:' + id], elsewhere: true };
-      return { job: null };
-    })());
-  }
-  if (msg?.type === 'hello') {
-    return reply(api('/api/person-chrome/ext/hello', { method: 'POST', body: helloBody() }));
-  }
-  return false;
+  onMessage(msg, sender).then(reply, e => {
+    console.error('[eaa]', msg?.type, e?.message);
+    reply({ error: e?.message || String(e) });
+  });
+  return true; // answers later
 });
+
+chrome.alarms.onAlarm.addListener(a => {
+  if (a.name === REVIVE_ALARM) void reviveAll();
+});
+chrome.alarms.create(REVIVE_ALARM, { periodInMinutes: 0.5 });
+
+relay.ready.then(() => reviveAll()).catch(e => console.error('[eaa] start failed', e?.message));
+void badge();

@@ -1,7 +1,6 @@
 #!/bin/sh
-# The container's start (Dockerfile): the volume made the agency's, a virtual
-# display for the agents' browser, then the agency (scripts/cloud-host.ts) as
-# the unprivileged "node" user.
+# The container's start (Dockerfile): the volume made the agency's, then the
+# agency (scripts/cloud-host.ts) as the unprivileged "node" user.
 set -e
 ROOT="$(dirname "$EAA_DATA_DIR")"
 mkdir -p "$ROOT"
@@ -10,8 +9,8 @@ mkdir -p "$ROOT"
 # The video plugins keep their work in ~/VideoStudio and ~/LaunchStudio, and the
 # home folder is on the container's disk, which a redeploy wipes. Keep those two
 # folders on the volume and link them into the home folder, so the plugins keep
-# their ~/ paths. HOME itself stays where it is (Claude Code's and Chrome's
-# caches stay off the volume). Quiet when there is nothing to move.
+# their ~/ paths. HOME itself stays where it is (Claude Code's caches
+# stay off the volume). Quiet when there is nothing to move.
 KEEP="$ROOT/keep"
 mkdir -p /home/node
 for name in VideoStudio LaunchStudio; do
@@ -31,6 +30,4 @@ for name in VideoStudio LaunchStudio; do
   fi
 done
 chown -R node:node "$KEEP"
-rm -f /tmp/.X99-lock
-Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -ac >/dev/null 2>&1 &
 exec setpriv --reuid=node --regid=node --init-groups env HOME=/home/node node --import tsx scripts/cloud-host.ts

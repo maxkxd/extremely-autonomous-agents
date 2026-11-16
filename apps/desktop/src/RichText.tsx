@@ -1,7 +1,6 @@
 import { Fragment, useState } from 'react';
-import { openAgentBrowser } from './builder';
+import { showInBrowser } from './builder';
 import { notifyError } from './Notices';
-import { openInMyChrome } from './personChrome';
 
 // Agents' and the Agency Engineer's text, made easy to follow: numbered steps as a
 // numbered list (also when they're written inline, "1. Do this. 2. Then that."),
@@ -39,13 +38,14 @@ function Inline({ text, refs }: { text: string; refs: Ref }) {
   return <>{parts}</>;
 }
 
-// "Open in signed-in browser: https://www.linkedin.com/login (profile 2)": a button that
-// takes you to that page in the agents' own browser (runner/browser.ts) - the very tab
-// the agent filled in and kept for you, when it kept one.
+// "Open in signed-in browser: https://www.linkedin.com/login (profile 2)": on a request,
+// a button that brings the tab the agent kept for it to the front of the person's own
+// browser (docs/browser-extension.md). Closing that tab answers the request, and the
+// agent hears. Anywhere else the line stays text, its address a plain link.
 // A short label before it still counts: a request's card puts its evidence under
 // "Details: " (App.tsx), which left every such line a plain link - #208 said "press the
 // button" with no button there.
-const BROWSER_LINE = /^\s*(?:[A-Za-z][\w ]{0,20}:\s*)?Open in signed-in browser:\s*(https?:\/\/[^\s<>"']+?)[.,]?(?:\s*\(profile\s*(\d+)\))?\.?\s*$/i;
+const BROWSER_LINE = /^\s*(?:[A-Za-z][\w ]{0,20}:\s*)?Open in signed-in browser:\s*(https?:\/\/[^\s<>"']+?)[.,]?(?:\s*\((?:profile|browser)\s*(\d+)\))?\.?\s*$/i;
 const hostOf = (url: string) => {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -54,37 +54,13 @@ const hostOf = (url: string) => {
   }
 };
 
-// Once open, it says what's next: closing that tab (or Google's sign-in window) answers
-// the request, and the agent that asked hears (runner/api.ts). Pressed again, it's
-// brought in front again.
-// A request with a page kept for it opens that page in the person's own browser instead
-// (personChrome.ts), where they do it and press Finished; only without one does it go
-// to the agents' browser.
-function BrowserButton({ url, profile, request }: { url: string; profile: number; request?: number }) {
-  const [opened, setOpened] = useState<'own' | 'agents' | null>(null);
+function BrowserButton({ url, request }: { url: string; request: number }) {
+  const [opened, setOpened] = useState(false);
   const google = /^accounts\.(google|youtube)\.com$/.test(hostOf(url));
-  const agents = () => openAgentBrowser(profile, url, request).then(() => setOpened('agents'));
-  const open = () =>
-    (request != null
-      ? openInMyChrome(request).then(
-          () => setOpened('own'),
-          e => (/no longer kept/i.test((e as Error).message) ? agents() : Promise.reject(e)),
-        )
-      : agents()
-    ).catch(notifyError);
+  const open = () => showInBrowser(request).then(() => setOpened(true), notifyError);
   return (
     <button className="rt-settings" onClick={open}>
-      {opened === 'own'
-        ? 'Do it in your browser, then press Finished'
-        : opened === 'agents'
-          ? google
-            ? 'Close the sign-in window when you’re signed in'
-            : 'Close that tab when you’re done'
-          : google
-            ? 'Sign in to Google in the signed-in browser'
-            : request != null
-              ? `Open ${hostOf(url)} in my browser`
-              : `Go to ${hostOf(url)} in the signed-in browser`}
+      {opened ? 'Close the tab when you’re done' : google ? 'Sign in to Google in your browser' : 'Open it in your browser'}
     </button>
   );
 }
@@ -163,7 +139,7 @@ export function RichText({ text, onRequest, canOpen, onSettings, request }: { te
   const refs = { onRequest, canOpen, onSettings };
   const lines = unfoldSteps(text).split('\n');
   const blocks: React.ReactNode[] = [];
-  // Pages to open in the agents' browser: buttons after the text, not splitting its steps.
+  // Kept pages to bring up in the person's browser: buttons after the text, not splitting its steps.
   const pages: React.ReactNode[] = [];
   let para: string[] = [];
   // (Typed by assertion: it's changed inside the closures below too.)
@@ -203,11 +179,10 @@ export function RichText({ text, onRequest, canOpen, onSettings, request }: { te
     list = null;
   };
   for (const line of lines) {
-    // A page to open in the agents' browser: a button that opens it there.
-    const page = BROWSER_LINE.exec(line);
+    // A request's kept page: a button that brings it up in the person's browser.
+    const page = request != null ? BROWSER_LINE.exec(line) : null;
     if (page) {
-      const [, url, profile] = page;
-      pages.push(<BrowserButton key={pages.length} url={url} profile={profile ? Number(profile) : 1} request={request} />);
+      pages.push(<BrowserButton key={pages.length} url={page[1]} request={request!} />);
       continue;
     }
     // A line that's only where to connect something: a big button to it.

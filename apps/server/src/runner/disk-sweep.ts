@@ -3,11 +3,10 @@ import { hostname, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { programsRoot } from '../integrations/programs.js';
 import { DATA_DIR } from '../paths.js';
-import { cleanUpBrowsers } from './browser.js';
 
 // The disk the agency keeps filling with things it can make again. On the cloud
-// host the volume reached 86%: programs' download caches, each agents' browser's
-// disk caches, and the old copies a move left beside the agency. Cleared at
+// host the volume reached 86%: programs' download caches, the disk caches of the
+// browser profiles the app used to run, and the old copies a move left beside the agency. Cleared at
 // start, once a day, and whenever the volume is 80% full (checked every 10
 // minutes, at most once an hour), and only these - never a sign-in or cookie, the
 // database, the vault, an installed program, or a plugin's output:
@@ -15,13 +14,13 @@ import { cleanUpBrowsers } from './browser.js';
 //   <data>/programs/.npm-cache and /.cache   npm's and the programs' caches (programs.ts programEnv)
 //   <data>/browser-profiles/<n>/             Cache, Code Cache, GPUCache, Service Worker/CacheStorage and the
 //                                            shader caches (Dawn, Gr, Shader), and Chrome's component_crx_cache,
-//                                            in the profile's folder and in its Default
+//                                            in the profile's folder and in its Default. Agents browse in the
+//                                            person's own browser now (docs/browser-extension.md); these are the
+//                                            folders of the agents' own browser from before, left as they were.
 //   <data's folder>/<data>.replaced-*        a replaced agency's folder, once it's a few days old
 //   <tmp>/eaa-upload-* and <tmp>/eaa-run-*   a run's uploaded file and its scratch folder, once two days old
 //
-// A profile whose browser is open is left alone (its caches are in use): each
-// sweep closes the browsers no run is using first, the way host.clean_up does,
-// and the start-up sweep runs before any has opened.
+// A profile still open in a browser (one from before, left running) is left alone: its caches are in use.
 //
 // Each sweep also logs how big each folder is, and how full the volume is, before and after
 // (diskReport), so what fills the disk shows in the host's logs without a shell.
@@ -71,7 +70,7 @@ async function clear(path: string): Promise<number> {
 }
 
 // Whether a browser has the profile open. Chrome on Linux (and macOS) locks a profile with a link
-// naming the machine and process that has it (browser.ts clearStaleLock): one from another machine,
+// naming the machine and process that has it: one from another machine,
 // or from a process that's gone, is nobody's. Windows has no such link: left alone.
 export async function profileInUse(dir: string): Promise<boolean> {
   if (process.platform === 'win32') return true;
@@ -251,12 +250,7 @@ export function startDiskSweep() {
   const failed = (e: unknown) => console.error('[sweep] Clearing caches failed:', (e as Error).message);
   setTimeout(() => void sweepAndLog('At start').catch(failed), FIRST_SWEEP_MS).unref();
   setInterval(
-    () =>
-      void (async () => {
-        // The agents' browsers stay open for weeks, with their caches: the ones no run is using are closed first.
-        await cleanUpBrowsers().catch(() => {});
-        await sweepAndLog('Daily');
-      })().catch(failed),
+    () => void sweepAndLog('Daily').catch(failed),
     DAY,
   ).unref();
   // Between the daily sweeps: the volume went from nothing to 86% in a day, so a full one doesn't wait.
@@ -265,7 +259,6 @@ export function startDiskSweep() {
       void (async () => {
         const before = await diskFraction(DATA_DIR);
         if (!sweepDue(before, lastSweepAt, Date.now())) return;
-        await cleanUpBrowsers().catch(() => {});
         await sweepAndLog(`Volume ${Math.round(before! * 100)}% full`);
         const after = await diskFraction(DATA_DIR);
         // Nothing left to clear: what fills it now is data (the database, plugins' output, sign-ins). Said as an error so host.health shows it.

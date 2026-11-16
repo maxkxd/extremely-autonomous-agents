@@ -1,0 +1,295 @@
+import '../test-data-dir.js';
+import assert from 'node:assert/strict';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { after, before, test } from 'node:test';
+import { _testing, browserConn, handleBrowserLinkUpgrade, listBrowsers, onBrowserOffline, onBrowserOnline, pairCode, removeBrowser, renameBrowser } from './browser-link.js';
+
+// A real server with the upgrade handler, and Node's own WebSocket as a fake
+// extension. Test persona: Sam Rivera's work Chrome.
+
+let server: Server;
+let url = '';
+
+before(async () => {
+  server = createServer((_req, res) => res.writeHead(404).end());
+  server.on('upgrade', (req, socket, head) => {
+    if (!handleBrowserLinkUpgrade(req, socket, head)) socket.destroy();
+  });
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+  url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/api/browser-link`;
+});
+after(() => server.close());
+
+type Frame = Record<string, any>;
+
+// A fake extension: every frame it gets, in order, and a wait for the next one.
+class Ext {
+  ws: WebSocket;
+  frames: Frame[] = [];
+  private waiters: ((f: Frame) => void)[] = [];
+  closed: Promise<void>;
+  constructor(headers?: Record<string, string>) {
+    // Node's WebSocket takes headers through its undici options.
+    this.ws = new WebSocket(url, headers ? ({ headers } as any) : undefined);
+    this.ws.addEventListener('message', ev => {
+      const f = JSON.parse(String(ev.data));
+      const w = this.waiters.shift();
+      if (w) w(f);
+      else this.frames.push(f);
+    });
+    this.closed = new Promise(r => this.ws.addEventListener('close', () => r()));
+  }
+  open() {
+    return new Promise<void>((resolve, reject) => {
+      this.ws.addEventListener('open', () => resolve(), { once: true });
+      this.ws.addEventListener('error', () => reject(new Error('did not open')), { once: true });
+    });
+  }
+  next(): Promise<Frame> {
+    const f = this.frames.shift();
+    if (f) return Promise.resolve(f);
+    return new Promise(r => this.waiters.push(r));
+  }
+  send(f: Frame) {
+    this.ws.send(JSON.stringify(f));
+  }
+}
+
+async function pair(label = 'Chrome - Sam Rivera') {
+  const { code } = pairCode('http://agency.example.test');
+  const ext = new Ext();
+  await ext.open();
+  ext.send({ type: 'pair', code, protocol: 1, version: '0.2.0', browser: 'chrome', label });
+  const reply = await ext.next();
+  assert.equal(reply.type, 'paired');
+  return { ext, token: reply.token as string, n: reply.browser as number };
+}
+
+async function hello(token: string) {
+  const ext = new Ext();
+  await ext.open();
+  ext.send({ type: 'hello', token, protocol: 1, version: '0.2.1', browser: 'chrome', label: 'x' });
+  return { ext, reply: await ext.next() };
+}
+
+const until = async (ok: () => boolean, ms = 2000) => {
+  const end = Date.now() + ms;
+  while (!ok()) {
+    if (Date.now() > end) throw new Error('timed out');
+    await new Promise(r => setTimeout(r, 10));
+  }
+};
+
+test('pairCode: code shape, address and link', () => {
+  const p = pairCode('https://agency.example.test/');
+  assert.match(p.code, /^[2-9A-HJKMNP-Z]{4}-[2-9A-HJKMNP-Z]{4}$/);
+  assert.equal(p.url, 'wss://agency.example.test/api/browser-link');
+  assert.ok(p.link.startsWith('eaa1:'));
+  const body = JSON.parse(Buffer.from(p.link.slice(5), 'base64url').toString('utf8'));
+  assert.deepEqual(body, { u: p.url, c: p.code, n: 'EXTREMELY' });
+  assert.match(pairCode().url, /^ws:\/\/127\.0\.0\.1:\d+\/api\/browser-link$/);
+  process.env.EAA_PUBLIC_URL = 'https://public.example.test';
+  try {
+    assert.equal(pairCode('http://ignored.example.test').url, 'wss://public.example.test/api/browser-link');
+  } finally {
+    delete process.env.EAA_PUBLIC_URL;
+  }
+  assert.throws(() => pairCode('not an address'), /web address/);
+});
+
+test('pairing with a code works once; the code is spent', async () => {
+  const { code } = pairCode();
+  const a = new Ext();
+  await a.open();
+  a.send({ type: 'pair', code: code.toLowerCase(), protocol: 1, version: '0.2.0', browser: 'edge', label: 'Edge - Sam' });
+  const ok = await a.next();
+  assert.equal(ok.type, 'paired');
+  assert.ok(typeof ok.token === 'string' && ok.token.length >= 40);
+  assert.equal(ok.name, 'Edge - Sam');
+  const listed = listBrowsers().find(b => b.n === ok.browser);
+  assert.ok(listed?.online);
+  assert.equal(listed?.kind, 'edge');
+
+  const b = new Ext();
+  await b.open();
+  b.send({ type: 'pair', code, protocol: 1, version: '0.2.0', browser: 'chrome' });
+  const refused = await b.next();
+  assert.equal(refused.type, 'error');
+  assert.match(refused.error, /already used/);
+  await b.closed;
+  a.ws.close();
+  await a.closed;
+  removeBrowser(ok.browser);
+});
+
+test('an expired code is refused', async () => {
+  _testing.setCodeTtlMs(1);
+  const { code } = pairCode();
+  _testing.setCodeTtlMs(10 * 60_000);
+  await new Promise(r => setTimeout(r, 10));
+  const e = new Ext();
+  await e.open();
+  e.send({ type: 'pair', code, protocol: 1, version: '0.2.0', browser: 'chrome' });
+  const f = await e.next();
+  assert.equal(f.type, 'error');
+  assert.match(f.error, /expired/);
+  await e.closed;
+});
+
+test('hello with the token: online and listed; a wrong token is refused', async () => {
+  const p = await pair();
+  p.ext.ws.close();
+  await p.ext.closed;
+  await until(() => !listBrowsers().find(b => b.n === p.n)?.online);
+
+  const { ext, reply } = await hello(p.token);
+  assert.deepEqual(reply, { type: 'hello-ok', browser: p.n, name: 'Chrome - Sam Rivera', protocol: 1 });
+  const b = listBrowsers().find(x => x.n === p.n)!;
+  assert.equal(b.online, true);
+  assert.equal(b.version, '0.2.1');
+  assert.ok(b.since && b.lastSeen);
+  assert.ok(browserConn(p.n));
+
+  renameBrowser(p.n, '  Sam   work ');
+  assert.equal(listBrowsers().find(x => x.n === p.n)!.name, 'Sam work');
+
+  ext.send({ type: 'ping' });
+  assert.deepEqual(await ext.next(), { type: 'pong' });
+
+  const bad = await hello('A'.repeat(43));
+  assert.equal(bad.reply.type, 'error');
+  await bad.ext.closed;
+
+  ext.ws.close();
+  await ext.closed;
+  removeBrowser(p.n);
+});
+
+test('an unknown protocol is told to update', async () => {
+  const e = new Ext();
+  await e.open();
+  e.send({ type: 'hello', token: 'x', protocol: 99 });
+  const f = await e.next();
+  assert.deepEqual(f, { type: 'error', error: 'Update the EXTREMELY extension' });
+  await e.closed;
+});
+
+test('ExtensionCdp: commands, answers, errors and events', async () => {
+  const p = await pair();
+  const conn = browserConn(p.n)!;
+  assert.ok(conn);
+
+  const answer = conn.send('Page.navigate', { url: 'https://shop.example.test' }, 't:12');
+  const cmd = await p.ext.next();
+  assert.deepEqual({ method: cmd.method, params: cmd.params, sessionId: cmd.sessionId }, { method: 'Page.navigate', params: { url: 'https://shop.example.test' }, sessionId: 't:12' });
+  p.ext.send({ id: cmd.id, result: { frameId: 'f1' } });
+  assert.deepEqual(await answer, { frameId: 'f1' });
+
+  const noSession = conn.send('Target.getTargets');
+  const cmd2 = await p.ext.next();
+  assert.equal('sessionId' in cmd2, false);
+  p.ext.send({ id: cmd2.id, error: { message: 'Not an agent tab' } });
+  await assert.rejects(noSession, /Not an agent tab/);
+
+  const got: [unknown, string | undefined][] = [];
+  const off = conn.on('Page.loadEventFired', (params, sessionId) => got.push([params, sessionId]));
+  p.ext.send({ method: 'Page.loadEventFired', params: { timestamp: 1 }, sessionId: 't:12' });
+  p.ext.send({ method: 'Target.targetDestroyed', params: { targetId: 't:12' } });
+  await until(() => got.length === 1);
+  assert.deepEqual(got[0], [{ timestamp: 1 }, 't:12']);
+  off();
+
+  await assert.rejects(conn.send('Page.reload', {}, 't:12', 50), /didn't answer Page\.reload/);
+
+  // The socket closes: waiting calls fail, onClose and offline fire.
+  let offline = 0;
+  let closed = 0;
+  const stop = onBrowserOffline(n => n === p.n && offline++);
+  conn.onClose(() => closed++);
+  const waiting = conn.send('Runtime.evaluate', { expression: '1' }, 't:12');
+  await p.ext.next();
+  p.ext.ws.close();
+  await assert.rejects(waiting, /went offline/);
+  await until(() => offline === 1 && closed === 1);
+  assert.equal(conn.closed, true);
+  assert.equal(browserConn(p.n), null);
+  await assert.rejects(conn.send('Page.reload'), /went offline/);
+  stop();
+  removeBrowser(p.n);
+});
+
+test('a second connection for the same browser replaces the first', async () => {
+  const p = await pair();
+  const first = browserConn(p.n)!;
+  let online = 0;
+  let offline = 0;
+  const a = onBrowserOnline(n => n === p.n && online++);
+  const b = onBrowserOffline(n => n === p.n && offline++);
+
+  const second = await hello(p.token);
+  assert.equal(second.reply.type, 'hello-ok');
+  const old = await p.ext.next();
+  assert.equal(old.type, 'error');
+  await p.ext.closed;
+  await until(() => first.closed);
+  assert.equal(online, 1);
+  assert.equal(offline, 0);
+  assert.notEqual(browserConn(p.n), first);
+  assert.ok(listBrowsers().find(x => x.n === p.n)?.online);
+  a();
+  b();
+  second.ext.ws.close();
+  await second.ext.closed;
+  removeBrowser(p.n);
+});
+
+test('removeBrowser closes the live socket and the token stops working', async () => {
+  const p = await pair();
+  removeBrowser(p.n);
+  const f = await p.ext.next();
+  assert.equal(f.type, 'error');
+  assert.match(f.error, /removed/);
+  await p.ext.closed;
+  assert.equal(listBrowsers().some(b => b.n === p.n), false);
+  const again = await hello(p.token);
+  assert.equal(again.reply.type, 'error');
+  await again.ext.closed;
+  assert.throws(() => removeBrowser(p.n), /isn't paired/);
+});
+
+test('browser numbers: the lowest free one', async () => {
+  const one = await pair('one');
+  const two = await pair('two');
+  assert.equal(two.n, one.n + 1);
+  removeBrowser(one.n);
+  const three = await pair('three');
+  assert.equal(three.n, one.n);
+  for (const x of [two, three]) removeBrowser(x.n);
+});
+
+test("a web page's origin is refused", async () => {
+  const e = new Ext({ origin: 'https://evil.example.test' });
+  await assert.rejects(e.open());
+  const ok = new Ext({ origin: 'chrome-extension://abcdefghijklmnop' });
+  await ok.open();
+  ok.ws.close();
+});
+
+test('a connection with no first frame is closed', async () => {
+  _testing.setFirstFrameMs(50);
+  try {
+    const e = new Ext();
+    await e.open();
+    const f = await e.next();
+    assert.equal(f.type, 'error');
+    await e.closed;
+  } finally {
+    _testing.setFirstFrameMs(10_000);
+  }
+});
+
+test('other paths are left to the caller', async () => {
+  const ws = new WebSocket(url.replace('/api/browser-link', '/elsewhere'));
+  await new Promise<void>(r => ws.addEventListener('error', () => r(), { once: true }));
+});

@@ -7,8 +7,10 @@ import { all, one, run as exec } from './db.js';
 // it - signed_in_browser.type_password types it straight into the page. Owners and
 // admins can see them in Settings > Connectors > Signed-in browser > Passwords.
 //
-// A browser profile holds up to ACCOUNTS_PER_SITE accounts on one site (Google's own
-// limit per browser): the next goes in the next profile, made for it.
+// Keyed by browser: profile is the number of a paired browser (browser-link.ts; each
+// is one Chrome or Edge profile - the numbers carried over from the agents' own
+// browser profiles before). A browser holds up to ACCOUNTS_PER_SITE accounts on one
+// site (Google's own limit per browser): the next goes in another browser.
 
 export const ACCOUNTS_PER_SITE = 10;
 
@@ -45,7 +47,7 @@ export function makePassword(length = 20): string {
   return chars.join('');
 }
 
-// The profile a new account on this site goes in: the first with room, or a new one.
+// The browser a new account on this site goes in: the first with room, or (isNew) one more.
 export function profileFor(site: string, profiles: number[]): { profile: number; isNew: boolean } {
   for (const p of profiles) {
     const n = one<{ n: number }>('SELECT COUNT(*) AS n FROM passwords WHERE site = ? AND profile = ?', site, p)?.n ?? 0;

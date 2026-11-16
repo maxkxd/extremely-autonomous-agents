@@ -287,8 +287,8 @@ export type LiveRequest = {
   approvalId: string | null;
   waitingOn: { id: string; name: string } | null; // the connection it waits for the person to connect
   joinedTo?: number | null; // the request for the same connection it was folded into (one card per connection)
-  captcha?: boolean; // its kept page shows a human check: opened in the person's Chrome (personChrome.ts)
-  kept?: boolean; // an agent kept a page for it: done in the person's own browser, then Finished
+  captcha?: boolean; // its kept page shows a human check
+  kept?: boolean; // an agent kept a page for it: a tab in the person's own browser, done when they close it
 };
 export const getLiveRequests = () => request<LiveRequest[]>('/api/runner/requests');
 
@@ -342,8 +342,7 @@ export type IntegrationView = {
   webhookSecretSet: boolean;
   repairing?: boolean; // it failed, and the Agency Engineer is on it
 };
-export type BrowserProfile = { n: number; open: boolean; inUse: boolean; accounts: number };
-export type IntegrationsView = { integrations: IntegrationView[]; problems: { file: string; error: string }[]; profile: { open: boolean; inUse: boolean; profiles?: BrowserProfile[] } };
+export type IntegrationsView = { integrations: IntegrationView[]; problems: { file: string; error: string }[] };
 // Events: their webhook addresses, and the tunnel that makes those public.
 export type TunnelState = { status: 'off' | 'starting' | 'on' | 'missing' | 'error'; url: string | null; error: string | null };
 export type EventInfo = { id: string; integration: string; live: boolean; description: string; agents: string[]; webhook: string | null; told: number; poll: { everyMinutes: number; last: number | null; error: string | null } | null };
@@ -366,50 +365,37 @@ export type LiveApproval = { id: string; agentId: string; agentName: string; own
 export const getLiveApprovals = () => request<{ approvals: LiveApproval[]; withdrawn?: string[] }>('/api/runner/approvals').then(r => ({ list: r.approvals, withdrawn: r.withdrawn ?? [] }));
 export const decideApproval = (id: string, decision: 'approved' | 'rejected', note?: string) =>
   post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note });
-// One of the agents' browser profiles, in a window on this computer (at a page, if given).
-// From a request: its Engineer is told when the window closes.
-// In the cloud there's no screen to open it on: a request's page opens in the person's
-// own browser instead (Open in my browser, personChrome.ts).
-export const openAgentBrowser = async (profile = 1, url?: string, request?: number) => {
-  const r = await post<{ ok: boolean; live?: string }>('/api/browser/sign-in', { profile, url, request });
-  return r;
+// The browser connector (docs/browser-extension.md): the person's own Chrome or Edge
+// profiles, paired through the EXTREMELY extension. Agents work there in their own tab groups.
+export type PairedBrowser = { n: number; name: string; kind: 'chrome' | 'edge'; online: boolean; since?: number; lastSeen?: number; version?: string; agentTabs: number };
+export type BrowsersView = { browsers: PairedBrowser[]; storeLinks: { chrome?: string; edge?: string } };
+export const getBrowsers = () => request<BrowsersView>('/api/browser');
+// A one-time pairing. An organization at its own address passes that address, so the
+// extension knows where to connect (the agency can't tell what it's reached at).
+export const pairBrowser = () => {
+  const base = currentOrg()?.self?.address;
+  return post<{ code: string; url: string; link: string }>('/api/browser/pair', base ? { base } : {});
 };
-// The person's own Chrome (apps/person-chrome, personChrome.ts): a filled-in page, or
-// the connect page. Their browser is on this computer wherever the agency runs, so its
-// connection is this computer's own server's, whichever agency the app is in.
-async function onThisComputer<T>(path: string, body?: object): Promise<T> {
-  const headers = { 'x-eaa-app': '1', ...(body === undefined ? {} : { 'content-type': 'application/json' }) };
+export const renameBrowser = (n: number, name: string) => post<{ ok: boolean }>('/api/browser/rename', { n, name });
+export const removeBrowser = (n: number) => post<{ ok: boolean }>('/api/browser/remove', { n });
+// A request's kept page (a CAPTCHA, a code, Google's sign-in), in front in the person's browser.
+export const showInBrowser = (request: number) => post<{ ok: boolean }>('/api/browser/show', { request });
+// The connect page, opened in this computer's default browser: the browser is on this
+// computer wherever the agency runs, so it's this computer's own server that opens it.
+export async function openBrowserConnect(link: string): Promise<{ ok: boolean }> {
   let res: Response;
   try {
-    res = await fetch(path, body === undefined ? { headers } : { method: 'POST', headers, body: JSON.stringify({ ...who(), ...body }) });
+    res = await fetch('/api/browser/open-connect', { method: 'POST', headers: { 'x-eaa-app': '1', 'content-type': 'application/json' }, body: JSON.stringify({ ...who(), link }) });
   } catch {
     throw new Error(OFFLINE);
   }
   const data = await res.json().catch(() => ({ error: OFFLINE }));
   if (!res.ok) throw new Error(data.error ?? 'Something went wrong.');
-  return data as T;
+  return data;
 }
-export type PersonChromeStatus = { port: number; connectUrl: string; extensionId: string; pending: number; connected: boolean; browser: 'chrome' | 'edge' | null; browsers?: ('chrome' | 'edge')[] };
-export const personChromeStatus = () => onThisComputer<PersonChromeStatus>('/api/person-chrome');
-export const openPersonChrome = (id: string) => onThisComputer<{ ok: boolean }>('/api/person-chrome/open', { id });
-export const connectPersonChrome = (browser: 'chrome' | 'edge') => onThisComputer<{ ok: boolean }>('/api/person-chrome/connect', { browser });
-export const resetPersonChrome = () => onThisComputer<{ ok: boolean }>('/api/person-chrome/reset', {});
-// The agency's copy of a kept page, and what the person's browser finished, back to it.
-export type ChromeHandoff = { id: string } & Record<string, unknown>;
-// A request's kept page, in front in the agents' browser on this computer (the agency's own).
-export const showKeptHere = (request: number) => post<{ ok: boolean }>('/api/browser/kept/show', { request });
-export const copyForChrome = (request: number) => post<{ handoff: ChromeHandoff }>('/api/person-chrome/copy', { request });
-export const finishForChrome = (id: string, cookies: unknown) => post<{ ok: boolean }>('/api/person-chrome/finish', { id, cookies });
-// This computer's side, for an agency hosted elsewhere.
-export const stageInChrome = (handoff: ChromeHandoff) => onThisComputer<{ ok: boolean }>('/api/person-chrome/app/stage', { handoff });
-// Finished, pressed in the app: this computer's browser sends the page back if it still has it.
-export const finishNow = (request: number) => onThisComputer<{ viaBrowser: boolean }>('/api/person-chrome/app/finish-now', { request });
-// ...and if it didn't, the agency hears it from the app.
-export const finishedElsewhere = (request: number) => post<{ ok: boolean }>('/api/person-chrome/finished-elsewhere', { request });
-export const chromeFinished = () => onThisComputer<{ finished: { id: string; cookies: unknown }[] }>('/api/person-chrome/app/finished');
-export const ackChromeFinished = (id: string) => onThisComputer<{ ok: boolean }>('/api/person-chrome/app/finished/ack', { id });
 
 // The agents' password store (Settings > Connectors > Passwords): owners and admins.
+// `profile` is the browser number (the numbers carried over from profiles).
 export type SavedPassword = { id: string; site: string; username: string; profile: number; agent_id: string | null; note: string | null; created_at: number };
 export const getPasswords = () => request<{ passwords: SavedPassword[] }>('/api/passwords').then(r => r.passwords);
 export const revealPassword = (id: string) => post<{ password: string }>('/api/passwords/reveal', { id }).then(r => r.password);

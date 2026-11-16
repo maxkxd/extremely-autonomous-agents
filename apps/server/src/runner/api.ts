@@ -24,8 +24,8 @@ import { answerRemoteMcp, isRemoteMcpUrl, remoteMcpUrl, takeRemoteMcp } from './
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals, recentlyWithdrawn, runApprovedNow, scheduledApprovals } from './approvals.js';
-import { copyKeptForChrome, finishKeptByRequest, hasKeptPage, keptCaptcha, listProfiles, onPersonDone, openProfileWindow, profileStatus, releaseKeptFor, showKeptPage, takeKeptPage } from './browser.js';
-import { finishFromApp, openPersonChromeConnect, openPersonChromePage, personChromeStatus, resetPersonChromeToken } from './person-chrome.js';
+import { agentTabCount, hasKeptPage, keptCaptcha, onPersonDone, releaseKeptFor, showKeptPage } from './browser.js';
+import { listBrowsers, openConnectPage, pairCode, removeBrowser, renameBrowser, storeLinks } from './browser-link.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
 import { deletePassword, listPasswords, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
@@ -613,7 +613,7 @@ export const runnerRoutes: Record<string, Route> = {
   },
 
   // --- Integrations (docs/integrations.md) ---
-  'GET /api/integrations': async () => (recheckStale(), { integrations: await listIntegrations(), problems: integrationProblems(), profile: await profileStatus() }),
+  'GET /api/integrations': async () => (recheckStale(), { integrations: await listIntegrations(), problems: integrationProblems(), browsers: listBrowsers() }),
   'POST /api/integrations/connect': async (_req, _q, body) => {
     const { id, key, fields } = await body<{ id: string; key?: string; fields?: Record<string, unknown> }>();
     return connectIntegration(id, key, fields && typeof fields === 'object' ? fields : undefined);
@@ -692,66 +692,42 @@ export const runnerRoutes: Record<string, Route> = {
     await removeIntegration(id);
     return { ok: true };
   },
-  // A request's button (or "Open" in Settings): the page an agent kept for it, brought
-  // in front in the agents' browser - or, with none, a window in that browser at the
-  // address (Google's own sign-in: the profile as the plain browser). The person does
-  // what's needed there; closing it answers the request, and its agent hears.
-  'POST /api/browser/sign-in': async (_req, _q, body) => {
-    const b = await body<{ profile?: number; url?: string; request?: number }>().catch(() => ({}) as { profile?: number; url?: string; request?: number });
-    const r = b.request ? one<{ id: number; status: string; agent_id: string }>('SELECT id, status, agent_id FROM requests WHERE id = ?', Number(b.request)) : undefined;
-    if (r) await requireMakerOrAdmin(r.agent_id);
-    const request = r?.status === 'open' ? r.id : undefined;
-    const kept = b.url ? await takeKeptPage(b.profile ?? 1, b.url, request) : null;
-    if (kept) return { ok: true, profile: b.profile ?? 1, already: true, ...kept };
-    return openProfileWindow(b.profile ?? 1, b.url || undefined, request);
+  // --- The person's own browsers, through the EXTREMELY extension (browser-link.ts, docs/browser-extension.md) ---
+  'GET /api/browser': async () => ({
+    browsers: listBrowsers().map(b => ({ ...b, agentTabs: agentTabCount(b.n) })),
+    storeLinks: storeLinks(),
+  }),
+  // A one-time code for Connect a browser. base: the address the app reached this
+  // agency at, for a hosted one without EAA_PUBLIC_URL.
+  'POST /api/browser/pair': async (_req, _q, body) => {
+    const { base } = await body<{ base?: unknown }>();
+    return pairCode(typeof base === 'string' && base.trim() ? base.trim() : undefined);
   },
-  // A request's kept page, brought up in the agents' browser on this computer.
-  'POST /api/browser/kept/show': async (_req, _q, body) => {
+  // "This browser": the connect page, in the default browser of the computer the app
+  // runs on. Only the app on that computer: anyone else would open a tab on the host.
+  'POST /api/browser/open-connect': async (_req, _q, body) => {
+    if (currentActor().via !== 'local') throw new AccessError(403, 'Only on the host computer itself.');
+    const { link } = await body<{ link?: unknown }>();
+    openConnectPage(String(link ?? ''));
+    return { ok: true };
+  },
+  'POST /api/browser/rename': async (_req, _q, body) => {
+    const { n, name } = await body<{ n?: unknown; name?: unknown }>();
+    renameBrowser(Number(n), String(name ?? ''));
+    return { ok: true };
+  },
+  'POST /api/browser/remove': async (_req, _q, body) => {
+    const { n } = await body<{ n?: unknown }>();
+    removeBrowser(Number(n));
+    return { ok: true };
+  },
+  // A request's button: the tab kept for it, brought to the front in the person's browser.
+  'POST /api/browser/show': async (_req, _q, body) => {
     const { request } = await body<{ request?: number }>();
     if (typeof request !== 'number') throw new Error('Which request?');
     const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', request);
     if (r) await requireMakerOrAdmin(r.agent_id);
-    if (!(await showKeptPage(request))) throw new Error("That page is no longer kept. Its agent will fill it in again.");
-    return { ok: true };
-  },
-  // The person's own Chrome (person-chrome.ts): whether it's connected, and a new pairing.
-  'GET /api/person-chrome': async () => personChromeStatus(),
-  'POST /api/person-chrome/open': async (_req, _q, body) => {
-    const { id } = await body<{ id?: string }>();
-    await openPersonChromePage(String(id ?? ''));
-    return { ok: true };
-  },
-  'POST /api/person-chrome/connect': async (_req, _q, body) => {
-    const b = await body<{ browser?: string }>();
-    openPersonChromeConnect(b.browser === 'edge' ? 'edge' : 'chrome');
-    return { ok: true };
-  },
-  'POST /api/person-chrome/reset': async () => {
-    await resetPersonChromeToken();
-    return { ok: true };
-  },
-  // A kept page copied for the person's own browser, and what they finished there
-  // coming back: the app on their computer carries both (an agency in the cloud
-  // can't reach their browser). Admins only, like the agents' browser itself.
-  'POST /api/person-chrome/copy': async (_req, _q, body) => {
-    const { request } = await body<{ request?: number }>();
-    if (typeof request !== 'number') throw new Error('Which request?');
-    return { handoff: await copyKeptForChrome(request) };
-  },
-  // Finished, pressed by the person, when their browser didn't send the page back
-  // (its tab was closed first): the agent hears they're done and checks for itself.
-  'POST /api/person-chrome/finished-elsewhere': async (_req, _q, body) => {
-    const { request } = await body<{ request?: number }>();
-    if (typeof request !== 'number') throw new Error('Which request?');
-    await finishKeptByRequest(
-      request,
-      'They finished this in their own browser and pressed Finished. No sign-in came back with it, so open the page again and check it worked (sign in with the saved password if it asks).',
-    );
-    return { ok: true };
-  },
-  'POST /api/person-chrome/finish': async (_req, _q, body) => {
-    const b = await body<{ id?: string; cookies?: unknown }>();
-    await finishFromApp(String(b.id ?? ''), b.cookies);
+    if (!(await showKeptPage(request))) throw new Error('That page is gone.');
     return { ok: true };
   },
 
@@ -772,7 +748,7 @@ export const runnerRoutes: Record<string, Route> = {
   },
 
   // --- The agents' password store (Settings > Connectors > Signed-in browser > Passwords): owners and admins (access.ts) ---
-  'GET /api/passwords': async () => ({ passwords: listPasswords(), profiles: await listProfiles() }),
+  'GET /api/passwords': async () => ({ passwords: listPasswords(), profiles: listBrowsers().map(b => b.n) }),
   'POST /api/passwords/reveal': async (_req, _q, body) => {
     const { id } = await body<{ id: string }>();
     return { password: await readPassword(id) };
@@ -782,7 +758,7 @@ export const runnerRoutes: Record<string, Route> = {
     const b = await body<{ site: string; username: string; password: string; note?: string }>();
     if (!b.username?.trim() || !b.password) throw new Error('A username and a password, please.');
     const site = siteOf(b.site);
-    const { profile } = profileFor(site, await listProfiles());
+    const { profile } = profileFor(site, listBrowsers().map(b => b.n));
     return { id: await savePassword({ site, username: b.username, password: b.password, profile, agentId: null, note: b.note ?? null, confirmed: true }), profile };
   },
   'POST /api/passwords/delete': async (_req, _q, body) => {

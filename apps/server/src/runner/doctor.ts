@@ -49,7 +49,7 @@ The agency exists for output: every agent doing as much good, real work as it ca
 
 ## Every run
 1. doctor.fleet_report. It shows, since your last look: each agent's runs and failures, what its counted output actually was, output counted on tools it doesn't hold, tools failing again and again, requests filed more than once, requests stuck, and approvals that failed.
-   Then host.health: the machine the agency runs on - its process/thread and memory limits, what's using them, leftover browsers, Claude Code crashes and their cause, and errors the agency logged.
+   Then host.health: the machine the agency runs on - its process/thread and memory limits, what's using them, the person's browsers agents work in (online or not), Claude Code crashes and their cause, and errors the agency logged.
    - Runs failing with "exit null", "EAGAIN", "Failed to start ... thread", "Target crashed" or "The server stopped" are the machine, not the agents: read host.health, never guess. Near a limit, or leftovers listed: host.clean_up, then host.health again to see it worked.
    - Still near a limit after clean_up, or crashes keep coming: doctor.report_app_gap with the numbers host.health gives (the limit, what's using it, the crash cause) - the app should keep within the machine's limits on its own - and file a request for the Agency Engineer only if something in this agency (a plugin, a connection) is what's using it.
    - It said "Healthy" a moment after a restart: that's not proof. Look again next run before calling it cleared.

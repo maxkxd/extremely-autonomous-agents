@@ -4,7 +4,7 @@ import { siClaude, siCursor, type SimpleIcon } from 'simple-icons';
 import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { visibleApprovals, type ApprovalScope } from './Approvals';
-import { sendRequestMessage, sendToIde } from './builder';
+import { sendRequestMessage, sendToIde, showInBrowser } from './builder';
 import { RichText } from './RichText';
 import { Loading, Skel } from './Skeleton';
 import { useOffline } from './offline';
@@ -12,7 +12,6 @@ import { isAdmin, myAccountId, scoped } from './account';
 import { scrollToCard } from './scrollToCard';
 import { notify, notifyError } from './Notices';
 import { Spinner } from './Busy';
-import { finishedInMyBrowser, openInMyChrome } from './personChrome';
 
 // A request waiting for a sign-in the whole organization shares (Gmail, Square...)
 // is everyone's to see, not just its agent's owner's: a teammate's request can
@@ -349,8 +348,8 @@ function RequestRow({
                 )}
               </div>
 
-              {/* A page an agent kept for you: you do it in your own browser, then Finished. */}
-              {request.kept && request.live != null && !leaving && <OwnBrowserStep request={request.live} />}
+              {/* A page an agent kept for you: a tab in your own browser. Closing it answers the request. */}
+              {request.kept && request.live != null && !leaving && <OwnBrowserStep request={request.live} google={/accounts\.google\.com/i.test(`${request.summary} ${request.detail}`)} />}
 
               <div className="request-actions">
                 {/* Your AI assistant, with this request and the agency's tools as you (runner/ide.ts). */}
@@ -600,26 +599,22 @@ export function Requests({
   );
 }
 
-// A human step on a page an agent kept: it opens in your own browser (by itself, too),
-// you do it there, and Finished tells the agent to carry on (personChrome.ts).
-function OwnBrowserStep({ request }: { request: number }) {
-  const [busy, setBusy] = useState<'open' | 'finish' | null>(null);
-  const [finished, setFinished] = useState(false);
-  const act = (which: 'open' | 'finish') => {
-    setBusy(which);
-    (which === 'open' ? openInMyChrome(request) : finishedInMyBrowser(request).then(() => setFinished(true)))
-      .catch(notifyError)
-      .finally(() => setBusy(null));
+// A human step on a page an agent kept: a tab in your own browser (docs/browser-extension.md),
+// brought to the front here. Closing that tab answers the request, and its agent hears.
+function OwnBrowserStep({ request, google }: { request: number; google?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [opened, setOpened] = useState(false);
+  const open = () => {
+    setBusy(true);
+    showInBrowser(request)
+      .then(() => setOpened(true), notifyError)
+      .finally(() => setBusy(false));
   };
   return (
     <div className="own-step">
-      <button className="rq-btn finished" disabled={!!busy || finished} onClick={() => act('finish')}>
-        {busy === 'finish' ? <Spinner size={14} /> : <Check size={16} strokeWidth={2.25} />}
-        {finished ? 'Sent to the agent' : 'Finished?'}
-      </button>
-      <button className="rq-btn" disabled={!!busy || finished} onClick={() => act('open')}>
-        {busy === 'open' ? <Spinner size={12} /> : <ExternalLink size={14} />}
-        Open in my browser
+      <button className="rq-btn finished" disabled={busy} onClick={open}>
+        {busy ? <Spinner size={14} /> : <ExternalLink size={16} strokeWidth={2.25} />}
+        {opened ? 'Close the tab when you’re done' : google ? 'Sign in to Google in your browser' : 'Open it in your browser'}
       </button>
     </div>
   );

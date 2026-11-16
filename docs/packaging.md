@@ -41,8 +41,9 @@ runs in development.
   the SDK asks for from npm, checks npm's sha512, and unpacks it into the data
   folder with Windows' own tar; its progress shows on Copilot's row.
 - **What it doesn't ship**: Claude Code, the Copilot CLI's sign-in, Cloudflare's
-  tunnel, Chrome or Edge for the agents' browser. The app finds them, and offers
-  to install Claude Code, as in development.
+  tunnel, or a browser: agents work in the person's own Chrome or Edge, through
+  the EXTREMELY extension (docs/browser-extension.md). The app finds the rest,
+  and offers to install Claude Code, as in development.
 
 ## Updates
 

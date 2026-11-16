@@ -1,40 +1,31 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import { readMeta } from '../files.js';
 import type { PersonInput } from './cdp.js';
 import { all } from './db.js';
-import { closePersonWindow, finishKeptPage, heldSince, hold, listProfiles, liveTabs, openProfileWindow, personScreens, release, screenSize, type LiveTab } from './browser.js';
+import { finishKeptPage, heldSince, hold, liveTabs, openPersonTab, pairedBrowsers, release, type LiveTab } from './browser.js';
 
-// The agents' browser, live in the app (the Agents' browser page): every agent's page
-// in the profiles' browsers, small and about once a second; the one the person
-// watches as it changes; and that one taken over - their mouse, keys, pasted text and
-// scrolling go to it, and its agent waits on it until it's handed back. The same here
-// and in the cloud: these are ordinary requests to the agency, so from elsewhere they
-// go through the end-to-end encrypted relay like the rest.
+// The agents' tabs, live in the app: every agent's tab in the person's browsers, small
+// and about once a second; the one the person watches as it changes; and that one
+// taken over - their mouse, keys, pasted text and scrolling go to it, and its agent
+// waits on it until it's handed back. Frames come through the extension's relay
+// (Page.startScreencast over chrome.debugger), the same wherever the agency runs:
+// these are ordinary requests to the agency, so from elsewhere they go through the
+// end-to-end encrypted relay like the rest.
 //
-// In the cloud each profile's browser is on a screen of its own (browser.ts
-// personScreens): the whole browser, every agent's window and the tab kept for the
-// person, as it would be on their own screen - and Google's sign-in window while that
-// has the profile. That screen is streamed from the display itself (ffmpeg) and their
-// input typed into it (xdotool), never through DevTools: it's theirs to use any time.
+// A tab kept for the person isn't here: it's a normal tab in their browser, with the
+// debugger off it, and the request's button brings it up there.
 //
 // Frames are pulled, not pushed: the app asks for the next one after the one it has,
-// and a page is only streamed while somebody keeps asking. Egress through the relay is
-// billed, so the cloud screen is a few frames a second at modest JPEG quality, and a
-// frame identical to the one before is not sent at all: a screen nobody is changing
-// costs next to nothing.
+// and a page is only streamed while somebody keeps asking.
 
 const THUMB_MS = 1000;
 const WATCH_IDLE_MS = 5000;
 const FRAME_WAIT_MS = 2500;
-// The cloud screen stream: frames a second, and ffmpeg's JPEG quality (2 best, 31 worst).
-const SCREEN_FPS = 4;
-const SCREEN_QUALITY = 9;
 
 type Frame = { data: string; width: number; height: number };
 type Source = {
   id: string;
-  kind: 'agent' | 'person';
-  profile: number;
+  kind: 'agent';
+  browser: number;
   agent: { id: string; name: string } | null;
   request: number | null;
   since: number;
@@ -47,125 +38,16 @@ type Source = {
   page?: LiveTab['page'];
 };
 
-// --- A person's screen in the cloud: frames from the display, input with xdotool ---
-const SCREEN_PREFIX = 'screen:';
-function grabStream(display: string, onFrame: (f: Frame) => void, fps = SCREEN_FPS): ChildProcess {
-  const ff = spawn('ffmpeg', ['-loglevel', 'error', '-f', 'x11grab', '-framerate', String(fps), '-video_size', `${screenSize.width}x${screenSize.height}`, '-i', display, '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', String(SCREEN_QUALITY), 'pipe:1'], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let buf = Buffer.alloc(0);
-  let err = '';
-  // The last frame sent, and what this stream has sent in all (logged when it stops).
-  let last: Buffer | null = null;
-  const began = Date.now();
-  const totals = { sent: 0, same: 0, bytes: 0 };
-  ff.stderr?.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-2_000)));
-  ff.stdout!.on('data', (d: Buffer) => {
-    buf = Buffer.concat([buf, d]);
-    // Each JPEG runs from FFD8 to FFD9.
-    for (;;) {
-      const start = buf.indexOf(Buffer.from([0xff, 0xd8]));
-      const end = start < 0 ? -1 : buf.indexOf(Buffer.from([0xff, 0xd9]), start + 2);
-      if (start < 0 || end < 0) break;
-      const jpeg = buf.subarray(start, end + 2);
-      // The same picture as the last one: the screen hasn't changed, so nothing to send.
-      if (last && jpeg.equals(last)) totals.same++;
-      else {
-        last = Buffer.from(jpeg);
-        totals.sent++;
-        totals.bytes += jpeg.length;
-        onFrame({ data: jpeg.toString('base64'), ...screenSize });
-      }
-      buf = buf.subarray(end + 2);
-    }
-    if (buf.length > 8 * 1024 * 1024) {
-      console.error(`[browser] ffmpeg on ${display} sent more than 8MB without a finished frame. Dropping it.`);
-      buf = Buffer.alloc(0);
-    }
-  });
-  ff.on('error', e => console.error(`[browser] ffmpeg on ${display} failed to start:`, e.message));
-  ff.on('exit', (code, signal) => {
-    console.log(
-      `[browser] screen stream on ${display} stopped after ${Math.round((Date.now() - began) / 1000)}s: ` +
-        `${totals.sent} frames sent (${(totals.bytes / (1024 * 1024)).toFixed(1)} MB of JPEG), ${totals.same} unchanged ones not sent`,
-    );
-    if (code !== 0 && code !== null) console.error(`[browser] ffmpeg on ${display} exited (code ${code}${signal ? `, ${signal}` : ''}).${err.trim() ? ` ${err.trim()}` : ''}`);
-  });
-  return ff;
-}
-const grabOne = (display: string, width = 320) =>
-  new Promise<string | null>(resolve => {
-    const ff = spawn('ffmpeg', ['-loglevel', 'error', '-f', 'x11grab', '-video_size', `${screenSize.width}x${screenSize.height}`, '-i', display, '-frames:v', '1', '-vf', `scale=${width}:-1`, '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '8', 'pipe:1'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    const parts: Buffer[] = [];
-    let err = '';
-    ff.stdout!.on('data', d => parts.push(d));
-    ff.stderr?.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-2_000)));
-    ff.on('close', code => {
-      if (!parts.length) console.error(`[browser] No thumbnail from ${display} (ffmpeg code ${code ?? 'none'}).${err.trim() ? ` ${err.trim()}` : ''}`);
-      resolve(parts.length ? Buffer.concat(parts).toString('base64') : null);
-    });
-    ff.on('error', e => {
-      console.error(`[browser] ffmpeg thumbnail on ${display} failed to start:`, e.message);
-      resolve(null);
-    });
-  });
-
-// The browser's key names, as X knows them. A key with a character is typed as text.
-const KEYSYM: Record<string, string> = {
-  Enter: 'Return', Backspace: 'BackSpace', Tab: 'Tab', Escape: 'Escape', Delete: 'Delete', Insert: 'Insert',
-  ArrowLeft: 'Left', ArrowRight: 'Right', ArrowUp: 'Up', ArrowDown: 'Down', Home: 'Home', End: 'End', PageUp: 'Prior', PageDown: 'Next', ' ': 'space',
-};
-for (let i = 1; i <= 12; i++) KEYSYM[`F${i}`] = `F${i}`;
-const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock']);
-const xdotool = (display: string, args: string[]) =>
-  new Promise<void>((resolve, reject) => {
-    const p = spawn('xdotool', args, { env: { ...process.env, DISPLAY: display }, stdio: ['ignore', 'ignore', 'pipe'] });
-    let err = '';
-    p.stderr?.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-2_000)));
-    p.on('error', e => reject(new Error(`Sending input to ${display} failed: ${e.message}`)));
-    p.on('close', code => {
-      if (code === 0) return resolve();
-      const why = err.trim() || `xdotool exited with code ${code ?? 'none'}`;
-      console.error(`[browser] Input on ${display} (${args[0]}) failed: ${why}`);
-      reject(new Error(`The page didn't get that input. ${why}`));
-    });
-  });
-async function typeInto(display: string, e: PersonInput) {
-  const btn = (b?: string) => (b === 'right' ? '3' : b === 'middle' ? '2' : '1');
-  if (e.type === 'mouse') {
-    const at = ['mousemove', String(Math.round(e.x)), String(Math.round(e.y))];
-    if (e.action === 'mouseMoved') return xdotool(display, at);
-    return xdotool(display, [...at, e.action === 'mousePressed' ? 'mousedown' : 'mouseup', btn(e.button)]);
-  }
-  if (e.type === 'wheel') {
-    const dy = e.deltaY, dx = e.deltaX;
-    const n = Math.min(10, Math.max(1, Math.round(Math.abs(dy || dx) / 60)));
-    const button = Math.abs(dy) >= Math.abs(dx) ? (dy > 0 ? '5' : '4') : dx > 0 ? '7' : '6';
-    return xdotool(display, ['mousemove', String(Math.round(e.x)), String(Math.round(e.y)), 'click', '--repeat', String(n), '--delay', '10', button]);
-  }
-  if (e.type === 'text') return xdotool(display, ['type', '--delay', '4', '--', e.text]);
-  if (e.action !== 'down' || MODIFIER_KEYS.has(e.key)) return;
-  const mods = e.modifiers ?? 0;
-  const combo = [mods & 2 ? 'ctrl' : '', mods & 1 ? 'alt' : '', mods & 4 ? 'super' : ''].filter(Boolean);
-  if (e.text && !combo.length) return xdotool(display, ['type', '--delay', '0', '--', e.text]);
-  const sym = KEYSYM[e.key] ?? (e.key.length === 1 ? e.key.toLowerCase() : null);
-  if (!sym) return;
-  if (mods & 8 && !e.text) combo.push('shift');
-  return xdotool(display, ['key', '--clearmodifiers', [...combo, sym].join('+')]);
-}
-
-// --- Every page there is to watch: agents' pages, and the person's screens ---
+// --- Every tab there is to watch ---
 // A thumbnail is drawn inside the page: a hung one gets none rather than holding the list.
 const THUMB_WAIT_MS = 2500;
 const soon = <T>(p: Promise<T>, ms: number, otherwise: T): Promise<T> =>
   Promise.race([p.catch(() => otherwise), new Promise<T>(r => setTimeout(() => r(otherwise), ms).unref())]);
 async function sources(): Promise<Source[]> {
-  const agents: Source[] = liveTabs().map(t => ({
+  return liveTabs().map(t => ({
     id: t.id,
     kind: 'agent',
-    profile: t.profile,
+    browser: t.browser,
     agent: t.agent,
     request: t.request ?? null,
     since: t.since,
@@ -186,24 +68,6 @@ async function sources(): Promise<Source[]> {
     input: e => t.page.input(e),
     page: t.page,
   }));
-  const screens: Source[] = (await personScreens()).map(s => ({
-    id: `${SCREEN_PREFIX}${s.profile}`,
-    kind: 'person',
-    profile: s.profile,
-    agent: null,
-    request: s.request ?? null,
-    since: s.since,
-    held: s.since, // always theirs
-    url: async () => s.url,
-    title: async () => `Profile ${s.profile}'s browser`,
-    thumb: () => soon(grabOne(s.display), THUMB_WAIT_MS, null),
-    stream: async onFrame => {
-      const ff = grabStream(s.display, onFrame);
-      return async () => void ff.kill();
-    },
-    input: e => typeInto(s.display, e),
-  }));
-  return [...agents, ...screens];
 }
 const sourceOf = async (id: unknown) => {
   const s = (await sources()).find(x => x.id === id);
@@ -223,7 +87,7 @@ async function thumb(s: Source) {
 }
 
 // --- What waits on the person: open requests with an "Open in signed-in browser" line ---
-const BROWSER_LINE = /^\s*Open in signed-in browser:\s*(https?:\/\/[^\s<>"']+?)[.,]?(?:\s*\(profile\s*(\d+)\))?\.?\s*$/im;
+const BROWSER_LINE = /^\s*Open in signed-in browser:\s*(https?:\/\/[^\s<>"']+?)[.,]?(?:\s*\((?:profile|browser)\s*(\d+)\))?\.?\s*$/im;
 const siteOf = (url: string) => {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -246,17 +110,18 @@ async function needs() {
   return out;
 }
 
+// profile: the browser's number (the field kept its old name for the app).
 export async function liveState(withThumbs: boolean) {
   const all = await sources();
   for (const id of thumbs.keys()) if (!all.some(s => s.id === id)) thumbs.delete(id);
   return {
-    profiles: await listProfiles(),
+    profiles: pairedBrowsers().filter(b => b.online).map(b => b.n),
     needs: await needs(),
     tabs: await Promise.all(
       all.map(async s => ({
         id: s.id,
         kind: s.kind,
-        profile: s.profile,
+        profile: s.browser,
         agent: s.agent,
         request: s.request,
         since: s.since,
@@ -321,24 +186,19 @@ export async function input(id: string, events: unknown) {
 }
 
 // take: the person has it, its agent waits. done: finished (a page kept for them closes,
-// and the request it came from is answered; Google's sign-in window closes and the
-// agents' browser starts again). handback: back to its agent, unfinished.
+// and the request it came from is answered). handback: back to its agent, unfinished.
 export async function control(id: string, action: unknown) {
-  const s = await sourceOf(id);
-  if (action === 'take') {
-    if (s.kind === 'agent') hold(id);
-  } else if (action === 'done' || action === 'handback') {
-    if (s.kind === 'agent') {
-      release(id);
-      if (action === 'done') await finishKeptPage(id);
-    } else if (action === 'done') closePersonWindow(s.profile);
+  await sourceOf(id);
+  if (action === 'take') hold(id);
+  else if (action === 'done' || action === 'handback') {
+    release(id);
+    if (action === 'done') await finishKeptPage(id);
   } else throw new Error('action: take, done or handback.');
   return { ok: true };
 }
 
-// "Open a profile": a window in that profile's browser - on their screen here, or (in
-// the cloud) on the profile's screen, shown on the page.
-export async function openForPerson(profile: unknown, url: unknown) {
-  const r = await openProfileWindow(Number(profile ?? 1) || 1, typeof url === 'string' && url ? url : 'https://www.google.com');
-  return { tab: (r as { live?: string }).live ?? null };
+// "Open a page": a plain tab of the person's own in that browser, in front.
+export async function openForPerson(browser: unknown, url: unknown) {
+  await openPersonTab(browser, typeof url === 'string' && url ? url : 'https://www.google.com');
+  return { tab: null };
 }

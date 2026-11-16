@@ -1,19 +1,18 @@
 # An organization's agency in the cloud (docs/hosting-in-the-cloud.md): the
-# agency server, Google Chrome for the agents' browser on a virtual display,
-# and Claude Code for a Claude plan. Programs for code plugins (yt-dlp, Python...)
+# agency server and Claude Code for a Claude plan. No browser: agents browse in
+# the members' own Chrome or Edge, through the EXTREMELY extension
+# (docs/browser-extension.md). Programs for code plugins (yt-dlp, Python...)
 # are not baked in: the agency installs its own, each approved by a person, into
 # its volume (engineer.install_program, docs/integrations.md) - xz-utils and unzip
-# are only there to unpack them. (ffmpeg here is the browser live view's.)
+# are only there to unpack them. (ffmpeg and the fonts stay for the plugins.)
 # Built from the repository root:
 #   docker build -f deploy/cloud/Dockerfile .
 FROM node:24-bookworm-slim
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl xvfb xauth tini git ffmpeg xdotool xz-utils unzip \
+ && apt-get install -y --no-install-recommends ca-certificates curl tini git ffmpeg xz-utils unzip \
       fonts-liberation fonts-noto-color-emoji fonts-noto-cjk \
- && curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
- && apt-get install -y --no-install-recommends /tmp/chrome.deb \
- && rm -rf /tmp/chrome.deb /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
 # Python and uv: MCP servers the Agency Engineer adds often run with uvx or python,
 # as on anyone's computer (integrations/mcp-stdio.ts). npx comes with Node.
@@ -37,10 +36,7 @@ ENV NODE_ENV=production \
     PORT=5185 \
     HOOKS_PORT=5186 \
     EAA_CALLBACK_PORT=5175 \
-    EAA_CLOUD_HOST=1 \
-    DISPLAY=:99 \
-    EAA_BROWSER=/usr/bin/google-chrome-stable \
-    EAA_BROWSER_ARGS="--no-sandbox --password-store=basic --disable-dev-shm-usage --renderer-process-limit=6 --disable-site-isolation-trials --disable-features=IsolateOrigins,site-per-process --js-flags=--single-threaded-gc --num-raster-threads=1 --disk-cache-size=104857600"
+    EAA_CLOUD_HOST=1
 
 # Nothing listens outside the container: members reach it through the relay,
 # over the agency's own outbound connection. Sign-ins (OAuth) come back to the

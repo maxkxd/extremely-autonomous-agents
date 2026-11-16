@@ -46,7 +46,6 @@ import {
 import { Notices, notifyError } from './Notices';
 import { useGrow } from './grow';
 import { every, same } from './poll';
-import { relayChromeFinished } from './personChrome';
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 480;
@@ -336,8 +335,6 @@ function Agency() {
     load();
     return every(load, 5000);
   }, []);
-  // What your Chrome finished goes back to an agency hosted elsewhere.
-  useEffect(() => relayChromeFinished(), []);
   const pendingRequests = liveRequests.filter(r => !requestGone[r.id] && exists(r.agentId));
   // Still open: what the counts are (one flying off has already gone from them).
   const openRequests = pendingRequests.filter(r => !r.closedAs);

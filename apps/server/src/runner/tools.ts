@@ -579,11 +579,11 @@ export const registeredToolIds = () => new Set([...BUILTIN_IDS, ...REGISTERED.ke
 // Something here serves it: registered, built in, or a family (web.browse) whose members are.
 export const servedHere = (id: string) => BUILTIN_IDS.has(id) || REGISTERED.has(id) || id in FAMILIES;
 
-// One catalogue tool that stands for a set: holding web.browse means the whole
-// blank browser (open, click, type...), at web.browse's tier unless the agent
-// holds a member itself.
+// One catalogue tool that stands for a set: holding web.browse means browsing
+// (open, click, type...) in the browser, at web.browse's tier unless the agent
+// holds a member itself (every agent holds the browser kit: catalog.ts).
 const FAMILIES: Record<string, string[]> = {
-  'web.browse': ['browser.open', 'browser.click', 'browser.type', 'browser.scroll', 'browser.back'],
+  'web.browse': ['signed_in_browser.open', 'signed_in_browser.click', 'signed_in_browser.type', 'signed_in_browser.scroll', 'signed_in_browser.back'],
 };
 
 // Every tool an agent holds, with its tier: TOOLS.yaml plus family members.

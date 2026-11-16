@@ -20,14 +20,9 @@ run it (accounts, keys, monitoring), which isn't in this repository.
   (`EAA_HOSTED_ORG`), listening only inside the container;
 - its own relay connection (`src/cloud.ts`, on with `EAA_CLOUD_HOST=1`): on a
   computer the person's own agency keeps it, here nothing else would;
-- Google Chrome for the agents' browser, on a virtual display (Xvfb), with
-  `EAA_BROWSER_ARGS="--no-sandbox --password-store=basic --disable-dev-shm-usage --renderer-process-limit=6 --disable-site-isolation-trials --disable-features=IsolateOrigins,site-per-process --js-flags=--single-threaded-gc --num-raster-threads=1"`.
-  A container can start a limited number of processes and threads (Railway's:
-  1,000), and Chrome sizes its thread pools to the host's cores, not the
-  container's share: unchecked, its renderers took over 700 and Claude Code
-  crashed when it couldn't start a thread. The last five flags hold it to a few
-  renderers with fewer threads each (with no sandbox, one renderer per site
-  protects little);
+- no browser: agents browse in the members' own Chrome or Edge, through the
+  EXTREMELY extension (docs/browser-extension.md, "Pairing" says which address
+  it connects to);
 - Claude Code, for agents on a Claude plan.
 
 Nothing listens outside the container. Its volume, mounted at `/data`, holds:
@@ -79,18 +74,13 @@ relay from then on) and writes one file, encrypted with the container's key:
 - its vault, opened here and sealed again with the container's key;
 - the host's key pair and secret, from the person's own vault, so the
   container is the same host to the relay and the directory;
-- every cookie in each of the agents' browser profiles, read through the
-  browser's own DevTools connection. A profile's cookie file is locked to this
-  computer's account (DPAPI on Windows), so copying the profile doesn't work;
-  the profiles start empty in the container and their cookies are added the
-  first time each opens (`browser:<n>:carried-cookies`).
+- not the browser's sign-ins: agents work in the person's own browser, which
+  stays where it is. Pair it with the hosted agency (Connectors > Browser) and
+  the sign-ins are there.
 
 `--sidecar file.mjs` adds a sidecar to the bundle. Then put the bundle in the
 container's `/data/incoming` (or give its address as `EAA_MOVE_IN_URL`) and
 start the container.
-
-Some sites tie a sign-in to the device it was made on (Google can, in Chrome
-on Windows): those are made again in the container.
 
 ## AI in the container
 
@@ -100,11 +90,3 @@ give the token it prints to the organisation's Claude connection
 (`POST /api/connections/claude-code/token`, `{ "token": "sk-ant-oat01-..." }`;
 an empty token forgets it). It's kept in the vault and given to Claude Code as
 `CLAUDE_CODE_OAUTH_TOKEN`. An Anthropic API key works as on any computer.
-
-## Not yet
-
-- (Done 2026-11-13.) Each profile's browser runs on a virtual screen of its
-  own, and the app's Agents' browser page streams that whole screen through
-  the relay - every agent's window, the tab kept for a CAPTCHA - with the
-  person's mouse and keys sent to it, as the browser on their own screen would
-  be. Google's sign-in opens on the same screen.

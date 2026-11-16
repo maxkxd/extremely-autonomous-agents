@@ -15,6 +15,7 @@
     "@anthropic-ai/sdk": "^1.3.0",
     "@github/copilot-sdk": "^1.0.28",
     "@mozilla/readability": "^0.6.0",
+    "@types/ws": "^8.18.2",
     "esbuild": "^0.28.2",
     "jose": "^6.2.12",
     "linkedom": "^0.18.14",
@@ -22,6 +23,7 @@
     "tsx": "^4.23.15",
     "undici": "^8.12.3",
     "unpdf": "1.8.1",
+    "ws": "^8.23.0",
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
   },
