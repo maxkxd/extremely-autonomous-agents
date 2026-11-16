@@ -1,7 +1,7 @@
 import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
-import { __leaveAloneForTest, __setBrowserConnForTest, agentTabCount, cleanUpBrowsers, CONNECT_A_BROWSER, GOOGLE_SIGN_IN, hasKeptPage, keptCaptcha, NO_BROWSER, onPersonDone, pageViewForTests, showKeptPage, SIGNED_IN_TOOLS } from './browser.js';
+import { __leaveAloneForTest, __setBrowserConnForTest, agentTabCount, cleanUpBrowsers, closeRequestsWithLostPages, CONNECT_A_BROWSER, GOOGLE_SIGN_IN, hasKeptPage, keptCaptcha, NO_BROWSER, onPersonDone, pageViewForTests, showKeptPage, SIGNED_IN_TOOLS } from './browser.js';
 import type { CdpConn } from './cdp.js';
 import { all, one, resetDbForTests, run as exec } from './db.js';
 import { runEnded, type RunCtx } from './tools.js';
@@ -209,7 +209,7 @@ test('show_person: the tab comes off the debugger, into "Waiting on you", and ou
   assert.deepEqual([...b1.tabs.keys()], [keptTab]);
   assert.equal(b1.of('Browser.close').length, 0, 'the browser is the person\'s: never closed');
   // The request's button: the tab, in front.
-  assert.equal(await showKeptPage(r.id), true);
+  assert.equal(await showKeptPage(r.id), 'shown');
   assert.equal(b1.of('Target.activateTarget').at(-1)!.params.targetId, keptTab);
 });
 
@@ -237,7 +237,7 @@ test('the browser goes offline mid-run: the run hears so, and the kept page stay
   await __setBrowserConnForTest(1, null, 'Chrome - Work');
   await assert.rejects(call('look', {}, c), (e: Error) => e.message.startsWith(NO_BROWSER));
   assert.equal(hasKeptPage(keptRequest), true);
-  assert.equal(await showKeptPage(keptRequest), false, 'nothing to bring up while it is offline');
+  assert.equal(await showKeptPage(keptRequest), 'offline', 'nothing to bring up while it is offline');
 });
 
 test('back online: the kept page is picked up, an agent tab nobody uses is closed', async () => {
@@ -333,4 +333,23 @@ test('a sweep while a tab is being opened, or kept for the person, never closes 
   await runEnded('r-race');
   assert.deepEqual([...b.tabs.values()].map(t => t.url), ['https://accounts.google.com/'], "the run's tabs close; the kept one stays");
   await __setBrowserConnForTest(7, null);
+});
+
+test('a request whose page went before an update: closed at start, and its button closes it too - never a dead button', async () => {
+  const old = Date.now() - 24 * 3_600_000;
+  const add = (what: string, at = old) =>
+    Number(exec("INSERT INTO requests (agent_id, what, why, evidence, created_at) VALUES ('zz-ext-old', ?, 'a check', ?, ?)", what, 'Open in signed-in browser: https://www.pinterest.com/business/create/ The page is kept as the agent left it.', at).lastInsertRowid);
+  const swept = add('Type a birthdate and press Continue');
+  const fresh = add('Just filed', Date.now());
+  const pressed = add('Pass the check');
+  assert.equal(await closeRequestsWithLostPages(), 2, 'the two old ones, not the one filed a moment ago');
+  const status = (id: number) => one<{ status: string; answer: string | null }>('SELECT status, answer FROM requests WHERE id = ?', id)!;
+  assert.equal(status(swept).status, 'withdrawn');
+  assert.match(status(swept).answer ?? '', /not by a person/);
+  assert.equal(status(fresh).status, 'open');
+  assert.equal(status(pressed).status, 'withdrawn');
+  // A button pressed on one the sweep hasn't reached yet closes it there and then.
+  const late = add('Enter the code');
+  assert.equal(await showKeptPage(late), 'gone');
+  assert.equal(status(late).status, 'withdrawn');
 });

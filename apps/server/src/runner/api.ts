@@ -732,7 +732,9 @@ export const runnerRoutes: Record<string, Route> = {
     if (typeof request !== 'number') throw new Error('Which request?');
     const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', request);
     if (r) await requireMakerOrAdmin(r.agent_id);
-    if (!(await showKeptPage(request))) throw new Error('That page is gone.');
+    const how = await showKeptPage(request);
+    if (how === 'offline') throw new Error("That page is in your browser, but it isn't connected to EXTREMELY right now. Open it with the EXTREMELY extension on, then press this again.");
+    if (how === 'gone') throw new Error('That page was lost, so this request is closed. Its agent has been told and will do it again if it still needs to.');
     return { ok: true };
   },
 

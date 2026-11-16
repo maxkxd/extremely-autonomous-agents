@@ -708,18 +708,57 @@ export const keptCaptcha = async (request: number) => [...kept.values()].some(k 
 
 // The request's button: the tab kept for it, in front in the person's browser. False
 // when there's none, or its browser isn't online.
-export async function showKeptPage(request: number): Promise<boolean> {
+// The request's button. shown: the tab is in front. offline: it's still kept, in a
+// browser that isn't connected right now. gone: nothing is kept for it any more (lost
+// before an update, or the tab went) - the request is closed there and then and its
+// agent told, so a dead button never sits on a card.
+export async function showKeptPage(request: number): Promise<'shown' | 'offline' | 'gone'> {
   const k = [...kept.values()].find(x => x.request === request);
-  const conn = k && connOf(k.browser);
-  if (!k || !conn) return false;
+  if (!k) {
+    if ((await readKept()).some(x => x.request === request)) return 'offline';
+    await requestPageLost(request, 'it was no longer open when the button was pressed');
+    return 'gone';
+  }
+  const conn = connOf(k.browser);
+  if (!conn) return 'offline';
   try {
     await conn.send('Target.activateTarget', { targetId: k.targetId });
-    return true;
+    return 'shown';
   } catch (e) {
     console.error(`[browser] Bringing up the tab kept for request #${request} failed:`, (e as Error).message);
-    return false;
+    kept.delete(k.id);
+    saveKept();
+    await keptPageLost(k, 'its tab was no longer there');
+    return 'gone';
   }
 }
+
+// An open request whose button points at a page nothing keeps any more: closed as lost,
+// with the address from its own button line.
+async function requestPageLost(request: number, why: string) {
+  const r = one<{ evidence: string | null }>("SELECT evidence FROM requests WHERE id = ? AND status = 'open'", request);
+  const url = /Open in signed-in browser:\s*(https?:\/\/\S+)/.exec(r?.evidence ?? '')?.[1];
+  if (!url) return;
+  await keptPageLost({ request, site: siteOfUrl(url), url }, why);
+}
+
+// Requests whose page went before this version could close them (their button stayed,
+// and pressing it said "That page is gone."): once at start, after the kept pages are
+// read, every open one with a page button and no kept page is closed and its agent told.
+// Requests a few minutes old are left alone: their page may be on its way to the list.
+export async function closeRequestsWithLostPages(now = Date.now()) {
+  const keptFor = new Set([...(await readKept()), ...kept.values()].map(k => k.request).filter(r => r != null));
+  const open = all<{ id: number; created_at: number }>("SELECT id, created_at FROM requests WHERE status = 'open' AND evidence LIKE '%Open in signed-in browser:%'");
+  let n = 0;
+  for (const r of open) {
+    if (keptFor.has(r.id) || now - Number(r.created_at) < 5 * 60_000) continue;
+    await requestPageLost(r.id, 'it was lost before an update');
+    n++;
+  }
+  if (n) console.log(`[browser] Closed ${n} request(s) whose kept page was already gone.`);
+  return n;
+}
+setTimeout(() => void closeRequestsWithLostPages().catch(e => console.error('[browser] Closing requests with lost pages failed:', (e as Error).message)), 90_000).unref();
 
 // "Open a page" for the person (the app's live view): a plain tab of theirs in that
 // browser, in front - not an agent tab, so nothing here touches it again.
