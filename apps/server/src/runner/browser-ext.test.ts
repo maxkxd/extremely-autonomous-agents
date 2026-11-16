@@ -423,3 +423,19 @@ test("one that won't come online: a plain answer and one request; not started ag
   profilesTesting.reset();
   profilesTesting.setBrowser(null);
 });
+
+test("a link the Engineer wrote on a card opens that page; it never closes the request - only the request's own lost page does", async () => {
+  const b = new FakeBrowser();
+  await __setBrowserConnForTest(31, b, 'Edge');
+  const id = Number(
+    exec("INSERT INTO requests (agent_id, what, why, evidence, created_at) VALUES ('zz-ext-x', 'Face check on X', 'a check', ?, ?)", 'Open in signed-in browser: https://x.com/i/flow/login (browser 31) The page is kept as the agent left it.', Date.now()).lastInsertRowid,
+  );
+  assert.equal(await showKeptPage(id, { url: 'https://x.com/i/flow/signup', browser: 31 }), 'opened');
+  assert.equal(one<{ status: string }>('SELECT status FROM requests WHERE id = ?', id)!.status, 'open', 'still open');
+  const made = b.of('Target.createTarget').at(-1)!;
+  assert.equal(made.params.url, 'https://x.com/i/flow/signup');
+  // The request's own button, its page gone: closed, its agent told.
+  assert.equal(await showKeptPage(id, { url: 'https://x.com/i/flow/login', browser: 31 }), 'gone');
+  assert.equal(one<{ status: string }>('SELECT status FROM requests WHERE id = ?', id)!.status, 'withdrawn');
+  await __setBrowserConnForTest(31, null);
+});

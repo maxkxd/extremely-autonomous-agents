@@ -751,11 +751,11 @@ export const runnerRoutes: Record<string, Route> = {
   },
   // A request's button: the tab kept for it, brought to the front in the person's browser.
   'POST /api/browser/show': async (_req, _q, body) => {
-    const { request } = await body<{ request?: number }>();
+    const { request, url, browser } = await body<{ request?: number; url?: string; browser?: number }>();
     if (typeof request !== 'number') throw new Error('Which request?');
     const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', request);
     if (r) await requireMakerOrAdmin(r.agent_id);
-    const how = await showKeptPage(request);
+    const how = await showKeptPage(request, { url: typeof url === 'string' ? url : undefined, browser: typeof browser === 'number' ? browser : undefined });
     if (how === 'offline') throw new Error("That page is in your browser, but it isn't connected to EXTREMELY right now. Open it with the EXTREMELY extension on, then press this again.");
     if (how === 'gone') throw new Error('That page was lost, so this request is closed. Its agent has been told and will do it again if it still needs to.');
     return { ok: true };

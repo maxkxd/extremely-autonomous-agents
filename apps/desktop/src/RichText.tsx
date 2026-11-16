@@ -54,10 +54,10 @@ const hostOf = (url: string) => {
   }
 };
 
-function BrowserButton({ url, request }: { url: string; request: number }) {
+function BrowserButton({ url, request, browser }: { url: string; request: number; browser?: number }) {
   const [opened, setOpened] = useState(false);
   const google = /^accounts\.(google|youtube)\.com$/.test(hostOf(url));
-  const open = () => showInBrowser(request).then(() => setOpened(true), notifyError);
+  const open = () => showInBrowser(request, url, browser).then(() => setOpened(true), notifyError);
   return (
     <button className="rt-settings" onClick={open}>
       {opened ? 'Close the tab when you’re done' : google ? 'Sign in to Google in your browser' : 'Open it in your browser'}
@@ -182,7 +182,7 @@ export function RichText({ text, onRequest, canOpen, onSettings, request }: { te
     // A request's kept page: a button that brings it up in the person's browser.
     const page = request != null ? BROWSER_LINE.exec(line) : null;
     if (page) {
-      pages.push(<BrowserButton key={pages.length} url={page[1]} request={request!} />);
+      pages.push(<BrowserButton key={pages.length} url={page[1]} request={request!} browser={page[2] ? Number(page[2]) : undefined} />);
       continue;
     }
     // A line that's only where to connect something: a big button to it.

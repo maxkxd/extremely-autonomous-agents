@@ -800,10 +800,20 @@ export const keptCaptcha = async (request: number) => [...kept.values()].some(k 
 // browser that isn't connected right now. gone: nothing is kept for it any more (lost
 // before an update, or the tab went) - the request is closed there and then and its
 // agent told, so a dead button never sits on a card.
-export async function showKeptPage(request: number): Promise<'shown' | 'offline' | 'gone'> {
+// opened: a button that isn't the request's own kept page (a link the Agency Engineer
+// or the agent wrote on the card, "open x.com in the agents' browser") - that address
+// opens as a plain tab of the person's in that browser. Only the request's own page
+// button closes the request when its page is gone.
+export async function showKeptPage(request: number, button?: { url?: string; browser?: number }): Promise<'shown' | 'offline' | 'gone' | 'opened'> {
   const k = [...kept.values()].find(x => x.request === request);
   if (!k) {
     if ((await readKept()).some(x => x.request === request)) return 'offline';
+    const own = /Open in signed-in browser:\s*(https?:\/\/\S+)/.exec(one<{ evidence: string | null }>('SELECT evidence FROM requests WHERE id = ?', request)?.evidence ?? '')?.[1];
+    if (button?.url && button.url !== own) {
+      await openPersonTab(button.browser, button.url);
+      return 'opened';
+    }
+    if (!own) throw new Error('There is no page to open for this.');
     await requestPageLost(request, 'it was no longer open when the button was pressed');
     return 'gone';
   }
