@@ -12,6 +12,10 @@ and run their organisation's agency on their own server or cloud account. Our
 hosted plan is this same container, run by us. What's ours alone is how we
 run it (accounts, keys, monitoring), which isn't in this repository.
 
+To run many organisations on one server you rent, each in its own container
+with its own memory cap and https address, see
+[deploy/vps/README.md](../deploy/vps/README.md).
+
 ## What runs in the container
 
 `deploy/cloud/Dockerfile`, built from the repository root:

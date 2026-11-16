@@ -1,0 +1,292 @@
+#!/usr/bin/env bash
+# eaa-org: organisations' agencies on this server, one container each
+# (deploy/vps/README.md). Installed by setup.sh as /usr/local/bin/eaa-org.
+set -euo pipefail
+
+ROOT=${EAA_ROOT:-/srv/eaa}
+IMAGE=eaa-host
+[ -f "$ROOT/config" ] || { echo "No $ROOT/config: run deploy/vps/setup.sh first." >&2; exit 1; }
+# shellcheck disable=SC1091
+. "$ROOT/config"
+# The port each container's browser link front listens on (src/link-forward.ts).
+LINK_PORT=8080
+
+usage() {
+  cat <<'EOF'
+eaa-org <command>
+
+  create <org id> --name <name> --owner <owner's name> [--memory 3g] [--vault-key <key>] [--bundle <file>] [--empty]
+             make an organisation's agency here. With --bundle (from scripts/move-org.ts, made
+             for --vault-key) it moves in; with --empty it starts with an empty agency;
+             with neither it waits for a bundle (eaa-org move-in)
+  move-in <org id> <bundle> [--replace]
+             give it a bundle; --replace: over an agency that is already the host
+  list       every organisation here, running or not, and how much memory it uses
+  logs <org id> [-f]
+  start|stop|restart <org id>
+  update <org id>|--all
+             start it again on the newest image (eaa-org build first); closes pages
+             waiting on approvals, so check those first
+  set <org id> NAME=value ... | NAME= ...
+             change its settings (an empty value removes one), then restart it
+  memory <org id> <limit>
+             change its memory cap (e.g. 4g), then restart it
+  delete <org id> [--purge]
+             stop and remove it; its folder is kept as <id>.deleted-<when> unless --purge
+  build      fetch the newest source and build the host image
+  caddy      write Caddy's settings for every organisation and (re)start it
+  backup     back up every organisation now (cron runs this nightly)
+EOF
+}
+
+die() { echo "$*" >&2; exit 1; }
+name_of() { echo "eaa-org-$1"; }
+dir_of() { echo "$ROOT/orgs/$1"; }
+check_id() {
+  [[ "${1:-}" =~ ^[a-z0-9][a-z0-9-]{0,39}$ ]] || die "An organisation id is lowercase letters, digits and dashes (its id in our directory)."
+}
+exists() { [ -d "$(dir_of "$1")" ]; }
+need() { check_id "${1:-}"; exists "$1" || die "No organisation $1 here (eaa-org list)."; }
+running() { [ "$(docker inspect -f '{{.State.Running}}' "$(name_of "$1")" 2>/dev/null)" = true ]; }
+setting() { grep -m1 "^$2=" "$(dir_of "$1")/settings" 2>/dev/null | cut -d= -f2-; }
+
+# (Re)creates its container from the current image and its folder.
+run() {
+  local id=$1 dir mem
+  dir=$(dir_of "$id")
+  mem=$(setting "$id" MEMORY); mem=${mem:-$DEFAULT_MEMORY}
+  docker rm -f "$(name_of "$id")" >/dev/null 2>&1 || true
+  # pids: Claude Code and the MCP servers it starts use many threads (a 1,000 cap crashed it on Railway).
+  docker run -d --name "$(name_of "$id")" \
+    --network eaa --restart unless-stopped \
+    --memory "$mem" --memory-swap "$mem" --pids-limit 8192 \
+    --env-file "$dir/env" \
+    -v "$dir/data:/data" \
+    --log-opt max-size=20m --log-opt max-file=5 \
+    --label eaa.org="$id" \
+    "$IMAGE:latest" >/dev/null
+  echo "$(name_of "$id") started (memory cap $mem)."
+}
+
+cmd_build() {
+  git -C "$ROOT/src" fetch -q origin "$BRANCH"
+  git -C "$ROOT/src" checkout -q -B "$BRANCH" "origin/$BRANCH"
+  local rev; rev=$(git -C "$ROOT/src" rev-parse --short HEAD)
+  docker build -q -f "$ROOT/src/deploy/cloud/Dockerfile" -t "$IMAGE:$rev" -t "$IMAGE:latest" "$ROOT/src" >/dev/null
+  # This tool too, from the same source.
+  install -m 755 "$ROOT/src/deploy/vps/eaa-org" /usr/local/bin/eaa-org
+  echo "Built $IMAGE:$rev (also $IMAGE:latest). eaa-org update --all starts the organisations on it."
+}
+
+cmd_caddy() {
+  local etc="$ROOT/caddy/etc" f id
+  mkdir -p "$etc"
+  f="$etc/Caddyfile.new"
+  {
+    echo "# Written by eaa-org caddy: edits here are overwritten."
+    [ -n "${CADDY_EMAIL:-}" ] && printf '{\n\temail %s\n}\n' "$CADDY_EMAIL"
+    for d in "$ROOT"/orgs/*/; do
+      [ -d "$d" ] || continue
+      id=$(basename "$d")
+      [[ "$id" == *.deleted-* ]] && continue
+      printf '\n%s.%s {\n\treverse_proxy %s:%s\n}\n' "$id" "$ORGS_DOMAIN" "$(name_of "$id")" "$LINK_PORT"
+    done
+  } > "$f"
+  mv "$f" "$etc/Caddyfile"
+  if docker inspect eaa-caddy >/dev/null 2>&1; then
+    docker start eaa-caddy >/dev/null
+    docker exec eaa-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
+      || docker restart eaa-caddy >/dev/null
+  else
+    docker pull -q caddy:2 >/dev/null
+    docker run -d --name eaa-caddy --network eaa --restart unless-stopped \
+      -p 80:80 -p 443:443 \
+      -v "$etc:/etc/caddy:ro" -v "$ROOT/caddy/data:/data" -v "$ROOT/caddy/config:/config" \
+      --log-opt max-size=20m --log-opt max-file=3 \
+      caddy:2 >/dev/null
+  fi
+  echo "Caddy serves $(grep -c reverse_proxy "$etc/Caddyfile") organisation(s) under *.$ORGS_DOMAIN."
+}
+
+cmd_create() {
+  local id=${1:-}; shift || true
+  check_id "$id"
+  exists "$id" && die "$id is already here (eaa-org list)."
+  local name="" owner="" mem="" key="" bundle="" empty=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name) name=$2; shift 2 ;;
+      --owner) owner=$2; shift 2 ;;
+      --memory) mem=$2; shift 2 ;;
+      --vault-key) key=$2; shift 2 ;;
+      --bundle) bundle=$2; shift 2 ;;
+      --empty) empty=1; shift ;;
+      *) die "Unknown option: $1" ;;
+    esac
+  done
+  [ -n "$name" ] && [ -n "$owner" ] || die "create needs --name and --owner."
+  [ -z "$bundle" ] || [ -f "$bundle" ] || die "No bundle at $bundle."
+  [ -z "$bundle" ] || [ -n "$key" ] || die "A bundle is sealed for one vault key: give it as --vault-key (scripts/move-org.ts --new-key printed it)."
+  [ -n "$key" ] || key=$(openssl rand -base64 32)
+  docker image inspect "$IMAGE:latest" >/dev/null 2>&1 || die "No host image yet: eaa-org build."
+
+  local dir; dir=$(dir_of "$id")
+  mkdir -p "$dir/data/incoming"
+  chmod 700 "$dir"
+  umask 077
+  cat > "$dir/env" <<EOF
+EAA_HOSTED_ORG=$id
+EAA_ORG_NAME=$name
+EAA_HOST_PERSON=$owner
+EAA_TOKEN_ISSUER=$EAA_TOKEN_ISSUER
+EAA_VAULT_KEY=$key
+EAA_PUBLIC_URL=https://$id.$ORGS_DOMAIN
+PORT=$LINK_PORT
+EOF
+  [ -n "$empty" ] && echo "EAA_START_EMPTY=1" >> "$dir/env"
+  echo "MEMORY=${mem:-$DEFAULT_MEMORY}" > "$dir/settings"
+  umask 022
+  [ -n "$bundle" ] && cp "$bundle" "$dir/data/incoming/"
+  run "$id"
+  cmd_caddy
+  echo "$name is at https://$id.$ORGS_DOMAIN (the browser link). Its vault key is in $dir/env: keep a copy somewhere safe."
+  [ -z "$bundle" ] && [ -z "$empty" ] && echo "It waits for a bundle: eaa-org move-in $id <file>."
+  return 0
+}
+
+cmd_move_in() {
+  local id=${1:-} bundle=${2:-} replace=${3:-}
+  need "$id"
+  [ -f "$bundle" ] || die "No bundle at $bundle."
+  local dir; dir=$(dir_of "$id")
+  if [ "$replace" = --replace ]; then
+    # Once per address (docs/hosting-in-the-cloud.md); the agency it replaces is kept.
+    sed -i '/^EAA_MOVE_IN_REPLACE=/d' "$dir/env"
+    echo "EAA_MOVE_IN_REPLACE=1" >> "$dir/env"
+  fi
+  mkdir -p "$dir/data/incoming"
+  cp "$bundle" "$dir/data/incoming/"
+  run "$id"
+  echo "Moving in: eaa-org logs $id -f"
+}
+
+cmd_list() {
+  local any=""
+  printf '%-38s %-24s %-9s %-8s %s\n' ORG NAME STATE CAP USING
+  for d in "$ROOT"/orgs/*/; do
+    [ -d "$d" ] || continue
+    local id; id=$(basename "$d")
+    [[ "$id" == *.deleted-* ]] && continue
+    any=1
+    local nm state use
+    nm=$(grep -m1 '^EAA_ORG_NAME=' "$d/env" | cut -d= -f2-)
+    state=$(docker inspect -f '{{.State.Status}}' "$(name_of "$id")" 2>/dev/null || echo missing)
+    use=$(docker stats --no-stream --format '{{.MemUsage}}' "$(name_of "$id")" 2>/dev/null | cut -d/ -f1 || true)
+    printf '%-38s %-24.24s %-9s %-8s %s\n' "$id" "$nm" "$state" "$(setting "$id" MEMORY)" "${use:--}"
+  done
+  [ -n "$any" ] || echo "(none yet: eaa-org create)"
+  echo
+  free -h | sed -n '1,2p'
+}
+
+cmd_set() {
+  local id=${1:-}; shift || true
+  need "$id"
+  [ $# -gt 0 ] || die "set <org id> NAME=value ..."
+  local env; env="$(dir_of "$id")/env"
+  for kv in "$@"; do
+    [[ "$kv" =~ ^[A-Z_][A-Z0-9_]*= ]] || die "Not NAME=value: $kv"
+    local k=${kv%%=*} v=${kv#*=}
+    [ "$k" = EAA_HOSTED_ORG ] && die "An organisation's id doesn't change."
+    sed -i "/^$k=/d" "$env"
+    [ -n "$v" ] && printf '%s=%s\n' "$k" "$v" >> "$env"
+  done
+  run "$id"
+}
+
+cmd_memory() {
+  local id=${1:-} mem=${2:-}
+  need "$id"
+  [[ "$mem" =~ ^[0-9]+[mg]$ ]] || die "memory <org id> <limit>, e.g. 4g or 1500m."
+  sed -i '/^MEMORY=/d' "$(dir_of "$id")/settings"
+  echo "MEMORY=$mem" >> "$(dir_of "$id")/settings"
+  run "$id"
+}
+
+cmd_update() {
+  local target=${1:-}
+  [ -n "$target" ] || die "update <org id>|--all"
+  echo "Note: starting again closes pages waiting on approvals or CAPTCHAs."
+  if [ "$target" = --all ]; then
+    for d in "$ROOT"/orgs/*/; do
+      [ -d "$d" ] || continue
+      local id; id=$(basename "$d")
+      [[ "$id" == *.deleted-* ]] && continue
+      run "$id"
+    done
+  else
+    need "$target"; run "$target"
+  fi
+}
+
+cmd_delete() {
+  local id=${1:-} purge=${2:-}
+  need "$id"
+  docker rm -f "$(name_of "$id")" >/dev/null 2>&1 || true
+  if [ "$purge" = --purge ]; then
+    rm -rf "$(dir_of "$id")"
+    echo "$id removed, with its folder."
+  else
+    local keep; keep="$(dir_of "$id").deleted-$(date +%Y%m%d-%H%M%S)"
+    mv "$(dir_of "$id")" "$keep"
+    echo "$id removed; its folder is kept at $keep."
+  fi
+  cmd_caddy
+}
+
+cmd_backup() {
+  local day; day=$(date +%Y-%m-%d)
+  local out="$ROOT/backups/$day"
+  mkdir -p "$out"
+  chmod 700 "$ROOT/backups"
+  for d in "$ROOT"/orgs/*/; do
+    [ -d "$d" ] || continue
+    local id; id=$(basename "$d")
+    [[ "$id" == *.deleted-* ]] && continue
+    local c; c=$(name_of "$id")
+    # Paused for the copy, so its databases are copied whole, not mid-write.
+    local paused=""
+    if running "$id"; then docker pause "$c" >/dev/null && paused=1; fi
+    if tar -czf "$out/$id.tar.gz.part" -C "$d" data env settings; then
+      mv "$out/$id.tar.gz.part" "$out/$id.tar.gz"
+      echo "$(date -Is) $id: $(du -h "$out/$id.tar.gz" | cut -f1)"
+    else
+      echo "$(date -Is) $id: backup FAILED" >&2
+    fi
+    [ -n "$paused" ] && docker unpause "$c" >/dev/null
+  done
+  find "$ROOT/backups" -mindepth 1 -maxdepth 1 -type d -mtime +"${BACKUP_DAYS:-7}" -exec rm -rf {} +
+  if [ -n "${BACKUP_REMOTE:-}" ] && command -v rclone >/dev/null; then
+    rclone copy "$out" "$BACKUP_REMOTE/$day" && echo "$(date -Is) copied to $BACKUP_REMOTE/$day"
+  fi
+}
+
+c=${1:-}; shift || true
+case "$c" in
+  create) cmd_create "$@" ;;
+  move-in) cmd_move_in "$@" ;;
+  list|ls) cmd_list ;;
+  logs) need "${1:-}"; if [ "${2:-}" = -f ]; then docker logs -f --tail 200 "$(name_of "$1")"; else docker logs --tail 200 "$(name_of "$1")"; fi ;;
+  start) need "${1:-}"; docker start "$(name_of "$1")" >/dev/null || run "$1" ;;
+  stop) need "${1:-}"; docker stop "$(name_of "$1")" >/dev/null && echo "$1 stopped." ;;
+  restart) need "${1:-}"; docker restart "$(name_of "$1")" >/dev/null && echo "$1 started again." ;;
+  update) cmd_update "$@" ;;
+  set) cmd_set "$@" ;;
+  memory) cmd_memory "$@" ;;
+  delete) cmd_delete "$@" ;;
+  build) cmd_build ;;
+  caddy) cmd_caddy ;;
+  backup) cmd_backup ;;
+  ""|-h|--help|help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac
