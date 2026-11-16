@@ -741,6 +741,7 @@ export async function removeIntegration(id: string) {
   await deleteSecret(secretKey(id));
   await deleteSecret(hookSecretKey(id));
   await rm(join(ADDED, `${id}.yaml`), { force: true });
+  putState(id, null);
   await loadIntegrations();
 }
 
@@ -1041,6 +1042,40 @@ export const draftsForRequest = (request: number) =>
   Object.entries(states())
     .filter(([, s]) => s.draft && s.request === request)
     .map(([id]) => id);
+
+// Drafts left behind with no open request and no pending approval card:
+// orphaned when an agent was deleted or a request closed without publishing.
+export function orphanedDrafts(): string[] {
+  const st = states();
+  const pendingApprovals = new Set(
+    all<{ integration: string }>(
+      "SELECT json_extract(args, '$.integration_id') AS integration FROM approvals WHERE status = 'pending' AND tool = 'engineer.publish_integration'",
+    ).map(a => a.integration),
+  );
+  const openRequests = new Set(all<{ id: number }>("SELECT id FROM requests WHERE status = 'open'").map(r => r.id));
+  const waitedOn = new Set(all<{ id: string }>("SELECT DISTINCT waiting_on AS id FROM requests WHERE status = 'open' AND waiting_on IS NOT NULL").map(r => r.id));
+
+  const orphaned: string[] = [];
+  for (const [id, s] of Object.entries(st)) {
+    if (!s?.draft) continue;
+    if (pendingApprovals.has(id)) continue;
+    if (waitedOn.has(id)) continue;
+    if (s.request && openRequests.has(s.request)) continue;
+    orphaned.push(id);
+  }
+  return orphaned;
+}
+
+export async function discardOrphanedDrafts(ids?: string[]): Promise<string[]> {
+  const toDiscard = ids ?? orphanedDrafts();
+  const discarded: string[] = [];
+  for (const id of toDiscard) {
+    if (await discardDraft(id).catch(() => false)) {
+      discarded.push(id);
+    }
+  }
+  return discarded;
+}
 
 export async function integrationSource(id: string): Promise<{ yaml: string; code: string | null } | null> {
   const l = loaded.find(x => x.integration.id === id);

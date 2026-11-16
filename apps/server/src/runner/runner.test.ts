@@ -580,18 +580,25 @@ test('a run a restart cut short carries on, told what it already did', async () 
 test('deleting an agent settles everything it left: approvals, requests, bookings, work handed to it', async () => {
   const now = Date.now();
   stateOf(ID);
+  const { writeDraftIntegration, orphanedDrafts } = await import('../integrations/index.js');
+  const def = (id: string) => `kind: http\nid: ${id}\nname: ${id}\nwhat: x\nauth: { type: bearer }\nbase_url: https://api.example.com\ntest: { tool: ${id}.list, args: {} }\ntools:\n  - { id: ${id}.list, tier: T0, description: x, input: { type: object }, request: { method: GET, path: /items } }\n`;
+  await writeDraftIntegration(def('zz-del-agent'), 'fleet', 1);
+
   exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES ('a1', ?, 'r1', 'gmail.send', '{}', ?, ?)", ID, now, now + 86_400_000);
   exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES ('a2', 'fleet', 'r2', 'engineer.give_tools', ?, ?, ?)", JSON.stringify({ for_agent: ID }), now, now + 86_400_000);
+  exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES ('a3', 'fleet', 'r3', 'engineer.publish_integration', ?, ?, ?)", JSON.stringify({ for_agent: ID, integration_id: 'zz-del-agent' }), now, now + 86_400_000);
   exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'run now', null, ?, ?)", ID, now, now);
-  exec("INSERT INTO requests (agent_id, what, why, created_at) VALUES (?, 'a tool', 'needs it', ?)", ID, now);
+  exec("INSERT INTO requests (agent_id, what, why, created_at, status) VALUES (?, 'a tool', 'needs it', ?, 'open')", ID, now);
   exec("INSERT INTO tasks (agent_id, from_agent, task, created_at) VALUES (?, 'other', 'do a thing', ?)", ID, now);
   await forgetAgentRuns(ID, now);
-  assert.deepEqual(all<{ status: string }>("SELECT status FROM approvals ORDER BY id").map(a => a.status), ['rejected', 'rejected']);
+  assert.deepEqual(all<{ status: string }>("SELECT status FROM approvals ORDER BY id").map(a => a.status), ['rejected', 'rejected', 'rejected']);
   assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM bookings')!.n, 0);
   assert.equal(one<{ status: string }>('SELECT status FROM requests')!.status, 'withdrawn'); // nobody turned it down
   // An agent remade under the same id isn't told its predecessor's were turned down.
   assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM requests WHERE delivered_at IS NULL')!.n, 0);
   assert.match(one<{ status: string; result: string }>('SELECT status, result FROM tasks')!.result, /deleted/);
+  // Its draft was discarded:
+  assert.ok(!orphanedDrafts().includes('zz-del-agent'));
 });
 
 test('tools that need a service nobody connected are asked for, once per service, and closed once it is', () => {
@@ -801,15 +808,25 @@ test('the Agency Engineer withdraws its waiting card to propose an updated one: 
   assert.throws(() => withdrawProposal(61, 'again'), /no card waiting/);
 });
 
-test("the Agency Doctor's report shows what nobody asked about: a request filed again and again, and output made of busywork", async () => {
+test("the Agency Doctor's report shows what nobody asked about: a request filed again and again, output made of busywork, and orphaned drafts", async () => {
   const now = Date.now();
   stateOf(ID);
   exec("INSERT INTO requests (agent_id, what, why, created_at, status, answer, answered_at) VALUES (?, 'Set up Google Drive', 'docs', ?, 'done', 'You now have: drive.read_doc', ?), (?, 'Set up Google Drive', 'docs', ?, 'open', NULL, NULL)", ID, now - 7200_000, now - 3600_000, ID, now - 60_000);
   exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES ('r9', ?, 'files.write_file', '[]', 'T0', 'ok', 9, ?), ('r9', ?, 'gmail.send_email', '[]', 'T2', 'queued', 1, ?)", ID, now - 1000, ID, now - 1000);
+  const { writeDraftIntegration } = await import('../integrations/index.js');
+  const def = (id: string) => `kind: http\nid: ${id}\nname: ${id}\nwhat: x\nauth: { type: bearer }\nbase_url: https://api.example.com\ntest: { tool: ${id}.list, args: {} }\ntools:\n  - { id: ${id}.list, tier: T0, description: x, input: { type: object }, request: { method: GET, path: /items } }\n`;
+  await writeDraftIntegration(def('zz-doc-orphan'), 'fleet', 99999);
   const report = await fleetReport(now, now - 24 * 3600_000, [ID]);
   assert.match(report, /filed 2 times: "Set up Google Drive"/);
   assert.match(report, /files\.write_file 9 \(90%\)/);
   assert.match(report, /answered #\d+: "Set up Google Drive" -> You now have/);
+  assert.match(report, /## Orphaned draft integrations \(doctor\.tidy_drafts\)/);
+  assert.match(report, /- zz-doc-orphan/);
+
+  const { discardOrphanedDrafts, orphanedDrafts } = await import('../integrations/index.js');
+  const discarded = await discardOrphanedDrafts();
+  assert.deepEqual(discarded, ['zz-doc-orphan']);
+  assert.deepEqual(orphanedDrafts(), []);
 });
 
 test("a request names the service the agent's instructions use, not the catalogue's examples", async () => {

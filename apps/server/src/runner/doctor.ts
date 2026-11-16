@@ -13,6 +13,7 @@ import { fileRequest, INSTRUCTIONS_CHANGE, registerTools, servedHere, type ToolD
 import { appGapTool, gapsForPrompt } from './app-gaps.js';
 import { writeCharter } from './charter.js';
 import { DATA_DIR } from '../paths.js';
+import { discardOrphanedDrafts, orphanedDrafts } from '../integrations/index.js';
 import './host.js';
 
 // The Agency Doctor: the fleet's own check-up. The Agency Engineer answers what
@@ -35,6 +36,7 @@ const DOCTOR_TOOLS: Record<string, Tier> = {
   'doctor.rewrite_instructions': 'T1',
   'doctor.read_memories': 'T0',
   'doctor.tidy_memories': 'T1',
+  'doctor.tidy_drafts': 'T1',
   'doctor.report_app_gap': 'T1',
   'requests.request_resource': 'T1',
   'memory.remember': 'T0',
@@ -48,7 +50,7 @@ You keep the fleet healthy. The Agency Engineer builds and fixes what agents ask
 The agency exists for output: every agent doing as much good, real work as it can. A healthy fleet is one that produces - find what holds output back, and fix it.
 
 ## Every run
-1. doctor.fleet_report. It shows, since your last look: each agent's runs and failures, what its counted output actually was, output counted on tools it doesn't hold, tools failing again and again, requests filed more than once, requests stuck, and approvals that failed.
+1. doctor.fleet_report. It shows, since your last look: each agent's runs and failures, what its counted output actually was, output counted on tools it doesn't hold, tools failing again and again, requests filed more than once, requests stuck, approvals that failed, and orphaned draft integrations.
    Then host.health: the machine the agency runs on - its process/thread and memory limits, what's using them, the person's browsers agents work in (online or not), Claude Code crashes and their cause, and errors the agency logged.
    - Runs failing with "exit null", "EAGAIN", "Failed to start ... thread", "Target crashed" or "The server stopped" are the machine, not the agents: read host.health, never guess. Near a limit, or leftovers listed: host.clean_up, then host.health again to see it worked.
    - Still near a limit after clean_up, or crashes keep coming: doctor.report_app_gap with the numbers host.health gives (the limit, what's using it, the crash cause) - the app should keep within the machine's limits on its own - and file a request for the Agency Engineer only if something in this agency (a plugin, a connection) is what's using it.
@@ -61,6 +63,7 @@ The agency exists for output: every agent doing as much good, real work as it ca
    - The app itself falls short - one of its own tools (the report marks them "the app's own") fails the same way across runs or agents, a limit built into the runner stops real work, or runs are scheduled or woken wrong: doctor.report_app_gap, so the app's makers fix it in the official build. Write it as a neutral bug report for an open-source project: it becomes an issue on the app's public GitHub repository, which anyone in the world can read. Describe only the app - which tool or part, what it does, what it should do, how to reproduce it with a made-up example - never this organization or its work: no names of the business, its people, customers or agents, no sites, accounts, emails, addresses, file paths, numbers or content from their work, and nothing about what they sell or who they contact. The tool refuses what it can spot; the rest is on you. Then get the agents working meanwhile: doctor.tell_agent the way round it, or a request for the Agency Engineer to build one. Already filed (the report lists them): only again with something new.
    - Something stuck for hours with nobody acting: say so to whoever holds it - doctor.tell_agent, or a request.
    - An agent says the same thing differently from one run to the next (a venue, a date, a price - doctor.read_agent shows its last five runs): doctor.tell_agent which is right, if its runs or sources show it; otherwise to check before saying it again.
+   - Orphaned draft integrations (the report lists them): drafts left behind when an agent was deleted or a request closed without being published, showing as "testing" forever in Settings. Discard them with doctor.tidy_drafts.
 3. Memories (doctor.read_memories): what agents have learned about the organization and each person, which every agent reads. Tidy them with doctor.tidy_memories:
    - Two that say the same thing (one a longer version of the other): remove both, add one that says it once.
    - One an agent's work has shown wrong (a website address that doesn't exist, a price or opening hours that changed - its runs or requests say so): remove it, and add the right one if it's known.
@@ -84,6 +87,8 @@ output:
     label: loops closed
   - action: doctor.rewrite_instructions
     label: instructions fixed
+  - action: doctor.tidy_drafts
+    label: orphaned drafts tidied
 `;
 
 // Its files, rewritten on every start so its rules stay current; models and state left alone.
@@ -105,8 +110,9 @@ export async function ensureDoctor() {
   });
   await save(
     { id: DOCTOR, name: 'Agency Doctor', department: 'agency', charter: CHARTER, tools: `# TOOLS - Agency Doctor (built in)\n${tools}`, kpi: KPI, models },
-    { name: 'Agency Doctor', department: 'agency', output: ['agents told', 'loops closed', 'instructions fixed'], status: 'ready', builtIn: true },
+    { name: 'Agency Doctor', department: 'agency', output: ['agents told', 'loops closed', 'instructions fixed', 'orphaned drafts tidied'], status: 'ready', builtIn: true },
   );
+  await discardOrphanedDrafts().catch(() => {});
 }
 
 // --- What it sees -------------------------------------------------------------------------
@@ -187,6 +193,8 @@ export async function fleetReport(now = Date.now(), since = windowStart(now), id
   );
   if (failedApprovals.length) out.push(`## Approvals that failed when approved\n${failedApprovals.map(a => `- ${a.agent_id}: ${a.tool} - ${short(a.result, 160)}`).join('\n')}`);
   const waiting = all<{ agent_id: string; tool: string; created_at: number }>("SELECT agent_id, tool, created_at FROM approvals WHERE status = 'pending' ORDER BY created_at");
+  const orphans = orphanedDrafts();
+  if (orphans.length) out.push(`## Orphaned draft integrations (doctor.tidy_drafts)\nDrafts left behind with no open request and no pending approval:\n${orphans.map(id => `- ${id}`).join('\n')}`);
   const gaps = gapsForPrompt();
   if (gaps) out.push(`## Gaps in the app already reported (doctor.report_app_gap)
 ${gaps}`);
@@ -277,6 +285,23 @@ const TOOLS: ToolDef[] = [
       const notes = [...m.notes.filter(n => !remove.includes(n)), ...add.filter(x => !m.notes.includes(x) || remove.includes(x))];
       await writeFile(m.file, JSON.stringify({ ...m.data, notes }, null, 2) + '\n');
       return `${m.name}: removed ${remove.length}, added ${add.length}.`;
+    },
+  },
+  {
+    id: 'doctor.tidy_drafts',
+    tier: 'T1',
+    description: "Discard orphaned draft integrations left behind when an agent was deleted or a request closed without being published, removing them from Settings.",
+    schema: obj(
+      {
+        drafts: { type: 'array', items: { type: 'string' }, description: 'Optional: specific draft ids to discard. If omitted, discards all orphaned drafts.' },
+        why: str('Why they are being discarded: "left behind by deleted agent", "request was withdrawn"'),
+      },
+      ['why'],
+    ),
+    impl: async a => {
+      const ids = Array.isArray(a.drafts) && a.drafts.length ? a.drafts.map(String) : undefined;
+      const discarded = await discardOrphanedDrafts(ids);
+      return discarded.length ? `Discarded orphaned drafts: ${discarded.join(', ')}.` : 'No orphaned drafts to discard.';
     },
   },
   {

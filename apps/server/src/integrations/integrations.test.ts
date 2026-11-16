@@ -134,6 +134,22 @@ test("a draft nobody will connect - its request closed, nothing connected - is m
   await discardDraft('zz-asked-later');
 });
 
+test('orphaned drafts: drafts left behind with no open request and no pending approval are found and discarded', async () => {
+  const { resetDbForTests, run } = await import('../runner/db.js');
+  const { discardDraft, discardOrphanedDrafts, loadIntegrations, orphanedDrafts, writeDraftIntegration } = await import('./index.js');
+  resetDbForTests();
+  await loadIntegrations();
+  const open = Number(run("INSERT INTO requests (agent_id, what, why, created_at, status) VALUES ('zz', 'Set up Zz', 'x', 0, 'open')").lastInsertRowid);
+  const def = (id: string) => `kind: http\nid: ${id}\nname: ${id}\nwhat: x\nauth: { type: bearer }\nbase_url: https://api.example.com\ntest: { tool: ${id}.list, args: {} }\ntools:\n  - { id: ${id}.list, tier: T0, description: x, input: { type: object }, request: { method: GET, path: /items } }\n`;
+  await writeDraftIntegration(def('zz-active'), 'fleet', open);
+  await writeDraftIntegration(def('zz-orphan'), 'fleet', open + 999);
+  assert.deepEqual(orphanedDrafts(), ['zz-orphan']);
+  const discarded = await discardOrphanedDrafts();
+  assert.deepEqual(discarded, ['zz-orphan']);
+  assert.deepEqual(orphanedDrafts(), []);
+  await discardDraft('zz-active');
+});
+
 test("a Connect that fails goes to the Agency Engineer, and the row says it's on it until it works", async () => {
   const { resetDbForTests } = await import('../runner/db.js');
   const { connectIntegration, discardDraft, listIntegrations, loadIntegrations, whenConnectFailed, writeDraftIntegration } = await import('./index.js');
