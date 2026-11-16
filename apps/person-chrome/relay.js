@@ -114,6 +114,7 @@ export function createRelay(chromeApi, send, opts = {}) {
   const state = {
     tabs: {}, // tabId -> {agency, groupKey, opener, url, title}
     groups: {}, // agency + "\n" + key -> groupId
+    collapsed: {}, // agency + "\n" + key -> whether this extension last left that group collapsed
     attached: {}, // tabId -> true, while chrome.debugger is attached
     children: {}, // Chrome's child sessionId (an iframe) -> its tab's id
     downloads: {}, // download id -> {agency, tabId}
@@ -123,6 +124,9 @@ export function createRelay(chromeApi, send, opts = {}) {
   const closing = new Set(); // tabs closed for a Target.closeTarget, so that close isn't the person's
   const hints = []; // {url, tabId, at}: Page.downloadWillBegin seen in an agent tab
   const unmatched = []; // {id, url, at}: downloads not yet tied to a tab
+  // windowId -> the last few tabs made active there, newest last (memory only): which
+  // tab to give the front back to when an agent's popup takes it.
+  const recent = new Map();
 
   const ready = (async () => {
     try {
@@ -131,6 +135,12 @@ export function createRelay(chromeApi, send, opts = {}) {
       paused = !!p;
     } catch (e) {
       console.error('[eaa] could not read the relay state, starting empty', e?.message);
+    }
+    // The tab in front in each window now, for a worker that has seen no activation yet.
+    try {
+      for (const t of await c.tabs.query({ active: true })) if (!recent.has(t.windowId)) recent.set(t.windowId, [t.id]);
+    } catch (e) {
+      console.warn('[eaa] could not read the active tabs', e?.message);
     }
     // The debugger's real state wins over what was saved: it may have been detached
     // while the worker was stopped.
@@ -248,6 +258,7 @@ export function createRelay(chromeApi, send, opts = {}) {
       case 'Storage.getCookies': return getCookies();
       case 'Storage.setCookies': return setCookies(p);
       case 'EAA.groupTab': return groupTab(agency, p);
+      case 'EAA.tabGroup': return tabGroup(agency, p);
       case 'EAA.releaseTab': return releaseTab(agency, p);
       case 'EAA.downloads': return listDownloads(agency, p);
       case 'EAA.downloadFile': return downloadFile(agency, p);
@@ -332,6 +343,7 @@ export function createRelay(chromeApi, send, opts = {}) {
     if (title != null) props.title = String(title).slice(0, 80);
     if (GROUP_COLORS.has(color)) props.color = color;
     await c.tabGroups.update(groupId, props);
+    state.collapsed[gk] = !!props.collapsed;
     if (state.tabs[tabId]) state.tabs[tabId].groupKey = String(key);
     void save();
     return groupId;
@@ -405,7 +417,11 @@ export function createRelay(chromeApi, send, opts = {}) {
     const win = await c.windows.get(tab.windowId);
     await c.windows.update(tab.windowId, win.state === 'minimized' ? { state: 'normal', focused: true } : { focused: true });
     await c.tabs.update(tabId, { active: true });
-    if (tab.groupId != null && tab.groupId !== -1) await c.tabGroups.update(tab.groupId, { collapsed: false });
+    if (tab.groupId != null && tab.groupId !== -1) {
+      await c.tabGroups.update(tab.groupId, { collapsed: false });
+      for (const [k, id] of Object.entries(state.groups)) if (id === tab.groupId) state.collapsed[k] = false;
+      void save();
+    }
     return {};
   }
 
@@ -498,6 +514,20 @@ export function createRelay(chromeApi, send, opts = {}) {
     if (p.key == null) throw fail('EAA.groupTab needs a key.');
     await intoGroup(agency, tabId, { key: p.key, title: p.title, color: p.color, collapsed: p.collapsed }, true);
     return {};
+  }
+
+  // Which group an agent tab is in, as the browser has it: {groupId: -1} when none
+  // (a browser without tab groups, or one that couldn't make it). Read-only; lets the
+  // agency (and the end-to-end test) see the group a run's tabs actually landed in.
+  async function tabGroup(agency, p) {
+    const tabId = own(agency, p.targetId);
+    const tab = await c.tabs.get(tabId);
+    const groupId = tab.groupId ?? -1;
+    const active = !!tab.active;
+    if (groupId === -1 || !c.tabGroups) return { groupId: -1, active };
+    const g = await c.tabGroups.get(groupId).catch(() => null);
+    if (!g) return { groupId: -1, active };
+    return { groupId, title: g.title ?? '', collapsed: !!g.collapsed, color: g.color, windowId: g.windowId, active };
   }
 
   // The person keeps it: not an agent tab any more, out of its group, debugger off.
@@ -614,14 +644,48 @@ export function createRelay(chromeApi, send, opts = {}) {
     if (!op) return;
     state.tabs[tabId] = { agency: op.agency, groupKey: op.groupKey, opener: Number(openerId), url: tab?.pendingUrl || tab?.url || '', title: tab?.title || '' };
     void save();
-    const now = tab || (await c.tabs.get(tabId).catch(() => null));
+    const now = (await c.tabs.get(tabId).catch(() => null)) || tab;
+    // A link with target=_blank (or a click that opens a tab) opens it in front, in the
+    // person's window: the person's tab would be swapped for the agent's. The front goes
+    // back to the tab the person had there.
+    if (now?.active) await giveBackFront(now.windowId, tabId);
     if (op.groupKey != null) {
       const groupId = state.groups[op.agency + '\n' + op.groupKey];
       // A popup window (window.open with features) can't hold a group: it stays as it is.
-      if (groupId != null) await c.tabs.group({ groupId, tabIds: [tabId] }).catch(e => console.warn('[eaa] could not group a popup', e?.message));
+      if (groupId != null) {
+        await c.tabs.group({ groupId, tabIds: [tabId] }).catch(e => console.warn('[eaa] could not group a popup', e?.message));
+        // Chrome expands a collapsed group when a tab in it comes to the front (and
+        // Chrome may have put the new tab in its opener's group itself, before this ran).
+        // Collapsed again as this extension left it, now the front is back with the person.
+        if (state.collapsed[op.agency + '\n' + op.groupKey]) await c.tabGroups.update(groupId, { collapsed: true }).catch(e => console.warn('[eaa] could not collapse the group', e?.message));
+      }
     }
     emit(op.agency, 'Target.targetCreated', { targetInfo: info(tabId, now) });
     onChange();
+  }
+
+  // The tab that was in front in that window before the new one, if it's the person's
+  // and still open there: in front again. If it was an agent tab, the person was looking
+  // at it (a page shown to them, or a group they opened) and the new tab is theirs to
+  // see: left as it is. None known (a worker that just started): left as it is too.
+  async function giveBackFront(windowId, except) {
+    const ids = recent.get(windowId) || [];
+    for (let i = ids.length - 1; i >= 0; i--) {
+      const id = ids[i];
+      if (id === except) continue;
+      if (state.tabs[id]) return;
+      const t = await c.tabs.get(id).catch(() => null);
+      if (!t || t.windowId !== windowId) continue; // closed or moved since: the one before it
+      await c.tabs.update(id, { active: true }).catch(e => console.warn('[eaa] could not give the front back', e?.message));
+      return;
+    }
+  }
+
+  async function onTabActivated({ tabId, windowId } = {}) {
+    if (tabId == null) return;
+    const ids = (recent.get(windowId) || []).filter(id => id !== tabId);
+    ids.push(tabId);
+    recent.set(windowId, ids.slice(-8));
   }
 
   async function onTabCreated(tab) {
@@ -669,11 +733,12 @@ export function createRelay(chromeApi, send, opts = {}) {
 
   async function onGroupRemoved(group) {
     await ready;
-    for (const [k, id] of Object.entries(state.groups)) if (id === group?.id) delete state.groups[k];
+    for (const [k, id] of Object.entries(state.groups)) if (id === group?.id) delete state.groups[k], delete state.collapsed[k];
     void save();
   }
 
   async function onWindowRemoved(windowId) {
+    recent.delete(windowId);
     await ready;
     state.windows = state.windows.filter(w => w !== windowId);
     void save();
@@ -747,7 +812,7 @@ export function createRelay(chromeApi, send, opts = {}) {
       await quietDetach(id);
       delete state.tabs[id];
     }
-    for (const k of Object.keys(state.groups)) if (k.startsWith(agency + '\n')) delete state.groups[k];
+    for (const k of Object.keys(state.groups)) if (k.startsWith(agency + '\n')) delete state.groups[k], delete state.collapsed[k];
     for (const [id, d] of Object.entries(state.downloads)) if (d.agency === agency) delete state.downloads[id];
     await save();
     onChange();
@@ -764,6 +829,7 @@ export function createRelay(chromeApi, send, opts = {}) {
     on(c.debugger.onEvent, onDebuggerEvent);
     on(c.debugger.onDetach, onDebuggerDetach);
     on(c.tabs.onCreated, onTabCreated);
+    if (c.tabs.onActivated) on(c.tabs.onActivated, onTabActivated);
     on(c.tabs.onUpdated, onTabUpdated);
     on(c.tabs.onRemoved, onTabRemoved);
     on(c.tabs.onReplaced, onTabReplaced);

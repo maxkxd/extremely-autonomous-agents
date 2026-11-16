@@ -8,7 +8,7 @@ import { copilotConnection } from '../models/copilotRuntime.js';
 import { getSecret } from '../vault.js';
 import { claudeCommand, claudeEnv, noteClaudeCodeTooOld } from '../models/connections.js';
 import { openBridge } from './mcp.js';
-import { ModelError, type Call, type ToolSpec, type Usage } from './providers.js';
+import { ModelError, type Call, type ToolImage, type ToolSpec, type Usage } from './providers.js';
 
 // Plans whose model comes with its own agent loop (docs/model-connections.md):
 // Claude Code and GitHub Copilot. The runner hands over the instructions, the
@@ -23,7 +23,7 @@ export type HarnessRun = {
   system: string;
   opening: string;
   tools: ToolSpec[];
-  call: (c: Call) => Promise<{ content: string; error: boolean }>;
+  call: (c: Call) => Promise<{ content: string; error: boolean; images?: ToolImage[] }>;
   next: () => string | null; // after each reply: a nudge to send, or null to end
   signal?: AbortSignal;
 };
@@ -208,7 +208,10 @@ const copilot: Harness = async run => {
           skipPermission: true,
           handler: async (args: unknown) => {
             const out = await run.call({ id: `cp_${Date.now().toString(36)}`, name: t.name, args: (args ?? {}) as Record<string, unknown> });
-            return out.error ? { textResultForLlm: out.content, resultType: 'failure' as const } : out.content;
+            if (out.error) return { textResultForLlm: out.content, resultType: 'failure' as const };
+            // A screenshot: the picture goes to the model with the text.
+            if (out.images?.length) return { textResultForLlm: out.content, resultType: 'success' as const, binaryResultsForLlm: out.images.map(i => ({ data: i.data, mimeType: i.mimeType, type: 'image' as const })) };
+            return out.content;
           },
         }),
       ),

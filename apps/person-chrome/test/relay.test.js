@@ -177,6 +177,48 @@ test('popups of agent tabs become agent tabs in the opener\'s group, reported on
   assert.equal(events(A, 'Target.targetCreated').length, 2);
 });
 
+test('a popup that opens in front gives the front back to the person and stays in the collapsed group', async () => {
+  const { f, call } = await setup(createRelay);
+  const person = f.personTab();
+  await f.chrome.tabs.onActivated.fire({ tabId: person, windowId: 1 });
+  const agent = Number((await call(A, 'Target.createTarget', { url: 'https://example.com/', eaaGroup: group })).result.targetId.slice(2));
+  const gid = f.tabs.get(agent).groupId;
+  // target=_blank from the agent tab: Chrome opens it in front, and expands the group.
+  f.tabs.get(person).active = false;
+  const popup = await f.chrome.tabs.create({ url: 'https://example.com/terms', windowId: 1, active: true });
+  f.groups.get(gid).collapsed = false;
+  await f.chrome.tabs.onCreated.fire({ ...popup, openerTabId: agent });
+  assert.equal(f.tabs.get(person).active, true, "the person's tab is in front again");
+  assert.equal(f.tabs.get(popup.id).active, false);
+  assert.equal(f.tabs.get(popup.id).groupId, gid);
+  assert.equal(f.groups.get(gid).collapsed, true);
+  const g = await call(A, 'EAA.tabGroup', { targetId: 't:' + popup.id });
+  assert.deepEqual(g.result, { groupId: gid, title: 'Researcher', collapsed: true, color: 'grey', windowId: 1, active: false });
+});
+
+test('a popup from an agent tab the person is looking at stays in front', async () => {
+  const { f, call } = await setup(createRelay);
+  const person = f.personTab();
+  await f.chrome.tabs.onActivated.fire({ tabId: person, windowId: 1 });
+  const agent = Number((await call(A, 'Target.createTarget', { url: 'https://example.com/', eaaGroup: group })).result.targetId.slice(2));
+  await call(A, 'Target.activateTarget', { targetId: 't:' + agent }); // shown to the person
+  const popup = await f.chrome.tabs.create({ url: 'https://example.com/terms', windowId: 1, active: true });
+  f.tabs.get(agent).active = false;
+  await f.chrome.tabs.onCreated.fire({ ...popup, openerTabId: agent });
+  assert.equal(f.tabs.get(popup.id).active, true);
+  assert.equal(f.tabs.get(person).active, false);
+  assert.equal(f.groups.get(f.tabs.get(agent).groupId).collapsed, false, 'the group the person opened stays open');
+});
+
+test('EAA.tabGroup: no group is groupId -1; only agent tabs', async () => {
+  const { f, call } = await setup(createRelay);
+  await call(A, 'Target.createTarget', { url: 'https://example.com/' });
+  assert.deepEqual((await call(A, 'EAA.tabGroup', { targetId: 't:100' })).result, { groupId: -1, active: false });
+  const person = f.personTab();
+  assert.match((await call(A, 'EAA.tabGroup', { targetId: 't:' + person })).error.message, /Not an agent tab/);
+  assert.match((await call(B, 'EAA.tabGroup', { targetId: 't:100' })).error.message, /Not an agent tab/);
+});
+
 test('closeTarget closes quietly; a tab the person closes also says so', async () => {
   const { f, call, events } = await setup(createRelay);
   await call(A, 'Target.createTarget', { url: 'https://example.com/1' });

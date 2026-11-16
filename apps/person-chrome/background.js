@@ -85,30 +85,49 @@ async function connect(url) {
     ws.onopen = () => {
       if (c.ws === ws) ws.send(JSON.stringify(hello));
     };
-    ws.onmessage = ev => {
-      if (c.ws === ws) onFrame(url, c, ws, ev.data);
-    };
-    ws.onerror = () => {
-      // The browser gives no detail here; onclose follows and retries.
-      if (c.ws === ws) console.warn('[eaa] connection error', url);
-    };
-    ws.onclose = ev => {
-      if (c.ws !== ws) return;
-      clearInterval(c.ping);
-      c.ws = null;
-      c.state = 'offline';
-      void badge();
-      if (c.stopped) return;
-      console.warn('[eaa] disconnected from', url, ev.code, ev.reason || '', '- retrying in', c.backoff, 'ms');
-      c.retry = setTimeout(() => void connect(url), c.backoff);
-      c.backoff = Math.min(c.backoff * 2, MAX_RETRY_MS);
-    };
+    wire(url, c, ws);
   } catch (e) {
     console.error('[eaa] could not connect', url, e?.message);
   } finally {
     c.starting = false;
     void badge();
   }
+}
+
+// A connection's frames, errors and close: the same for one opened with hello and
+// for the pairing connection, which carries on as the live one (adopt, below).
+function wire(url, c, ws) {
+  ws.onmessage = ev => {
+    if (c.ws === ws) onFrame(url, c, ws, ev.data);
+  };
+  ws.onerror = () => {
+    // The browser gives no detail here; onclose follows and retries.
+    if (c.ws === ws) console.warn('[eaa] connection error', url);
+  };
+  ws.onclose = ev => {
+    if (c.ws !== ws) return;
+    clearInterval(c.ping);
+    c.ws = null;
+    c.state = 'offline';
+    void badge();
+    if (c.stopped) return;
+    console.warn('[eaa] disconnected from', url, ev.code, ev.reason || '', '- retrying in', c.backoff, 'ms');
+    c.retry = setTimeout(() => void connect(url), c.backoff);
+    c.backoff = Math.min(c.backoff * 2, MAX_RETRY_MS);
+  };
+}
+
+// Online on this connection: pings start, commands are answered.
+function online(url, c, ws, msg) {
+  c.state = 'online';
+  c.backoff = FIRST_RETRY_MS;
+  c.error = null;
+  clearInterval(c.ping);
+  c.ping = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
+  }, PING_MS);
+  void rememberNumber(url, msg);
+  void badge();
 }
 
 function onFrame(url, c, ws, data) {
@@ -121,15 +140,7 @@ function onFrame(url, c, ws, data) {
   }
   if (msg.type === 'pong') return;
   if (msg.type === 'hello-ok') {
-    c.state = 'online';
-    c.backoff = FIRST_RETRY_MS;
-    c.error = null;
-    clearInterval(c.ping);
-    c.ping = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
-    }, PING_MS);
-    void rememberNumber(url, msg);
-    void badge();
+    online(url, c, ws, msg);
     return;
   }
   if (msg.type === 'error') {
@@ -201,14 +212,17 @@ function pair(link) {
     let ws;
     let done = false;
     let gotToken = false; // the agency may close right after "paired", while it's being saved
-    const finish = (err, value) => {
+    // keep: the socket goes on as this agency's live connection (adopted), not closed.
+    const finish = (err, value, keep = false) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
-      try {
-        ws?.close(1000, 'paired');
-      } catch {
-        // already closed
+      if (!keep) {
+        try {
+          ws?.close(1000, 'paired');
+        } catch {
+          // already closed
+        }
       }
       if (err) {
         console.error('[eaa] pairing with', url, 'failed:', err);
@@ -233,6 +247,10 @@ function pair(link) {
         if (msg.type === 'error') return finish(String(msg.error || 'The agency refused that code.'));
         if (msg.type !== 'paired' || !msg.token) return;
         gotToken = true;
+        // The agency may send commands as soon as it has said "paired": held until this
+        // connection is adopted below, then answered in order.
+        const early = [];
+        ws.onmessage = e => void early.push(e.data);
         try {
           const list = (await pairings()).filter(p => p.url !== url);
           list.push({ url, token: msg.token, browser: msg.browser ?? null, name: msg.name || '', agency });
@@ -243,8 +261,22 @@ function pair(link) {
         // A fresh start for this agency: the old connection (an earlier pairing) goes.
         disconnect(url, true);
         conns.delete(url);
-        finish(null, { ok: true, agency, name: msg.name || '', browser: msg.browser ?? null });
-        void connect(url);
+        // The agency already counts this connection as the browser's live one (it goes
+        // online on "paired"). Closing it and saying hello on a new one made the browser
+        // go online, offline and online again in a second, and whatever the agency
+        // started on the first (finding kept pages) failed. So it carries on here.
+        const ok = { ok: true, agency, name: msg.name || '', browser: msg.browser ?? null };
+        if (ws.readyState === WebSocket.OPEN) {
+          const c = connOf(url);
+          c.ws = ws;
+          wire(url, c, ws);
+          online(url, c, ws, msg);
+          finish(null, ok, true);
+          for (const data of early) onFrame(url, c, ws, data);
+        } else {
+          finish(null, ok);
+          void connect(url);
+        }
       };
       ws.onerror = () => {}; // onclose follows
       ws.onclose = () => {

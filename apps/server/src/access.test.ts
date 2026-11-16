@@ -151,6 +151,8 @@ test('members: see everything, build and run agents, connect integrations', () =
     'GET /api/settings/agency-mcp',
     'POST /api/settings/agency-mcp',
     'POST /api/runner/requests/ide',
+    // A request's kept page, brought to the front: whoever may answer the request (the route checks the agent's maker).
+    'POST /api/browser/show',
   ])
     assert.ok(may(member, r), r);
 });
@@ -173,7 +175,7 @@ test('admins: AI connections, the agency, caps, settings; members not', () => {
 });
 
 test('some things happen only on the host computer itself', () => {
-  for (const r of ['POST /api/settings/access', 'POST /api/settings/host-person', 'GET /api/oauth/chatgpt/callback']) {
+  for (const r of ['POST /api/settings/access', 'POST /api/settings/host-person', 'GET /api/oauth/chatgpt/callback', 'POST /api/browser/open-connect']) {
     assert.ok(!may(owner, r), r);
     assert.ok(may(local, r), r);
   }

@@ -1,11 +1,15 @@
+import { execFile } from 'node:child_process';
 import { lookup } from 'node:dns/promises';
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, extname, join } from 'node:path';
-import { CdpPage, FRAME_BASE, KEYS, type Bounds, type CdpConn, type Key } from './cdp.js';
+import { basename, dirname, extname, join } from 'node:path';
+import { CdpPage, FRAME_BASE, KEYS, modifierBits, type Bounds, type CdpConn, type MouseButton, type MouseOpts, type Rect } from './cdp.js';
 import { browserConn, listBrowsers, onBrowserOffline, onBrowserOnline, type LinkedBrowser } from './browser-link.js';
+import { decodePng, encodeGif } from './gif.js';
 import { checkUrl, isPrivateIp } from './net.js';
+import type { ToolImage } from './providers.js';
 import { fileRequest, inWorkspace, onApprovalSettled, onRunEnd, registerTools, tooManyWaiting, type RunCtx, type ToolDef } from './tools.js';
+import { readable } from './web.js';
 import { all, one, run as exec } from './db.js';
 import { setKeptPageCheck } from './kept-pages.js';
 import { ACCOUNTS_PER_SITE, confirmPassword, listPasswords, makePassword, passwordRow, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
@@ -107,11 +111,14 @@ function browserOffline(n: number) {
   for (const [key, s] of [...sessions]) {
     if (s.browser !== n) continue;
     sessions.delete(key);
-    for (const p of [s.cdp, ...(s.openers ?? [])]) if (p) release(p.targetId);
+    recordings.get(key)?.halt();
+    recordings.delete(key);
+    for (const p of [s.cdp, ...(s.openers ?? []), ...(s.others ?? [])]) if (p) release(p.targetId);
     dropped++;
   }
   for (const [id, w] of [...waitingPages]) if (!sessions.has(w.key)) waitingPages.delete(id);
   for (const k of kept.values()) if (k.browser === n) k.openers = [];
+  for (const k of keptOpen.values()) if (k.browser === n) k.page = undefined;
   if (sh) console.log(`[browser] Browser ${n} went offline${dropped ? `: ${dropped} run tab(s) lost` : ''}.`);
   saveKept();
 }
@@ -184,7 +191,8 @@ function whichBrowser(ctx: RunCtx, raw: unknown): number {
 }
 const browserArg = (a: Record<string, unknown>) => a.browser ?? a.profile;
 
-// Agent tabs open in browser n now: every run's, and the pages kept for the person.
+// Agent tabs open in browser n now: every run's, the pages kept for the person, and
+// tabs agents kept open past their run (keep_open).
 export const agentTabCount = (n: number) => liveTargets(n, false).size;
 
 // Nothing an agent's browser opens on this computer or its network.
@@ -210,12 +218,72 @@ function allowUrl() {
 // --- Sessions, one per run and browser ----------------------------------------------------
 
 // A run's tab in a browser. openers: when it's working in a window a site opened, the
-// pages behind it, oldest first.
+// pages behind it, oldest first. others: the run's other tabs (signed_in_browser.tabs
+// opened them, or it switched away from them). order: each tab's number in the tab
+// list, for as long as the run has it, so "tab 2" stays tab 2.
 type Driver = CdpPage;
-type Windows = { page: Driver; cdp?: CdpPage; openers?: CdpPage[]; followed?: Set<string>; windowClosed?: boolean };
-type Session = Windows & { runId: string; browser: number; agent?: { id: string; name: string }; request?: number };
+type Windows = { page: Driver; cdp?: CdpPage; openers?: CdpPage[]; others?: CdpPage[]; followed?: Set<string>; windowClosed?: boolean };
+type Session = Windows & { runId: string; browser: number; agent?: { id: string; name: string }; request?: number; order?: Map<string, number> };
 const sessions = new Map<string, Session>();
 const sessionKey = (runId: string, n: number) => `${runId}:${n}`;
+
+// Every tab a run has open in a browser, numbered: the pages behind a window a site
+// opened, the one it's on, and its other tabs.
+function runTabs(s: Session): CdpPage[] {
+  const byId = new Map<string, CdpPage>();
+  for (const p of [...(s.openers ?? []), ...(s.cdp ? [s.cdp] : []), ...(s.others ?? [])]) if (!p.isClosed() && !byId.has(p.targetId)) byId.set(p.targetId, p);
+  const order = (s.order ??= new Map());
+  for (const id of byId.keys()) if (!order.has(id)) order.set(id, order.size + 1);
+  return [...byId.values()].sort((a, b) => order.get(a.targetId)! - order.get(b.targetId)!);
+}
+// Working in another of the run's tabs: the rest wait as they are.
+function switchTo(s: Session, page: CdpPage) {
+  runTabs(s); // the tabs it has keep their numbers; the new one comes after
+  s.others = [...(s.openers ?? []), ...(s.cdp ? [s.cdp] : []), ...(s.others ?? [])].filter(p => p.targetId !== page.targetId && !p.isClosed());
+  s.openers = [];
+  s.cdp = page;
+  s.page = page;
+  s.windowClosed = false;
+  runTabs(s);
+}
+// The run's other tabs, closed (one kept open only comes off the debugger): its page
+// is going to a person or a waiting click, and the run starts afresh.
+async function dropOthers(s: Session) {
+  for (const p of s.others ?? []) {
+    release(p.targetId);
+    if (keptOpen.has(p.targetId)) await park(p);
+    else await p.close().catch(() => {});
+  }
+  s.others = [];
+}
+
+// --- Tabs an agent keeps open past its run (signed_in_browser.keep_open) -------------
+//
+// A run's tabs close when it ends. One the agent marks (a long export still running, a
+// dashboard it comes back to) stays, off the debugger, for a day or until the agent
+// closes it; that agent's later runs find it in their tab list. Written down with the
+// pages kept for the person (KEPT_FILE), so a restart doesn't lose track of it.
+const KEEP_OPEN_MS = 24 * 3_600_000;
+type KeptOpen = { targetId: string; browser: number; agentId: string; agentName: string; runId: string; reason: string; since: number; until: number; page?: CdpPage };
+const keptOpen = new Map<string, KeptOpen>(); // by target id
+// A kept-open tab at its run's end: the debugger comes off, the tab stays.
+async function park(p: CdpPage) {
+  const k = keptOpen.get(p.targetId);
+  if (k?.page === p) k.page = undefined;
+  await p.detach().catch(() => {});
+}
+// Past their day: closed, unless a run is in one now (it closes with that run, as any tab).
+async function expireKeptOpen(now: number) {
+  let changed = false;
+  for (const k of [...keptOpen.values()]) {
+    if (k.until > now) continue;
+    keptOpen.delete(k.targetId);
+    changed = true;
+    const inUse = [...sessions.values()].some(s => s.browser === k.browser && runTabs(s).some(p => p.targetId === k.targetId));
+    if (!inUse) await connOf(k.browser)?.send('Target.closeTarget', { targetId: k.targetId }).catch(() => {});
+  }
+  if (changed) saveKept();
+}
 
 // Two tool calls at once share one opening, and one that finishes after its run
 // ended closes again: either way a tab used to be left open with nobody's run to
@@ -293,9 +361,15 @@ async function closeSession(key: string) {
   const s = sessions.get(key);
   if (!s) return;
   sessions.delete(key);
+  recordings.get(key)?.halt();
+  recordings.delete(key);
   if (s.cdp) release(s.cdp.targetId);
-  await s.page.close().catch(() => {});
-  for (const o of s.openers ?? []) await o.close().catch(() => {});
+  // Every tab of the run's closes - but one the agent kept open (keep_open) stays.
+  for (const p of new Set([s.page, ...(s.cdp ? [s.cdp] : []), ...(s.openers ?? []), ...(s.others ?? [])])) {
+    release(p.targetId);
+    if (keptOpen.has(p.targetId)) await park(p);
+    else await p.close().catch(() => {});
+  }
   const sh = shared.get(s.browser);
   if (!sh) return;
   sh.runs.delete(s.runId);
@@ -315,8 +389,9 @@ export function strayPages(targets: { targetId: string; type: string; openerId?:
 const detaching = new Set<string>();
 const liveTargets = (n: number, withBefore = true) =>
   new Set([
-    ...[...sessions.values()].filter(x => x.browser === n).flatMap(x => [x.cdp, ...(x.openers ?? [])]).filter((p): p is CdpPage => !!p && !p.isClosed()).map(p => p.targetId),
+    ...[...sessions.values()].filter(x => x.browser === n).flatMap(x => [x.cdp, ...(x.openers ?? []), ...(x.others ?? [])]).filter((p): p is CdpPage => !!p && !p.isClosed()).map(p => p.targetId),
     ...[...kept.values()].filter(k => k.browser === n).flatMap(k => [k.targetId, ...k.openers.filter(o => !o.isClosed()).map(o => o.targetId)]),
+    ...[...keptOpen.values()].filter(k => k.browser === n).map(k => k.targetId),
     ...(withBefore ? [...detaching, ...(fromBefore ?? []).filter(k => k.browser === n).map(k => k.targetId)] : []),
   ]);
 async function closeStrayPages(n: number, sh: Shared) {
@@ -404,6 +479,7 @@ const requestOpen = (request: number) => !!one("SELECT 1 FROM requests WHERE id 
 
 const checkWaiting = async () => {
   const now = Date.now();
+  await expireKeptOpen(now);
   const settled = keptForClosed([...kept.values()].map(k => ({ id: k.id, request: k.request })), requestOpen);
   if (settled.length) await letGoOfKept(settled);
   const free = [...waitingPages.entries()].filter(([, w]) => !inPersonsHands(w));
@@ -423,6 +499,10 @@ async function setAside(ctx: RunCtx, n: number, ref: number) {
   const id = newPageId();
   const own = `wait:${id}`;
   sessions.delete(key);
+  recordings.get(key)?.halt();
+  recordings.delete(key);
+  // The run's other tabs aren't the waiting click's: they go now, as at the run's end.
+  await dropOthers(s);
   // Its own user of the browser, so the run ending doesn't close the tab under it.
   sessions.set(own, { ...s, runId: own });
   shared.get(n)?.runs.add(own);
@@ -492,6 +572,11 @@ async function keepForPerson(ctx: RunCtx, n: number, what: string, why: string) 
   await letGoOfKept([...kept.values()].filter(k => k.request === r.id).map(k => k.id));
   const page = s.cdp;
   sessions.delete(key);
+  recordings.get(key)?.halt();
+  recordings.delete(key);
+  await dropOthers(s);
+  // The person's now, not the agent's to keep open.
+  if (keptOpen.delete(page.targetId)) saveKept();
   release(page.targetId);
   sh.runs.delete(ctx.runId);
   const k: Kept = { id: newPageId(), browser: n, targetId: page.targetId, site, url, request: r.id, agent: s.agent, runId: ctx.runId, since: Date.now(), captcha, openers: s.openers ?? [] };
@@ -539,6 +624,10 @@ async function letGoOfKept(ids: string[], why?: string) {
 function tabGone(n: number, targetId: string) {
   const k = [...kept.values()].find(x => x.browser === n && x.targetId === targetId);
   if (k) void finishKept(k.id, 'closed');
+  if (keptOpen.get(targetId)?.browser === n) {
+    keptOpen.delete(targetId);
+    saveKept();
+  }
 }
 // And, in case one was missed, a look at the online browsers' tabs now and then.
 let keptWatch: ReturnType<typeof setInterval> | undefined;
@@ -681,7 +770,8 @@ function saveKept() {
     const list: KeptRecord[] = [...kept.values()].map(({ openers: _, ...k }) => k);
     // What's still to be picked up from before counts too, until it has been.
     for (const k of fromBefore ?? []) if (!list.some(x => x.id === k.id)) list.push(k);
-    void writeFile(KEPT_FILE, JSON.stringify({ kept: list })).catch(e => console.error('[browser] Writing the kept pages failed:', (e as Error).message));
+    const open = [...keptOpen.values()].map(({ page: _, ...k }) => k);
+    void writeFile(KEPT_FILE, JSON.stringify({ kept: list, open })).catch(e => console.error('[browser] Writing the kept pages failed:', (e as Error).message));
   }, 300);
   saving.unref?.();
 }
@@ -690,6 +780,9 @@ function readKept(): Promise<KeptRecord[]> {
     try {
       const f = JSON.parse(await readFile(KEPT_FILE, 'utf8'));
       fromBefore = (Array.isArray(f.kept) ? f.kept : []).filter((k: KeptRecord) => typeof k?.targetId === 'string' && Number.isInteger(k.browser));
+      // Tabs agents kept open (keep_open), still within their day.
+      for (const k of Array.isArray(f.open) ? (f.open as KeptOpen[]) : [])
+        if (typeof k?.targetId === 'string' && Number.isInteger(k.browser) && k.until > Date.now() && !keptOpen.has(k.targetId)) keptOpen.set(k.targetId, { ...k, page: undefined });
     } catch {
       fromBefore = [];
     }
@@ -740,6 +833,8 @@ async function adoptKeptPages(n: number, sh: Shared) {
     kept.set(k.id, { ...k, openers: [] });
     found++;
   }
+  // Tabs agents kept open: gone with the browser if it restarted.
+  for (const k of [...keptOpen.values()]) if (k.browser === n && !there.has(k.targetId)) keptOpen.delete(k.targetId);
   const stray = sh.opening ? [] : strayPages(targetInfos, liveTargets(n));
   for (const targetId of stray) await sh.cdp.send('Target.closeTarget', { targetId }).catch(() => {});
   if (found || lost || stray.length) console.log(`[browser] Browser ${n}: ${found} kept page(s) still there, ${lost} lost; closed ${stray.length} agent tab(s) no run is using.`);
@@ -774,7 +869,8 @@ setInterval(() => void checkWaiting(), SWEEP_MS).unref();
 // - A text field shows what's in it. Custom menus (comboboxes, their options, menu
 //   items) are listed like any control.
 const PAGE_HELPERS = `(() => {
-  if (window.__eaa) return window.__eaa;
+  // Installed by this version (a tab kept from before the agency was updated may have an older one).
+  if (window.__eaa && window.__eaa.search) return window.__eaa;
   const textOf = s => (s || '').replace(/\\s+/g, ' ').trim();
   const visible = e => {
     const r = e.getBoundingClientRect();
@@ -831,7 +927,8 @@ const PAGE_HELPERS = `(() => {
     return 'button';
   };
   const keyOf = e => kindOf(e).replace(/ \\((ticked|selected)\\)$/, '') + '|' + label(e) + '|' + (e.getAttribute('name') || '');
-  const st = { next: window.__eaaBase || 0, keys: {} };
+  // Numbering carries on after any the page already has (helpers put in again, above).
+  const st = { next: [...document.querySelectorAll('[data-eaa-ref]')].reduce((m, e) => Math.max(m, +e.getAttribute('data-eaa-ref') || 0), window.__eaaBase || 0), keys: {} };
   const controls = () => {
     const out = [];
     for (const e of document.querySelectorAll(SEL)) {
@@ -942,7 +1039,26 @@ const PAGE_HELPERS = `(() => {
   });
   // The numbered controls inside an element (a pop-up in the way of a click).
   const listIn = c => { const all = controls().filter(x => c.contains(x)); number(all); return all.slice(0, 12).map(x => describe(x, x.getAttribute('data-eaa-ref'))); };
-  return (window.__eaa = { view, find, pickOption, fileInput, settle, listIn });
+  const cut = (t, chars) => t.length > chars ? t.slice(0, chars) + '\\n[text cut off]' : t;
+  // One element's part of the page (look with ref): its text and the controls in it.
+  const viewIn = (ref, max, chars) => {
+    const c = find(ref);
+    if (!c) return null;
+    const all = controls().filter(x => x === c || c.contains(x));
+    number(all);
+    const items = all.slice(0, max).map(e => describe(e, e.getAttribute('data-eaa-ref')));
+    if (all.length > max) items.push('(' + (all.length - max) + ' more in it)');
+    return { title: document.title, text: cut((c.innerText || '').replace(/\\n{3,}/g, '\\n\\n').trim(), chars), items };
+  };
+  // The controls whose kind, label, text, placeholder, name or role holds q (find).
+  const search = (q, max) => {
+    const w = textOf(q).toLowerCase();
+    const all = controls();
+    number(all);
+    const hits = all.filter(e => [describe(e, ''), e.getAttribute('placeholder'), e.getAttribute('aria-label'), e.getAttribute('title'), e.getAttribute('name'), e.getAttribute('role'), labelOf(e), textOf(e.innerText).slice(0, 300)].join(' ').toLowerCase().includes(w));
+    return { hits: hits.slice(0, max).map(e => describe(e, e.getAttribute('data-eaa-ref'))), total: hits.length };
+  };
+  return (window.__eaa = { view, find, pickOption, fileInput, settle, listIn, viewIn, search });
 })()`;
 // Each call installs the helpers first if this document doesn't have them yet - in
 // the page view's own world (cdp.ts), so the page never sees them.
@@ -980,12 +1096,31 @@ const COPY_WATCH = `(() => {
 })()`;
 const COPY_TAKE = `(() => { const st = window.__eaaCopy; if (!st) return null; for (const u of st.undo) u(); delete window.__eaaCopy; return st.copied || null; })()`;
 
-// The page's text and its numbered controls.
-async function snapshot(page: Driver): Promise<string> {
+// The page's text and its numbered controls. look's choices: interactive - the
+// controls only, no text; ref - only that element's part of the page; chars - how
+// much of the text.
+type LookOpts = { interactive?: boolean; ref?: number; chars?: number };
+async function snapshot(page: Driver, opts: LookOpts = {}): Promise<string> {
   await page.ready();
-  const view = await page.evaluate<{ title: string; text: string; items: string[] }>(inPage(`view(${MAX_ELEMENTS}, ${TEXT_CHARS})`));
+  const chars = opts.chars ?? TEXT_CHARS;
+  const view =
+    opts.ref != null
+      ? await evalAt<PageView | null>(page, opts.ref, inPage(`viewIn(${opts.ref}, ${MAX_ELEMENTS}, ${chars})`))
+      : await page.evaluate<PageView>(inPage(`view(${MAX_ELEMENTS}, ${chars})`));
+  if (!view) throw new Error(`There's no [${opts.ref}] on the page now - look at it again and use a number from what you see.`);
   const dialogs = page.takeDialogs();
-  return [...(dialogs.length ? [`The page asked (answered OK): ${dialogs.join('; ')}`, ''] : []), `Title: ${view.title || '(none)'}`, `URL: ${await page.url()}`, '', view.text || '(no text)', '', view.items.length ? `What you can use (by number):\n${view.items.join('\n')}` : 'Nothing to click on this page.', ...(await frameSections(page))].join('\n');
+  const text = opts.interactive ? [] : [view.text || '(no text)', ''];
+  const what = opts.ref != null ? `What you can use in [${opts.ref}] (by number)` : 'What you can use (by number)';
+  return [
+    ...(dialogs.length ? [`The page asked (answered OK): ${dialogs.join('; ')}`, ''] : []),
+    `Title: ${view.title || '(none)'}`,
+    `URL: ${await page.url()}`,
+    ...(opts.ref != null ? [`Only [${opts.ref}] and what's in it:`] : []),
+    '',
+    ...text,
+    view.items.length ? `${what}:\n${view.items.join('\n')}` : opts.ref != null ? `Nothing to click in [${opts.ref}].` : 'Nothing to click on this page.',
+    ...(opts.ref != null ? [] : await frameSections(page, opts)),
+  ].join('\n');
 }
 
 // What's in the page's embedded frames (a form or an editor hosted elsewhere), each
@@ -1006,7 +1141,7 @@ const FRAME_CHARS = 2_000;
 const FRAME_WAIT_MS = 2_500;
 let frameAllow = () => allowUrl();
 type PageView = { title: string; text: string; items: string[] };
-async function frameSections(page: Driver): Promise<string[]> {
+async function frameSections(page: Driver, opts: LookOpts = {}): Promise<string[]> {
   if (!page.frames || !page.evaluateInFrame) return [];
   const all = await page.frames().catch(() => []);
   const allow = frameAllow();
@@ -1033,7 +1168,7 @@ async function frameSections(page: Driver): Promise<string[]> {
   for (const { url, view } of views) {
     if (!view || view.size < 400 || (!view.text && !view.items.length)) continue;
     const host = /^https?:/.test(url) ? new URL(url).host : 'this site';
-    out.push('', `In a frame on this page (${host}):`, view.text || '(no text)', '', view.items.length ? `What you can use in that frame (by number):\n${view.items.join('\n')}` : 'Nothing to click in that frame.');
+    out.push('', `In a frame on this page (${host}):`, ...(opts.interactive ? [] : [view.text || '(no text)', '']), view.items.length ? `What you can use in that frame (by number):\n${view.items.join('\n')}` : 'Nothing to click in that frame.');
   }
   return out;
 }
@@ -1123,6 +1258,13 @@ function backFromClosedWindow(s: Windows) {
     s.page = s.cdp;
     back = true;
   }
+  // The tab it was on closed by itself, and it has others: the last one it was in.
+  if (s.cdp?.isClosed() && s.others?.some(p => !p.isClosed())) {
+    s.others = s.others.filter(p => !p.isClosed());
+    s.cdp = s.others.pop()!;
+    s.page = s.cdp;
+    back = true;
+  }
   return back;
 }
 async function leaveWindows(s: Windows) {
@@ -1174,16 +1316,19 @@ async function stopIfWindowClosed(s: Windows) {
 
 // A click, and the page after it - first what it copied, when it was a Copy button.
 const MAX_COPIED = 20_000;
-async function clickAndLook(page: Driver, ref: number, s?: Windows, allow = allowUrl()): Promise<string> {
+// at: a number on the page, or a point on the screen (CSS pixels, as a screenshot shows).
+async function clickAndLook(page: Driver, at: number | { x: number; y: number }, s?: Windows, allow = allowUrl(), opts: MouseOpts = {}): Promise<string> {
   await page.evaluateInPage(COPY_WATCH).catch(() => {});
   try {
-    await page.click(ref);
+    if (typeof at === 'number') await page.click(at, opts);
+    else await page.clickAt(at.x, at.y, opts);
   } catch (e) {
     void page.evaluateInPage(COPY_TAKE).catch(() => {});
     if (!s?.openers?.length || !page.isClosed()) throw e; // a click that closes its own window
   }
   await wait(150);
-  await settleAt(page, ref);
+  if (typeof at === 'number') await settleAt(page, at);
+  else await settle(page);
   const copied = await page.evaluateInPage<string | null>(COPY_TAKE).catch(() => null);
   if (s) {
     const note = await windowNote(s, allow);
@@ -1193,6 +1338,362 @@ async function clickAndLook(page: Driver, ref: number, s?: Windows, allow = allo
   if (!copied) return after;
   const cut = copied.length > MAX_COPIED ? `${copied.slice(0, MAX_COPIED)}\n[cut off - ${copied.length} characters in all]` : copied;
   return `That click copied this to the clipboard:\n${cut}\n\n${after}`;
+}
+
+// --- Pointing without a number: points, screenshots, recordings -------------------------
+
+const given = (v: unknown) => v !== undefined && v !== null && v !== '';
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const round2 = (n: number) => Math.round(n * 100) / 100;
+// Where the agent pointed: a number on the page, or x and y from a screenshot.
+function pointArg(a: Record<string, unknown>, ref = 'ref', x = 'x', y = 'y'): number | { x: number; y: number } {
+  if (given(a[ref])) {
+    const n = Number(a[ref]);
+    if (!Number.isInteger(n) || n < 1) throw new Error(`${ref}: a number from the page, like 12.`);
+    return n;
+  }
+  if (given(a[x]) && given(a[y])) {
+    const p = { x: Number(a[x]), y: Number(a[y]) };
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < 0 || p.y < 0) throw new Error(`${x} and ${y}: a point on the screen, in pixels from its top left (as a screenshot shows it).`);
+    return p;
+  }
+  throw new Error(`Give ${ref} (a number from the page) or ${x} and ${y} (a point in a screenshot).`);
+}
+const pointOn = async (page: Driver, at: number | { x: number; y: number }) => (typeof at === 'number' ? page.pointOf(at) : at);
+function mouseOpts(a: Record<string, unknown>): MouseOpts {
+  const button = (given(a.button) ? String(a.button).toLowerCase() : 'left') as MouseButton;
+  if (!['left', 'right', 'middle'].includes(button)) throw new Error('button: left, right or middle.');
+  const count = given(a.count) ? Number(a.count) : 1;
+  if (![1, 2, 3].includes(count)) throw new Error('count: 1, 2 (a double click) or 3 (a triple click).');
+  return { button, count, modifiers: modifierBits(a.modifiers) };
+}
+
+// What the agent saves (screenshots, recordings) goes in its workspace, the newest few
+// of each kind: a long job takes hundreds.
+let fileSeq = 0;
+const stamp = () => `${new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)}-${String(fileSeq++ % 1000).padStart(3, '0')}`;
+async function saveToWorkspace(agentId: string, dir: string, name: string, data: Buffer, keep: number): Promise<string> {
+  const rel = `${dir}/${name}`;
+  const full = inWorkspace(agentId, rel);
+  await mkdir(dirname(full), { recursive: true });
+  await writeFile(full, data);
+  const files = (await readdir(dirname(full)).catch(() => [] as string[])).filter(f => /\.(jpg|png|gif|mp4)$/.test(f)).sort();
+  for (const f of files.slice(0, Math.max(0, files.length - keep))) await rm(join(dirname(full), f), { force: true }).catch(() => {});
+  return rel;
+}
+
+// A picture of the tab - what's on screen, one element, a region zoomed in on, or the
+// whole page - as JPEG at most SHOT_MAX pixels across. Its coordinates are the page's
+// CSS pixels, which coordinate clicks take, and the answer says how to turn a point in
+// the picture into one. It's saved in the workspace too: a model that can't be shown
+// pictures (providers.ts) gets the path.
+const SHOT_MAX = 1600;
+const SHOTS_KEPT = 40;
+type Shot = { text: string; images: ToolImage[] };
+async function shoot(page: Driver, agentId: string, a: Record<string, unknown>, zoom: boolean): Promise<Shot> {
+  await page.ready();
+  const box = !zoom && given(a.ref) ? await page.box(Number(a.ref)) : null; // scrolled into view first
+  const v = await page.viewport();
+  const onScreen = (r: Rect) => {
+    const x0 = clamp(r.x, 0, v.w), y0 = clamp(r.y, 0, v.h), x1 = clamp(r.x + r.width, 0, v.w), y1 = clamp(r.y + r.height, 0, v.h);
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  };
+  let clip: Rect;
+  let scale: number;
+  let full = false;
+  if (zoom) {
+    const r = Array.isArray(a.region) ? a.region.map(Number) : [];
+    if (r.length !== 4 || r.some(n => !Number.isFinite(n))) throw new Error('region: [x0, y0, x1, y1], two corners of the part to zoom in on, in pixels from a screenshot.');
+    clip = onScreen({ x: Math.min(r[0], r[2]), y: Math.min(r[1], r[3]), width: Math.abs(r[2] - r[0]), height: Math.abs(r[3] - r[1]) });
+    if (clip.width < 4 || clip.height < 4) throw new Error(`That region is off the screen or too small. The screen is ${v.w}x${v.h}: give two corners inside it, a few pixels apart at least.`);
+    scale = Math.min(4, SHOT_MAX / clip.width, SHOT_MAX / clip.height);
+  } else if (box) {
+    clip = onScreen({ x: box.x - 8, y: box.y - 8, width: box.width + 16, height: box.height + 16 });
+    if (clip.width < 1 || clip.height < 1) throw new Error(`[${String(a.ref)}] isn't showing on the screen (it may be hidden). Look at the page again.`);
+    scale = Math.min(2, SHOT_MAX / clip.width, SHOT_MAX / clip.height);
+  } else if (a.full_page) {
+    full = true;
+    clip = { x: 0, y: 0, width: v.cw, height: Math.min(v.ch, 16_000) };
+    scale = Math.min(1, SHOT_MAX / clip.width, 8_000 / clip.height);
+  } else {
+    clip = { x: 0, y: 0, width: v.w, height: v.h };
+    scale = Math.min(1, SHOT_MAX / v.w);
+  }
+  // DevTools takes the clip from the top of the document; the agent's points are the screen's.
+  const data = await page.capture(full ? clip : { ...clip, x: clip.x + v.x, y: clip.y + v.y }, scale, { dpr: v.dpr, beyond: full });
+  const w = Math.round(clip.width * scale), h = Math.round(clip.height * scale);
+  const s = round2(scale);
+  let said: string;
+  if (full)
+    said = `The whole page${v.ch > clip.height ? ` (its first ${clip.height} pixels)` : ''}: ${w}x${h}, at ${s}x. Its y is from the top of the page, not of the screen: to click something in it, scroll there and take a screenshot first.`;
+  else if (zoom || box)
+    said = `${zoom ? 'Zoomed in on' : `[${String(a.ref)}], showing`} the screen from (${round2(clip.x)}, ${round2(clip.y)}) to (${round2(clip.x + clip.width)}, ${round2(clip.y + clip.height)}), at ${s}x (${w}x${h}): a point (px, py) in it is x = ${round2(clip.x)} + px / ${s}, y = ${round2(clip.y)} + py / ${s} for click, hover or drag.`;
+  else
+    said =
+      s === 1
+        ? `Screenshot of the tab as it is now: ${w}x${h}, one picture pixel per page pixel - a point in it is the x, y to give click, hover or drag.`
+        : `Screenshot of the tab as it is now: ${w}x${h}, shrunk to ${s}x - divide a point's x and y by ${s} for click, hover or drag.`;
+  const rel = await saveToWorkspace(agentId, 'browser/screenshots', `${stamp()}.jpg`, Buffer.from(data, 'base64'), SHOTS_KEPT);
+  return { text: `${said}\nSaved in your workspace as ${rel}.`, images: [{ data, mimeType: 'image/jpeg' }] };
+}
+
+// A recording of the tab: start, then stop writes it to the workspace. An MP4 from the
+// tab's screencast when ffmpeg is on this computer's PATH; else an animated GIF of
+// screenshots taken a few times a second (the screencast's frames are JPEG, which
+// nothing here can decode - gif.ts reads PNG). At most a minute, 300 frames.
+const RECORD_MAX_MS = 60_000;
+const RECORD_MAX_FRAMES = 300;
+const GIF_EVERY_MS = 400;
+const GIF_WIDTH = 800;
+type Recording = { mode: 'mp4' | 'gif'; frames: { data: string; at: number }[]; started: number; ended?: number; halt: () => void };
+const recordings = new Map<string, Recording>(); // by session key
+let ffmpegFound: Promise<boolean> | null = null;
+const hasFfmpeg = () => (ffmpegFound ??= new Promise(done => execFile('ffmpeg', ['-version'], { timeout: 5_000, windowsHide: true }, e => done(!e))));
+export const __setFfmpegForTest = (found: boolean) => void (ffmpegFound = Promise.resolve(found));
+
+async function startRecording(key: string, page: Driver): Promise<Recording> {
+  if (recordings.has(key)) throw new Error("You're already recording in this browser: signed_in_browser.record stop first.");
+  const rec: Recording = { mode: (await hasFfmpeg()) ? 'mp4' : 'gif', frames: [], started: Date.now(), halt: () => {} };
+  const room = () => rec.frames.length < RECORD_MAX_FRAMES && Date.now() - rec.started < RECORD_MAX_MS;
+  let stopCapture: () => unknown;
+  if (rec.mode === 'mp4') {
+    stopCapture = await page.screencast(f => void (room() && rec.frames.push({ data: f.data, at: Date.now() })));
+  } else {
+    let busy = false;
+    const grab = async () => {
+      if (busy || !room() || page.isClosed()) return;
+      busy = true;
+      try {
+        const v = await page.viewport();
+        const data = await page.capture({ x: v.x, y: v.y, width: v.w, height: v.h }, Math.min(1, GIF_WIDTH / v.w), { format: 'png', dpr: v.dpr });
+        // The same picture again: the last frame just shows longer.
+        if (rec.frames.at(-1)?.data !== data) rec.frames.push({ data, at: Date.now() });
+      } catch {
+        // A page mid-navigation: the next one.
+      } finally {
+        busy = false;
+      }
+    };
+    const timer = setInterval(() => void grab(), GIF_EVERY_MS);
+    timer.unref?.();
+    await grab();
+    stopCapture = () => clearInterval(timer);
+  }
+  const cap = setTimeout(() => rec.halt(), RECORD_MAX_MS);
+  cap.unref?.();
+  rec.halt = () => {
+    if (rec.ended) return;
+    rec.ended = Date.now();
+    clearTimeout(cap);
+    void Promise.resolve(stopCapture()).catch(() => {});
+  };
+  recordings.set(key, rec);
+  return rec;
+}
+
+const ffmpeg = (args: string[]) =>
+  new Promise<void>((done, fail) =>
+    execFile('ffmpeg', args, { timeout: 180_000, windowsHide: true }, (e, _out, err) => (e ? fail(new Error(String(err || e.message).trim().split('\n').pop())) : done())),
+  );
+async function stopRecording(key: string, agentId: string): Promise<string> {
+  const rec = recordings.get(key);
+  if (!rec) throw new Error("You aren't recording in this browser: signed_in_browser.record start first.");
+  rec.halt();
+  recordings.delete(key);
+  const frames = rec.frames;
+  if (!frames.length) return 'Nothing was recorded: the tab sent no pictures (it may have closed, or never drawn).';
+  const ended = rec.ended ?? Date.now();
+  const delays = frames.map((f, i) => clamp((frames[i + 1]?.at ?? ended) - f.at, 50, 5_000));
+  let file: Buffer;
+  if (rec.mode === 'gif') file = encodeGif(frames.map((f, i) => ({ pixels: decodePng(Buffer.from(f.data, 'base64')), delayMs: delays[i] })));
+  else {
+    const dir = await mkdtemp(join(tmpdir(), 'eaa-rec-'));
+    try {
+      const names = frames.map((_, i) => `f${String(i + 1).padStart(5, '0')}.jpg`);
+      await Promise.all(frames.map((f, i) => writeFile(join(dir, names[i]), Buffer.from(f.data, 'base64'))));
+      // Each frame for as long as it was on screen (the concat list's durations); the last named twice, as ffmpeg wants.
+      const list = names.map((n, i) => `file '${n}'\nduration ${(delays[i] / 1000).toFixed(3)}`).join('\n') + `\nfile '${names.at(-1)}'\n`;
+      await writeFile(join(dir, 'list.txt'), list);
+      const out = join(dir, 'out.mp4');
+      const base = ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', join(dir, 'list.txt'), '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p', '-vsync', 'vfr'];
+      // H.264 where this ffmpeg has it; its own MP4 encoder otherwise.
+      await ffmpeg([...base, '-c:v', 'libx264', '-movflags', '+faststart', out]).catch(() => ffmpeg([...base, '-movflags', '+faststart', out]));
+      file = await readFile(out);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+  const rel = await saveToWorkspace(agentId, 'browser/recordings', `${stamp()}.${rec.mode}`, file, 20);
+  const secs = Math.round((ended - rec.started) / 100) / 10;
+  const capped = frames.length >= RECORD_MAX_FRAMES || ended - rec.started >= RECORD_MAX_MS - 50;
+  return `Recorded ${secs} s of the tab (${frames.length} frames) as ${rec.mode === 'mp4' ? 'an MP4' : 'an animated GIF'}: saved in your workspace as ${rel}.${capped ? ' It stopped at the limit (a minute, or 300 frames).' : ''}`;
+}
+
+// A file dropped on a drop zone (an image upload area with no file input), as a person
+// drags one from their desktop: dragenter, dragover and drop, carrying the file.
+const dropExpr = (ref: number, file: { name: string; type: string; base64: string }) => `(() => { const e = ${inPage(`find(${ref})`)}; if (!e) return null;
+  e.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+  const r = e.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;
+  const f = ${JSON.stringify(file)}; const bin = atob(f.base64); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const dt = new DataTransfer(); dt.items.add(new File([bytes], f.name, { type: f.type }));
+  const at = document.elementFromPoint(x, y); const target = at && e.contains(at) ? at : e;
+  let taken = false;
+  for (const type of ['dragenter', 'dragover', 'drop']) { const ev = new DragEvent(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, dataTransfer: dt }); target.dispatchEvent(ev); if (type === 'drop') taken = ev.defaultPrevented; }
+  return { taken }; })()`;
+
+// run_js: an expression, or a function body (one that returns, or awaits), in the page
+// view's own world - it sees the page's document, not the page's own scripts' variables.
+const JS_MAX = 10_000;
+// Run as written first (an expression, or statements ending in one); code that only
+// works inside a function (a return, an await) is run again as an async function's body.
+async function runJs(page: Driver, code: string): Promise<unknown> {
+  try {
+    return await page.evaluate(code);
+  } catch (e) {
+    if (!/Illegal return|await is only valid|Unexpected reserved word|Unexpected identifier/i.test((e as Error).message)) throw e;
+    return page.evaluate(`(async () => {\n${code}\n})()`);
+  }
+}
+function jsResult(v: unknown): string {
+  if (v === undefined) return 'It ran, and gave back nothing (undefined). To see a value, end with an expression or return one.';
+  let text: string;
+  try {
+    text = typeof v === 'string' ? v : (JSON.stringify(v, null, 2) ?? String(v));
+  } catch {
+    text = String(v);
+  }
+  return text.length > JS_MAX ? `${text.slice(0, JS_MAX)}\n[cut off - ${text.length} characters in all]` : text;
+}
+
+// A pattern the agent gave to filter by: a regular expression, or plain text if it isn't one.
+function matcher(raw: unknown): (s: string) => boolean {
+  const p = given(raw) ? String(raw) : '';
+  if (!p) return () => true;
+  try {
+    const re = new RegExp(p, 'i');
+    return s => re.test(s);
+  } catch {
+    const low = p.toLowerCase();
+    return s => s.toLowerCase().includes(low);
+  }
+}
+const sizeOf = (n?: number) => (n == null ? '' : n < 1024 ? `${n} B` : n < 1_048_576 ? `${Math.round(n / 102.4) / 10} KB` : `${Math.round(n / 104_857.6) / 10} MB`);
+const BODY_MAX = 20_000;
+
+// The screen sizes resize knows by name.
+const SIZES: Record<string, { width: number; height: number; mobile: boolean }> = { mobile: { width: 390, height: 844, mobile: true }, desktop: { width: 1366, height: 900, mobile: false } };
+
+// The run's tabs in a browser (signed_in_browser.tabs): its session's, then the tabs this
+// agent kept open in earlier runs that no run has now. Numbered in that order.
+async function tabsTool(ctx: RunCtx, a: Record<string, unknown>): Promise<string> {
+  const n = whichBrowser(ctx, browserArg(a));
+  const key = sessionKey(ctx.runId, n);
+  const action = String(a.action ?? 'list').toLowerCase();
+  if (!['list', 'open', 'switch', 'close'].includes(action)) throw new Error('action: list, open, switch or close.');
+  const sh = onlineShared(n);
+  if (!sh) throw noBrowser(ctx);
+  const current = () => {
+    const s = sessions.get(key);
+    if (s && backFromClosedWindow(s)) s.windowClosed = false;
+    return s && !s.page.isClosed() ? s : undefined;
+  };
+  // This agent's kept-open tabs from earlier runs that no run is in now.
+  const parked = () => {
+    const s = current();
+    const mine = new Set(s ? runTabs(s).map(p => p.targetId) : []);
+    return [...keptOpen.values()].filter(k => k.browser === n && k.agentId === ctx.agent.id && !mine.has(k.targetId) && !(k.page && !k.page.isClosed())).sort((x, y) => x.since - y.since);
+  };
+  const listing = async () => {
+    const s = current();
+    const tabs = s ? runTabs(s) : [];
+    const lines: string[] = [];
+    for (const [i, p] of tabs.entries()) {
+      const info = await p.info().catch(() => ({ url: '?', title: '' }));
+      const k = keptOpen.get(p.targetId);
+      lines.push(`${i + 1}. ${info.title || '(no title)'} - ${info.url}${p === s!.cdp ? '   <- you are here' : ''}${k ? `   (kept open until ${new Date(k.until).toLocaleString()}: ${k.reason})` : ''}`);
+    }
+    for (const [i, k] of parked().entries()) {
+      const info = await sh.cdp
+        .send<{ targetInfo: { url: string; title: string } }>('Target.getTargetInfo', { targetId: k.targetId }, undefined, 3_000)
+        .then(r => r.targetInfo)
+        .catch(() => ({ url: '?', title: '' }));
+      lines.push(`${tabs.length + i + 1}. ${info.title || '(no title)'} - ${info.url}   (kept open from an earlier run until ${new Date(k.until).toLocaleString()}: ${k.reason})`);
+    }
+    return lines.length ? `Your tabs in ${label(n)}:\n${lines.join('\n')}` : `You have no tabs open in ${label(n)}: open a page (signed_in_browser.open, or tabs open).`;
+  };
+  if (action === 'list') return listing();
+
+  if (action === 'open') {
+    const url = checkUrl(String(a.url ?? '')).toString();
+    let s = current();
+    let page: CdpPage;
+    if (!s) {
+      // The run's first tab: the one any browser step opens.
+      s = await session(ctx, n);
+      page = s.page;
+    } else {
+      await stopIfWindowClosed(s);
+      sh.opening++;
+      try {
+        page = await CdpPage.open(sh.cdp, BOUNDS, 'about:blank', { eaaGroup: { key: ctx.runId, title: ctx.agent.name } });
+      } finally {
+        sh.opening--;
+      }
+      await page.guard(allowUrl());
+      s.others = [...(s.others ?? []), page];
+      switchTo(s, page);
+    }
+    await page.goto(url);
+    await settle(page, 5_000, 1_500);
+    return `Opened in tab ${runTabs(s).indexOf(page) + 1}; you're on it now.\n\n${await snapshot(page)}`;
+  }
+
+  const no = Number(a.tab);
+  const s = current();
+  const tabs = s ? runTabs(s) : [];
+  const old = parked();
+  if (!Number.isInteger(no) || no < 1 || no > tabs.length + old.length) throw new Error(`tab: a number from the list.\n${await listing()}`);
+  const inRun = tabs[no - 1] as CdpPage | undefined;
+  const k = inRun ? keptOpen.get(inRun.targetId) : old[no - 1 - tabs.length];
+
+  if (action === 'switch') {
+    if (inRun) {
+      switchTo(s!, inRun);
+      return `You're on tab ${no} now.\n\n${await snapshot(inRun)}`;
+    }
+    // A tab kept from an earlier run: the debugger goes back on it, and it's this run's too.
+    const page = await CdpPage.attach(sh.cdp, k!.targetId);
+    await page.guard(allowUrl());
+    k!.page = page;
+    let run = current();
+    if (!run) {
+      run = { runId: ctx.runId, browser: n, page, cdp: page, agent: { id: ctx.agent.id, name: ctx.agent.name } };
+      sessions.set(key, run);
+      sh.runs.add(ctx.runId);
+      lastUsed.set(ctx.agent.id, n);
+    } else run.others = [...(run.others ?? []), page];
+    switchTo(run, page);
+    return `You're on tab ${runTabs(run).indexOf(page) + 1} now (kept open: ${k!.reason}).\n\n${await snapshot(page)}`;
+  }
+
+  // close: a kept-open one is let go of too.
+  if (k && keptOpen.delete(k.targetId)) saveKept();
+  if (!inRun) {
+    await sh.cdp.send('Target.closeTarget', { targetId: k!.targetId }).catch(() => {});
+    return `Closed it.\n\n${await listing()}`;
+  }
+  const run = s!;
+  const wasHere = inRun === run.cdp;
+  release(inRun.targetId);
+  await inRun.close();
+  run.openers = (run.openers ?? []).filter(p => p !== inRun);
+  run.others = (run.others ?? []).filter(p => p !== inRun);
+  if (!wasHere) return `Closed tab ${no}.\n\n${await listing()}`;
+  if (backFromClosedWindow(run)) {
+    run.windowClosed = false;
+    return `Closed tab ${no}. You're on tab ${runTabs(run).indexOf(run.cdp!) + 1} now.\n\n${await snapshot(run.page)}`;
+  }
+  return 'Closed it: that was your last tab. Your next browser step opens a new one.';
 }
 
 // --- The tools ------------------------------------------------------------------------
@@ -1211,10 +1712,21 @@ function toolsFor(prefix: string, actTier: 'T0' | 'T1', where: string): ToolDef[
     await stopIfWindowClosed(s);
     return s;
   };
+  // By number (scrolled to, frames and all), or at a point from a screenshot.
   const click = async (a: Record<string, unknown>, ctx: RunCtx) => {
+    const at = pointArg(a);
+    const opts = mouseOpts(a);
     const s = await open(ctx, a);
-    return clickAndLook(s.page, Number(a.ref), s);
+    return clickAndLook(s.page, at, s, allowUrl(), opts);
   };
+  // After a step that may change the page: settled, and seen again.
+  const after = async (s: Session, ms = 1_500) => {
+    await wait(150);
+    await settle(s.page, ms);
+    if (backFromClosedWindow(s)) return `That window closed, so you're back on the page that opened it.\n\n${await snapshot(s.page)}`;
+    return snapshot(s.page);
+  };
+  const key = (ctx: RunCtx, a: Record<string, unknown>) => sessionKey(ctx.runId, whichBrowser(ctx, browserArg(a)));
   return [
     {
       id: `${prefix}.open`,
@@ -1234,8 +1746,18 @@ function toolsFor(prefix: string, actTier: 'T0' | 'T1', where: string): ToolDef[
     {
       id: `${prefix}.click`,
       tier: actTier,
-      description: `Click a numbered button or link on the current page in ${where}. Not the click that pays, posts publicly as the business, or starts a new business tool: those are click_to_pay, click_to_post and click_to_start_tool. On a Copy button, the result starts with what it copied.`,
-      schema: obj(withBrowser({ ref: { type: 'number', description: 'The number from the last page you saw' } }), ['ref']),
+      description: `Click a numbered button or link on the current page in ${where} - or a point (x, y from a screenshot) for what has no number: a canvas, a map, a chart. Right or middle button, double or triple click, and modifiers (ctrl+click) too. Not the click that pays, posts publicly as the business, or starts a new business tool: those are click_to_pay, click_to_post and click_to_start_tool. On a Copy button, the result starts with what it copied.`,
+      schema: obj(
+        withBrowser({
+          ref: { type: 'number', description: 'The number from the last page you saw' },
+          x: { type: 'number', description: 'Instead of ref: a point on the screen, in pixels from the top left, as a screenshot shows it' },
+          y: { type: 'number' },
+          button: { type: 'string', enum: ['left', 'right', 'middle'], description: 'Left unless you say' },
+          count: { type: 'number', enum: [1, 2, 3], description: '2 for a double click, 3 for a triple click (selects a line)' },
+          modifiers: { type: 'string', description: 'Keys held during the click, joined with +: "ctrl", "shift", "ctrl+shift", "cmd"' },
+        }),
+        [],
+      ),
       impl: click,
     },
     {
@@ -1273,11 +1795,30 @@ function toolsFor(prefix: string, actTier: 'T0' | 'T1', where: string): ToolDef[
     {
       id: `${prefix}.scroll`,
       tier: 'T0',
-      description: `Scroll the current page in ${where} down (or up) and see what's there.`,
-      schema: obj(withBrowser({ direction: { type: 'string', enum: ['down', 'up'] } }), []),
+      description: `Scroll the current page in ${where} and see what's there: down (the default), up, left or right, or straight to a numbered element (to_ref). x and y scroll a panel that scrolls by itself (a list, a chat) instead of the page.`,
+      schema: obj(
+        withBrowser({
+          direction: { type: 'string', enum: ['down', 'up', 'left', 'right'] },
+          amount: { type: 'number', description: 'How far, in pixels (1600 down or up, 600 left or right, unless you say)' },
+          to_ref: { type: 'number', description: 'Instead: scroll until this numbered element is in the middle of the screen' },
+          x: { type: 'number', description: 'Where to turn the wheel (a point from a screenshot); the middle of the page unless you say' },
+          y: { type: 'number' },
+        }),
+        [],
+      ),
       impl: async (a, ctx) => {
         const s = await open(ctx, a);
-        await s.page.wheel(a.direction === 'up' ? -1600 : 1600);
+        if (given(a.to_ref)) await s.page.box(Number(a.to_ref));
+        else {
+          const dir = String(a.direction ?? 'down').toLowerCase();
+          if (!['down', 'up', 'left', 'right'].includes(dir)) throw new Error('direction: down, up, left or right.');
+          const sideways = dir === 'left' || dir === 'right';
+          const amount = given(a.amount) ? Math.abs(Number(a.amount)) : sideways ? 600 : 1600;
+          if (!Number.isFinite(amount)) throw new Error('amount: how far, in pixels, e.g. 800.');
+          const delta = dir === 'up' || dir === 'left' ? -amount : amount;
+          const at = given(a.x) && given(a.y) ? { x: Number(a.x), y: Number(a.y) } : undefined;
+          await s.page.wheel(sideways ? 0 : delta, sideways ? delta : 0, at);
+        }
         await wait(300);
         await settle(s.page, 1_500);
         return snapshot(s.page);
@@ -1301,24 +1842,366 @@ function toolsFor(prefix: string, actTier: 'T0' | 'T1', where: string): ToolDef[
     {
       id: `${prefix}.look`,
       tier: 'T0',
-      description: `See the current page in ${where} again, as it is now, without reloading it - a page given back to you after an approval, or one that changed by itself.`,
-      schema: obj(withBrowser({}), []),
-      impl: async (a, ctx) => snapshot((await open(ctx, a)).page),
+      description: `See the current page in ${where} again, as it is now, without reloading it - a page given back to you after an approval, or one that changed by itself. filter "interactive" lists only what you can click or type in; ref shows only that element and what's in it (a form, a dialog); max_chars sets how much of the text.`,
+      schema: obj(
+        withBrowser({
+          filter: { type: 'string', enum: ['all', 'interactive'], description: '"interactive": the numbered controls only, no page text' },
+          ref: { type: 'number', description: 'Only this numbered element and what is inside it' },
+          max_chars: { type: 'number', description: `How much of the page's text (${TEXT_CHARS} unless you say, up to 50000)` },
+        }),
+        [],
+      ),
+      impl: async (a, ctx) =>
+        snapshot((await open(ctx, a)).page, {
+          interactive: a.filter === 'interactive',
+          ref: given(a.ref) ? Number(a.ref) : undefined,
+          chars: given(a.max_chars) ? clamp(Math.round(Number(a.max_chars)) || TEXT_CHARS, 200, 50_000) : undefined,
+        }),
     },
     {
       id: `${prefix}.press`,
       tier: actTier,
-      description: `Press a key in the current page in ${where}, on whatever has the focus: Escape closes most pop-ups and menus, Tab moves to the next field, the arrows move in a list, Enter submits.`,
-      schema: obj(withBrowser({ key: { type: 'string', enum: Object.keys(KEYS) } }), ['key']),
+      description: `Press a key or a key combination in the current page in ${where}, on whatever has the focus: "Escape" closes most pop-ups and menus, "Tab" moves to the next field, the arrows move in a list, "Enter" submits; "ctrl+a", "shift+Tab", "cmd+Enter", "ctrl+shift+k". repeat presses it again (ArrowDown 5 times).`,
+      schema: obj(
+        withBrowser({
+          key: { type: 'string', description: `A key (${Object.keys(KEYS).join(', ')}, Delete, Home, End, F1-F12, a letter, a digit) or modifiers and a key joined with + ("ctrl+a")` },
+          repeat: { type: 'number', description: 'How many times (1 to 50; 1 unless you say)' },
+        }),
+        ['key'],
+      ),
       impl: async (a, ctx) => {
-        const key = String(a.key ?? '') as Key;
-        if (!(key in KEYS)) throw new Error(`key: one of ${Object.keys(KEYS).join(', ')}.`);
+        const repeat = given(a.repeat) ? Number(a.repeat) : 1;
+        if (!Number.isInteger(repeat) || repeat < 1 || repeat > 50) throw new Error('repeat: a whole number from 1 to 50.');
         const s = await open(ctx, a);
-        await s.page.press(key);
-        await wait(150);
-        await settle(s.page, 2_000);
-        if (backFromClosedWindow(s)) return `That window closed, so you're back on the page that opened it.\n\n${await snapshot(s.page)}`;
+        await s.page.pressCombo(String(a.key ?? ''), repeat);
+        return after(s, 2_000);
+      },
+    },
+    {
+      id: `${prefix}.hover`,
+      tier: actTier,
+      description: `Move the mouse over a numbered element or a point (x, y from a screenshot) in ${where}, without clicking: a menu that opens on hover, a tooltip, a button that only shows then.`,
+      schema: obj(withBrowser({ ref: { type: 'number' }, x: { type: 'number' }, y: { type: 'number' } }), []),
+      impl: async (a, ctx) => {
+        const at = pointArg(a);
+        const s = await open(ctx, a);
+        const p = await pointOn(s.page, at);
+        await s.page.hoverAt(p.x, p.y);
+        await wait(300);
+        return after(s);
+      },
+    },
+    {
+      id: `${prefix}.drag`,
+      tier: actTier,
+      description: `Drag from one numbered element or point to another in ${where}, as a mouse does (pressed, moved there in steps, let go): a slider, a list you put in order, a card onto a column, a map.`,
+      schema: obj(
+        withBrowser({
+          from_ref: { type: 'number', description: 'What to drag: a number from the page...' },
+          from_x: { type: 'number', description: '...or a point from a screenshot' },
+          from_y: { type: 'number' },
+          to_ref: { type: 'number', description: 'Where to drop it: a number from the page...' },
+          to_x: { type: 'number', description: '...or a point from a screenshot' },
+          to_y: { type: 'number' },
+        }),
+        [],
+      ),
+      impl: async (a, ctx) => {
+        const fromAt = pointArg(a, 'from_ref', 'from_x', 'from_y');
+        const toAt = pointArg(a, 'to_ref', 'to_x', 'to_y');
+        const s = await open(ctx, a);
+        const from = await pointOn(s.page, fromAt);
+        // Where it goes, measured without scrolling: scrolling it into view would move what's being dragged.
+        let to: { x: number; y: number };
+        if (typeof toAt !== 'number') to = toAt;
+        else if (toAt >= FRAME_BASE) to = await s.page.pointOf(toAt);
+        else {
+          const r = await s.page.evaluate<{ x: number; y: number; h: number; w: number } | null>(
+            `(() => { const e = ${inPage(`find(${toAt})`)}; if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: innerWidth, h: innerHeight }; })()`,
+          );
+          if (!r) throw new Error(`There's no [${toAt}] on the page now - look at it again and use a number from what you see.`);
+          if (r.y < 0 || r.y > r.h || r.x < 0 || r.x > r.w)
+            throw new Error(`[${toAt}] is off the screen once [${String(a.from_ref ?? 'the start')}] is on it. Take a screenshot and drag by points (from_x/from_y, to_x/to_y), or scroll so both show.`);
+          to = r;
+        }
+        await s.page.drag(from, to);
+        await wait(300);
+        return after(s);
+      },
+    },
+    {
+      id: `${prefix}.forward`,
+      tier: 'T0',
+      description: `Go forward again in ${where}, after back.`,
+      schema: obj(withBrowser({}), []),
+      impl: async (a, ctx) => {
+        const s = await open(ctx, a);
+        if (!(await s.page.forward())) return `There's no page to go forward to.\n\n${await snapshot(s.page)}`;
+        await settle(s.page, 3_000, 500);
         return snapshot(s.page);
+      },
+    },
+    {
+      id: `${prefix}.reload`,
+      tier: 'T0',
+      description: `Reload the current page in ${where} (what's typed in its fields is lost).`,
+      schema: obj(withBrowser({}), []),
+      impl: async (a, ctx) => {
+        const s = await open(ctx, a);
+        await s.page.reload();
+        await settle(s.page, 5_000, 1_000);
+        return snapshot(s.page);
+      },
+    },
+    {
+      id: `${prefix}.screenshot`,
+      tier: 'T0',
+      description: `A picture of the current page in ${where}, as it shows now: what's on screen, one numbered element (ref), or the whole page (full_page). For what the text doesn't tell you - a layout, a chart, a canvas, whether something looks right - and for points to click by x, y. Its coordinates are the ones click, hover and drag take.`,
+      schema: obj(withBrowser({ ref: { type: 'number', description: 'Only this numbered element' }, full_page: { type: 'boolean', description: 'The whole page, not just the screen' } }), []),
+      media: async (a, ctx) => shoot((await open(ctx, a)).page, ctx.agent.id, a, false),
+      impl: async (a, ctx) => (await shoot((await open(ctx, a)).page, ctx.agent.id, a, false)).text,
+    },
+    {
+      id: `${prefix}.zoom`,
+      tier: 'T0',
+      description: `A closer picture of part of the screen in ${where}: region is two corners [x0, y0, x1, y1] from a screenshot, shown bigger - small text, an icon, a crowded menu. Says how to turn a point in it back into click coordinates.`,
+      schema: obj(withBrowser({ region: { type: 'array', items: { type: 'number' }, minItems: 4, maxItems: 4, description: '[x0, y0, x1, y1] in screen pixels' } }), ['region']),
+      media: async (a, ctx) => shoot((await open(ctx, a)).page, ctx.agent.id, a, true),
+      impl: async (a, ctx) => (await shoot((await open(ctx, a)).page, ctx.agent.id, a, true)).text,
+    },
+    {
+      id: `${prefix}.wait`,
+      tier: 'T0',
+      description: `Wait in ${where}: a number of seconds (seconds, up to 30), or until some text shows on the page (for_text, up to 30 s - 10 unless you give seconds). Then see the page.`,
+      schema: obj(withBrowser({ seconds: { type: 'number' }, for_text: { type: 'string', description: 'Wait until this shows on the page (any case)' } }), []),
+      impl: async (a, ctx) => {
+        const secs = given(a.seconds) ? Number(a.seconds) : null;
+        if (secs != null && (!Number.isFinite(secs) || secs < 0 || secs > 30)) throw new Error('seconds: from 0 to 30.');
+        const text = given(a.for_text) ? String(a.for_text).trim() : '';
+        if (!text && secs == null) throw new Error('Give seconds (how long to wait) or for_text (what to wait for).');
+        const s = await open(ctx, a);
+        if (!text) {
+          await wait(secs! * 1000);
+          return snapshot(s.page);
+        }
+        const limit = (secs ?? 10) * 1000;
+        const started = Date.now();
+        const has = `(document.body ? document.body.innerText : '').toLowerCase().includes(${JSON.stringify(text.toLowerCase())})`;
+        for (;;) {
+          if (await s.page.evaluate<boolean>(has).catch(() => false)) return `"${text}" is on the page now (after ${Math.round((Date.now() - started) / 100) / 10} s).\n\n${await snapshot(s.page)}`;
+          if (Date.now() - started >= limit) break;
+          await wait(Math.min(250, Math.max(0, limit - (Date.now() - started))));
+        }
+        return `Waited ${round2(limit / 1000)} s: "${text}" hasn't shown on the page. It may take longer, be in a frame, or need a step first (a click, a scroll).\n\n${await snapshot(s.page)}`;
+      },
+    },
+    {
+      id: `${prefix}.find`,
+      tier: 'T0',
+      description: `Find what you can click or type in on the current page in ${where} by what it says: its label, text, placeholder, name or kind (any case). Up to 20, with their numbers - for a long page, or one control among hundreds.`,
+      schema: obj(withBrowser({ query: { type: 'string', description: 'Words it shows or is labelled with, e.g. "subscribe", "email", "next page"' } }), ['query']),
+      impl: async (a, ctx) => {
+        const q = String(a.query ?? '').trim();
+        const s = await open(ctx, a);
+        await s.page.ready();
+        type Hits = { hits: string[]; total: number };
+        const main = await s.page.evaluate<Hits>(inPage(`search(${JSON.stringify(q)}, 20)`));
+        const hits = [...main.hits];
+        let total = main.total;
+        // And in the page's frames (a form hosted elsewhere), until there are 20.
+        for (const f of hits.length < 20 ? (await s.page.frames().catch(() => [])).filter(f => !UNUSED_FRAME.test(f.url)).slice(0, MAX_FRAMES) : []) {
+          const r = await Promise.race([s.page.evaluateInFrame<Hits>(f.no, inPage(`search(${JSON.stringify(q)}, 20)`)).catch(() => null), wait(FRAME_WAIT_MS).then(() => null)]);
+          if (!r) continue;
+          hits.push(...r.hits.slice(0, 20 - hits.length));
+          total += r.total;
+        }
+        if (!hits.length) return `Nothing you can click or type in matches "${q}". It may be plain text (signed_in_browser.page_text), further down (scroll), or not there yet (wait for_text).`;
+        return `${total} match "${q}"${total > hits.length ? ` (the first ${hits.length})` : ''}:\n${hits.join('\n')}`;
+      },
+    },
+    {
+      id: `${prefix}.page_text`,
+      tier: 'T0',
+      description: `The current page's readable text in ${where}: the article or main part when there is one, else the whole page. For reading a long page; look is for using it.`,
+      schema: obj(withBrowser({ max_chars: { type: 'number', description: 'How much (20000 unless you say, up to 100000)' } }), []),
+      impl: async (a, ctx) => {
+        const s = await open(ctx, a);
+        await s.page.ready();
+        const max = given(a.max_chars) ? clamp(Math.round(Number(a.max_chars)) || 20_000, 500, 100_000) : 20_000;
+        const url = await s.page.url();
+        const html = await s.page.evaluate<string>('document.documentElement ? document.documentElement.outerHTML.slice(0, 5000000) : ""').catch(() => '');
+        let { title, text } = html ? readable(html, url) : { title: '', text: '' };
+        // Readability found no article (an app, a form): what's on the page, as shown.
+        if (text.trim().length < 200)
+          text = await s.page.evaluate<string>("(() => { const e = document.querySelector('main, article, [role=main]') || document.body; return e ? e.innerText.replace(/\\n{3,}/g, '\\n\\n').trim() : ''; })()");
+        const cut = text.length > max ? `${text.slice(0, max)}\n[cut off - ${text.length} characters in all; max_chars for more]` : text;
+        return `Title: ${title || (await s.page.title().catch(() => '')) || '(none)'}\nURL: ${url}\n\n${cut || '(no text)'}`;
+      },
+    },
+    {
+      id: `${prefix}.tabs`,
+      tier: 'T0',
+      description: `Your tabs in ${where}: list them; open a web address in a new one (and go to it); switch to one; close one - by its number in the list. Tabs you kept open in earlier runs (keep_open) are listed too.`,
+      schema: obj(
+        withBrowser({
+          action: { type: 'string', enum: ['list', 'open', 'switch', 'close'], description: 'list unless you say' },
+          url: { type: 'string', description: 'For open: the full address' },
+          tab: { type: 'number', description: 'For switch and close: its number in the list' },
+        }),
+        [],
+      ),
+      impl: async (a, ctx) => tabsTool(ctx, a),
+    },
+    {
+      id: `${prefix}.keep_open`,
+      tier: actTier,
+      description: `Keep the tab you're on in ${where} open after this run ends (your tabs close when it does) - something still running there, a page you'll come back to. It stays for 24 hours or until you close it (tabs close); your next runs find it in tabs list.`,
+      schema: obj(withBrowser({ reason: { type: 'string', description: 'Why it stays open, for the person who sees it in their browser' } }), ['reason']),
+      impl: async (a, ctx) => {
+        const reason = String(a.reason ?? '').trim();
+        if (!reason) throw new Error('Say why it stays open (reason).');
+        const s = await open(ctx, a);
+        const page = s.cdp;
+        if (!page || page.isClosed()) throw new Error('There is no tab open to keep.');
+        const now = Date.now();
+        const k: KeptOpen = { targetId: page.targetId, browser: s.browser, agentId: ctx.agent.id, agentName: ctx.agent.name, runId: ctx.runId, reason: reason.slice(0, 300), since: now, until: now + KEEP_OPEN_MS, page };
+        keptOpen.set(page.targetId, k);
+        saveKept();
+        return `This tab (${(await page.info().catch(() => ({ url: '' }))).url}) stays open after your run ends, until ${new Date(k.until).toLocaleString()} or until you close it (signed_in_browser.tabs close). Your next runs find it in signed_in_browser.tabs list.`;
+      },
+    },
+    {
+      id: `${prefix}.resize`,
+      tier: actTier,
+      description: `Show the current tab in ${where} at another screen size - preset "mobile" (390x844, a phone) or "desktop" (1366x900), or width and height - to see a site as on a phone. Only this tab, not the window. reset goes back.`,
+      schema: obj(
+        withBrowser({
+          preset: { type: 'string', enum: ['mobile', 'desktop'] },
+          width: { type: 'number' },
+          height: { type: 'number' },
+          reset: { type: 'boolean', description: 'Back to the window\'s own size' },
+        }),
+        [],
+      ),
+      impl: async (a, ctx) => {
+        let size: { width: number; height: number; mobile: boolean } | null = null;
+        if (!a.reset) {
+          if (given(a.preset)) {
+            size = SIZES[String(a.preset).toLowerCase()];
+            if (!size) throw new Error('preset: mobile or desktop.');
+          } else {
+            const width = Math.round(Number(a.width)), height = Math.round(Number(a.height));
+            if (!(width >= 200 && width <= 4000 && height >= 200 && height <= 4000)) throw new Error('Give preset (mobile or desktop), width and height (200 to 4000 pixels), or reset true.');
+            size = { width, height, mobile: width < 600 };
+          }
+        }
+        const s = await open(ctx, a);
+        await s.page.emulateSize(size);
+        await wait(300);
+        await settle(s.page, 2_000);
+        return `${size ? `The tab shows as ${size.width}x${size.height}${size.mobile ? ' (as a phone, with touch)' : ''} now - only this tab; reset true goes back.` : "The tab is back to the window's own size."}\n\n${await snapshot(s.page)}`;
+      },
+    },
+    {
+      id: `${prefix}.run_js`,
+      tier: actTier,
+      description: `Run JavaScript on the current page in ${where} and get back what it returns (as JSON, up to ${JS_MAX} characters): an expression ("document.title", "[...document.querySelectorAll('h2')].map(h => h.innerText)") or a function body that returns (await works there). It sees and can change the page's document, not the page's own script variables. For what the other tools can't do - never to submit, pay or post.`,
+      schema: obj(withBrowser({ code: { type: 'string', description: 'The expression, or a function body with return' } }), ['code']),
+      impl: async (a, ctx) => {
+        const code = String(a.code ?? '').trim();
+        const s = await open(ctx, a);
+        return jsResult(await runJs(s.page, code));
+      },
+    },
+    {
+      id: `${prefix}.console`,
+      tier: 'T0',
+      description: `The current tab's console in ${where} (its messages and uncaught errors), for working out why a page misbehaves: start watching, read what it said since (the last ones, optionally only those matching pattern), stop. Off unless you start it.`,
+      schema: obj(
+        withBrowser({
+          action: { type: 'string', enum: ['start', 'read', 'stop'] },
+          pattern: { type: 'string', description: 'For read: only messages matching this (text, or a regular expression)' },
+          last: { type: 'number', description: 'For read: how many, newest last (50 unless you say, up to 500)' },
+        }),
+        ['action'],
+      ),
+      impl: async (a, ctx) => {
+        const s = await open(ctx, a);
+        const page = s.page;
+        const action = String(a.action ?? '').toLowerCase();
+        if (action === 'start') {
+          await page.watchConsole(true);
+          return "Watching this tab's console from now: do what you need to, then console read. (console stop when you're done.)";
+        }
+        if (action === 'stop') {
+          await page.watchConsole(false);
+          return "Stopped watching this tab's console.";
+        }
+        if (action !== 'read') throw new Error('action: start, read or stop.');
+        if (!page.watchingConsole) return "This tab's console isn't being watched: console start first, then do what you want to see, then read.";
+        const match = matcher(a.pattern);
+        const last = given(a.last) ? clamp(Math.round(Number(a.last)) || 50, 1, 500) : 50;
+        const lines = page.consoleMessages().map(m => `[${m.level}] ${m.text}${m.where ? `  (${m.where})` : ''}`).filter(match);
+        if (!lines.length) return given(a.pattern) ? `Nothing in the console matches "${String(a.pattern)}".` : 'Nothing in the console since you started watching.';
+        return `${lines.length > last ? `The last ${last} of ${lines.length}:\n` : ''}${lines.slice(-last).join('\n')}`;
+      },
+    },
+    {
+      id: `${prefix}.network`,
+      tier: 'T0',
+      description: `The current tab's network requests in ${where}: start watching, read the requests since (method, address, status, type, size; url_contains narrows them), body for what one got back (by its id from read, up to ${BODY_MAX} characters), stop. Off unless you start it.`,
+      schema: obj(
+        withBrowser({
+          action: { type: 'string', enum: ['start', 'read', 'body', 'stop'] },
+          url_contains: { type: 'string', description: 'For read: only requests whose address has this' },
+          request_id: { type: 'string', description: 'For body: the id read showed' },
+          last: { type: 'number', description: 'For read: how many, newest last (50 unless you say, up to 200)' },
+        }),
+        ['action'],
+      ),
+      impl: async (a, ctx) => {
+        const s = await open(ctx, a);
+        const page = s.page;
+        const action = String(a.action ?? '').toLowerCase();
+        if (action === 'start') {
+          await page.watchNetwork(true);
+          return "Watching this tab's network from now: do what you need to (reload to see a page load from the start), then network read.";
+        }
+        if (action === 'stop') {
+          await page.watchNetwork(false);
+          return "Stopped watching this tab's network.";
+        }
+        if (action !== 'read' && action !== 'body') throw new Error('action: start, read, body or stop.');
+        if (!page.watchingNetwork) return "This tab's network isn't being watched: network start first, then do what you want to see, then read.";
+        if (action === 'body') {
+          const id = String(a.request_id ?? '').trim();
+          if (!id) throw new Error('request_id: the id network read showed.');
+          const r = await page.responseBody(id).catch(e => {
+            throw new Error(`No body for request ${id}: ${(e as Error).message}. It may have had none, or be gone (a page that moved on).`);
+          });
+          if (r.base64) return `Request ${id} got back ${sizeOf(Math.floor((r.body.length * 3) / 4))} of binary data (a picture or a file), not text.`;
+          return r.body.length > BODY_MAX ? `${r.body.slice(0, BODY_MAX)}\n[cut off - ${r.body.length} characters in all]` : r.body || '(empty)';
+        }
+        const want = given(a.url_contains) ? String(a.url_contains).toLowerCase() : '';
+        const last = given(a.last) ? clamp(Math.round(Number(a.last)) || 50, 1, 200) : 50;
+        const list = page.requests().filter(r => !want || r.url.toLowerCase().includes(want));
+        if (!list.length) return want ? `No requests to an address with "${want}" since you started watching.` : 'No requests since you started watching.';
+        const lines = list.slice(-last).map(r => `${r.id}  ${r.method} ${r.failed ? `FAILED ${r.failed}` : (r.status ?? '...')} ${r.type}${r.size != null ? ` ${sizeOf(r.size)}` : ''}  ${r.url.length > 300 ? `${r.url.slice(0, 300)}...` : r.url}`);
+        return `${list.length > last ? `The last ${last} of ${list.length}:\n` : ''}${lines.join('\n')}`;
+      },
+    },
+    {
+      id: `${prefix}.record`,
+      tier: 'T0',
+      description: `Record the current tab in ${where} as a video: start, do the steps, stop - it's saved in your workspace (an MP4, or an animated GIF), and the path given back. Up to a minute. For showing the person what happens on a page.`,
+      schema: obj(withBrowser({ action: { type: 'string', enum: ['start', 'stop'] } }), ['action']),
+      impl: async (a, ctx) => {
+        const k = key(ctx, a);
+        if (String(a.action) === 'stop') return stopRecording(k, ctx.agent.id);
+        if (String(a.action) !== 'start') throw new Error('action: start or stop.');
+        const s = await open(ctx, a);
+        const rec = await startRecording(k, s.page);
+        return `Recording this tab (${rec.mode === 'mp4' ? 'an MP4' : 'an animated GIF'}), for a minute at most: do the steps, then signed_in_browser.record stop.`;
       },
     },
     {
@@ -1495,6 +2378,34 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
         await wait(150);
         await settle(s.page, 3_000);
         return `Attached ${basename(file)}.\n\n${await snapshot(s.page)}`;
+      },
+    },
+    {
+      id: 'signed_in_browser.drop_file',
+      tier: 'T1',
+      description: `Drop a file onto a numbered drop zone in ${where}, as if dragged from the desktop ("Drag an image here") - for one with no upload field (upload_file is for those): a file from your workspace (path), or one on the public web (url). Up to ${UPLOAD_MAX_MB} MB.`,
+      schema: obj(
+        {
+          ref: { type: 'number', description: 'The drop zone, from the last page you saw' },
+          path: { type: 'string', description: 'A file in your workspace, e.g. "kit/logo.png"' },
+          url: { type: 'string', description: 'Or a file on the public web, https://...' },
+          browser: BROWSER_ARG,
+        },
+        ['ref'],
+      ),
+      impl: async (a, ctx) => {
+        const s = await session(ctx, whichBrowser(ctx, browserArg(a)));
+        const file = a.path ? await workspaceFile(ctx.agent.id, a.path) : a.url ? await download(String(a.url), ctx.runId) : null;
+        if (!file) throw new Error('Give path (a file in your workspace) or url (a file on the public web).');
+        await stopIfWindowClosed(s);
+        const ref = Number(a.ref);
+        const data = { name: basename(file), type: MIME[extname(file).toLowerCase()] ?? 'application/octet-stream', base64: (await readFile(file)).toString('base64') };
+        const r = await evalAt<{ taken: boolean } | null>(s.page, ref, dropExpr(ref, data));
+        if (!r) throw new Error(`There's no [${ref}] on the page now - look at it again and use a number from what you see.`);
+        await wait(300);
+        await settle(s.page, 3_000);
+        const note = r.taken ? `Dropped ${basename(file)} on [${ref}].` : `Dropped ${basename(file)} on [${ref}], but nothing there took the drop - it may not be the drop zone (try the element around it), or the page wants upload_file.`;
+        return `${note}\n\n${await snapshot(s.page)}`;
       },
     },
     decisive('click_to_pay', 'spends money (a purchase, a paid plan, a subscription)'),

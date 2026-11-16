@@ -10,6 +10,8 @@
 // Nothing here turns on Runtime events (Runtime.enable), which pages can notice:
 // scripts are run with Runtime.evaluate alone - and in a world of their own
 // (Page.createIsolatedWorld), so nothing the agent's page view adds is in the page's.
+// The one exception is an agent asking to read the page's console
+// (signed_in_browser.console): Runtime.enable is on for that tab only while it does.
 
 type Listener = (params: any, sessionId?: string) => void;
 
@@ -117,6 +119,144 @@ export const KEYS = {
   Space: { code: 'Space', vk: 32, text: ' ' },
 } as const satisfies Record<string, { code: string; vk: number; text?: string }>;
 export type Key = keyof typeof KEYS;
+
+// --- Key combinations (signed_in_browser.press: "ctrl+a", "shift+Tab", "cmd+Enter") -----
+
+// The modifier bits DevTools input events take.
+export const MODIFIER = { alt: 1, ctrl: 2, meta: 4, shift: 8 } as const;
+type ModifierName = keyof typeof MODIFIER;
+export type KeyDef = { key: string; code: string; vk: number; text?: string; location?: number };
+const MODIFIER_KEYS: Record<ModifierName, KeyDef> = {
+  alt: { key: 'Alt', code: 'AltLeft', vk: 18, location: 1 },
+  ctrl: { key: 'Control', code: 'ControlLeft', vk: 17, location: 1 },
+  meta: { key: 'Meta', code: 'MetaLeft', vk: 91, location: 1 },
+  shift: { key: 'Shift', code: 'ShiftLeft', vk: 16, location: 1 },
+};
+const MODIFIER_NAMES: Record<string, ModifierName> = {
+  alt: 'alt', option: 'alt', opt: 'alt',
+  ctrl: 'ctrl', control: 'ctrl', ctl: 'ctrl',
+  meta: 'meta', cmd: 'meta', command: 'meta', win: 'meta', windows: 'meta', super: 'meta', os: 'meta',
+  shift: 'shift',
+};
+const NAMED_KEYS: Record<string, KeyDef> = {
+  enter: { key: 'Enter', code: 'Enter', vk: 13, text: '\r' },
+  escape: { key: 'Escape', code: 'Escape', vk: 27 },
+  tab: { key: 'Tab', code: 'Tab', vk: 9 },
+  backspace: { key: 'Backspace', code: 'Backspace', vk: 8 },
+  delete: { key: 'Delete', code: 'Delete', vk: 46 },
+  space: { key: ' ', code: 'Space', vk: 32, text: ' ' },
+  arrowup: { key: 'ArrowUp', code: 'ArrowUp', vk: 38 },
+  arrowdown: { key: 'ArrowDown', code: 'ArrowDown', vk: 40 },
+  arrowleft: { key: 'ArrowLeft', code: 'ArrowLeft', vk: 37 },
+  arrowright: { key: 'ArrowRight', code: 'ArrowRight', vk: 39 },
+  home: { key: 'Home', code: 'Home', vk: 36 },
+  end: { key: 'End', code: 'End', vk: 35 },
+  pageup: { key: 'PageUp', code: 'PageUp', vk: 33 },
+  pagedown: { key: 'PageDown', code: 'PageDown', vk: 34 },
+  insert: { key: 'Insert', code: 'Insert', vk: 45 },
+  ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`f${i + 1}`, { key: `F${i + 1}`, code: `F${i + 1}`, vk: 112 + i }])),
+};
+const KEY_ALIASES: Record<string, string> = { return: 'enter', esc: 'escape', del: 'delete', up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright', pgup: 'pageup', pgdn: 'pagedown', spacebar: 'space' };
+// Punctuation: its key code, and the character it types with shift held.
+const PUNCTUATION: Record<string, { code: string; vk: number; shifted: string }> = {
+  '-': { code: 'Minus', vk: 189, shifted: '_' },
+  '=': { code: 'Equal', vk: 187, shifted: '+' },
+  '[': { code: 'BracketLeft', vk: 219, shifted: '{' },
+  ']': { code: 'BracketRight', vk: 221, shifted: '}' },
+  '\\': { code: 'Backslash', vk: 220, shifted: '|' },
+  ';': { code: 'Semicolon', vk: 186, shifted: ':' },
+  "'": { code: 'Quote', vk: 222, shifted: '"' },
+  ',': { code: 'Comma', vk: 188, shifted: '<' },
+  '.': { code: 'Period', vk: 190, shifted: '>' },
+  '/': { code: 'Slash', vk: 191, shifted: '?' },
+  '`': { code: 'Backquote', vk: 192, shifted: '~' },
+};
+const SHIFTED_DIGITS = ')!@#$%^&*(';
+// Shortcuts the page's editing also gets as a command (macOS ignores the keys alone
+// for these). Only ones that are harmless done twice: never paste or undo.
+const EDIT_COMMANDS: Record<string, string> = { a: 'selectAll', c: 'copy', x: 'cut' };
+
+export type KeyCombo = { modifiers: number; held: (KeyDef & { bit: number })[]; key: KeyDef | null; commands?: string[] };
+
+// "ctrl+shift+Tab" -> the modifiers held and the key pressed. Names as people write
+// them, any case ("Esc", "cmd", "PageDown", "a"); modifiers alone ("Shift") press just
+// those. Throws, for the agent, on a name it doesn't know.
+export function keyCombo(spec: string): KeyCombo {
+  const raw = String(spec ?? '').trim();
+  if (!raw) throw new Error('Say which key to press, e.g. "Enter", "Escape", "ctrl+a", "shift+Tab".');
+  // "ctrl++" is ctrl and the + key; "+" alone is the + key.
+  const parts = raw === '+' ? ['+'] : raw.split(/\+(?!$)/).map(p => p.trim()).filter(Boolean);
+  let modifiers = 0;
+  const held: KeyCombo['held'] = [];
+  let main: string | null = null;
+  parts.forEach((p, i) => {
+    const mod = MODIFIER_NAMES[p.toLowerCase()];
+    if (mod && !(MODIFIER[mod] & modifiers)) {
+      modifiers |= MODIFIER[mod];
+      held.push({ ...MODIFIER_KEYS[mod], bit: MODIFIER[mod] });
+      return;
+    }
+    if (i !== parts.length - 1) throw new Error(`"${p}" in "${raw}" isn't a modifier: put ctrl, shift, alt or cmd before the key, e.g. "ctrl+shift+Tab".`);
+    main = p;
+  });
+  if (main == null) return { modifiers, held, key: null };
+  const key = keyDef(main, modifiers);
+  if (!key)
+    throw new Error(`"${main}" isn't a key I know. Use a letter or digit, punctuation like / or -, or one of: Enter, Escape, Tab, Backspace, Delete, Space, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, Insert, F1-F12.`);
+  const command = modifiers === MODIFIER.ctrl || modifiers === MODIFIER.meta ? EDIT_COMMANDS[key.key.toLowerCase()] : undefined;
+  return { modifiers, held, key, ...(command ? { commands: [command] } : {}) };
+}
+
+function keyDef(name: string, modifiers: number): KeyDef | null {
+  const shift = !!(modifiers & MODIFIER.shift);
+  // A shortcut types nothing: ctrl+a selects all, it doesn't write an "a".
+  const types = !(modifiers & (MODIFIER.ctrl | MODIFIER.meta | MODIFIER.alt));
+  const low = name.toLowerCase();
+  const named = NAMED_KEYS[KEY_ALIASES[low] ?? low];
+  if (named) return { ...named, text: types || named.key === 'Enter' ? named.text : undefined };
+  if (name.length !== 1) return null;
+  const typed = (key: string, code: string, vk: number): KeyDef => ({ key, code, vk, ...(types ? { text: key } : {}) });
+  if (/[a-z]/i.test(name)) return typed(shift ? low.toUpperCase() : low, `Key${low.toUpperCase()}`, low.toUpperCase().charCodeAt(0));
+  if (/[0-9]/.test(name)) return typed(shift ? SHIFTED_DIGITS[Number(name)] : name, `Digit${name}`, name.charCodeAt(0));
+  const p = PUNCTUATION[name];
+  if (p) return typed(shift ? p.shifted : name, p.code, p.vk);
+  // A shifted character as itself ("?", "+", "!"): the key it's on.
+  const punct = Object.values(PUNCTUATION).find(v => v.shifted === name);
+  if (punct) return typed(name, punct.code, punct.vk);
+  const digit = SHIFTED_DIGITS.indexOf(name);
+  if (digit >= 0) return typed(name, `Digit${digit}`, String(digit).charCodeAt(0));
+  return null;
+}
+
+// Mouse buttons, and the bit each sets in "buttons" while it's held.
+export type MouseButton = 'left' | 'right' | 'middle';
+const BUTTON_BITS: Record<MouseButton, number> = { left: 1, right: 2, middle: 4 };
+export type MouseOpts = { button?: MouseButton; count?: number; modifiers?: number };
+// "ctrl+shift" -> the modifier bits; throws on a word that isn't one.
+export function modifierBits(spec: unknown): number {
+  const raw = String(spec ?? '').trim();
+  if (!raw) return 0;
+  let bits = 0;
+  for (const p of raw.split('+').map(x => x.trim().toLowerCase()).filter(Boolean)) {
+    const m = MODIFIER_NAMES[p];
+    if (!m) throw new Error(`modifiers: "${p}" isn't one - use ctrl, shift, alt or cmd, joined with + ("ctrl+shift").`);
+    bits |= MODIFIER[m];
+  }
+  return bits;
+}
+
+// What the page's console said, and what the network did, while an agent was watching
+// (signed_in_browser.console and .network).
+export type ConsoleEntry = { at: number; level: string; text: string; where?: string };
+export type NetEntry = { id: string; at: number; method: string; url: string; type: string; status?: number; mime?: string; size?: number; failed?: string };
+const MAX_CONSOLE = 500;
+const MAX_NET = 1000;
+// A remote object as text: its value, or how DevTools describes it.
+const remoteText = (o: { type?: string; value?: unknown; description?: string; unserializableValue?: string }) =>
+  o.value !== undefined ? (typeof o.value === 'string' ? o.value : JSON.stringify(o.value)) : (o.unserializableValue ?? o.description ?? o.type ?? '');
+// Where the page is scrolled to and how big it is, all in CSS pixels, and its pixel ratio.
+export type Viewport = { x: number; y: number; w: number; h: number; cw: number; ch: number; dpr: number };
+export type Rect = { x: number; y: number; width: number; height: number };
 
 // A character's key, for typing key by key (a masked field that only listens to keys).
 // Null: no key of its own here, so it goes in as text.
@@ -243,6 +383,14 @@ export class CdpPage {
   private mainContext?: number; // the page view's own world in the page's document
   private dialogs: string[] = []; // what the page said in alerts and confirms since last asked
   private offs: (() => void)[] = []; // its listeners on the connection, removed when it's let go
+  // Watched for the agent on request (console, network): what was seen, and the listeners to drop.
+  private consoleLog: ConsoleEntry[] | null = null;
+  private consoleOffs: (() => void)[] = [];
+  private netLog: Map<string, NetEntry> | null = null;
+  private netOffs: (() => void)[] = [];
+  // Whoever is watching the screencast (the live view, a recording): one stream for all.
+  private castSubs = new Set<(f: { data: string; width: number; height: number; at: number }) => void>();
+  private castOff?: () => void;
   private constructor(
     private cdp: CdpConn,
     readonly targetId: string,
@@ -278,8 +426,13 @@ export class CdpPage {
   }
 
   private dispose() {
-    this.offs.forEach(f => f());
+    for (const f of [...this.offs, ...this.consoleOffs, ...this.netOffs]) f();
     this.offs = [];
+    this.consoleOffs = [];
+    this.netOffs = [];
+    this.castOff?.();
+    this.castOff = undefined;
+    this.castSubs.clear();
   }
 
   // A new tab, not brought in front of what the person's doing. eaaGroup: the
@@ -342,14 +495,13 @@ export class CdpPage {
     return this.cdp.closed;
   }
 
-  // In front of the person's other windows: its window shown (not minimised) and this tab in it.
-  // raise: in front of the person's other windows too. Windows won't let another
-  // program take the front, but a window that comes back from minimized does.
-  async bringToFront(raise = false) {
-    const w = await this.cdp.send<{ windowId: number; bounds: { windowState?: string } }>('Browser.getWindowForTarget', { targetId: this.targetId }).catch(() => null);
-    if (w && raise && w.bounds.windowState !== 'minimized') await this.cdp.send('Browser.setWindowBounds', { windowId: w.windowId, bounds: { windowState: 'minimized' } }).catch(() => {});
-    if (w && (raise || w.bounds.windowState === 'minimized')) await this.cdp.send('Browser.setWindowBounds', { windowId: w.windowId, bounds: { windowState: w.bounds.windowState === 'maximized' ? 'maximized' : 'normal' } }).catch(() => {});
-    await this.send('Page.bringToFront');
+  // This tab in front: the extension focuses its window, makes it the active tab and
+  // opens its group (Target.activateTarget). Never by minimizing and restoring the
+  // window, as for a browser of our own: with the extension that window is the
+  // person's, and their whole window flickered. raise is kept for callers; the
+  // extension's focus is all there is.
+  async bringToFront(_raise = false) {
+    await this.cdp.send('Target.activateTarget', { targetId: this.targetId });
   }
 
   // What the page's alerts and confirms said since last asked (each was answered OK).
@@ -643,7 +795,8 @@ export class CdpPage {
     return p;
   }
 
-  async click(ref: number) {
+  // opts: another button, a double or triple click, modifiers held (ctrl+click).
+  async click(ref: number, opts: MouseOpts = {}) {
     const pt = await this.point(ref);
     const { covered, controls } = pt;
     // The click would land on that instead, and say nothing (aiagentsdirectory.com's
@@ -652,9 +805,63 @@ export class CdpPage {
       throw new Error(`Something is on top of [${ref}], so the click would land on it instead: "${covered}". Most likely a pop-up or banner the page opened: close it or deal with it first, then click [${ref}] again.${controls?.length ? ` What's on it:\n${controls.join('\n')}` : ''}`);
     const inside = (pt as { inside?: { session: string; x: number; y: number } }).inside;
     const { session, x, y } = inside ?? { session: this.session, x: pt.x, y: pt.y };
-    await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }, session);
-    await this.cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }, session);
-    await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }, session);
+    await this.clickPoint(session, x, y, opts);
+  }
+
+  // A click at a point on the screen, in CSS pixels (what a screenshot shows): it lands
+  // on whatever is there, frames included - the browser finds which.
+  async clickAt(x: number, y: number, opts: MouseOpts = {}) {
+    await this.clickPoint(this.session, x, y, opts);
+  }
+
+  // Moved there, then pressed and released count times, each press counting up (a
+  // double click is the second of two, as a mouse sends it).
+  private async clickPoint(session: string, x: number, y: number, opts: MouseOpts) {
+    const button = opts.button ?? 'left';
+    const modifiers = opts.modifiers ?? 0;
+    const extra = modifiers ? { modifiers } : {};
+    await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, ...extra }, session);
+    for (let n = 1; n <= Math.max(1, opts.count ?? 1); n++) {
+      await this.cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, clickCount: n, ...(button !== 'left' || modifiers ? { buttons: BUTTON_BITS[button] } : {}), ...extra }, session);
+      await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount: n, ...extra }, session);
+    }
+  }
+
+  // Where a numbered control is on the screen (its middle, scrolled into view), in the
+  // page's CSS pixels - in a frame too. What's on top of it doesn't matter here: a
+  // hover or a drag goes where it is.
+  async pointOf(ref: number): Promise<{ x: number; y: number }> {
+    const p = await this.point(ref);
+    return { x: p.x, y: p.y };
+  }
+
+  // The mouse over a point: menus that open on hover, tooltips.
+  async hoverAt(x: number, y: number) {
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+  }
+
+  // Pressed at from, moved to to in steps (a slider or a sortable list follows the
+  // mouse, and drops only after it has moved), released there.
+  async drag(from: { x: number; y: number }, to: { x: number; y: number }, steps = 12) {
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: from.x, y: from.y });
+    await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', buttons: 1, clickCount: 1 });
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, button: 'left', buttons: 1 });
+      await sleep(16);
+    }
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: to.x, y: to.y, button: 'left', buttons: 0, clickCount: 1 });
+  }
+
+  // A numbered control's box on the screen, in CSS pixels (scrolled into view first).
+  async box(ref: number): Promise<Rect> {
+    const f = this.frameOf(ref);
+    if (f) await this.offset(f, true);
+    const r = await this.evaluateFor<Rect | null>(ref, `(() => { const e = ${EL(ref)}; if (!e) return null; e.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; })()`);
+    if (!r) throw new Error(gone(ref));
+    if (!f) return r;
+    const o = await this.offset(f);
+    return { ...r, x: r.x + o.x, y: r.y + o.y };
   }
 
   // Replaces what's in a field, typed in as a person would (so the page sees input),
@@ -850,15 +1057,32 @@ export class CdpPage {
 
   // Frames as the page changes (Page.startScreencast), each acknowledged so the
   // next one comes. Returns the stop.
-  async screencast(onFrame: (f: { data: string; width: number; height: number }) => void): Promise<() => Promise<void>> {
-    const off = this.cdp.on('Page.screencastFrame', (p, sessionId) => {
-      if (sessionId !== this.session) return;
-      onFrame({ data: p.data, width: p.metadata.deviceWidth, height: p.metadata.deviceHeight });
-      void this.send('Page.screencastFrameAck', { sessionId: p.sessionId }).catch(() => {});
-    });
-    await this.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1280, maxHeight: 1000, everyNthFrame: 1 });
+  // A tab has one screencast: the live view and a recording (signed_in_browser.record)
+  // share it, and it stops when the last of them does. at: when the frame was drawn, ms.
+  async screencast(onFrame: (f: { data: string; width: number; height: number; at: number }) => void): Promise<() => Promise<void>> {
+    this.castSubs.add(onFrame);
+    if (!this.castOff) {
+      this.castOff = this.cdp.on('Page.screencastFrame', (p, sessionId) => {
+        if (sessionId !== this.session) return;
+        const f = { data: p.data, width: p.metadata.deviceWidth, height: p.metadata.deviceHeight, at: p.metadata.timestamp ? p.metadata.timestamp * 1000 : Date.now() };
+        for (const fn of this.castSubs) fn(f);
+        void this.send('Page.screencastFrameAck', { sessionId: p.sessionId }).catch(() => {});
+      });
+      try {
+        await this.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1280, maxHeight: 1000, everyNthFrame: 1 });
+      } catch (e) {
+        this.castSubs.delete(onFrame);
+        if (!this.castSubs.size) {
+          this.castOff?.();
+          this.castOff = undefined;
+        }
+        throw e;
+      }
+    }
     return async () => {
-      off();
+      if (!this.castSubs.delete(onFrame) || this.castSubs.size) return;
+      this.castOff?.();
+      this.castOff = undefined;
       await this.send('Page.stopScreencast').catch(() => {});
     };
   }
@@ -891,8 +1115,183 @@ export class CdpPage {
     return { url: targetInfo.url, title: targetInfo.title };
   }
 
-  async wheel(deltaY: number) {
-    const size = await this.evaluate<{ w: number; h: number }>('({ w: innerWidth, h: innerHeight })');
-    await this.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: size.w / 2, y: size.h / 2, deltaX: 0, deltaY });
+  // The wheel turned, in the middle of the page or at a point (a panel that scrolls by itself).
+  async wheel(deltaY: number, deltaX = 0, at?: { x: number; y: number }) {
+    const size = at ? null : await this.evaluate<{ w: number; h: number }>('({ w: innerWidth, h: innerHeight })');
+    const { x, y } = at ?? { x: size!.w / 2, y: size!.h / 2 };
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX, deltaY });
+  }
+
+  // --- What agents do beyond clicking numbers (signed_in_browser.*) ---------------------
+
+  // A key combination ("ctrl+a", "shift+Tab"), repeat times: modifiers down, the key
+  // down and up, modifiers up - as a keyboard sends it.
+  async pressCombo(spec: string, repeat = 1) {
+    const combo = keyCombo(spec);
+    let held = 0;
+    const ev = (type: string, k: KeyDef, modifiers: number, extra: Record<string, unknown> = {}) =>
+      this.send('Input.dispatchKeyEvent', { type, key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk, modifiers, ...(k.location ? { location: k.location } : {}), ...extra });
+    for (const m of combo.held) {
+      held |= m.bit;
+      await ev('rawKeyDown', m, held);
+    }
+    try {
+      const k = combo.key;
+      if (k)
+        for (let i = 0; i < Math.max(1, repeat); i++) {
+          await ev(k.text ? 'keyDown' : 'rawKeyDown', k, held, { ...(k.text ? { text: k.text, unmodifiedText: k.text } : {}), ...(combo.commands ? { commands: combo.commands } : {}) });
+          await ev('keyUp', k, held);
+        }
+    } finally {
+      for (const m of [...combo.held].reverse()) {
+        held &= ~m.bit;
+        await ev('keyUp', m, held).catch(() => {});
+      }
+    }
+  }
+
+  // False when there was nothing to go forward to.
+  async forward(): Promise<boolean> {
+    const h = await this.send<{ currentIndex: number; entries: { id: number }[] }>('Page.getNavigationHistory');
+    if (h.currentIndex >= h.entries.length - 1) return false;
+    await this.send('Page.navigateToHistoryEntry', { entryId: h.entries[h.currentIndex + 1].id });
+    await sleep(150);
+    await this.ready();
+    return true;
+  }
+
+  async reload() {
+    await this.send('Page.reload', {});
+    await sleep(150);
+    await this.ready();
+  }
+
+  async viewport(): Promise<Viewport> {
+    const v = await this.evaluate<Partial<Viewport>>(
+      '({ x: scrollX, y: scrollY, w: innerWidth, h: innerHeight, cw: Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0), ch: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0), dpr: devicePixelRatio })',
+    );
+    const w = v.w || 1280;
+    const h = v.h || 900;
+    return { x: v.x ?? 0, y: v.y ?? 0, w, h, cw: Math.max(v.cw ?? 0, w), ch: Math.max(v.ch ?? 0, h), dpr: v.dpr || 1 };
+  }
+
+  // A picture of part of the page. clip is in the page's CSS pixels from the top of
+  // the document (as DevTools takes it); scale is image pixels per CSS pixel - the
+  // browser's pixel ratio taken out, so 1 means one image pixel per CSS pixel whatever
+  // the screen. beyond: what's past the screen too (a full-page picture).
+  async capture(clip: Rect, scale: number, opts: { format?: 'jpeg' | 'png'; quality?: number; beyond?: boolean; dpr?: number } = {}): Promise<string> {
+    const dpr = opts.dpr ?? (await this.viewport()).dpr;
+    const format = opts.format ?? 'jpeg';
+    const { data } = await this.cdp.send<{ data: string }>(
+      'Page.captureScreenshot',
+      { format, ...(format === 'jpeg' ? { quality: opts.quality ?? 80 } : {}), clip: { ...clip, scale: scale / dpr }, captureBeyondViewport: !!opts.beyond, fromSurface: true },
+      this.session,
+      30_000,
+    );
+    return data;
+  }
+
+  // The page drawn at another size (a phone's, say), in this tab only: never the
+  // window, which is the person's. Null: back to the window's own size.
+  async emulateSize(size: { width: number; height: number; mobile: boolean } | null) {
+    if (!size) {
+      await this.send('Emulation.clearDeviceMetricsOverride');
+      await this.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {});
+      return;
+    }
+    await this.send('Emulation.setDeviceMetricsOverride', { width: size.width, height: size.height, deviceScaleFactor: 0, mobile: size.mobile });
+    await this.send('Emulation.setTouchEmulationEnabled', { enabled: size.mobile, ...(size.mobile ? { maxTouchPoints: 5 } : {}) }).catch(() => {});
+  }
+
+  // --- The console and the network, watched only when an agent asks ------------------
+  //
+  // Runtime.enable and Network.enable are things a page can notice (a site checking
+  // for bots does), so they're on for a tab only between start and stop.
+
+  get watchingConsole() {
+    return this.consoleLog !== null;
+  }
+  async watchConsole(on: boolean) {
+    if (on === this.watchingConsole) return;
+    if (!on) {
+      for (const f of this.consoleOffs) f();
+      this.consoleOffs = [];
+      this.consoleLog = null;
+      await this.send('Runtime.disable').catch(() => {});
+      await this.send('Log.disable').catch(() => {});
+      return;
+    }
+    const log: ConsoleEntry[] = (this.consoleLog = []);
+    const add = (e: ConsoleEntry) => {
+      log.push(e);
+      if (log.length > MAX_CONSOLE) log.splice(0, log.length - MAX_CONSOLE);
+    };
+    const mine = (s?: string) => s === this.session;
+    this.consoleOffs = [
+      this.cdp.on('Runtime.consoleAPICalled', (p, s) => {
+        if (!mine(s)) return;
+        const frame = p.stackTrace?.callFrames?.[0];
+        add({ at: p.timestamp ?? Date.now(), level: p.type === 'warning' ? 'warn' : String(p.type ?? 'log'), text: (p.args ?? []).map(remoteText).join(' ').slice(0, 2_000), where: frame ? `${frame.url}:${frame.lineNumber + 1}` : undefined });
+      }),
+      this.cdp.on('Runtime.exceptionThrown', (p, s) => {
+        if (!mine(s)) return;
+        const d = p.exceptionDetails ?? {};
+        add({ at: p.timestamp ?? Date.now(), level: 'error', text: `Uncaught ${(d.exception?.description ?? d.text ?? 'error').split('\n')[0]}`.slice(0, 2_000), where: d.url ? `${d.url}:${(d.lineNumber ?? 0) + 1}` : undefined });
+      }),
+      // The browser's own messages about the page: a failed load, a blocked script.
+      this.cdp.on('Log.entryAdded', (p, s) => {
+        if (!mine(s)) return;
+        add({ at: p.entry?.timestamp ?? Date.now(), level: String(p.entry?.level ?? 'info'), text: String(p.entry?.text ?? '').slice(0, 2_000), where: p.entry?.url });
+      }),
+    ];
+    await this.send('Runtime.enable');
+    await this.send('Log.enable').catch(() => {});
+  }
+  consoleMessages(): ConsoleEntry[] {
+    return [...(this.consoleLog ?? [])];
+  }
+
+  get watchingNetwork() {
+    return this.netLog !== null;
+  }
+  async watchNetwork(on: boolean) {
+    if (on === this.watchingNetwork) return;
+    if (!on) {
+      for (const f of this.netOffs) f();
+      this.netOffs = [];
+      this.netLog = null;
+      await this.send('Network.disable').catch(() => {});
+      return;
+    }
+    const log = (this.netLog = new Map());
+    const mine = (s?: string) => s === this.session;
+    this.netOffs = [
+      this.cdp.on('Network.requestWillBeSent', (p, s) => {
+        if (!mine(s)) return;
+        log.set(p.requestId, { id: p.requestId, at: Date.now(), method: p.request?.method ?? 'GET', url: p.request?.url ?? '', type: p.type ?? 'Other' });
+        if (log.size > MAX_NET) log.delete(log.keys().next().value!);
+      }),
+      this.cdp.on('Network.responseReceived', (p, s) => {
+        const e = mine(s) && log.get(p.requestId);
+        if (e) Object.assign(e, { status: p.response?.status, mime: p.response?.mimeType, type: p.type ?? e.type });
+      }),
+      this.cdp.on('Network.loadingFinished', (p, s) => {
+        const e = mine(s) && log.get(p.requestId);
+        if (e) e.size = p.encodedDataLength;
+      }),
+      this.cdp.on('Network.loadingFailed', (p, s) => {
+        const e = mine(s) && log.get(p.requestId);
+        if (e) e.failed = p.blockedReason ? `blocked (${p.blockedReason})` : String(p.errorText ?? 'failed');
+      }),
+    ];
+    await this.send('Network.enable', {});
+  }
+  requests(): NetEntry[] {
+    return [...(this.netLog?.values() ?? [])];
+  }
+  // What a request got back, as text (base64 for a picture or a file).
+  async responseBody(requestId: string): Promise<{ body: string; base64: boolean }> {
+    const r = await this.send<{ body: string; base64Encoded: boolean }>('Network.getResponseBody', { requestId });
+    return { body: r.body, base64: r.base64Encoded };
   }
 }

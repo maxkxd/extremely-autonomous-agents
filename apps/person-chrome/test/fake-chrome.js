@@ -80,7 +80,7 @@ export function fakeChrome() {
         return { ...t };
       },
       async query(q) {
-        return [...tabs.values()].filter(t => q.windowId == null || t.windowId === q.windowId).map(t => ({ ...t }));
+        return [...tabs.values()].filter(t => (q.windowId == null || t.windowId === q.windowId) && (q.active == null || t.active === q.active)).map(t => ({ ...t }));
       },
       async remove(id) {
         if (!tabs.has(id)) throw new Error('No tab with id: ' + id);
@@ -89,8 +89,12 @@ export function fakeChrome() {
         setTimeout(() => chrome.tabs.onRemoved.fire(id, { windowId: 1, isWindowClosing: false }), 0);
       },
       async update(id, props) {
-        Object.assign(tabs.get(id), props);
-        return { ...tabs.get(id) };
+        const t = tabs.get(id);
+        // As Chrome: one tab in front per window, and the change is announced.
+        if (props.active) for (const o of tabs.values()) if (o.windowId === t.windowId) o.active = false;
+        Object.assign(t, props);
+        if (props.active) await chrome.tabs.onActivated.fire({ tabId: id, windowId: t.windowId });
+        return { ...t };
       },
       async group({ groupId, tabIds, createProperties }) {
         let g = groupId != null ? groups.get(groupId) : null;
@@ -112,6 +116,7 @@ export function fakeChrome() {
         tabs.get(id).groupId = -1;
       },
       onCreated: event(),
+      onActivated: event(),
       onUpdated: event(),
       onRemoved: event(),
       onReplaced: event(),

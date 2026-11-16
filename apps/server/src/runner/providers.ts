@@ -13,10 +13,17 @@ import { chatGptAccessToken, connectionBaseUrl } from '../models/connections.js'
 export type ToolSpec = { name: string; description: string; schema: Record<string, unknown> };
 export type Call = { id: string; name: string; args: Record<string, unknown> };
 export type Raw = { provider: string; data: unknown };
+// A picture a tool gave back (a browser screenshot), base64. The tool's text says
+// where it's saved too, for a model that can't be shown one (below).
+export type ToolImage = { data: string; mimeType: string };
+export type ToolResultMsg = { id: string; name: string; content: string; error?: boolean; images?: ToolImage[] };
 export type Msg =
   | { role: 'user'; text: string }
   | { role: 'assistant'; text: string; calls: Call[]; raw?: Raw }
-  | { role: 'tool'; results: { id: string; name: string; content: string; error?: boolean }[] };
+  | { role: 'tool'; results: ToolResultMsg[] };
+const imagesOf = (results: ToolResultMsg[]) => results.flatMap(r => r.images ?? []);
+const dataUrl = (i: ToolImage) => `data:${i.mimeType};base64,${i.data}`;
+const PICTURES = 'The picture(s) that tool result returned:';
 
 export type TurnRequest = {
   connection: string;
@@ -149,7 +156,14 @@ async function anthropicTurn(req: TurnRequest): Promise<TurnResult> {
     else if (m.role === 'tool')
       push(
         'user',
-        m.results.map(r => ({ type: 'tool_result' as const, tool_use_id: cleanId(r.id), content: r.content, is_error: r.error || undefined })),
+        m.results.map(r => ({
+          type: 'tool_result' as const,
+          tool_use_id: cleanId(r.id),
+          content: r.images?.length
+            ? [{ type: 'text' as const, text: r.content }, ...r.images.map(i => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mimeType as 'image/jpeg', data: i.data } }))]
+            : r.content,
+          is_error: r.error || undefined,
+        })),
       );
     else if (m.raw?.provider === 'anthropic') push('assistant', m.raw.data as Anthropic.ContentBlockParam[]);
     else
@@ -206,8 +220,12 @@ async function responsesTurn(req: TurnRequest): Promise<TurnResult> {
   const input: RespItem[] = [];
   for (const m of req.messages) {
     if (m.role === 'user') input.push({ role: 'user', content: [{ type: 'input_text', text: m.text }] });
-    else if (m.role === 'tool') for (const r of m.results) input.push({ type: 'function_call_output', call_id: r.id, output: r.content });
-    else if (m.raw?.provider === req.connection) input.push(...(m.raw.data as RespItem[]));
+    else if (m.role === 'tool') {
+      for (const r of m.results) input.push({ type: 'function_call_output', call_id: r.id, output: r.content });
+      // A function's output is text here: its pictures follow as the user's.
+      const images = imagesOf(m.results);
+      if (images.length) input.push({ role: 'user', content: [{ type: 'input_text', text: PICTURES }, ...images.map(i => ({ type: 'input_image', image_url: dataUrl(i) }))] });
+    } else if (m.raw?.provider === req.connection) input.push(...(m.raw.data as RespItem[]));
     else {
       if (m.text) input.push({ role: 'assistant', content: [{ type: 'output_text', text: m.text }] });
       for (const c of m.calls) input.push({ type: 'function_call', call_id: c.id, name: c.name, arguments: JSON.stringify(c.args) });
@@ -297,6 +315,9 @@ async function chatTurn(req: TurnRequest): Promise<TurnResult> {
   const messages: ChatMessage[] = [{ role: 'system', content: req.system }];
   for (const m of req.messages) {
     if (m.role === 'user') messages.push({ role: 'user', content: m.text });
+    // No pictures here: which of these models take one isn't known, and one that
+    // doesn't refuses the whole turn (Mistral won't even have a user turn after a
+    // tool's). The tool's text says where the picture is saved instead.
     else if (m.role === 'tool') for (const r of m.results) messages.push({ role: 'tool', tool_call_id: ids(r.id), content: r.content });
     else {
       const own = m.raw?.provider === req.connection ? (m.raw.data as ChatMessage) : null;
@@ -362,7 +383,10 @@ async function geminiTurn(req: TurnRequest): Promise<TurnResult> {
     else if (m.role === 'tool')
       contents.push({
         role: 'user',
-        parts: m.results.map(r => ({ functionResponse: { name: names.get(r.id) ?? r.name, response: { content: r.content, error: r.error || undefined } } })),
+        parts: [
+          ...m.results.map(r => ({ functionResponse: { name: names.get(r.id) ?? r.name, response: { content: r.content, error: r.error || undefined } } })),
+          ...imagesOf(m.results).map(i => ({ inlineData: { mimeType: i.mimeType, data: i.data } })),
+        ],
       });
     else {
       for (const c of m.calls) names.set(c.id, c.name);
@@ -437,6 +461,7 @@ async function ollamaTurn(req: TurnRequest): Promise<TurnResult> {
   const messages: Record<string, unknown>[] = [{ role: 'system', content: req.system }];
   for (const m of req.messages) {
     if (m.role === 'user') messages.push({ role: 'user', content: m.text });
+    // No pictures: most local models take none (the tool's text says where it's saved).
     else if (m.role === 'tool') for (const r of m.results) messages.push({ role: 'tool', content: r.content, tool_name: r.name });
     else
       messages.push({

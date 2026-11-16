@@ -9,7 +9,7 @@ import { loadPerson } from '../org.js';
 import { APOCALYPTIC } from './ferocity.js';
 import { remember } from './memory.js';
 import { SELF_SETTINGS } from './selfsettings.js';
-import type { Call, ToolSpec } from './providers.js';
+import type { Call, ToolImage, ToolSpec } from './providers.js';
 import { DATA_DIR } from '../paths.js';
 import { hasIntegration, repairingConnectionOf } from '../integrations/index.js';
 import { paceMine, queueMine, scheduleMine } from './action-queue.js';
@@ -47,12 +47,17 @@ type Impl = (args: Record<string, unknown>, ctx: RunCtx) => Promise<string> | st
 // plugin will run, say) - stored with the call, and handed to impl when it runs.
 // granted: for a T2 tool, whether a person's approval already covers this call (the
 // rest of a job they approved: browser.ts) - it runs, logged, instead of queueing.
+// media: a tool whose answer is a picture as well (a browser screenshot): run instead
+// of impl when the agent calls it, its images handed to the model with the text
+// (providers.ts says which models get them; the text says where it's saved, for the
+// rest). impl is the same answer, text only (an approved call, tests).
 type ToolDef = {
   id: string;
   tier: Tier;
   description: string;
   schema: Record<string, unknown>;
   impl: Impl;
+  media?: (args: Record<string, unknown>, ctx: RunCtx) => Promise<{ text: string; images: ToolImage[] }>;
   ready?: () => boolean;
   preview?: (args: Record<string, unknown>, ctx: RunCtx) => Promise<Record<string, unknown>>;
   granted?: (args: Record<string, unknown>, ctx: RunCtx) => Promise<boolean> | boolean;
@@ -583,7 +588,11 @@ export const servedHere = (id: string) => BUILTIN_IDS.has(id) || REGISTERED.has(
 // (open, click, type...) in the browser, at web.browse's tier unless the agent
 // holds a member itself (every agent holds the browser kit: catalog.ts).
 const FAMILIES: Record<string, string[]> = {
-  'web.browse': ['signed_in_browser.open', 'signed_in_browser.click', 'signed_in_browser.type', 'signed_in_browser.scroll', 'signed_in_browser.back'],
+  'web.browse': [
+    'signed_in_browser.open', 'signed_in_browser.click', 'signed_in_browser.type', 'signed_in_browser.scroll', 'signed_in_browser.back',
+    'signed_in_browser.forward', 'signed_in_browser.reload', 'signed_in_browser.look', 'signed_in_browser.find', 'signed_in_browser.page_text',
+    'signed_in_browser.screenshot', 'signed_in_browser.zoom', 'signed_in_browser.wait', 'signed_in_browser.press', 'signed_in_browser.hover', 'signed_in_browser.tabs',
+  ],
 };
 
 // Every tool an agent holds, with its tier: TOOLS.yaml plus family members.
@@ -721,6 +730,7 @@ export type CallOutcome = {
   outcome: 'ok' | 'failed' | 'queued' | 'refused';
   counted: number; // output actions it counts for
   approvalId?: string;
+  images?: ToolImage[]; // a picture it gave back (ToolDef.media)
 };
 
 // How many output acts one call is: a batch counts once per item - a list of
@@ -803,7 +813,7 @@ const FAILS_PER_RUN = 3;
 // the browser - clicking, typing, signing in - which is how a browser job gets done
 // at all: one sign-up form is ten fields (Directory Submitter was cut off mid-form).
 const REPEATS_PER_RUN = 10;
-const BROWSER_STEPS = /^(signed_in_browser|browser)\.(click|type|choose|type_password|scroll|back|open|upload_file)$/;
+const BROWSER_STEPS = /^(signed_in_browser|browser)\.(click|type|choose|type_password|scroll|back|open|upload_file|press|hover|drag|tabs|resize|drop_file|run_js|tick_security_check|keep_open)$/;
 const repeatsInRun = new Map<string, number>();
 const failedInRun = new Map<string, { n: number; last: string }>();
 // A service that says its limit is reached (429, "rate limit"): its tools pause for
@@ -978,7 +988,10 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
   try {
     // A report goes to the agent's owner (ownerEmail), whatever the agent passed.
     if (id === 'gmail.send_to_me') call = { ...call, args: { ...call.args, _to: (await ownerEmail(ctx.agent.id)) ?? undefined } };
-    let content = await impl.impl(call.args, ctx);
+    let images: ToolImage[] | undefined;
+    let content: string;
+    if (impl.media) ({ text: content, images } = await impl.media(call.args, ctx));
+    else content = await impl.impl(call.args, ctx);
     healthOk(ctx.agent.id, id, ctx.now());
     let counted = n;
     // Only for an agent with real output besides files (Outreach: emails, the CRM);
@@ -989,7 +1002,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
       workspaceCounted.set(ctx.runId, used + counted);
       if (counted < n) content += `\n(Saved. Workspace files past the first ${WORKSPACE_COUNTED} in a run don't count toward your target: do your real work, or if it's blocked, say so and stop.)`;
     }
-    return record({ content, error: false, outcome: 'ok', counted });
+    return { ...record({ content, error: false, outcome: 'ok', counted }), ...(images?.length ? { images } : {}) };
   } catch (e) {
     const message = (e as Error).message || 'It failed.';
     const pause = rateLimitPause(message);

@@ -14,6 +14,25 @@ import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
 import type { Harness } from './harness.js';
 import { ModelError, type Adapter, type Msg } from './providers.js';
+
+// Pictures a tool gave back (browser screenshots) are sent again with every turn
+// after: only the last few are, the rest left as their text (which says where each
+// one is saved) - a long browser job would otherwise resend dozens each turn.
+const KEEP_IMAGES = 3;
+export function keepRecentImages(messages: Msg[], keep = KEEP_IMAGES) {
+  let left = keep;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'tool') continue;
+    for (let j = m.results.length - 1; j >= 0; j--) {
+      const r = m.results[j];
+      if (!r.images?.length) continue;
+      if (left <= 0) delete r.images;
+      else if (r.images.length > left) r.images = r.images.slice(0, left);
+      left -= r.images?.length ?? 0;
+    }
+  }
+}
 import { provider } from '../models/providers.js';
 import { canStillCount, execute, fileRequest, requestConnections, runEnded, toolHealth, toolsFor, type RunCtx } from './tools.js';
 
@@ -414,7 +433,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
                 const r = await execute(ctx, call, ids);
                 acts += r.counted;
                 stuck = guard(call, r.counted, !!r.error);
-                return { content: r.content, error: r.error };
+                return { content: r.content, error: r.error, images: r.images };
               },
               next: () => {
                 if (stuck) return null;
@@ -489,11 +508,12 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
         for (const call of turn.calls) {
           const r = await execute(ctx, call, ids);
           acts += r.counted;
-          results.push({ id: call.id, name: call.name, content: r.content, error: r.error });
+          results.push({ id: call.id, name: call.name, content: r.content, error: r.error, ...(r.images ? { images: r.images } : {}) });
           stuck = guard(call, r.counted, !!r.error);
           if (stuck) throw new Error(stuck);
         }
         messages.push({ role: 'tool', results });
+        keepRecentImages(messages);
         continue;
       }
       // The model ended its turn. Below the floor? Nudge it (in the same conversation).

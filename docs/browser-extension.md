@@ -69,6 +69,7 @@ Sent without a `sessionId`:
 | `Browser.getVersion` | `{product, userAgent, protocolVersion: "1.3", extensionVersion}` |
 | `Storage.getCookies {browserContextId?}` / `Storage.setCookies {cookies}` | `chrome.cookies.getAll({})` / `chrome.cookies.set`, in DevTools cookie shape. |
 | `EAA.groupTab {targetId, key, title, color?, collapsed?}` | Move an agent tab into another group, for example a "Waiting on you" group that isn't collapsed. |
+| `EAA.tabGroup {targetId}` | Read-only: the group an agent tab is in, `{groupId, title, collapsed, color, windowId, active}`, or `{groupId: -1, active}` when it's in none. |
 | `EAA.releaseTab {targetId}` | Stop treating it as an agent tab. It leaves its group, is detached and stays open. This is what the person keeps. |
 | `EAA.downloads {since}` | Downloads started from agent tabs since a time: `{items:[{id, url, filename, state, bytes, startTime, tabTargetId?}]}`. |
 | `EAA.downloadFile {id}` | `{base64, mime, filename}` for a finished download (up to 50 MB), read through `fetch` of its file URL where allowed. If it isn't readable, an error saying so. |
@@ -79,6 +80,7 @@ Sent without a `sessionId`:
 - If no normal window exists, the extension creates one with `focused: false` (unfocused, minimized when the platform allows).
 
 **Popups:** a tab or window opened by an agent tab (`chrome.tabs.onCreated` with an `openerTabId` that's an agent tab, or `chrome.webNavigation.onCreatedNavigationTarget`) becomes an agent tab too, joins its opener's group, and is reported to the server.
+- Chrome opens a `target=_blank` tab in front. Unless the tab in front before it was an agent tab (one shown to the person), the extension gives the front back to the person's tab and collapses the group again.
 
 ### Events the extension sends without a `sessionId`
 
@@ -122,7 +124,7 @@ What `chrome.debugger` can't do is reported as an error. The server must never d
 2. Two ways in:
    - **This browser:** the app opens `http://127.0.0.1:<app port>/browser/connect#<link>` in the default browser. The extension's content script on loopback reads the hash and pairs. If the extension isn't installed, the page says so, with the store links.
    - **Another profile:** the person copies `link` into the extension's popup (**Pair with EXTREMELY**, then paste).
-3. The extension connects to `url` and sends `{type: "pair", code}`. The server checks the code (one use, unexpired) and assigns the next browser number. It stores `sha256(token)` in the vault (`browser-link`, never the token itself) and replies `paired` with the token. From then on the extension uses `hello`.
+3. The extension connects to `url` and sends `{type: "pair", code}`. The server checks the code (one use, unexpired) and assigns the next browser number. It stores `sha256(token)` in the vault (`browser-link`, never the token itself) and replies `paired` with the token. The browser is online on that connection from then on; later connections start with `hello`.
 
 **Address `url`:**
 - The agency's own address as the browser reaches it: `ws://127.0.0.1:<its port>/api/browser-link` when it runs on this computer.

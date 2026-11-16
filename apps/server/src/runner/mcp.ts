@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Call, ToolSpec } from './providers.js';
+import type { Call, ToolImage, ToolSpec } from './providers.js';
 
 // A run's tools as an MCP server, for model harnesses that bring their own
 // agent loop (Claude Code). Each run gets its own address with a random token;
@@ -10,7 +10,7 @@ import type { Call, ToolSpec } from './providers.js';
 
 // title and annotations: how AI apps show a tool and whether they ask before it (the agency's own server sets them).
 export type McpTool = ToolSpec & { title?: string; annotations?: Record<string, unknown> };
-export type Bridge = { tools: McpTool[]; call: (c: Call) => Promise<{ content: string; error: boolean }> };
+export type Bridge = { tools: McpTool[]; call: (c: Call) => Promise<{ content: string; error: boolean; images?: ToolImage[] }> };
 const bridges = new Map<string, Bridge>();
 
 const PORT = Number(process.env.PORT ?? 5175);
@@ -82,7 +82,8 @@ export async function rpc(bridge: Bridge, msg: Rpc): Promise<object | null> {
       const name = String(msg.params?.name ?? '');
       const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;
       const out = await bridge.call({ id: `mcp_${Date.now().toString(36)}${(seq++).toString(36)}`, name, args });
-      return reply({ content: [{ type: 'text', text: out.content }], isError: out.error });
+      // A screenshot comes back as MCP image content, after its text (Claude Code shows it to the model).
+      return reply({ content: [{ type: 'text', text: out.content }, ...(out.images ?? []).map(i => ({ type: 'image', data: i.data, mimeType: i.mimeType }))], isError: out.error });
     }
     default:
       return error(-32601, `Unknown method ${msg.method}`);

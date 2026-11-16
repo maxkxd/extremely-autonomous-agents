@@ -206,6 +206,11 @@ const NEEDS: Record<string, Level> = {
   'POST /api/runner/requests/message': 'member',
   'POST /api/runner/requests/answer': 'member',
   'POST /api/runner/approvals/decide': 'member',
+  // A request's "show me the page" button, for whoever may answer it (runner/api.ts).
+  'POST /api/browser/show': 'member',
+  // "Connect this browser": the connect page opens in the default browser of the
+  // computer the app runs on, so only that computer's own app asks (runner/api.ts).
+  'POST /api/browser/open-connect': 'local',
   // A command or a local address runs on the host: an admin's (runner/api.ts).
   'POST /api/integrations/add': 'member',
   'POST /api/integrations/connect': 'member',

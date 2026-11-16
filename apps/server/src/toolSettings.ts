@@ -60,6 +60,23 @@ const NAMES: Record<string, string> = {
   'signed_in_browser.show_person': 'Keep a page for you to finish',
   'signed_in_browser.press': 'Press a key in a page',
   'signed_in_browser.tick_security_check': 'Tick a "Verify you are human" box',
+  'signed_in_browser.forward': 'Go forward a page',
+  'signed_in_browser.reload': 'Reload the page',
+  'signed_in_browser.screenshot': 'Take a screenshot of a page',
+  'signed_in_browser.zoom': 'Zoom in on part of a page',
+  'signed_in_browser.find': 'Find something on a page',
+  'signed_in_browser.page_text': "Read a page's text",
+  'signed_in_browser.wait': 'Wait for a page',
+  'signed_in_browser.tabs': 'Use its own tabs',
+  'signed_in_browser.console': "Watch a page's console",
+  'signed_in_browser.network': "Watch a page's network requests",
+  'signed_in_browser.record': 'Record a tab as a video',
+  'signed_in_browser.hover': 'Hover over a page',
+  'signed_in_browser.drag': 'Drag on a page',
+  'signed_in_browser.resize': 'Show a page at another screen size',
+  'signed_in_browser.keep_open': 'Keep a tab open after the run',
+  'signed_in_browser.run_js': 'Run JavaScript on a page',
+  'signed_in_browser.drop_file': 'Drop a file onto a page',
 };
 const service = (s: string) =>
   OWN_AREAS[s] ??
