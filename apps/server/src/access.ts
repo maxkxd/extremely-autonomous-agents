@@ -209,6 +209,7 @@ const NEEDS: Record<string, Level> = {
   'POST /api/runner/approvals/decide': 'member',
   // A request's "show me the page" button, for whoever may answer it (runner/api.ts).
   'POST /api/browser/show': 'member',
+  'POST /api/browser/done': 'member',
   // "Connect this browser": the connect page opens in the default browser of the
   // computer the app runs on, so only that computer's own app asks (runner/api.ts).
   'POST /api/browser/open-connect': 'local',

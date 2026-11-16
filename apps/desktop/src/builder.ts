@@ -383,7 +383,9 @@ export const renameBrowser = (n: number, name: string) => post<{ ok: boolean }>(
 export const removeBrowser = (n: number) => post<{ ok: boolean }>('/api/browser/remove', { n });
 // A request's kept page (a CAPTCHA, a code, Google's sign-in), in front in the person's browser.
 // url/browser: the button's own address, so a link that isn't the request's kept page opens itself.
-export const showInBrowser = (request: number, url?: string, browser?: number) => post<{ ok: boolean }>('/api/browser/show', { request, url, browser });
+export const showInBrowser = (request: number, url?: string, browser?: number) => post<{ ok: boolean; kept?: boolean }>('/api/browser/show', { request, url, browser });
+// Done on a kept page: answers the request and gives the open tab back to its agent.
+export const doneInBrowser = (request: number) => post<{ ok: boolean }>('/api/browser/done', { request });
 // The connect page, opened in this computer's default browser: the browser is on this
 // computer wherever the agency runs, so it's this computer's own server that opens it.
 export async function openBrowserConnect(link: string): Promise<{ ok: boolean }> {

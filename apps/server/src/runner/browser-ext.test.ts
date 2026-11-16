@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { _testing as profilesTesting, adoptProfileFolders, PROFILES_DIR } from './agent-profiles.js';
-import { __leaveAloneForTest, __setBrowserConnForTest, agentTabCount, cleanUpBrowsers, closeRequestsWithLostPages, CONNECT_A_BROWSER, GOOGLE_SIGN_IN, hasKeptPage, keptCaptcha, NO_BROWSER, onPersonDone, pageViewForTests, PROFILE_DIDNT_OPEN, showKeptPage, SIGNED_IN_TOOLS } from './browser.js';
+import { __leaveAloneForTest, __setBrowserConnForTest, agentTabCount, doneWithKeptPage, cleanUpBrowsers, closeRequestsWithLostPages, CONNECT_A_BROWSER, GOOGLE_SIGN_IN, hasKeptPage, keptCaptcha, NO_BROWSER, onPersonDone, pageViewForTests, PROFILE_DIDNT_OPEN, showKeptPage, SIGNED_IN_TOOLS } from './browser.js';
 import type { CdpConn } from './cdp.js';
 import { all, one, resetDbForTests, run as exec } from './db.js';
 import { runEnded, type RunCtx } from './tools.js';
@@ -438,4 +438,31 @@ test("a link the Engineer wrote on a card opens that page; it never closes the r
   assert.equal(await showKeptPage(id, { url: 'https://x.com/i/flow/login', browser: 31 }), 'gone');
   assert.equal(one<{ status: string }>('SELECT status FROM requests WHERE id = ?', id)!.status, 'withdrawn');
   await __setBrowserConnForTest(31, null);
+});
+
+test('Done on a kept page: the request is answered and the tab stays open, back with its agent for its next run', async () => {
+  const b = new FakeBrowser();
+  await __setBrowserConnForTest(32, b, 'Edge');
+  const a = agent('zz-ext-done', 'Launch Producer');
+  const c = ctx('r-done', a);
+  await call('open', { url: 'https://mastodon.example/auth/confirm', browser: 32 }, c);
+  const tab = [...b.tabs.keys()].at(-1)!;
+  await call('show_person', { what: 'Solve the puzzle to confirm the email', browser: 32 }, c);
+  const r = lastRequest();
+  assert.match(r.evidence ?? '', /then press Done here/);
+  await runEnded('r-done');
+  assert.equal(await doneWithKeptPage(r.id), true);
+  assert.equal(one<{ status: string }>('SELECT status FROM requests WHERE id = ?', r.id)!.status, 'done');
+  assert.match(done.find(d => d.request === r.id)!.text, /left it open for you.*tabs list/);
+  assert.ok(b.tabs.has(tab), 'the tab is not closed');
+  assert.deepEqual(b.tabs.get(tab)!.group, { key: 'back:zz-ext-done', title: 'Launch Producer', collapsed: true });
+  assert.equal(hasKeptPage(r.id), false);
+  assert.equal(agentTabCount(32), 1, "counted as the agent's tab, kept open");
+  // Its next run finds it.
+  const listed = await call('tabs', { action: 'list', browser: 32 }, ctx('r-done-2', a));
+  assert.match(listed, /mastodon\.example/);
+  await runEnded('r-done-2');
+  assert.ok(b.tabs.has(tab), 'still open after the next run ends too');
+  assert.equal(await doneWithKeptPage(r.id), false, 'a second Done finds nothing kept');
+  await __setBrowserConnForTest(32, null);
 });

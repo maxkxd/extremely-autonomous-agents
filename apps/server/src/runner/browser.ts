@@ -632,7 +632,7 @@ function requestFor(ctx: RunCtx, n: number, url: string, what: string, why: stri
   if (open[0]) return { id: open[0].id, isNew: false };
   const full = tooManyWaiting(ctx.agent.id);
   if (full) return full;
-  const said = note ?? `The page is kept as the agent left it, in a tab of ${label(n)} in its "Waiting on you" group: press the button to go straight to it, do what's asked, then close the tab (or press Done here).`;
+  const said = note ?? `The page is kept as the agent left it, in a tab of ${label(n)} in its "Waiting on you" group: press the button to go straight to it, do what's asked, then press Done here.`;
   const id = fileRequest(ctx.agent.id, ctx.runId, { what, why, evidence: `${line}\n${said}` }, ctx.now(), ctx.wake);
   // It's the person's to do, not the Engineer's to work out: straight to them.
   exec("UPDATE requests SET stage = 'person' WHERE id = ? AND joined_to IS NULL", id);
@@ -689,7 +689,7 @@ async function keepForPerson(ctx: RunCtx, n: number, what: string, why: string) 
 // (Google refuses any page a debugger is on: "This browser or app may not be secure").
 // Whatever they sign in to there, the agents are signed in to: it's one browser.
 async function keepGoogle(ctx: RunCtx, n: number, what: string, why: string) {
-  const r = requestFor(ctx, n, GOOGLE_SIGN_IN, what, why, `Google's sign-in is open in a tab of ${label(n)} in its "Waiting on you" group: press the button to go to it, sign in, then close the tab (or press Done here). The agents are signed in to Google from then on.`);
+  const r = requestFor(ctx, n, GOOGLE_SIGN_IN, what, why, `Google's sign-in is open in a tab of ${label(n)} in its "Waiting on you" group: press the button to go to it, sign in, then press Done here. The agents are signed in to Google from then on.`);
   if (typeof r === 'string') return r;
   if ([...kept.values()].some(k => k.request === r.id && k.google)) return `Request #${r.id} is already open for this, with Google's sign-in waiting in its tab in ${label(n)}. You'll hear when they're done.`;
   const sh = await onlineOrOpen(ctx, n);
@@ -783,6 +783,31 @@ export async function finishKeptPage(targetId: string) {
   const k = [...kept.values()].find(x => x.targetId === targetId);
   if (k) await finishKept(k.id, 'done');
 }
+// The person pressed Done on the request: what they did on the page (a puzzle, a code)
+// is what the agent needs next, so the tab stays open and goes back to the agent - into
+// its own collapsed group, kept like keep_open for a day - and the request is answered.
+// Its next run finds it in tabs list and carries on there.
+export async function doneWithKeptPage(request: number): Promise<boolean> {
+  const k = [...kept.values()].find(x => x.request === request);
+  if (!k) return false;
+  kept.delete(k.id);
+  for (const o of k.openers) await o.close().catch(() => {});
+  const conn = connOf(k.browser);
+  const now = Date.now();
+  if (conn && k.agent) {
+    await conn.send('EAA.groupTab', { targetId: k.targetId, key: `back:${k.agent.id}`, title: k.agent.name, collapsed: true }).catch(e => console.error(`[browser] Giving request #${request}'s tab back to ${k.agent!.name} failed:`, (e as Error).message));
+    keptOpen.set(k.targetId, { targetId: k.targetId, browser: k.browser, agentId: k.agent.id, agentName: k.agent.name, runId: k.runId, reason: `The person finished request #${request} on this page`, since: now, until: now + KEEP_OPEN_MS });
+  }
+  saveKept();
+  personDone(
+    request,
+    k.google
+      ? 'Done: the person signed in to Google. Choose the account when a site asks ("Sign in with Google") - nothing to type.'
+      : `Done: the person finished what was needed on the page on ${k.site} and left it open for you. It's in your tabs: signed_in_browser.tabs list, then switch to it (${k.url}) and carry on from where it is now - don't open it fresh.`,
+  );
+  return true;
+}
+
 // A request answered (done, or turned down): the page kept for it is no longer needed.
 export async function releaseKeptFor(request: number) {
   await letGoOfKept([...kept.values()].filter(k => k.request === request).map(k => k.id));
@@ -2653,7 +2678,7 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       id: 'signed_in_browser.show_person',
       tier: 'T1',
       description:
-        "For what only a person can do on a page: a CAPTCHA puzzle (after tick_security_check didn't pass it), a code sent to their phone, an ID check. Fill in everything else first and call this while you're still on that page: the tab is kept as it is, with the browser's debugger off it (so a check like Cloudflare sees a normal browser), in a \"Waiting on you\" tab group, and a request is filed whose button brings the person straight to it. They do the check, press Submit and close the tab. Don't file a request yourself as well. Your next browser step starts on a new page; get on with other work, and you'll hear when they're done. google true instead: the person signs in to Google in a normal tab of this browser (Google won't let a driven browser sign in) - after that \"Sign in with Google\" on any site is yours: click it and choose the account.",
+        "For what only a person can do on a page: a CAPTCHA puzzle (after tick_security_check didn't pass it), a code sent to their phone, an ID check. Fill in everything else first and call this while you're still on that page: the tab is kept as it is, with the browser's debugger off it (so a check like Cloudflare sees a normal browser), in a \"Waiting on you\" tab group, and a request is filed whose button brings the person straight to it. They do the check, press Submit and press Done on the request: the tab comes back to you still open (tabs list), so carry on there. Don't file a request yourself as well. Your next browser step starts on a new page; get on with other work, and you'll hear when they're done. google true instead: the person signs in to Google in a normal tab of this browser (Google won't let a driven browser sign in) - after that \"Sign in with Google\" on any site is yours: click it and choose the account.",
       schema: obj(
         {
           what: { type: 'string', description: 'For the request\'s title, in 10 words or fewer: what they need to do and why - "Pass the CAPTCHA to send the Tech Talks Daily pitch"' },

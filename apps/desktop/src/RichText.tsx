@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { showInBrowser } from './builder';
+import { doneInBrowser, showInBrowser } from './builder';
 import { notifyError } from './Notices';
 
 // Agents' and the Agency Engineer's text, made easy to follow: numbered steps as a
@@ -57,10 +57,23 @@ const hostOf = (url: string) => {
 function BrowserButton({ url, request, browser }: { url: string; request: number; browser?: number }) {
   const [opened, setOpened] = useState(false);
   const google = /^accounts\.(google|youtube)\.com$/.test(hostOf(url));
-  const open = () => showInBrowser(request, url, browser).then(() => setOpened(true), notifyError);
+  // kept: it was the request's own page, so Done answers it and gives the tab back.
+  const [kept, setKept] = useState(false);
+  const open = () => showInBrowser(request, url, browser).then(r => (setOpened(true), setKept(!!r.kept)), notifyError);
+  if (opened && kept)
+    return (
+      <span className="rt-browser">
+        <button className="rt-settings" onClick={() => void doneInBrowser(request).catch(notifyError)}>
+          Done
+        </button>{' '}
+        <button className="rt-settings" onClick={open}>
+          Open it again
+        </button>
+      </span>
+    );
   return (
     <button className="rt-settings" onClick={open}>
-      {opened ? 'Close the tab when you’re done' : google ? 'Sign in to Google in your browser' : 'Open it in your browser'}
+      {opened ? 'Open it again' : google ? 'Sign in to Google in your browser' : 'Open it in your browser'}
     </button>
   );
 }

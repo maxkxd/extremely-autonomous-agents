@@ -4,7 +4,7 @@ import { siClaude, siCursor, type SimpleIcon } from 'simple-icons';
 import { ACCOUNT, AGENTS, type ResourceRequest } from './data';
 import { DEPARTMENT_ICON } from './Sidebar';
 import { visibleApprovals, type ApprovalScope } from './Approvals';
-import { sendRequestMessage, sendToIde, showInBrowser } from './builder';
+import { doneInBrowser, sendRequestMessage, sendToIde, showInBrowser } from './builder';
 import { RichText } from './RichText';
 import { Loading, Skel } from './Skeleton';
 import { useOffline } from './offline';
@@ -601,21 +601,41 @@ export function Requests({
 
 // A human step on a page an agent kept: a tab in your own browser (docs/browser-extension.md),
 // brought to the front here. Closing that tab answers the request, and its agent hears.
+// The request's own kept page: open it in the browser, then Done - which answers the
+// request and gives the still-open tab back to the agent (closing the tab works too).
 function OwnBrowserStep({ request, google }: { request: number; google?: boolean }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'open' | 'done' | null>(null);
   const [opened, setOpened] = useState(false);
   const open = () => {
-    setBusy(true);
+    setBusy('open');
     showInBrowser(request)
       .then(() => setOpened(true), notifyError)
-      .finally(() => setBusy(false));
+      .finally(() => setBusy(null));
+  };
+  const done = () => {
+    setBusy('done');
+    doneInBrowser(request)
+      .catch(notifyError)
+      .finally(() => setBusy(null));
   };
   return (
     <div className="own-step">
-      <button className="rq-btn finished" disabled={busy} onClick={open}>
-        {busy ? <Spinner size={14} /> : <ExternalLink size={16} strokeWidth={2.25} />}
-        {opened ? 'Close the tab when you’re done' : google ? 'Sign in to Google in your browser' : 'Open it in your browser'}
-      </button>
+      {opened ? (
+        <>
+          <button className="rq-btn finished" disabled={busy !== null} onClick={done}>
+            {busy === 'done' ? <Spinner size={14} /> : <Check size={16} strokeWidth={2.25} />}
+            Done
+          </button>
+          <button className="rq-btn" disabled={busy !== null} onClick={open}>
+            Open it again
+          </button>
+        </>
+      ) : (
+        <button className="rq-btn finished" disabled={busy !== null} onClick={open}>
+          {busy === 'open' ? <Spinner size={14} /> : <ExternalLink size={16} strokeWidth={2.25} />}
+          {google ? 'Sign in to Google in your browser' : 'Open it in your browser'}
+        </button>
+      )}
     </div>
   );
 }

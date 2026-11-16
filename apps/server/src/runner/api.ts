@@ -25,7 +25,7 @@ import { answerRemoteMcp, remoteMcpUrl, takeRemoteMcp } from './remote-mcp.js';
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals, recentlyWithdrawn, runApprovedNow, scheduledApprovals } from './approvals.js';
-import { agentTabCount, hasKeptPage, keptCaptcha, onPersonDone, releaseKeptFor, showKeptPage } from './browser.js';
+import { agentTabCount, doneWithKeptPage, hasKeptPage, keptCaptcha, onPersonDone, releaseKeptFor, showKeptPage } from './browser.js';
 import { listBrowsers, openConnectPage, pairCode, removeBrowser, renameBrowser, storeLinks } from './browser-link.js';
 import { createProfile, openProfile, profilesAvailable } from './agent-profiles.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
@@ -758,6 +758,16 @@ export const runnerRoutes: Record<string, Route> = {
     const how = await showKeptPage(request, { url: typeof url === 'string' ? url : undefined, browser: typeof browser === 'number' ? browser : undefined });
     if (how === 'offline') throw new Error("That page is in your browser, but it isn't connected to EXTREMELY right now. Open it with the EXTREMELY extension on, then press this again.");
     if (how === 'gone') throw new Error('That page was lost, so this request is closed. Its agent has been told and will do it again if it still needs to.');
+    // kept: it's the request's own page, so the app offers Done for it.
+    return { ok: true, kept: how === 'shown' };
+  },
+  // Done on a kept page: the tab stays open and goes back to the agent; the request is answered.
+  'POST /api/browser/done': async (_req, _q, body) => {
+    const { request } = await body<{ request?: number }>();
+    if (typeof request !== 'number') throw new Error('Which request?');
+    const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', request);
+    if (r) await requireMakerOrAdmin(r.agent_id);
+    if (!(await doneWithKeptPage(request))) throw new Error('That page is no longer kept. Close its tab if it is still open, or reply on the request.');
     return { ok: true };
   },
 
