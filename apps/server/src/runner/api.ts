@@ -27,6 +27,7 @@ import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals, recentlyWithdrawn, runApprovedNow, scheduledApprovals } from './approvals.js';
 import { agentTabCount, hasKeptPage, keptCaptcha, onPersonDone, releaseKeptFor, showKeptPage } from './browser.js';
 import { listBrowsers, openConnectPage, pairCode, removeBrowser, renameBrowser, storeLinks } from './browser-link.js';
+import { createProfile, openProfile, profilesAvailable } from './agent-profiles.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
 import { deletePassword, listPasswords, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
@@ -698,10 +699,32 @@ export const runnerRoutes: Record<string, Route> = {
     return { ok: true };
   },
   // --- The person's own browsers, through the EXTREMELY extension (browser-link.ts, docs/browser-extension.md) ---
-  'GET /api/browser': async () => ({
-    browsers: listBrowsers().map(b => ({ ...b, agentTabs: agentTabCount(b.n) })),
-    storeLinks: storeLinks(),
-  }),
+  'GET /api/browser': async () => {
+    const can = profilesAvailable();
+    return {
+      browsers: listBrowsers().map(b => ({ ...b, agentTabs: agentTabCount(b.n) })),
+      storeLinks: storeLinks(),
+      // Whether the app can open agents' profiles here (agent-profiles.ts), and why not.
+      profiles: can.ok ? { available: true, kind: can.kind } : { available: false, why: can.why },
+    };
+  },
+  // An agents' profile, opened now: answers once it's online, or with why it didn't.
+  'POST /api/browser/open': async (_req, _q, body) => {
+    const { n } = await body<{ n?: unknown }>();
+    if (!Number.isInteger(Number(n))) throw new Error('Which browser?');
+    await openProfile(Number(n), { force: true });
+    return { ok: true };
+  },
+  // A new agents' profile, opened: its number even when opening it failed (it's listed).
+  'POST /api/browser/new-profile': async () => {
+    const n = createProfile();
+    try {
+      await openProfile(n, { force: true });
+    } catch (e) {
+      return { ok: false, n, error: (e as Error).message };
+    }
+    return { ok: true, n };
+  },
   // A one-time code for Connect a browser. base: the address the app reached this
   // agency at, for a hosted one without EAA_PUBLIC_URL.
   'POST /api/browser/pair': async (_req, _q, body) => {

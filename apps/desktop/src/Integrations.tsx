@@ -20,6 +20,8 @@ import {
   openBrowserConnect,
   renameBrowser,
   removeBrowser,
+  openAgentProfile,
+  newAgentProfile,
   type BrowsersView,
   getPasswords,
   revealPassword,
@@ -870,12 +872,15 @@ const ago = (t: number) => {
 const PAIR_WAIT_MS = 10 * 60_000; // a pairing code's life
 
 // Connectors > Browser (docs/browser-extension.md): the person's own Chrome or Edge
-// profiles, paired through the EXTREMELY extension. Agents work there in collapsed tab
+// profiles, paired through the EXTREMELY extension, and the agents' profiles, which the
+// app opens itself (Open when one is offline). Agents work there in collapsed tab
 // groups of their own; the person's tabs are never touched.
 function BrowserCard() {
   const [view, setView] = useLastSeen<BrowsersView | null>('integrations:browsers', null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'here' | 'other' | null>(null);
+  // An agents' profile being opened (its number), or a new one being made.
+  const [opening, setOpening] = useState<number | 'new' | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState<{ n: number; name: string } | null>(null);
@@ -937,6 +942,25 @@ function BrowserCard() {
       setError((e as Error).message);
     }
   };
+  const openProfile = async (n: number | 'new') => {
+    setOpening(n);
+    setError(null);
+    try {
+      if (n === 'new') {
+        const r = await newAgentProfile();
+        if (!r.ok) setError(r.error ?? "The new agents' profile didn't open.");
+        else notify(`Agents' profile ${r.n} is open`, 'done');
+      } else {
+        await openAgentProfile(n);
+        notify(`Agents' profile ${n} is open`, 'done');
+      }
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOpening(null);
+    }
+  };
   const rename = () => {
     if (!editing) return;
     const { n, name } = editing;
@@ -960,7 +984,7 @@ function BrowserCard() {
         <AppWindow size={16} /> Browser
         {online > 0 && <span className="sbrowser-count">{online} online</span>}
       </h3>
-      <p className="slead">Agents work in your own Chrome or Edge, in their own collapsed tab groups.</p>
+      <p className="slead">Agents work in your own Chrome or Edge, or in agents' profiles the app opens itself, in their own collapsed tab groups.</p>
       {!view && !error ? (
         <SkelRows n={1} h={54} what="browsers" />
       ) : (
@@ -988,6 +1012,7 @@ function BrowserCard() {
                       {b.name}
                     </button>
                   )}
+                  {b.managed && <span className="sbrowser-kind"> · {b.kind === 'edge' ? 'Edge' : 'Chromium'}</span>}
                 </span>
                 <span className="sconn-what">
                   <span className={b.online ? 'sbrowser-on' : undefined}>{b.online ? 'Online' : `Offline${b.lastSeen ? ` · last seen ${ago(b.lastSeen)}` : ''}`}</span>
@@ -995,13 +1020,21 @@ function BrowserCard() {
                   {accounts > 0 && ` · ${accounts} saved account${accounts === 1 ? '' : 's'}`}
                 </span>
                 <span className="sint-actions">
-                  <button
-                    className="slink"
-                    onClick={() => (confirm === b.n ? act(async () => (await removeBrowser(b.n), setConfirm(null))) : setConfirm(b.n))}
-                    onMouseLeave={() => confirm === b.n && setConfirm(null)}
-                  >
-                    {confirm === b.n ? 'Sure?' : 'Remove'}
-                  </button>
+                  {b.managed ? (
+                    !b.online && (
+                      <SpinButton className="sbtn" spinning={opening === b.n} busyText="Opening" disabled={opening != null} onClick={() => void openProfile(b.n)}>
+                        Open
+                      </SpinButton>
+                    )
+                  ) : (
+                    <button
+                      className="slink"
+                      onClick={() => (confirm === b.n ? act(async () => (await removeBrowser(b.n), setConfirm(null))) : setConfirm(b.n))}
+                      onMouseLeave={() => confirm === b.n && setConfirm(null)}
+                    >
+                      {confirm === b.n ? 'Sure?' : 'Remove'}
+                    </button>
+                  )}
                 </span>
               </li>
             );
@@ -1048,6 +1081,11 @@ function BrowserCard() {
         <SpinButton spinning={busy === 'other'} disabled={!!busy} onClick={() => void pair('other')}>
           Connect another profile
         </SpinButton>
+        {view?.profiles?.available && (
+          <SpinButton spinning={opening === 'new'} busyText="Opening" disabled={opening != null} onClick={() => void openProfile('new')}>
+            <Plus size={14} /> Add an agents' profile
+          </SpinButton>
+        )}
       </div>
       {error && <p className="custom-error">{error}</p>}
       <Passwords onRows={setSaved} />

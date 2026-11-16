@@ -41,9 +41,11 @@ runs in development.
   the SDK asks for from npm, checks npm's sha512, and unpacks it into the data
   folder with Windows' own tar; its progress shows on Copilot's row.
 - **What it doesn't ship**: Claude Code, the Copilot CLI's sign-in, Cloudflare's
-  tunnel, or a browser: agents work in the person's own Chrome or Edge, through
-  the EXTREMELY extension (docs/browser-extension.md). The app finds the rest,
-  and offers to install Claude Code, as in development.
+  tunnel, or a browser: agents work in the person's own Chrome or Edge, and in
+  agents' profiles opened in the computer's Edge or Chromium, through the
+  EXTREMELY extension (docs/browser-extension.md). It does ship the extension's
+  runtime files (`extension/`, which the agents' profiles load; `EAA_EXTENSION_DIR`).
+  The app finds the rest, and offers to install Claude Code, as in development.
 
 ## Updates
 
@@ -62,7 +64,7 @@ On Windows, with Node 24:
     npm run dist          # stage + installer in apps/electron/dist
 
 `scripts/stage.cjs` assembles `build/stage`: the server with its production
-dependencies, the built app (`VITE_EAA_BACKEND_URL` and
+dependencies, the EXTREMELY extension's runtime files (`extension/`), the built app (`VITE_EAA_BACKEND_URL` and
 `VITE_CLERK_PUBLISHABLE_KEY` from the environment or `apps/desktop/.env.local`) -
 and no Node of its own, since Electron's runs it. `scripts/after-pack.cjs` copies the server's
 `node_modules` in after packing - electron-builder won't copy a `node_modules`

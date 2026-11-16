@@ -14,9 +14,8 @@ import { DATA_DIR } from '../paths.js';
 //   <data>/programs/.npm-cache and /.cache   npm's and the programs' caches (programs.ts programEnv)
 //   <data>/browser-profiles/<n>/             Cache, Code Cache, GPUCache, Service Worker/CacheStorage and the
 //                                            shader caches (Dawn, Gr, Shader), and Chrome's component_crx_cache,
-//                                            in the profile's folder and in its Default. Agents browse in the
-//                                            person's own browser now (docs/browser-extension.md); these are the
-//                                            folders of the agents' own browser from before, left as they were.
+//                                            in the profile's folder and in its Default. These are the agents'
+//                                            profiles (agent-profiles.ts), which the app opens with the extension.
 //   <data's folder>/<data>.replaced-*        a replaced agency's folder, once it's a few days old
 //   <tmp>/eaa-upload-* and <tmp>/eaa-run-*   a run's uploaded file and its scratch folder, once two days old
 //

@@ -4,6 +4,8 @@
 //             packs, and its production dependencies
 //   ui/     - apps/desktop built (VITE_CLERK_PUBLISHABLE_KEY and VITE_EAA_BACKEND_URL
 //             from the environment, or apps/desktop/.env.local)
+//   extension/ - the EXTREMELY extension (apps/person-chrome), its runtime files only:
+//             the agents' profiles load it (apps/server/src/runner/agent-profiles.ts)
 // Run on the platform being built for: the dependencies are that platform's.
 
 const { execSync } = require('node:child_process');
@@ -100,6 +102,22 @@ for (const arch of (process.env.EAA_EXTRA_ARCHS ?? '').split(',').map(a => a.tri
   fs.renameSync(path.join(other, 'node_modules'), path.join(STAGE, `node_modules-${arch}`));
   fs.rmSync(other, { recursive: true, force: true });
 }
+
+// --- extension ---
+// What the browser loads, and nothing else: the manifest (with its key, so the
+// extension's id - and the pairing it keeps - is the same as in development), the
+// scripts, the popup and the icons. Tests, the store notes and the packer stay behind.
+const ext = path.join(STAGE, 'extension');
+const extFrom = path.join(ROOT, 'person-chrome');
+fs.mkdirSync(ext, { recursive: true });
+for (const name of fs.readdirSync(extFrom)) {
+  const runtime = name === 'manifest.json' || name === 'popup.html' || /^icon\d+\.png$/.test(name) || (name.endsWith('.js') && !/\.test\.js$/.test(name));
+  if (runtime && fs.statSync(path.join(extFrom, name)).isFile()) fs.copyFileSync(path.join(extFrom, name), path.join(ext, name));
+}
+// Every file the manifest names must be there, or the browser refuses the extension.
+const manifest = JSON.parse(fs.readFileSync(path.join(ext, 'manifest.json'), 'utf8'));
+const named = [manifest.background?.service_worker, manifest.action?.default_popup, ...Object.values(manifest.icons || {}), ...Object.values(manifest.action?.default_icon || {}), ...(manifest.content_scripts || []).flatMap(c => c.js || [])].filter(Boolean);
+for (const n of named) if (!fs.existsSync(path.join(ext, n))) throw new Error(`The extension's manifest names ${n}, which isn't staged.`);
 
 // --- ui ---
 // Built from a copy: a running development server holds apps/desktop's esbuild.exe

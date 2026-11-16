@@ -21,6 +21,8 @@ const ORIGIN = `http://127.0.0.1:${PORTS.app}`;
 const RES = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'build', 'stage');
 const SERVER_DIR = app.isPackaged ? path.join(RES, 'server') : path.join(__dirname, '..', 'server');
 const UI_DIR = app.isPackaged ? path.join(RES, 'ui') : path.join(__dirname, '..', 'desktop', 'dist');
+// The EXTREMELY extension the agents' profiles load (apps/server/src/runner/agent-profiles.ts).
+const EXTENSION_DIR = app.isPackaged ? path.join(RES, 'extension') : path.join(__dirname, '..', 'person-chrome');
 // Electron is Node too: run as Node, it starts the agency - and whatever the agency
 // starts with process.execPath (an organisation it hosts, the plugin sandbox),
 // since they inherit ELECTRON_RUN_AS_NODE. One runtime shipped, not two.
@@ -150,6 +152,7 @@ function startServer() {
       EAA_DATA_DIR: DATA,
       EAA_VAULT_KEY: vaultKey(),
       EAA_UI_DIR: UI_DIR,
+      EAA_EXTENSION_DIR: EXTENSION_DIR,
       EAA_APP_PID: String(process.pid), // it stops if the app goes (hosting.ts)
       NODE_ENV: 'production',
       ELECTRON_RUN_AS_NODE: app.isPackaged ? '1' : undefined,

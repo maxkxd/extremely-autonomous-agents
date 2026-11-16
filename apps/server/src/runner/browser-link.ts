@@ -16,6 +16,11 @@ import type { CdpConn } from './cdp.js';
 // Pairing hands the extension a token. Only its sha256 is kept, in the vault, so a
 // copy of the vault can't be replayed as a browser. Tokens and pairing codes are
 // never logged.
+//
+// Some browsers are the app's own: agents' profiles (agent-profiles.ts), browser
+// profile folders the app opens itself with the extension loaded. Their number is
+// theirs before they're paired (managed, with an empty tokenHash until then), and a
+// pairing code can be made for that number, so the profile pairs into its own place.
 
 const PATH = '/api/browser-link';
 const VAULT_ID = 'browser-link';
@@ -40,10 +45,12 @@ export const _testing = {
   setOpener: (fn: (url: string) => void) => void (opener = fn),
 };
 
-export type LinkedBrowser = { n: number; name: string; kind: 'chrome' | 'edge'; online: boolean; since?: number; lastSeen?: number; version?: string };
+export type LinkedBrowser = { n: number; name: string; kind: 'chrome' | 'edge'; online: boolean; since?: number; lastSeen?: number; version?: string; managed: boolean };
 
 type Kind = LinkedBrowser['kind'];
-type Stored = { n: number; name: string; kind: Kind; version?: string; tokenHash: string; created: number; lastSeen?: number };
+// managed: an agents' profile, its folder dir (a name under browser-profiles, so the
+// data folder can move). tokenHash '' means not paired yet, or its pairing was removed.
+type Stored = { n: number; name: string; kind: Kind; version?: string; tokenHash: string; created: number; lastSeen?: number; managed?: true; dir?: string };
 type Store = { v: 1; browsers: Stored[] };
 
 const log = (...a: unknown[]) => console.log('[browser-link]', ...a);
@@ -56,11 +63,19 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 // is a file. Every change is written back through one chain, so two changes in the
 // same moment can't overwrite each other.
 let store: Store = { v: 1, browsers: [] };
+let loaded = false;
 const ready: Promise<void> = getSecret<Store>(VAULT_ID)
   .then(s => {
-    if (s && Array.isArray(s.browsers)) store = { v: 1, browsers: s.browsers.filter(b => Number.isInteger(b?.n) && typeof b.tokenHash === 'string') };
+    if (!s || !Array.isArray(s.browsers)) return;
+    const saved = s.browsers.filter(b => Number.isInteger(b?.n) && typeof b.tokenHash === 'string');
+    // An agents' profile numbered while this was being read is kept, unless its number was taken.
+    store = { v: 1, browsers: [...saved, ...store.browsers.filter(b => !saved.some(x => x.n === b.n))] };
   })
-  .catch(e => logError('could not read the paired browsers; none until one pairs again:', errText(e)));
+  .catch(e => logError('could not read the paired browsers; none until one pairs again:', errText(e)))
+  .finally(() => void (loaded = true));
+// The list is read from the vault: until then nothing can be numbered safely.
+export const linkReady = () => ready;
+export const linkLoaded = () => loaded;
 
 let writes: Promise<void> = Promise.resolve();
 function persist(): Promise<void> {
@@ -78,6 +93,7 @@ function browserForToken(token: unknown): Stored | null {
   const got = Buffer.from(sha256(token), 'hex');
   let found: Stored | null = null;
   for (const b of store.browsers) {
+    if (!b.tokenHash) continue; // an agents' profile that isn't paired
     const want = Buffer.from(b.tokenHash, 'hex');
     if (want.length === got.length && timingSafeEqual(want, got)) found = b;
   }
@@ -86,10 +102,11 @@ function browserForToken(token: unknown): Stored | null {
 
 // --- Pairing codes (memory only: one use, short-lived) ----------------------------------
 
-const codes = new Map<string, number>(); // code -> expires at
+// browser: the agents' profile this code pairs into (its own number), if it's for one.
+const codes = new Map<string, { until: number; browser?: number }>();
 
 function pruneCodes(now = Date.now()) {
-  for (const [c, until] of codes) if (until <= now) codes.delete(c);
+  for (const [c, { until }] of codes) if (until <= now) codes.delete(c);
 }
 
 const normalizeCode = (c: unknown) => {
@@ -106,18 +123,18 @@ const MAX_WRONG_CODES = 10;
 let wrongCodes = 0;
 
 // One use: taking it deletes it, whether or not the pairing then works.
-function takeCode(raw: unknown): 'ok' | 'expired' | 'unknown' {
+function takeCode(raw: unknown): { got: 'ok' | 'expired' | 'unknown'; browser?: number } {
   const code = normalizeCode(raw);
-  const until = code ? codes.get(code) : undefined;
-  if (until === undefined) {
+  const c = code ? codes.get(code) : undefined;
+  if (c === undefined) {
     if (++wrongCodes >= MAX_WRONG_CODES && codes.size) {
       logError(`${wrongCodes} wrong pairing codes: every open code is cancelled`);
       codes.clear();
     }
-    return 'unknown';
+    return { got: 'unknown' };
   }
   codes.delete(code);
-  return until > Date.now() ? 'ok' : 'expired';
+  return c.until > Date.now() ? { got: 'ok', browser: c.browser } : { got: 'expired' };
 }
 
 const linkPort = () => Number(process.env.PORT ?? 5175);
@@ -136,7 +153,14 @@ function wsAddress(base: string): string {
 }
 
 // A new one-time code, and where the extension should take it (contract: Pairing).
-export function pairCode(base?: string): { code: string; url: string; link: string } {
+//   base     the address the app reached this agency at (a hosted one)
+//   browser  an agents' profile's number: the code pairs that profile into it
+//   local    the extension is on this computer (an agents' profile): the loopback address
+export type PairOptions = { base?: string; browser?: number; local?: boolean };
+export function pairCode(opts: string | PairOptions = {}): { code: string; url: string; link: string } {
+  const o: PairOptions = typeof opts === 'string' ? { base: opts } : opts;
+  if (o.browser != null && !store.browsers.some(b => b.n === o.browser && b.managed)) throw new Error(`Browser ${o.browser} isn't one of the agents' profiles.`);
+  const base = o.base;
   pruneCodes();
   if (codes.size >= MAX_OPEN_CODES) {
     // Oldest first: Map keeps insertion order.
@@ -149,16 +173,16 @@ export function pairCode(base?: string): { code: string; url: string; link: stri
     for (let i = 0; i < 8; i++) s += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
     code = `${s.slice(0, 4)}-${s.slice(4)}`;
   } while (codes.has(code));
-  codes.set(code, Date.now() + codeTtlMs);
+  codes.set(code, { until: Date.now() + codeTtlMs, ...(o.browser != null ? { browser: o.browser } : {}) });
   wrongCodes = 0;
   // Hosted on a server: its public address (Railway names it for us), so the person's
   // browser reaches it over wss from their own computer.
   const railway = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
   const pub = process.env.EAA_PUBLIC_URL?.trim() || (railway ? `https://${railway}` : '');
-  const url = pub ? wsAddress(pub) : base ? wsAddress(base) : `ws://127.0.0.1:${linkPort()}${PATH}`;
+  const url = o.local ? `ws://127.0.0.1:${linkPort()}${PATH}` : pub ? wsAddress(pub) : base ? wsAddress(base) : `ws://127.0.0.1:${linkPort()}${PATH}`;
   const n = process.env.EAA_ORG_NAME?.trim() || 'EXTREMELY';
   const link = 'eaa1:' + Buffer.from(JSON.stringify({ u: url, c: code, n })).toString('base64url');
-  log(`pairing code made for ${url} (${codes.size} open)`);
+  log(`pairing code made for ${url}${o.browser != null ? ` (agents' profile ${o.browser})` : ''} (${codes.size} open)`);
   return { code, url, link };
 }
 
@@ -275,8 +299,39 @@ export function listBrowsers(): LinkedBrowser[] {
     .map(b => {
       const l = live.get(b.n);
       const seen = lastSeen.get(b.n) ?? b.lastSeen;
-      return { n: b.n, name: b.name, kind: b.kind, online: !!l, ...(l ? { since: l.since } : {}), ...(seen ? { lastSeen: seen } : {}), ...(b.version ? { version: b.version } : {}) };
+      return { n: b.n, name: b.name, kind: b.kind, online: !!l, ...(l ? { since: l.since } : {}), ...(seen ? { lastSeen: seen } : {}), ...(b.version ? { version: b.version } : {}), managed: !!b.managed };
     });
+}
+
+// --- Agents' profiles (agent-profiles.ts): numbers the app keeps for its own profiles ----
+
+export type ManagedProfile = { n: number; name: string; dir: string; paired: boolean; kind: Kind };
+export const managedProfiles = (): ManagedProfile[] =>
+  store.browsers
+    .filter(b => b.managed && b.dir)
+    .sort((a, b) => a.n - b.n)
+    .map(b => ({ n: b.n, name: b.name, dir: b.dir!, paired: !!b.tokenHash, kind: b.kind }));
+export const managedProfile = (n: number) => managedProfiles().find(m => m.n === n) ?? null;
+
+// Who has number n, if anyone: for numbering a profile folder found on disk.
+export function numberHolder(n: number): { managed: boolean; created: number } | null {
+  const b = store.browsers.find(x => x.n === n);
+  return b ? { managed: !!b.managed, created: b.created } : null;
+}
+export const takenNumbers = () => new Set(store.browsers.map(b => b.n));
+
+// Numbers a person's browser must not get: profile folders on disk the app hasn't
+// numbered yet (each gets its own folder's number, which is the password store's too).
+let reservedNumbers: () => Iterable<number> = () => [];
+export const setReservedNumbers = (fn: () => Iterable<number>) => void (reservedNumbers = fn);
+
+// Number n, kept for the agents' profile in folder dir (unpaired until it opens).
+// Taken at once in memory; the promise is the vault's write.
+export function addManagedProfile(p: { n: number; dir: string; name: string; kind: Kind }): Promise<void> {
+  if (store.browsers.some(b => b.n === p.n)) throw new Error(`Browser number ${p.n} is taken.`);
+  store.browsers.push({ n: p.n, name: p.name, kind: p.kind, tokenHash: '', created: Date.now(), managed: true, dir: p.dir });
+  log(`browser ${p.n} kept for an agents' profile`);
+  return persist();
 }
 
 export function browserConn(n: number): CdpConn | null {
@@ -305,7 +360,18 @@ export function renameBrowser(n: number, name: string): void {
 }
 
 // Revoked at once in memory, so the token stops working even before the vault is written.
+// An agents' profile keeps its number (its folder and its accounts are still there):
+// only its pairing goes, and it pairs again the next time the app opens it.
 export function removeBrowser(n: number): void {
+  const mine = store.browsers.find(b => b.n === n && b.managed);
+  if (mine) {
+    mine.tokenHash = '';
+    log(`browser ${n}'s pairing removed (an agents' profile: it pairs again when it opens)`);
+    const l = live.get(n);
+    if (l) refuse(l.ws, 'This browser was removed from EXTREMELY. Pair it again to use it.');
+    void persist().catch(() => {});
+    return;
+  }
   const before = store.browsers.length;
   store.browsers = store.browsers.filter(b => b.n !== n);
   if (store.browsers.length === before) throw new Error('That browser isn\'t paired.');
@@ -422,17 +488,36 @@ function accept(ws: WebSocket) {
     }
     if (msg.type === 'pair') {
       if (n != null) return refuse(ws, 'This connection is already paired.');
-      const got = takeCode(msg.code);
+      const { got, browser: reserved } = takeCode(msg.code);
       if (got !== 'ok') {
         logError(`refused a pairing: ${got} code`);
         return refuse(ws, got === 'expired' ? 'That code has expired. Press Connect a browser again for a new one.' : "That code isn't right, or was already used. Press Connect a browser again for a new one.");
       }
-      const used = new Set(store.browsers.map(b => b.n));
-      let next = 1;
-      while (used.has(next)) next++;
       const kind = kindOf(msg.browser);
       const label = typeof msg.label === 'string' ? msg.label.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
       const token = randomBytes(32).toString('base64url');
+      if (reserved != null) {
+        // An agents' profile, into its own number: a new token replaces any old one.
+        const b = store.browsers.find(x => x.n === reserved && x.managed);
+        if (!b) return refuse(ws, "That agents' profile was removed from EXTREMELY.");
+        const was = { tokenHash: b.tokenHash, kind: b.kind, version: b.version, lastSeen: b.lastSeen };
+        Object.assign(b, { tokenHash: sha256(token), kind, version: versionOf(msg.version) ?? b.version, lastSeen: Date.now() });
+        try {
+          await persist();
+        } catch (e) {
+          Object.assign(b, was);
+          return refuse(ws, `The agency couldn't save this pairing: ${errText(e)}`);
+        }
+        log(`browser ${b.n} paired (${kind}, an agents' profile)`);
+        ws.send(JSON.stringify({ type: 'paired', token, browser: b.n, name: b.name }));
+        goOnline(b);
+        return;
+      }
+      // A person's browser: the next number that's free, skipping profile folders the app
+      // hasn't numbered yet - each becomes the browser with its own folder's number.
+      const used = new Set([...store.browsers.map(b => b.n), ...reservedNumbers()]);
+      let next = 1;
+      while (used.has(next)) next++;
       const b: Stored = { n: next, name: label || (kind === 'edge' ? 'Edge' : 'Chrome'), kind, version: versionOf(msg.version), tokenHash: sha256(token), created: Date.now(), lastSeen: Date.now() };
       store.browsers.push(b);
       try {
@@ -516,9 +601,12 @@ function openDefaultBrowser(url: string) {
   child.unref();
 }
 
+// The loopback connect page for a pairing link (contract: Pairing).
+export const connectPageUrl = (link: string) => `http://127.0.0.1:${linkPort()}/browser/connect#${link}`;
+
 export function openConnectPage(link: string) {
   if (typeof link !== 'string' || link.length > 4000 || !/^eaa1:[A-Za-z0-9_-]+$/.test(link)) throw new Error("That isn't a pairing link.");
-  opener(`http://127.0.0.1:${linkPort()}/browser/connect#${link}`);
+  opener(connectPageUrl(link));
   log('opened the connect page in the default browser');
 }
 

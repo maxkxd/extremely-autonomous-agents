@@ -4,7 +4,8 @@ import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from '
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import { CdpPage, FRAME_BASE, KEYS, modifierBits, type Bounds, type CdpConn, type MouseButton, type MouseOpts, type Rect } from './cdp.js';
-import { browserConn, listBrowsers, onBrowserOffline, onBrowserOnline, type LinkedBrowser } from './browser-link.js';
+import { browserConn, listBrowsers, managedProfile, onBrowserOffline, onBrowserOnline, type LinkedBrowser } from './browser-link.js';
+import { cantOpen, createProfile, failedRecently, openProfile, profilesAvailable, setOnlineSource } from './agent-profiles.js';
 import { decodePng, encodeGif } from './gif.js';
 import { checkUrl, isPrivateIp } from './net.js';
 import type { ToolImage } from './providers.js';
@@ -15,8 +16,9 @@ import { setKeptPageCheck } from './kept-pages.js';
 import { ACCOUNTS_PER_SITE, confirmPassword, listPasswords, makePassword, passwordRow, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { DATA_DIR } from '../paths.js';
 
-// Browsing for agents (docs/browser-extension.md): in the person's own Chrome or
-// Edge, through the EXTREMELY extension. The app starts no browser of its own.
+// Browsing for agents (docs/browser-extension.md): in Chrome or Edge, through the
+// EXTREMELY extension - the person's own browsers, and the agents' profiles, which the
+// app opens by itself when an agent needs one (agent-profiles.ts).
 //
 //   signed_in_browser.*  a paired browser (browser-link.ts). Each paired browser
 //                        profile is one browser, numbered 1, 2, 3... Agents work in
@@ -56,9 +58,15 @@ export function __setBrowserConnForTest(n: number, conn: CdpConn | null, name = 
   return shared.get(n)?.adopted ?? Promise.resolve();
 }
 
-// The paired browsers, lowest number first.
+// The paired browsers, lowest number first. In tests: theirs, and the link's agents' profiles.
 export const pairedBrowsers = (): LinkedBrowser[] =>
-  (testBrowsers ? [...testBrowsers].map(([n, b]) => ({ n, name: b.name, kind: 'chrome' as const, online: !!b.conn && !b.conn.closed })) : listBrowsers()).sort((a, b) => a.n - b.n);
+  (testBrowsers
+    ? [
+        ...[...testBrowsers].map(([n, b]) => ({ n, name: b.name, kind: 'chrome' as const, online: !!b.conn && !b.conn.closed, managed: !!managedProfile(n) })),
+        ...listBrowsers().filter(b => b.managed && !testBrowsers!.has(b.n)),
+      ]
+    : listBrowsers()
+  ).sort((a, b) => a.n - b.n);
 const connOf = (n: number): CdpConn | null => {
   const c = testBrowsers ? (testBrowsers.get(n)?.conn ?? null) : browserConn(n);
   return c && !c.closed ? c : null;
@@ -85,6 +93,7 @@ function onlineShared(n: number): Shared | null {
 
 // Online (paired just now, opened, or back after a restart of either side): the pages
 // kept for the person found again, and agent tabs nobody's using closed.
+const onlineWaiters = new Set<(n: number) => void>(); // agent-profiles.ts, waiting for one it opened
 function browserOnline(n: number, conn: CdpConn) {
   const had = shared.get(n);
   if (had?.cdp === conn) return;
@@ -99,7 +108,15 @@ function browserOnline(n: number, conn: CdpConn) {
   });
   sh.adopted = adoptKeptPages(n, sh).catch(e => console.error(`[browser] Browser ${n}: finding the pages kept for the person failed:`, (e as Error).message));
   answerConnectRequests(n);
+  for (const fn of [...onlineWaiters]) {
+    try {
+      fn(n);
+    } catch (e) {
+      console.error('[browser] A browser-online waiter failed:', (e as Error).message);
+    }
+  }
 }
+setOnlineSource({ isOnline: n => !!connOf(n), subscribe: fn => (onlineWaiters.add(fn), () => void onlineWaiters.delete(fn)) });
 
 // Offline: every run's tab in it is gone for the run (its pages say closed, and its
 // next step says no browser is online). Pages kept for the person stay recorded until
@@ -126,9 +143,10 @@ function browserOffline(n: number) {
 onBrowserOnline((n, conn) => void (!testBrowsers && browserOnline(n, conn)));
 onBrowserOffline(n => void (!testBrowsers && browserOffline(n)));
 
-// No browser online: the agent hears plainly, and one request asks the person to
+// No browser online and none the app can open (no agents' profile, or no Edge or
+// Chromium to open one in): the agent hears plainly, and one request asks the person to
 // connect one (not again while it's open). Answered when a browser comes online.
-export const NO_BROWSER = "No browser is connected right now. Do other work; you'll be able to browse when the person's browser is online.";
+export const NO_BROWSER = "No browser is online, and the app can't open one of the agents' own profiles here. Do other work; you'll be able to browse once a browser is connected.";
 export const CONNECT_A_BROWSER = 'Connect a browser';
 function noBrowser(ctx?: RunCtx): Error {
   let id: number | null = null;
@@ -137,19 +155,56 @@ function noBrowser(ctx?: RunCtx): Error {
   } catch (e) {
     console.error('[browser] Filing "Connect a browser" failed:', (e as Error).message);
   }
-  return new Error(id != null ? `${NO_BROWSER} Request #${id} asks them to connect one: don't file another.` : NO_BROWSER);
+  const can = profilesAvailable();
+  const why = can.ok ? '' : ` (${can.why})`;
+  return new Error(id != null ? `${NO_BROWSER}${why} Request #${id} asks them to connect one: don't file another.` : `${NO_BROWSER}${why}`);
 }
-function connectRequest(ctx: RunCtx): number | null {
-  const open = one<{ id: number }>("SELECT id FROM requests WHERE status = 'open' AND what = ? ORDER BY id LIMIT 1", CONNECT_A_BROWSER);
+
+// An agents' profile that wouldn't open: the agent hears why, and one request tells the
+// person (not again while it's open, and the profile isn't tried again for a while:
+// agent-profiles.ts). Answered when that browser comes online.
+export const PROFILE_DIDNT_OPEN = (n: number) => `Agents' profile ${n} didn't open`;
+function profileFailed(ctx: RunCtx | undefined, n: number, e: unknown): Error {
+  const why = (e as Error)?.message ?? String(e);
+  let id: number | null = null;
+  try {
+    id = ctx ? profileRequest(ctx, n, why) : null;
+  } catch (err) {
+    console.error(`[browser] Filing "${PROFILE_DIDNT_OPEN(n)}" failed:`, (err as Error).message);
+  }
+  return new Error(`Browser ${n} (the agents' profile ${n}) couldn't be opened: ${why}${id != null ? ` Request #${id} tells the person: don't file another.` : ''} Do other work, or use another browser if one is online.`);
+}
+function profileRequest(ctx: RunCtx, n: number, why: string): number | null {
+  const what = PROFILE_DIDNT_OPEN(n);
+  const open = one<{ id: number }>("SELECT id FROM requests WHERE status = 'open' AND what = ? ORDER BY id LIMIT 1", what);
   if (open) return open.id;
   if (tooManyWaiting(ctx.agent.id)) return null;
   const id = fileRequest(
     ctx.agent.id,
     ctx.runId,
     {
+      what,
+      why: `${ctx.agent.name} works on websites in the agents' profile ${n}, which the app opens by itself, and it didn't open: ${why}`,
+      evidence: `In Settings > Connectors > Browser, press Open beside Agents' profile ${n}. If it still doesn't connect, press Connect this browser to pair your own Chrome or Edge instead.`,
+    },
+    ctx.now(),
+    ctx.wake,
+  );
+  exec("UPDATE requests SET stage = 'person' WHERE id = ? AND joined_to IS NULL", id);
+  return id;
+}
+function connectRequest(ctx: RunCtx): number | null {
+  const open = one<{ id: number }>("SELECT id FROM requests WHERE status = 'open' AND what = ? ORDER BY id LIMIT 1", CONNECT_A_BROWSER);
+  if (open) return open.id;
+  if (tooManyWaiting(ctx.agent.id)) return null;
+  const can = profilesAvailable();
+  const id = fileRequest(
+    ctx.agent.id,
+    ctx.runId,
+    {
       what: CONNECT_A_BROWSER,
       why: `${ctx.agent.name} works on websites in your own Chrome or Edge, through the EXTREMELY extension, and no browser is online right now.`,
-      evidence: 'In Settings > Connectors > Browser, press Connect a browser. If one is paired already, open that browser (with the EXTREMELY extension on) and this is done.',
+      evidence: `In Settings > Connectors > Browser, press Connect this browser (the EXTREMELY extension in your Chrome or Edge). If one is paired already, open that browser and this is done.${can.ok ? '' : ` The app can't open the agents' own profiles here: ${can.why}`}`,
     },
     ctx.now(),
     ctx.wake,
@@ -159,35 +214,70 @@ function connectRequest(ctx: RunCtx): number | null {
 }
 function answerConnectRequests(n: number) {
   try {
-    for (const r of all<{ id: number }>("SELECT id FROM requests WHERE status = 'open' AND what = ?", CONNECT_A_BROWSER)) personDone(r.id, `Browser ${n} is online now: you can browse again.`);
+    for (const r of all<{ id: number }>("SELECT id FROM requests WHERE status = 'open' AND what IN (?, ?)", CONNECT_A_BROWSER, PROFILE_DIDNT_OPEN(n))) personDone(r.id, `Browser ${n} is online now: you can browse again.`);
   } catch (e) {
     console.error('[browser] Answering "Connect a browser" failed:', (e as Error).message);
   }
 }
 
 // Which browser a tool call is for: the one it names (number or name), else the one
-// this agent last worked in, else the lowest-numbered online one.
+// this agent last worked in, else the lowest-numbered online one, else an agents'
+// profile the app can open (agent-profiles.ts: offline ones count, they open by
+// themselves), else - with none at all, where the app can make one - a new one.
 const lastUsed = new Map<string, number>(); // agent id -> browser
 function whichBrowser(ctx: RunCtx, raw: unknown): number {
   const paired = pairedBrowsers();
   const online = paired.filter(b => connOf(b.n));
+  const openable = paired.filter(b => !connOf(b.n) && b.managed && !cantOpen(b.n));
+  const usable = [...online, ...openable];
   const listed = (bs: LinkedBrowser[]) => bs.map(b => `${b.n} (${b.name})`).join(', ');
+  // Nothing to use: an agents' profile that failed to open says so (its request is
+  // filed), rather than a second request asking for a browser.
+  const none = () => {
+    const stuck = paired.find(b => b.managed && failedRecently(b.n));
+    return stuck ? profileFailed(ctx, stuck.n, new Error(failedRecently(stuck.n)!)) : noBrowser(ctx);
+  };
   if (raw != null && String(raw).trim() !== '') {
     const text = String(raw).trim();
     const low = text.toLowerCase();
     const found = /^\d+$/.test(text) ? paired.find(b => b.n === Number(text)) : (paired.find(b => b.name.toLowerCase() === low) ?? paired.find(b => b.name.toLowerCase().includes(low)));
     if (!found) {
-      if (!online.length) throw noBrowser(ctx);
+      if (!usable.length) throw none();
       throw new Error(`There's no browser ${text}. The browsers are ${listed(paired)}.`);
     }
-    if (online.some(b => b.n === found.n)) return found.n;
-    if (!online.length) throw noBrowser(ctx);
-    throw new Error(`Browser ${found.n} (${found.name}) isn't online right now. Online: ${listed(online)}. Use one of those, or do other work and come back to it.`);
+    if (usable.some(b => b.n === found.n)) return found.n;
+    if (found.managed && failedRecently(found.n)) throw profileFailed(ctx, found.n, new Error(failedRecently(found.n)!));
+    if (!usable.length) throw none();
+    throw new Error(`Browser ${found.n} (${found.name}) isn't online right now${found.managed ? ` and can't be opened (${cantOpen(found.n)})` : ''}. Usable now: ${listed(usable)}. Use one of those, or do other work and come back to it.`);
   }
   const last = lastUsed.get(ctx.agent.id);
-  if (last != null && online.some(b => b.n === last)) return last;
-  if (!online.length) throw noBrowser(ctx);
-  return online[0].n;
+  if (last != null && usable.some(b => b.n === last)) return last;
+  if (usable.length) return usable[0].n;
+  // No browser at all yet: the agents' first profile, made here (it opens on first use).
+  if (!paired.length && profilesAvailable().ok) {
+    try {
+      return createProfile();
+    } catch (e) {
+      console.error("[browser] Making an agents' profile failed:", (e as Error).message);
+    }
+  }
+  throw none();
+}
+
+// Browser n's connection, opening it first when it's an agents' profile that's offline
+// (two runs needing it share one opening). Its failure is the agent's answer.
+async function onlineOrOpen(ctx: RunCtx | undefined, n: number): Promise<Shared> {
+  const sh = onlineShared(n);
+  if (sh) return sh;
+  if (!managedProfile(n)) throw noBrowser(ctx);
+  try {
+    await openProfile(n);
+  } catch (e) {
+    throw profileFailed(ctx, n, e);
+  }
+  const now = onlineShared(n);
+  if (!now) throw profileFailed(ctx, n, new Error('It came online and went offline again at once.'));
+  return now;
 }
 const browserArg = (a: Record<string, unknown>) => a.browser ?? a.profile;
 
@@ -329,8 +419,7 @@ async function session(ctx: RunCtx, n: number): Promise<Session> {
   return p;
 }
 async function openSession(ctx: RunCtx, n: number, key: string): Promise<Session> {
-  const sh = onlineShared(n);
-  if (!sh) throw noBrowser(ctx);
+  const sh = await onlineOrOpen(ctx, n);
   sh.runs.add(ctx.runId);
   // Counted as opening until it's in sessions: in between (the guard is a round trip)
   // a sweep from another run's end would take the new tab for a stray and close it.
@@ -416,11 +505,11 @@ setInterval(() => {
 
 // What the Doctor and the Agency Engineer see of the browsers, and can clear (host.ts).
 export async function browserCensus() {
-  const out: { n: number; name: string; online: boolean; runs: number; tabs: number; kept: number; stray: number }[] = [];
+  const out: { n: number; name: string; managed: boolean; online: boolean; runs: number; tabs: number; kept: number; stray: number }[] = [];
   for (const b of pairedBrowsers()) {
     const sh = onlineShared(b.n);
     const targets = sh ? (await sh.cdp.send<{ targetInfos: { targetId: string; type: string; openerId?: string }[] }>('Target.getTargets', {}, undefined, 5_000).catch(() => ({ targetInfos: [] }))).targetInfos : [];
-    out.push({ n: b.n, name: b.name, online: !!sh, runs: sh?.runs.size ?? 0, tabs: targets.filter(t => t.type === 'page').length, kept: [...kept.values()].filter(k => k.browser === b.n).length, stray: sh ? strayPages(targets, liveTargets(b.n)).length : 0 });
+    out.push({ n: b.n, name: b.name, managed: b.managed, online: !!sh, runs: sh?.runs.size ?? 0, tabs: targets.filter(t => t.type === 'page').length, kept: [...kept.values()].filter(k => k.browser === b.n).length, stray: sh ? strayPages(targets, liveTargets(b.n)).length : 0 });
   }
   return { browsers: out };
 }
@@ -603,8 +692,7 @@ async function keepGoogle(ctx: RunCtx, n: number, what: string, why: string) {
   const r = requestFor(ctx, n, GOOGLE_SIGN_IN, what, why, `Google's sign-in is open in a tab of ${label(n)} in its "Waiting on you" group: press the button to go to it, sign in, then close the tab (or press Done here). The agents are signed in to Google from then on.`);
   if (typeof r === 'string') return r;
   if ([...kept.values()].some(k => k.request === r.id && k.google)) return `Request #${r.id} is already open for this, with Google's sign-in waiting in its tab in ${label(n)}. You'll hear when they're done.`;
-  const sh = onlineShared(n);
-  if (!sh) throw noBrowser(ctx);
+  const sh = await onlineOrOpen(ctx, n);
   let k: Kept;
   sh.opening++; // until it's kept: a sweep meanwhile would close it as nobody's
   try {
@@ -763,9 +851,11 @@ setTimeout(() => void closeRequestsWithLostPages().catch(e => console.error('[br
 // "Open a page" for the person (the app's live view): a plain tab of theirs in that
 // browser, in front - not an agent tab, so nothing here touches it again.
 export async function openPersonTab(raw: unknown, url: string) {
-  const n = Number(raw) || pairedBrowsers().find(b => connOf(b.n))?.n;
-  const sh = n ? onlineShared(n) : null;
-  if (!sh) throw new Error(n ? `Browser ${n} isn't online right now.` : NO_BROWSER);
+  const n = Number(raw) || pairedBrowsers().find(b => connOf(b.n))?.n || pairedBrowsers().find(b => b.managed && !cantOpen(b.n))?.n;
+  let sh = n ? onlineShared(n) : null;
+  // An agents' profile opens for it, as it does for an agent.
+  if (!sh && n && managedProfile(n) && !cantOpen(n)) sh = await openProfile(n).then(() => onlineShared(n));
+  if (!sh) throw new Error(n ? `Browser ${n} isn't online right now${managedProfile(n) && cantOpen(n) ? `: ${cantOpen(n)}` : ''}.` : NO_BROWSER);
   // Counted as opening until released: until then it's an agent tab no run has, which
   // a sweep would close under the person.
   sh.opening++;
@@ -1649,8 +1739,7 @@ async function tabsTool(ctx: RunCtx, a: Record<string, unknown>): Promise<string
   const key = sessionKey(ctx.runId, n);
   const action = String(a.action ?? 'list').toLowerCase();
   if (!['list', 'open', 'switch', 'close'].includes(action)) throw new Error('action: list, open, switch or close.');
-  const sh = onlineShared(n);
-  if (!sh) throw noBrowser(ctx);
+  const sh = await onlineOrOpen(ctx, n);
   const current = () => {
     const s = sessions.get(key);
     if (s && backFromClosedWindow(s)) s.windowClosed = false;
@@ -1778,7 +1867,7 @@ async function tabsTool(ctx: RunCtx, a: Record<string, unknown>): Promise<string
 const obj = (properties: Record<string, unknown>, required: string[]) => ({ type: 'object', properties, required });
 const BROWSER_ARG = {
   type: 'string',
-  description: 'Which browser: its number ("2") or name. Leave it out for the one you last worked in. signed_in_browser.passwords says which browser an account is in.',
+  description: 'Which browser: its number ("2") or name. Leave it out for the one you last worked in. signed_in_browser.passwords says which browser an account is in. An agents\' profile that is offline opens by itself.',
 };
 
 function toolsFor(prefix: string, actTier: 'T0' | 'T1', where: string): ToolDef[] {
@@ -2498,9 +2587,16 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
         const username = String(a.username ?? '').trim();
         if (!username) throw new Error('Give the username or email address the account uses.');
         const paired = pairedBrowsers().map(b => b.n);
-        const { profile: n, isNew } = profileFor(site, paired.length ? paired : [1]);
-        if (isNew)
-          throw new Error(`Every browser already holds ${ACCOUNTS_PER_SITE} ${site} accounts, so another one there needs another browser. Ask the person to connect one more Chrome or Edge profile (Settings > Connectors > Browser, Connect a browser), then make the password again.`);
+        // No browser yet: the agents' first profile holds it.
+        if (!paired.length && profilesAvailable().ok) paired.push(createProfile());
+        let { profile: n, isNew } = profileFor(site, paired.length ? paired : [1]);
+        if (isNew) {
+          // Every browser has its fill of this site: a new agents' profile takes the next.
+          const can = profilesAvailable();
+          if (!can.ok)
+            throw new Error(`Every browser already holds ${ACCOUNTS_PER_SITE} ${site} accounts, so another one there needs another browser, and the app can't make one here (${can.why}). Ask the person to connect one more Chrome or Edge profile (Settings > Connectors > Browser, Connect another profile), then make the password again.`);
+          n = createProfile();
+        }
         const id = await savePassword({ site, username, password: makePassword(), profile: n, agentId: ctx.agent.id, note: a.note ? String(a.note) : null });
         return `Password #${id} made for ${username} at ${site} and kept in the store, marked not confirmed. Sign up in ${label(n)}: pass browser ${n} to the signed_in_browser tools, and type the password with signed_in_browser.type_password, password_id "${id}". Once the sign-up has really finished (you're in the account, or its confirmation is done), call signed_in_browser.confirm_password with "${id}". If the site refuses the sign-up, say so in your notes and memory: the account doesn't exist.`;
       },

@@ -42,6 +42,10 @@
       {
         "from": "build/stage/ui",
         "to": "ui"
+      },
+      {
+        "from": "build/stage/extension",
+        "to": "extension"
       }
     ],
     "win": {

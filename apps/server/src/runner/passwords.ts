@@ -9,7 +9,7 @@ import { all, one, run as exec } from './db.js';
 //
 // Keyed by browser: profile is the number of a paired browser (browser-link.ts; each
 // is one Chrome or Edge profile - the numbers carried over from the agents' own
-// browser profiles before). A browser holds up to ACCOUNTS_PER_SITE accounts on one
+// browser profiles before, which are agents' profiles again: agent-profiles.ts). A browser holds up to ACCOUNTS_PER_SITE accounts on one
 // site (Google's own limit per browser): the next goes in another browser.
 
 export const ACCOUNTS_PER_SITE = 10;
@@ -54,6 +54,13 @@ export function profileFor(site: string, profiles: number[]): { profile: number;
     if (n < ACCOUNTS_PER_SITE) return { profile: p, isNew: false };
   }
   return { profile: Math.max(0, ...profiles) + 1, isNew: true };
+}
+
+// An agents' profile folder that had to take a new number (a person's browser paired
+// as its old one first): its accounts go with it. Only those made before that browser
+// was paired; the later ones are the person's browser's.
+export function moveProfilePasswords(from: number, to: number, before: number): number {
+  return Number(exec('UPDATE passwords SET profile = ? WHERE profile = ? AND created_at < ?', to, from, before).changes);
 }
 
 export async function savePassword(p: { site: string; username: string; password: string; profile: number; agentId: string | null; note?: string | null; confirmed?: boolean }) {

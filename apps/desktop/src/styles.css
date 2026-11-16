@@ -1601,6 +1601,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .sbrowser-head svg { color: var(--muted); }
 .sbrowser-count { padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: #7cc4a0; background: rgba(124, 196, 160, 0.14); }
 .sbrowser-on { color: #7cc4a0; }
+.sbrowser-kind { color: var(--muted); font-weight: 400; }
 .sbrowser-rename { padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: text; }
 .sbrowser-rename:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
 .sconn-name .srow2-input.sbrowser-name { height: 28px; width: 220px; font-size: 14px; }

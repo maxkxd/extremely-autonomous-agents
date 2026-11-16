@@ -27,7 +27,9 @@ with its own memory cap and https address, see
 - no browser: agents browse in the members' own Chrome or Edge, through the
   EXTREMELY extension (docs/browser-extension.md, "Pairing" says which address
   it connects to), which reaches the agency at the container's public address
-  through the link front (`src/link-forward.ts`);
+  through the link front (`src/link-forward.ts`). With no browser in the image
+  there are no agents' profiles here either ("Agent profiles" there): those
+  open only on a computer with Edge or Chromium installed;
 - Claude Code, for agents on a Claude plan.
 
 Only the browser link listens outside the container (below). Its volume, mounted at `/data`, holds:

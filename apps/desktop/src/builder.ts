@@ -365,9 +365,13 @@ export const decideApproval = (id: string, decision: 'approved' | 'rejected', no
   post<{ ok: boolean; ran: boolean; result: string | null }>('/api/runner/approvals/decide', { id, decision, note });
 // The browser connector (docs/browser-extension.md): the person's own Chrome or Edge
 // profiles, paired through the EXTREMELY extension. Agents work there in their own tab groups.
-export type PairedBrowser = { n: number; name: string; kind: 'chrome' | 'edge'; online: boolean; since?: number; lastSeen?: number; version?: string; agentTabs: number };
-export type BrowsersView = { browsers: PairedBrowser[]; storeLinks: { chrome?: string; edge?: string } };
+// managed: an agents' profile, which the app opens itself (Open, below).
+export type PairedBrowser = { n: number; name: string; kind: 'chrome' | 'edge'; online: boolean; since?: number; lastSeen?: number; version?: string; agentTabs: number; managed?: boolean };
+export type BrowsersView = { browsers: PairedBrowser[]; storeLinks: { chrome?: string; edge?: string }; profiles?: { available: boolean; kind?: 'edge' | 'chromium'; why?: string } };
 export const getBrowsers = () => request<BrowsersView>('/api/browser');
+// An agents' profile, opened now: answers once it's online (up to about 40 s).
+export const openAgentProfile = (n: number) => post<{ ok: boolean }>('/api/browser/open', { n });
+export const newAgentProfile = () => post<{ ok: boolean; n: number; error?: string }>('/api/browser/new-profile', {});
 // A one-time pairing. An organization at its own address passes where the app reaches
 // it there (its host's /hosted, which passes the link on too), so the extension knows
 // where to connect (the agency can't tell what it's reached at).

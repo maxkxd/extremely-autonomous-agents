@@ -1,7 +1,11 @@
 import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
-import { __leaveAloneForTest, __setBrowserConnForTest, agentTabCount, cleanUpBrowsers, closeRequestsWithLostPages, CONNECT_A_BROWSER, GOOGLE_SIGN_IN, hasKeptPage, keptCaptcha, NO_BROWSER, onPersonDone, pageViewForTests, showKeptPage, SIGNED_IN_TOOLS } from './browser.js';
+import { EventEmitter } from 'node:events';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { _testing as profilesTesting, adoptProfileFolders, PROFILES_DIR } from './agent-profiles.js';
+import { __leaveAloneForTest, __setBrowserConnForTest, agentTabCount, cleanUpBrowsers, closeRequestsWithLostPages, CONNECT_A_BROWSER, GOOGLE_SIGN_IN, hasKeptPage, keptCaptcha, NO_BROWSER, onPersonDone, pageViewForTests, PROFILE_DIDNT_OPEN, showKeptPage, SIGNED_IN_TOOLS } from './browser.js';
 import type { CdpConn } from './cdp.js';
 import { all, one, resetDbForTests, run as exec } from './db.js';
 import { runEnded, type RunCtx } from './tools.js';
@@ -352,4 +356,70 @@ test('a request whose page went before an update: closed at start, and its butto
   const late = add('Enter the code');
   assert.equal(await showKeptPage(late), 'gone');
   assert.equal(status(late).status, 'withdrawn');
+});
+
+// --- Agents' profiles (agent-profiles.ts): an offline one opens by itself ---------------
+
+// The browser the app starts, faked: each start's arguments, and (when it "works") the
+// extension in it coming online on the link (here: the test's own browsers).
+const starts: string[][] = [];
+let started: (n: number) => void = () => {};
+function fakeSpawn(_exe: string, args: string[]) {
+  starts.push(args);
+  const n = Number(/browser-profiles[\\/](\d+)/.exec(args.find(a => a.startsWith('--user-data-dir=')) ?? '')?.[1]);
+  setTimeout(() => started(n), 30);
+  return Object.assign(new EventEmitter(), { pid: 1, exitCode: null, signalCode: null, unref() {} }) as any;
+}
+async function agentsProfile(n: number) {
+  mkdirSync(join(PROFILES_DIR, String(n)), { recursive: true });
+  writeFileSync(join(PROFILES_DIR, String(n), 'Local State'), '{}');
+  await adoptProfileFolders();
+}
+
+test("an offline agents' profile opens by itself, and the tool goes on once it's online; two runs share one start", async () => {
+  await agentsProfile(21);
+  profilesTesting.setBrowser({ exe: 'C:/fake/msedge.exe', kind: 'edge' });
+  profilesTesting.setSpawn(fakeSpawn);
+  profilesTesting.setWaits(2000, 500);
+  const conns = new Map<number, FakeBrowser>();
+  started = n => {
+    const b = new FakeBrowser();
+    conns.set(n, b);
+    void __setBrowserConnForTest(n, b, `Agents' profile ${n}`);
+  };
+  starts.length = 0;
+  const [one1, two] = await Promise.all([
+    call('open', { url: 'https://example.com/', browser: 21 }, ctx('r-prof-1', agent('zz-ext-p1', 'Profile One'))),
+    call('open', { url: 'https://example.com/two', browser: 21 }, ctx('r-prof-2', agent('zz-ext-p2', 'Profile Two'))),
+  ]);
+  assert.ok(one1 && two);
+  assert.equal(starts.length, 1, 'one start for both runs');
+  assert.ok(starts[0].some(a => a.startsWith('--load-extension=')));
+  assert.ok(!starts[0].some(a => /remote-debugging/.test(a)));
+  const b = conns.get(21)!;
+  assert.equal(b.of('Target.createTarget').length, 2, "each run's tab, in the profile that opened");
+  assert.equal(all("SELECT id FROM requests WHERE what = ? AND status = 'open'", CONNECT_A_BROWSER).length, 0, 'nobody was asked to open or connect a browser');
+  await runEnded('r-prof-1');
+  await runEnded('r-prof-2');
+  await __setBrowserConnForTest(21, null);
+});
+
+test("one that won't come online: a plain answer and one request; not started again for a while", async () => {
+  await agentsProfile(22);
+  profilesTesting.setWaits(200, 100);
+  started = () => {}; // Edge refused the extension: nothing connects
+  starts.length = 0;
+  const c = ctx('r-prof-3', agent('zz-ext-p3', 'Profile Three'));
+  await assert.rejects(call('open', { url: 'https://example.com/', browser: 22 }, c), (e: Error) => /couldn't be opened: .*didn't connect within/.test(e.message) && /Request #\d+/.test(e.message));
+  await assert.rejects(call('look', { browser: 22 }, c), (e: Error) => /couldn't be opened/.test(e.message) && /Request #\d+ tells the person: don't file another/.test(e.message));
+  assert.equal(starts.length, 1, 'backed off');
+  const asks = all<{ id: number; evidence: string }>("SELECT id, evidence FROM requests WHERE what = ? AND status = 'open'", PROFILE_DIDNT_OPEN(22));
+  assert.equal(asks.length, 1);
+  assert.match(asks[0].evidence, /press Open beside Agents' profile 22/);
+  // It comes online after all (the person pressed Open): the request is answered.
+  await __setBrowserConnForTest(22, new FakeBrowser(), "Agents' profile 22");
+  assert.ok(done.some(d => d.request === asks[0].id && /online now/.test(d.text)));
+  await __setBrowserConnForTest(22, null);
+  profilesTesting.reset();
+  profilesTesting.setBrowser(null);
 });
