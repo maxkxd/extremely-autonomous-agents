@@ -26,8 +26,12 @@ export const relayState = () => state;
 
 const pemToDer = (pem: string): Bytes => fromB64(pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''));
 
+// The hosting it connects for: reconnects use the latest (moveRelay).
+let current: Hosting | null = null;
+
 export async function startRelay(h: Hosting) {
   stopped = false;
+  current = h;
   if (sock) return;
   const secret = await getSecret<string>(`hosting:${h.orgId}:secret`);
   const key = await getSecret<{ publicKey: string; privateKey: string }>(`hosting:${h.orgId}:key`);
@@ -83,9 +87,17 @@ export async function startRelay(h: Hosting) {
     state = 'off';
     if (stopped) return;
     const wait = Math.min(60_000, 1000 * 2 ** retry++);
-    setTimeout(() => !stopped && void startRelay(h), wait);
+    setTimeout(() => !stopped && void startRelay(current ?? h), wait);
   };
   ws.onerror = () => {}; // onclose follows
+}
+
+// Our backend moved (its issuer changed): connect to the new address.
+export function moveRelay(h: Hosting) {
+  stopped = false;
+  current = h;
+  if (sock) sock.close(); // onclose reconnects, to the new address
+  else void startRelay(h);
 }
 
 export function stopRelay() {
