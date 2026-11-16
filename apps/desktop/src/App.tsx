@@ -2,7 +2,7 @@ import { HelpButton } from './help/HelpButton';
 import { useHasModels } from './NoModels';
 import { helpTopicFor } from './help/topics';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ChevronRight, Plus } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, Plus } from 'lucide-react';
 import { Sidebar, viewLabel, type View } from './Sidebar';
 import { Dashboard } from './Dashboard';
 import { RangePicker } from './RangePicker';
@@ -698,9 +698,10 @@ function Agency() {
           {view === 'dashboard' && (
             <div className="header-tools">
               {isAdmin() && <AgencyControls state={agency} onChange={changeAgency} />}
-              {/* A switch: on shows the built-in agents' cards. */}
-              <button className="builtins-toggle" role="switch" aria-checked={!hideBuiltIns} onClick={toggleBuiltIns} title={hideBuiltIns ? 'Show the built-in agents on the Dashboard' : 'Hide the built-in agents on the Dashboard'}>
-                <span className={`switch sm${hideBuiltIns ? '' : ' on'}`} aria-hidden />
+              {/* An eye, not a switch: a switch read as turning the built-in agents off.
+                  This only shows or hides their cards; they keep working either way. */}
+              <button className="builtins-toggle" aria-pressed={!hideBuiltIns} onClick={toggleBuiltIns} title={hideBuiltIns ? 'Show the built-in agents on the Dashboard' : 'Hide the built-in agents on the Dashboard'}>
+                {hideBuiltIns ? <EyeOff size={14} strokeWidth={2} aria-hidden /> : <Eye size={14} strokeWidth={2} aria-hidden />}
                 Built-ins
               </button>
               <RangePicker value={range} onChange={setRange} />
