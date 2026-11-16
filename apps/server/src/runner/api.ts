@@ -765,8 +765,10 @@ export const runnerRoutes: Record<string, Route> = {
   'POST /api/browser/done': async (_req, _q, body) => {
     const { request } = await body<{ request?: number }>();
     if (typeof request !== 'number') throw new Error('Which request?');
-    const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', request);
+    const r = one<{ agent_id: string; status: string }>('SELECT agent_id, status FROM requests WHERE id = ?', request);
     if (r) await requireMakerOrAdmin(r.agent_id);
+    // Done pressed again (twice, or the card's other Done): the first already answered it.
+    if (r?.status === 'done') return { ok: true };
     if (!(await doneWithKeptPage(request))) throw new Error('That page is no longer kept. Close its tab if it is still open, or reply on the request.');
     return { ok: true };
   },
