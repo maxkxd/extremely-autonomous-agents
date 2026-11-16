@@ -10,7 +10,9 @@
   "scripts": {
     "stage": "node scripts/stage.cjs",
     "start": "electron .",
-    "dist": "node scripts/stage.cjs && electron-builder --win --publish never"
+    "dist": "node scripts/stage.cjs && electron-builder --win --publish never",
+    "dist:linux": "node scripts/stage.cjs && electron-builder --linux --publish never",
+    "dist:mac": "node scripts/stage.cjs && electron-builder --mac --publish never"
   },
   "dependencies": {
     "electron-updater": "6.8.10"
@@ -54,6 +56,49 @@
       "runAfterFinish": true,
       "artifactName": "Extremely-Autonomous-Agents-Setup.${ext}"
     },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
+      "artifactName": "Extremely-Autonomous-Agents-${arch}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "Extremely-Autonomous-Agents-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "Utility",
+      "synopsis": "Extremely Autonomous Agents for your desktop",
+      "maintainer": "World Asset Register",
+      "artifactName": "Extremely-Autonomous-Agents.${ext}"
+    },
+    "deb": {
+      "packageName": "extremely-autonomous-agents"
+    },
     "appx": {
       "identityName": "10399WorldAssetRegister.ExtremelyAutonomousAgents",
       "publisher": "CN=5C0EAB61-D000-441D-86C7-C50C5D95CAA9",
@@ -61,7 +106,9 @@
       "applicationId": "ExtremelyAutonomousAgents",
       "displayName": "Extremely Autonomous Agents",
       "backgroundColor": "#141414",
-      "languages": ["en-US"],
+      "languages": [
+        "en-US"
+      ],
       "minVersion": "10.0.17763.0",
       "maxVersionTested": "10.0.26100.0",
       "customExtensionsPath": "build/appx-extensions.xml",
@@ -74,6 +121,11 @@
         "repo": "extremely-autonomous-agents",
         "releaseType": "draft"
       }
-    ]
-  }
+    ],
+    "electronLanguages": [
+      "en-US"
+    ],
+    "compression": "maximum"
+  },
+  "homepage": "https://extremely.agency"
 }

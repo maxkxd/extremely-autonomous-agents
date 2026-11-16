@@ -60,9 +60,46 @@ if (/^https:\/\//.test(backend)) fs.writeFileSync(path.join(server, 'backend.jso
 else console.warn('No https VITE_EAA_BACKEND_URL: connection failures will not be reported.');
 // Copilot's runtime (about 160 MB, most of the app) is fetched the first time
 // someone connects Copilot (apps/server/src/models/copilotRuntime.ts), not shipped.
-const gh = path.join(server, 'node_modules', '@github');
-for (const name of fs.existsSync(gh) ? fs.readdirSync(gh) : [])
-  if (/^copilot-sdk-(darwin|linux|linuxmusl|win32)-/.test(name)) fs.rmSync(path.join(gh, name), { recursive: true, force: true });
+// And what never runs stays out of the download: type declarations, TypeScript
+// sources kept for source maps, source maps, docs (a third of node_modules).
+// Licence and notice files stay.
+function slim(modules) {
+  const gh = path.join(modules, '@github');
+  for (const name of fs.existsSync(gh) ? fs.readdirSync(gh) : [])
+    if (/^copilot-sdk-(darwin|linux|linuxmusl|win32)-/.test(name)) fs.rmSync(path.join(gh, name), { recursive: true, force: true });
+  let saved = 0;
+  const walk = dir => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'docs') {
+          fs.rmSync(p, { recursive: true, force: true });
+          continue;
+        }
+        walk(p);
+      } else if (/\.(map|[cm]?ts|md|markdown)$/i.test(entry.name) && !/^(licen[cs]e|notice|copying)/i.test(entry.name)) {
+        saved += fs.statSync(p).size;
+        fs.rmSync(p, { force: true });
+      }
+    }
+  };
+  walk(modules);
+  console.log(`Left out ${(saved / 1e6).toFixed(1)} MB of declarations, maps and docs from ${modules}.`);
+}
+slim(path.join(server, 'node_modules'));
+// A Mac build makes Apple silicon and Intel apps in one go (one latest-mac.yml for
+// the updater), and the server's native parts (esbuild, koffi) differ by processor:
+// EAA_EXTRA_ARCHS=x64 also stages build/stage/node_modules-x64, which after-pack.cjs
+// uses for that architecture's app.
+for (const arch of (process.env.EAA_EXTRA_ARCHS ?? '').split(',').map(a => a.trim()).filter(Boolean)) {
+  const other = path.join(STAGE, `server-${arch}`);
+  fs.mkdirSync(other, { recursive: true });
+  for (const f of ['package.json', 'package-lock.json']) fs.copyFileSync(path.join(server, f), path.join(other, f));
+  run(`npm ci --omit=dev --no-audit --no-fund --cpu=${arch}`, other);
+  slim(path.join(other, 'node_modules'));
+  fs.renameSync(path.join(other, 'node_modules'), path.join(STAGE, `node_modules-${arch}`));
+  fs.rmSync(other, { recursive: true, force: true });
+}
 
 // --- ui ---
 // Built from a copy: a running development server holds apps/desktop's esbuild.exe
