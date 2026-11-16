@@ -10,7 +10,8 @@ import type { Call, ToolImage, ToolSpec } from './providers.js';
 
 // title and annotations: how AI apps show a tool and whether they ask before it (the agency's own server sets them).
 export type McpTool = ToolSpec & { title?: string; annotations?: Record<string, unknown> };
-export type Bridge = { tools: McpTool[]; call: (c: Call) => Promise<{ content: string; error: boolean; images?: ToolImage[] }> };
+// instructions: what the AI app is told about the server when it connects.
+export type Bridge = { tools: McpTool[]; instructions?: string; call: (c: Call) => Promise<{ content: string; error: boolean; images?: ToolImage[] }> };
 const bridges = new Map<string, Bridge>();
 
 const PORT = Number(process.env.PORT ?? 5175);
@@ -73,6 +74,7 @@ export async function rpc(bridge: Bridge, msg: Rpc): Promise<object | null> {
         protocolVersion: protocolFor(msg.params?.protocolVersion),
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'agency', version: '1.0.0' },
+        ...(bridge.instructions ? { instructions: bridge.instructions } : {}),
       });
     case 'ping':
       return reply({});

@@ -1555,7 +1555,7 @@ function ConnectorsSection({ onOpenApproval, focus, onFocused }: { onOpenApprova
       </p>
       {/* A long page: straight to each part. */}
       <nav className="sjump" aria-label="Parts of this page">
-        {['Your AI plans', 'API keys', 'Web search', 'Integrations'].map(h => (
+        {['Your AI plans', 'API keys', 'Integrations'].map(h => (
           <button key={h} className="slink" onClick={e => jumpTo(e.currentTarget, h)}>
             {h === 'Your AI plans' ? 'AI plans' : h}
           </button>

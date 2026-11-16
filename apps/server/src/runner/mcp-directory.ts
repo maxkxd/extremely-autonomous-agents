@@ -15,7 +15,14 @@ import { HOSTED_ORG } from '../hosting.js';
 // organizations change (sign-out empties them) and when an address is replaced.
 
 export type DirectoryOrg = { id: string; name: string; role: string };
-export type Directory = { v: 1; app: string; updated: string; agencies: { id: string; name: string; role: string; url: string }[] };
+// router: the one address with every agency behind it (mcp-router.ts); the package
+// passes everything there when it's given, so it asks which agency the same way.
+export type Directory = { v: 1; app: string; updated: string; router?: string; agencies: { id: string; name: string; role: string; url: string }[] };
+
+let router: string | null = null;
+export const setDirectoryRouter = (url: string) => {
+  router = url;
+};
 
 const ORGS_KEY = 'mcp_directory_orgs';
 const APP = 'Extremely Autonomous Agents';
@@ -41,6 +48,7 @@ export function mcpDirectory(now = Date.now()): Directory {
     v: 1,
     app: APP,
     updated: new Date(now).toISOString(),
+    ...(router ? { router } : {}),
     agencies: [{ id: 'personal', name: 'Your agency', role: 'owner', url: agencyMcpUrl() }, ...orgs.map(o => ({ id: o.id, name: o.name, role: o.role, url: remoteMcpUrl(o.id) }))],
   };
 }

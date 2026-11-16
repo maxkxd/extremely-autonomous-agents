@@ -140,8 +140,9 @@ const NEEDS: Record<string, Level> = {
   // Everyone's own agency MCP address, acting as them (agency-mcp.ts).
   'GET /api/settings/agency-mcp': 'member',
   'POST /api/settings/agency-mcp': 'member',
-  // Your AI assistant (runner/assistant.ts): connecting it opens on the host computer, for whoever's at it.
-  'POST /api/settings/assistant/connect': 'member',
+  // MCP, connect your AI assistant (runner/assistant.ts, mcp-router.ts): on the person's own computer.
+  'GET /api/assistant/mcp': 'local',
+  'POST /api/settings/assistant/connect': 'local',
   // A teammate's AI assistant on another computer, as them: each tool checks what their role allows.
   'POST /api/agency-mcp/rpc': 'member',
   // ...and, on their own computer, its address and the messages their app carries (remote-mcp.ts).

@@ -28,16 +28,29 @@ export function directoryFile(env = process.env, platform = process.platform, ho
   return join(base, APP, 'agency-mcp.json');
 }
 
+function directory(env) {
+  try {
+    return JSON.parse(readFileSync(directoryFile(env), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 // The agencies this person can reach: read fresh each time, so a restarted app,
 // a new organization or a replaced address is picked up without restarting this.
 export function agencies(env = process.env) {
   if (env.EXTREMELY_MCP_URL) return [{ id: 'agency', name: 'Your agency', role: 'unknown', url: env.EXTREMELY_MCP_URL }];
-  try {
-    const d = JSON.parse(readFileSync(directoryFile(env), 'utf8'));
-    return Array.isArray(d.agencies) ? d.agencies.filter(a => a && typeof a.url === 'string') : [];
-  } catch {
-    return [];
-  }
+  const d = directory(env);
+  return Array.isArray(d?.agencies) ? d.agencies.filter(a => a && typeof a.url === 'string') : [];
+}
+
+// The app's one address with every agency behind it (apps from 2026-11-16 on):
+// it picks the agency, and asks the person which when that isn't obvious, so
+// this passes everything there. Older apps don't give one.
+export function routerAddress(env = process.env) {
+  if (env.EXTREMELY_MCP_URL) return null;
+  const r = directory(env)?.router;
+  return typeof r === 'string' ? r : null;
 }
 
 // Which agency a call is for: its id or name, else your own (or the only one).
@@ -71,6 +84,15 @@ const withAgencyArg = t => ({ ...t, inputSchema: { ...t.inputSchema, type: 'obje
 // The real list from your own agency (what your role there allows); the one
 // bundled here when the app isn't running, so AI apps and registries still see them.
 async function toolList() {
+  const router = routerAddress();
+  if (router) {
+    try {
+      const r = await post(router, { jsonrpc: '2.0', id: 'tools', method: 'tools/list' }, 5000);
+      if (Array.isArray(r?.result?.tools)) return r.result.tools;
+    } catch {
+      // not running: below
+    }
+  }
   let tools = BUNDLED;
   const own = pick(agencies());
   if (own) {
@@ -104,6 +126,16 @@ async function listAgencies() {
 }
 
 async function callTool(params) {
+  const router = routerAddress();
+  if (router) {
+    try {
+      const r = await post(router, { jsonrpc: '2.0', id: 'call', method: 'tools/call', params });
+      if (r?.error) return text(r.error.message ?? 'The agency refused that.', true);
+      return r?.result ?? text('The agency gave no answer.', true);
+    } catch (e) {
+      return text(e instanceof TypeError ? APP_CLOSED : e.message, true);
+    }
+  }
   const name = String(params?.name ?? '');
   const { agency, ...args } = params?.arguments ?? {};
   if (name === 'list_agencies') return listAgencies();
@@ -133,7 +165,7 @@ export async function handle(msg) {
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'extremely-agency', title: 'EXTREMELY agency', version: VERSION },
         instructions:
-          "Your EXTREMELY agency of AI agents, running in the Extremely Autonomous Agents app on this computer. agency_today and agent_activity say what agents did; list_approvals and decide_approval handle what's waiting on a person; list_requests, reply_to_request and answer_request handle agents' requests; give_task and run_agent put agents to work. For an organization you're in, pass its name as `agency` (list_agencies).",
+          "Your EXTREMELY agencies of AI agents, running in the Extremely Autonomous Agents app on this computer. When the person has more than one agency and it is not clear which they mean, ask them before acting. To make an agent, read builder_guide first. agency_today and agent_activity say what agents did; list_approvals and decide_approval handle what's waiting on a person; list_requests, reply_to_request and answer_request handle agents' requests; give_task and run_agent put agents to work. For an organization you're in, pass its name as `agency` (list_agencies).",
       });
     }
     case 'ping':

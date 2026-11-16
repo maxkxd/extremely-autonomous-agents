@@ -4,23 +4,29 @@ import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { mcpUrlFor } from './agency-mcp.js';
+import { routerUrl } from './mcp-router.js';
 import { DATA_DIR } from '../paths.js';
 
-// Your AI assistant (docs/requests.md): the agency in the AI app a person
-// already uses, connected in one click from Settings > Connectors.
+// MCP, connect your AI assistant (Settings > Connectors, docs/mcp-server.md):
+// every agency this person can reach, in the AI app they already use, in one
+// click. It's one address on this computer (mcp-router.ts) for whoever uses
+// this app - the host or not - acting as them in each organization.
 //   Claude Desktop - added to its settings (claude_desktop_config.json), as a tiny
-//     program that passes Claude's messages to this agency's MCP address
-//     (agency-mcp.ts) and back; it shows once Claude Desktop restarts. (Its
-//     Windows Store app opens no .mcpb extension files, so not those.)
-//   Cursor - its MCP install link.
+//     program that passes Claude's messages to that address and back; it shows
+//     once Claude Desktop restarts, and open, it would write over the change,
+//     so it's restarted first when the person says so. (Its Windows Store app
+//     opens no .mcpb extension files, so not those.)
+//   Claude Code - its own `claude mcp add`, for every project (user scope).
+//   Cursor, VS Code - their MCP install links.
 // The address is on this computer, so it works while this app is running, and
 // only on this computer. ChatGPT, claude.ai and Microsoft Copilot can't reach
 // an address on someone's computer, so they aren't offered.
 
 export const ASSISTANTS = {
   'claude-desktop': { name: 'Claude Desktop' },
+  'claude-code': { name: 'Claude Code' },
   cursor: { name: 'Cursor' },
+  vscode: { name: 'VS Code' },
 } as const;
 export type Assistant = keyof typeof ASSISTANTS;
 
@@ -95,10 +101,12 @@ async function claudeConfigs(): Promise<string[]> {
 type ClaudeServer = { command: string; args: string[]; env: Record<string, string> };
 
 // Its settings with the agency added (or its address updated), everything else
-// as it was. Unreadable settings are never written over.
+// as it was. Unreadable settings are never written over. Earlier connections
+// (one per organization, before one address covered them all) are dropped, so
+// the tools don't show twice.
 export function withAgency(text: string | null, key: string, server: ClaudeServer): string {
   const config = text?.trim() ? (JSON.parse(text) as Record<string, unknown>) : {};
-  const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
+  const servers = Object.fromEntries(Object.entries((config.mcpServers ?? {}) as Record<string, unknown>).filter(([k]) => !k.startsWith(OLD_KEY)));
   return JSON.stringify({ ...config, mcpServers: { ...servers, [key]: server } }, null, 2);
 }
 
@@ -120,13 +128,29 @@ async function claudeDesktopOpen(): Promise<boolean> {
 }
 export const isClaudeDesktop = (path: string) => DESKTOP_EXE.test(path);
 
+// Quits Claude Desktop (only it, never Claude Code) and waits until it's gone.
+async function quitClaudeDesktop() {
+  if (process.platform === 'win32') {
+    const script = `Get-Process claude -ErrorAction SilentlyContinue | Where-Object { $_.Path -match '${DESKTOP_EXE.source.replace(/'/g, "''")}' } | Stop-Process -Force`;
+    await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true }).catch(() => {});
+  } else if (process.platform === 'darwin') await run('osascript', ['-e', 'quit app "Claude"']).catch(() => {});
+  for (let i = 0; i < 40; i++) {
+    if (!(await claudeDesktopOpen())) return;
+    await new Promise(r => setTimeout(r, 250));
+  }
+  throw new Error("Claude Desktop didn't close. Quit it yourself (right-click its icon by the clock, then Quit), then click Connect Claude Desktop again.");
+}
+
 // Adds the agency to Claude Desktop's settings, while it's closed (it reads them
-// when it starts, and writes its own back while it runs), then opens it.
-async function addToClaudeDesktop(url: string, key: string) {
+// when it starts, and writes its own back while it runs), then opens it. Open:
+// restarted when the person said so (restart), else they're asked.
+async function addToClaudeDesktop(url: string, key: string, restart: boolean): Promise<'done' | 'needs-restart'> {
   const files = await claudeConfigs();
   if (!files.length) throw new Error("Claude Desktop isn't installed on this computer, or hasn't been opened yet. Install it from claude.com/download, open it once, then try again.");
-  if (await claudeDesktopOpen())
-    throw new Error('Claude Desktop is open, and it would undo this. Quit it first (right-click its icon by the clock, then Quit), then click Connect Claude Desktop again.');
+  if (await claudeDesktopOpen()) {
+    if (!restart) return 'needs-restart';
+    await quitClaudeDesktop();
+  }
   await mkdir(ROOT, { recursive: true });
   const bridge = join(ROOT, 'agency-bridge.js');
   await writeFile(bridge, BRIDGE);
@@ -146,25 +170,75 @@ async function addToClaudeDesktop(url: string, key: string) {
   }
   // Open again, with the agency among its connectors.
   openWithSystem('claude://claude.ai/new');
+  return 'done';
 }
 
+// Claude Code's own command line, wherever it's installed: on PATH, or its
+// native installer's place (~/.local/bin), which an app started before it was
+// installed may not have on its PATH.
+async function claudeCli(): Promise<string | null> {
+  const home = homedir();
+  const places = process.platform === 'win32' ? [join(home, '.local', 'bin', 'claude.exe')] : [join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'];
+  try {
+    const { stdout } = await run(process.platform === 'win32' ? 'where.exe' : 'which', ['claude'], { windowsHide: true });
+    const first = stdout.split(/\r?\n/).map(l => l.trim()).find(Boolean);
+    if (first) return first;
+  } catch {
+    // not on PATH
+  }
+  for (const p of places) if (await readFile(p).then(() => true, () => false)) return p;
+  return null;
+}
+
+export const claudeCodeCommand = (url: string, key = KEY) => `claude mcp add --transport http --scope user ${key} ${url}`;
+
+// Adds the agency to Claude Code for every project (user scope), replacing an
+// earlier one. It shows in Claude Code sessions started after this.
+async function addToClaudeCode(url: string) {
+  const cli = await claudeCli();
+  if (!cli) throw new Error(`Claude Code isn't installed on this computer. Install it from claude.com/claude-code, or run this where it is: ${claudeCodeCommand(url)}`);
+  // npm's claude.cmd needs a shell on Windows; the address and key have no spaces or quotes.
+  const shell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(cli);
+  const opts = { windowsHide: true, shell, timeout: 30_000 };
+  const exe = shell ? `"${cli}"` : cli;
+  await run(exe, ['mcp', 'remove', '--scope', 'user', KEY], opts).catch(() => {});
+  try {
+    await run(exe, ['mcp', 'add', '--transport', 'http', '--scope', 'user', KEY, url], opts);
+  } catch (e) {
+    const why = String((e as { stderr?: string }).stderr || (e as Error).message).trim().split(/\r?\n/)[0];
+    throw new Error(`Claude Code couldn't add it (${why}). Run this in a terminal instead: ${claudeCodeCommand(url)}`);
+  }
+}
+
+// VS Code's one-click MCP install link for this address.
+export const vscodeLink = (url: string, name = KEY) => `vscode:mcp/install?${encodeURIComponent(JSON.stringify({ name, type: 'http', url }))}`;
+
 // Cursor's one-click MCP install link for this address.
-export const cursorLink = (url: string, name = 'agency') =>
+export const cursorLink = (url: string, name = KEY) =>
   `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodeURIComponent(name)}&config=${encodeURIComponent(Buffer.from(JSON.stringify({ url })).toString('base64'))}`;
 
-// The name it goes by in the AI assistant: one per organization a teammate connects.
-const keyFor = (org?: string) => `extremely-autonomous-agents${org ? `-${org.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}` : ''}`;
+// The name it goes by in the AI assistant. Earlier ones started with OLD_KEY
+// (one per organization), and are replaced.
+const KEY = 'extremely';
+const OLD_KEY = 'extremely-autonomous-agents';
 
-// Connects the agency to the person's AI assistant. url: another address than
-// the agency's own (a teammate's, remote-mcp.ts; the caller checks it), for org.
-export async function connectAssistant(app: Assistant, url = mcpUrlFor(), org?: string): Promise<{ opened: string; assistant: string; restart: boolean }> {
+// done: added (Claude Desktop, Claude Code). asked: its install link opened, and
+// the app asks the person to click Install (Cursor, VS Code). needs-restart:
+// Claude Desktop is open, and the person is asked whether to restart it.
+export type Connected = { assistant: string; status: 'done' | 'asked' | 'needs-restart' };
+
+// Connects every agency this person can reach to their AI assistant.
+// restart: Claude Desktop is open and the person said to restart it.
+export async function connectAssistant(app: Assistant, restart = false, url = routerUrl()): Promise<Connected> {
   const which = ASSISTANTS[app];
   if (!which) throw new Error('That AI assistant isn’t one the app can connect.');
-  if (app === 'cursor') {
-    const link = cursorLink(url, keyFor(org));
-    openWithSystem(link);
-    return { opened: link, assistant: which.name, restart: false };
+  if (app === 'cursor' || app === 'vscode') {
+    openWithSystem(app === 'cursor' ? cursorLink(url) : vscodeLink(url));
+    return { assistant: which.name, status: 'asked' };
   }
-  await addToClaudeDesktop(url, keyFor(org));
-  return { opened: 'settings', assistant: which.name, restart: true };
+  if (app === 'claude-code') {
+    await addToClaudeCode(url);
+    return { assistant: which.name, status: 'done' };
+  }
+  return { assistant: which.name, status: await addToClaudeDesktop(url, KEY, restart) };
 }

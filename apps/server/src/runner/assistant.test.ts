@@ -1,7 +1,7 @@
 import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cursorLink, isClaudeDesktop, withAgency } from './assistant.js';
+import { claudeCodeCommand, cursorLink, isClaudeDesktop, vscodeLink, withAgency } from './assistant.js';
 
 // Your AI assistant: Claude Desktop's settings, and Cursor's install link.
 
@@ -39,4 +39,16 @@ test('Claude Desktop is told apart from Claude Code, which is also a claude prog
   assert.ok(isClaudeDesktop(String.raw`C:\Program Files\WindowsApps\Claude_4.4212.0.0_x64__pzs8sxrjxfjjc\app\Claude.exe`));
   assert.ok(isClaudeDesktop(String.raw`C:\Users\a\AppData\Local\AnthropicClaude\app-1.2.3\claude.exe`));
   assert.ok(!isClaudeDesktop(String.raw`C:\Users\a\AppData\Local\Claude-Data\claude_x\claude-code\2.1.309\9078b9c1d466\claude.exe`));
+});
+
+test('one connection for every agency: the earlier one-per-organization ones are dropped', () => {
+  const before = JSON.stringify({ mcpServers: { 'extremely-autonomous-agents': SERVER, 'extremely-autonomous-agents-northside-bikes': SERVER, other: { command: 'x', args: [] } } });
+  assert.deepEqual(Object.keys(JSON.parse(withAgency(before, 'extremely', SERVER)).mcpServers), ['other', 'extremely']);
+});
+
+test("VS Code's link and Claude Code's command carry the address", () => {
+  const link = vscodeLink(ADDRESS);
+  assert.ok(link.startsWith('vscode:mcp/install?'));
+  assert.deepEqual(JSON.parse(decodeURIComponent(link.slice('vscode:mcp/install?'.length))), { name: 'extremely', type: 'http', url: ADDRESS });
+  assert.equal(claudeCodeCommand(ADDRESS), `claude mcp add --transport http --scope user extremely ${ADDRESS}`);
 });

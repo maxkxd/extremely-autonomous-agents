@@ -1,19 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
-import { AppWindow, Check, Chrome, ExternalLink, Globe, Plug, Plus } from 'lucide-react';
-import { siBrave, siGithub, siGmail, siGoogleanalytics, siGoogledrive, siGooglecalendar, siGooglesearchconsole, siHubspot, siNotion, siPosthog, siSentry, siShopify, siSquare, siStripe, siYoutube, siZoho, type SimpleIcon } from 'simple-icons';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { AppWindow, Check, Chrome, ExternalLink, Globe, Plug, Plus, SquareTerminal } from 'lucide-react';
+import { siClaude, siCursor, siBrave, siGithub, siGmail, siGoogleanalytics, siGoogledrive, siGooglecalendar, siGooglesearchconsole, siHubspot, siNotion, siPosthog, siSentry, siShopify, siSquare, siStripe, siYoutube, siZoho, type SimpleIcon } from 'simple-icons';
 import { SpinButton } from './ModelConnectors';
 import { SkelRows } from './Skeleton';
-import { connectAssistantTo, currentOrg, handOffSignIns, isAdmin, remoteAssistantUrl } from './account';
+import { connectAssistant, getAssistantMcp, handOffSignIns, isAdmin } from './account';
 import { ACCOUNT } from './data';
-import { AI_IDES, IdeLogo, type IdeId } from './Requests';
+import { IdeLogo } from './Requests';
 import { useOffline } from './offline';
 import { useLastSeen } from './lastSeen';
 import {
   addMcpIntegration,
   connectIntegration,
   disconnectIntegration,
-  connectAssistant,
-  getAgencyMcp,
   getEvents,
   getCodePlugins,
   getIntegrations,
@@ -44,8 +42,9 @@ import { every } from './poll';
 import { scrollToCard, whenOpened } from './scrollToCard';
 
 // Settings > Connectors > Integrations (docs/integrations.md): the services
-// agents' tools run on. Web search is one service among several (agents use
-// whichever is connected); anything else is added as an MCP server by its
+// agents' tools run on, web search services in the same list as the rest (agents
+// use whichever is connected; it works keyless from the start); anything else
+// is added as an MCP server by its
 // address, or later by the Agency Engineer. Keys go here, never in a chat.
 export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenApproval: (id: string) => void; focus?: string | null; onFocused?: () => void }) {
   const [view, setView] = useLastSeen<IntegrationsView | null>('integrations:view', null);
@@ -75,34 +74,18 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
   if (!view) return <SkelRows n={4} h={54} what="integrations" />;
   // A hidden one you were sent to still shows: there's nothing to land on otherwise.
   const shown = view.integrations.filter(i => !i.unused || i.id === focus || i.id === landed);
-  const search = shown.filter(i => i.tools.some(t => t.id === 'web.web_search'));
-  const others = shown.filter(i => !search.includes(i));
   return (
     <>
-      <div className="sgroup">
-        <h3>Web search</h3>
-        <ul className="sconnectors">
-          {search.map(i => (
-            <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} events={events.events} />
-          ))}
-        </ul>
-      </div>
-      {/* Its own group: it's how you reach the agency, not a service agents use. No heading:
-          its row already says "Your AI assistant". */}
-      <div className="sgroup">
-        <ul className="sconnectors">
-          {/* Everyone's own: it acts as them (agency-mcp.ts on the host). */}
-          <AgencyMcp />
-        </ul>
-      </div>
+      {/* Its own group: it's how you reach the agency, not a service agents use. */}
+      <AgencyMcp />
       <div className="sgroup">
         <h3>Integrations</h3>
-        <p className="slead">Other services agents can use. Add any service that has an MCP server by its address.</p>
+        <p className="slead">Services agents can use. Add any service that has an MCP server by its address.</p>
         <ul className="sconnectors">
           {/* What acts on the host's computer is the owner's and admins' (access.ts). */}
           {isAdmin() && <CodePlugins />}
           {isAdmin() && view.integrations.some(i => i.events.some(e => e.webhook)) && <WebhookTunnel tunnel={events.tunnel} onChange={t => setEvents(v => ({ ...v, tunnel: t }))} />}
-          {others.map(i => (
+          {shown.map(i => (
             <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} events={events.events} />
           ))}
           <AddMcp refresh={refresh} open={openId === 'add'} setOpen={o => setOpenId(o ? 'add' : null)} />
@@ -575,66 +558,82 @@ function CodePlugins() {
   );
 }
 
-// Your AI assistant (runner/assistant.ts): the whole agency in the AI app you
-// use, in one click - Claude Desktop installs an extension, Cursor its MCP link.
-// The address is on the computer the agency runs on; a teammate on another
-// computer gets one on their own, which this app carries to the host while it's
-// open (account.ts, runner/remote-mcp.ts). Either way it looks the same here.
+// MCP, connect your AI assistant (runner/assistant.ts, runner/mcp-router.ts):
+// every agency you can reach, in the AI app you use, as you - one address on
+// this computer, the same whichever organization is open, host or not.
+const MCP_APPS: { id: string; name: string; logo: ReactNode }[] = [
+  { id: 'claude-desktop', name: 'Claude Desktop', logo: <IdeLogo logo={siClaude} /> },
+  { id: 'claude-code', name: 'Claude Code', logo: <SquareTerminal size={15} strokeWidth={1.9} /> },
+  { id: 'cursor', name: 'Cursor', logo: <IdeLogo logo={siCursor} /> },
+  { id: 'vscode', name: 'VS Code', logo: <IdeLogo logo={null} /> },
+];
+
 function AgencyMcp() {
-  const off = useOffline();
-  const [mcp, setMcp] = useLastSeen<{ url: string; here: boolean; remote?: boolean } | null>('integrations:assistant', null);
-  const [said, setSaid] = useState<string | null>(null);
+  const [url, setUrl] = useLastSeen<string | null>('integrations:mcp-url', null);
+  const [said, setSaid] = useState<{ text: string; error?: boolean } | null>(null);
+  const [restart, setRestart] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
-    const org = currentOrg();
-    void getAgencyMcp().then(
-      m => (m.here || !org ? setMcp(m) : remoteAssistantUrl(org.id).then(r => setMcp({ url: r.url, here: true, remote: true }))),
-      () => {},
-    );
+    void getAssistantMcp().then(r => setUrl(r.url), () => {});
   }, []);
-  if (!mcp) return null;
-  const connect = async (app: IdeId) => {
+  const connect = async (app: string, again = false) => {
     setSaid(null);
+    setRestart(false);
+    setBusy(app);
     try {
-      const org = currentOrg();
-      const r = mcp.remote && org ? await connectAssistantTo(app, mcp.url, org.name) : await connectAssistant(app);
-      setSaid(
-        r.restart
-          ? `Added to ${r.assistant}, which is opening - your agency is in its connectors.`
-          : `${r.assistant} is asking to install the agency - click Install. Nothing came up? Open ${r.assistant}, then try again.`,
-      );
+      const r = await connectAssistant(app, again);
+      if (r.status === 'needs-restart') {
+        setRestart(true);
+        setSaid({ text: `${r.assistant} is open. It has to restart to add EXTREMELY.` });
+      } else if (r.status === 'asked') setSaid({ text: `${r.assistant} is asking to add EXTREMELY - click Install. Nothing came up? Open ${r.assistant}, then try again.` });
+      else if (app === 'claude-code') setSaid({ text: 'Added to Claude Code. Start a new Claude Code session to use it.' });
+      else setSaid({ text: `Added to ${r.assistant}, which is opening - EXTREMELY is in its connectors.` });
     } catch (e) {
-      setSaid((e as Error).message);
+      setSaid({ text: (e as Error).message, error: true });
+    } finally {
+      setBusy(null);
     }
   };
   const copy = () =>
-    navigator.clipboard?.writeText(mcp.url).then(() => {
+    url &&
+    navigator.clipboard?.writeText(url).then(() => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     }, () => {});
   return (
-    <li className="sint-wide">
-      <span className="sconn-name">Your AI assistant</span>
-      <span className="sconn-what">
-        {mcp.here
-          ? 'Use your agency from the AI app you already use - one click to connect it. Works while this app is open.'
-          : 'Works on the computer the organization runs on, so it can’t be connected from here yet.'}
-      </span>
-      {mcp.here && (
-        <span className="sint-actions">
-          {(Object.keys(AI_IDES) as IdeId[]).map(id => (
-            <button key={id} className="sbtn" onClick={() => connect(id)}>
-              <IdeLogo logo={AI_IDES[id].logo} />
-              Connect {AI_IDES[id].name}
+    <div className="sgroup">
+      <h3>MCP (connect your AI assistant)</h3>
+      <p className="slead">Your agencies in the AI app you already use, acting as you. Works on this computer while this app is open.</p>
+      <div className="smcp">
+        <div className="smcp-apps">
+          {MCP_APPS.map(a => (
+            <button key={a.id} className="sbtn" disabled={!!busy} onClick={() => connect(a.id)}>
+              {a.logo}
+              {busy === a.id ? <Working text="Connecting" /> : `Connect ${a.name}`}
             </button>
           ))}
-          <button className="sbtn" title={off ?? 'For another AI app that can add an MCP server by its address'} onClick={copy}>
-            {copied ? 'Copied' : 'Copy address'}
-          </button>
-        </span>
-      )}
-      {said && <p className="sint-help">{said}</p>}
-    </li>
+        </div>
+        {said && (
+          <div className="smcp-said">
+            <p className={said.error ? 'custom-error' : 'sint-help'}>{said.text}</p>
+            {restart && (
+              <button className="sbtn" disabled={!!busy} onClick={() => connect('claude-desktop', true)}>
+                {busy === 'claude-desktop' ? <Working text="Restarting" /> : 'Restart Claude Desktop'}
+              </button>
+            )}
+          </div>
+        )}
+        {url && (
+          <div className="smcp-address">
+            <input className="srow2-input" readOnly value={url} aria-label="MCP address" spellCheck={false} onFocus={e => e.currentTarget.select()} />
+            <button className="sbtn" onClick={copy}>
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

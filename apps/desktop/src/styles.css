@@ -2380,3 +2380,12 @@ body.after-onboarding .app { animation: ob-reveal 0.55s ease-out both; }
   .onboarding .onboarding-models, .onboarding .onboarding-foot > *, .onboarding .onboarding-next,
   body.after-onboarding .app { animation: none !important; }
 }
+
+/* MCP, connect your AI assistant (Integrations.tsx AgencyMcp). */
+.smcp { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--hairline); border-radius: 12px; }
+.smcp-apps { display: flex; flex-wrap: wrap; gap: 8px; }
+.smcp-apps .sbtn svg { flex-shrink: 0; }
+.smcp-said { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.smcp-said p { margin: 0; flex: 1 1 260px; }
+.smcp-address { display: flex; gap: 8px; align-items: center; }
+.smcp-address input { flex: 1; min-width: 0; font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; }

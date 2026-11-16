@@ -25,6 +25,7 @@ import { book, startScheduler } from './runner/scheduler.js';
 import { FLEET_ENGINEER } from './runner/agent.js';
 import { openPeopleMcp, startAgencyMcp } from './runner/agency-mcp.js';
 import { writeMcpDirectory } from './runner/mcp-directory.js';
+import { routerUrl } from './runner/mcp-router.js';
 import { handleRemoteMcp } from './runner/remote-mcp.js';
 import { startHooks } from './runner/hooks.js';
 import { agencyStopped } from './runner/run.js';
@@ -586,6 +587,7 @@ server.listen(PORT, HOSTED_ORG ? '127.0.0.1' : undefined, () => {
   startScheduler();
   startAgencyMcp(); // the agency's own MCP server, for the person's AI IDE
   openPeopleMcp(); // and everyone's own address in an organization
+  routerUrl(); // and the one address for this computer's person, every agency behind it (mcp-router.ts)
   void writeMcpDirectory(); // where the public MCP package finds them (docs/mcp-server.md)
   startHooks(book); // where services post events (and the tunnel, if it's on)
 });

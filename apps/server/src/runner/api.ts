@@ -20,7 +20,8 @@ import { setups } from './setup.js';
 import { postToRequest, waitingOn } from './engineer.js';
 import { sendToIde, type Ide } from './ide.js';
 import { connectAssistant, type Assistant } from './assistant.js';
-import { answerRemoteMcp, isRemoteMcpUrl, remoteMcpUrl, takeRemoteMcp } from './remote-mcp.js';
+import { routerUrl } from './mcp-router.js';
+import { answerRemoteMcp, remoteMcpUrl, takeRemoteMcp } from './remote-mcp.js';
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals, recentlyWithdrawn, runApprovedNow, scheduledApprovals } from './approvals.js';
@@ -486,13 +487,17 @@ export const runnerRoutes: Record<string, Route> = {
   // Yours: the host computer's own person has the standing one; everyone else their own, acting as them.
   // here: whether this person is at the computer the address is on (it only works there).
   'GET /api/settings/agency-mcp': async () => ({ url: mcpUrlFor(), here: !!currentActor().here }),
-  // Your AI assistant (assistant.ts): opens its one-click install for the agency.
+  // MCP, connect your AI assistant (assistant.ts, mcp-router.ts): the one address on this
+  // computer with every agency this person can reach, and its one-click connects.
+  // This computer's own app only: it's the person at it, host or not.
+  'GET /api/assistant/mcp': async () => {
+    if (currentActor().via !== 'local') throw new AccessError(403, 'Only from this computer.');
+    return { url: routerUrl() };
+  },
   'POST /api/settings/assistant/connect': async (_req, _q, body) => {
-    // url: a teammate's address for an organization hosted elsewhere (remote-mcp.ts), on their own computer.
-    const { app, url, org } = await body<{ app: Assistant; url?: string; org?: string }>();
-    if (!currentActor().here) throw new AccessError(403, "Your AI assistant connects on the computer the organization runs on, so it only works there.");
-    if (url && !isRemoteMcpUrl(url)) throw new AccessError(403, 'That address isn’t one of this app’s.');
-    return connectAssistant(app, url, url ? org : undefined);
+    if (currentActor().via !== 'local') throw new AccessError(403, 'Only from this computer.');
+    const { app, restart } = await body<{ app: Assistant; restart?: boolean }>();
+    return connectAssistant(app, !!restart);
   },
   // The organization's host: one MCP message from a teammate's AI assistant on another computer, as them.
   'POST /api/agency-mcp/rpc': async (_req, _q, body) => {

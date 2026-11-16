@@ -24,7 +24,7 @@ before(async () => {
     let raw = '';
     for await (const c of req) raw += c;
     const msg = JSON.parse(raw);
-    const who = req.url.endsWith('own') ? 'own' : req.url.endsWith('org') ? 'org' : null;
+    const who = req.url.endsWith('own') ? 'own' : req.url.endsWith('org') ? 'org' : req.url.endsWith('router') ? 'router' : null;
     if (!who) return void res.writeHead(404).end();
     seen.push({ who, method: msg.method, params: msg.params });
     const reply = result => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result }));
@@ -176,4 +176,14 @@ test('input closed right after a call: the answer still comes before it stops', 
   child.stdin.end(JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'list_agents', arguments: {} } }) + '\n');
   await new Promise(r => child.on('exit', r));
   assert.equal(JSON.parse(out.trim()).result.content[0].text, 'own:list_agents:{}');
+});
+
+test("the app's one address, when it gives one: every call goes there, agency and all", async () => {
+  writeFileSync(file, JSON.stringify({ v: 1, router: `${base}/router`, agencies: [{ id: 'personal', name: 'Your agency', role: 'owner', url: `${base}/own` }] }));
+  seen.length = 0;
+  const r = await rpc('tools/call', { name: 'create_agent', arguments: { agency: 'Northside', name: 'Lead Research' } });
+  assert.equal(r.result.content[0].text, 'router:create_agent:{"agency":"Northside","name":"Lead Research"}');
+  assert.deepEqual(seen.map(s => s.who), ['router']);
+  const tools = (await rpc('tools/list')).result.tools.map(t => t.name);
+  assert.deepEqual(tools, ['list_agents'], "the router's own list, as it gives it");
 });

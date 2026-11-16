@@ -726,8 +726,11 @@ export async function deleteOrganisation(orgId: string) {
 // Your address for an organization (the same one each time).
 export const remoteAssistantUrl = (orgId: string) => local<{ url: string }>('/api/assistant/remote', { orgId });
 // Connecting your AI assistant to that address: on your own agency, this computer.
-export const connectAssistantTo = (app: string, url: string, org: string) =>
-  local<{ opened: string; assistant: string; restart: boolean }>('/api/settings/assistant/connect', { app, url, org });
+// MCP, connect your AI assistant (runner/mcp-router.ts, assistant.ts): always this
+// computer's own app, whichever organization is open - one address for them all.
+export const getAssistantMcp = () => local<{ url: string }>('/api/assistant/mcp');
+export const connectAssistant = (app: string, restart = false) =>
+  local<{ assistant: string; status: 'done' | 'asked' | 'needs-restart' }>('/api/settings/assistant/connect', { app, restart });
 
 // To any organization you're in, not just the one open (the AI assistant can be on any).
 async function fetchInOrg(org: OrgView, path: string, init: { method?: string; headers?: Record<string, string>; body?: string }) {

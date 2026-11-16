@@ -7,8 +7,48 @@ report, starting a run. It is the kind of server MCP registries list.
 
 Built 2026-11-05 (`packages/agency-mcp`, see Status at the end). Published
 2026-11-06 as `@extremely-agency/mcp` on npm and `agency.extremely/agency` in
-the official MCP registry. The app looks and works exactly as before:
-one-click connect in Settings > Connectors is unchanged.
+the official MCP registry.
+
+## One address for every agency (owner, 2026-11-16)
+
+What the owner asked for: connect your AI assistant from the app in one
+click, and have it reach every agency you're in, as you, from any computer
+with the app (not only the one hosting the organization). When it isn't
+obvious which agency something is for, the AI asks the person.
+
+- **The address** (`runner/mcp-router.ts`): one MCP address on this
+  computer's app, `http://127.0.0.1:<port>/mcp/<token>`, its token kept
+  across restarts (`mcp_router_token`). Behind it, the same agencies as the
+  directory file: your own agency here, and each organization you're in
+  through `remote-mcp.ts` (the app carries it to the host, end to end
+  encrypted, acting as you with your role). Every tool takes `agency`, plus
+  `list_agencies`.
+- **Which agency**: named, that one (id, name or part of a name). Not named:
+  the only agency, or the only organization beside an own agency with no
+  agents of its own (built-in ones don't count). Otherwise the call is
+  refused with "Ask the person which agency this is for", listing them, and
+  nothing is sent. The server's `instructions` say the same, and to read
+  `builder_guide` before making an agent.
+- **Settings > Connectors > MCP (connect your AI assistant)**: Connect
+  Claude Desktop, Claude Code, Cursor, VS Code, and the address in a box
+  with Copy. All of them get this one address, always from this computer's
+  own app (`GET /api/assistant/mcp`, `POST /api/settings/assistant/connect`,
+  local only), whichever organization is open.
+  - Claude Desktop: the bridge in its settings, as before. Open, it would
+    write over the change, so the app says so and offers **Restart Claude
+    Desktop**, which quits it (only Claude Desktop, told apart from Claude
+    Code by its path), writes, and opens it. Earlier one-per-organization
+    entries (`extremely-autonomous-agents*`) are replaced by one,
+    `extremely`.
+  - Claude Code: `claude mcp add --transport http --scope user extremely
+    <address>`, found on PATH or in `~/.local/bin`. It shows in sessions
+    started after. Not installed: the error gives the command.
+  - Cursor and VS Code: their install links (`cursor://...`,
+    `vscode:mcp/install?...`), which ask the person to click Install.
+- **The package** passes everything to this address when the directory file
+  gives one (`router`), so it asks the same way. Older apps don't write it,
+  and the package keeps its own routing for them. Needs a new package
+  release (0.2.0) to reach people.
 
 ## What was already there
 
