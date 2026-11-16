@@ -486,7 +486,7 @@ export function AgentCard({
             )}
           </div>
           {/* Under the name: what's left to connect (each gone once it's connected). */}
-          {inSetup && <SetupList setup={setup!} onOpenRequest={id => onOpenRequest?.(id)} onSuggest={id => onOpenRequest?.(id, true)} onStart={startable ? () => setState('active') : undefined} someoneElse={viewOnly ? agent.owner || 'Its owner' : null} />}
+          {inSetup && <SetupList setup={setup!} running={state !== 'stopped'} onOpenRequest={id => onOpenRequest?.(id)} onSuggest={id => onOpenRequest?.(id, true)} onStart={startable ? () => setState('active') : undefined} someoneElse={viewOnly ? agent.owner || 'Its owner' : null} />}
         </header>
         <div className="card-charts">
           {/* Their time frame, as "Runs · this week" says it beside them. */}

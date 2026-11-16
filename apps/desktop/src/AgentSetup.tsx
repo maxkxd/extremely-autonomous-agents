@@ -33,12 +33,14 @@ export function SetupList({
   onSuggest,
   onStart,
   someoneElse = null,
+  running = false,
 }: {
   setup: AgentSetup;
   onOpenRequest: (id: number) => void;
   onSuggest?: (id: number) => void; // Suggest alternative: the request, with its reply box ready
   onStart?: () => void; // ready: what the last item's Start does (the card's Start)
   someoneElse?: string | null;
+  running?: boolean; // already active or on standby: Start is over
 }) {
   // Connected ones stay, marked Complete - seeing them tick off is the point. Once
   // all are, they slide and fade off and one last item is left: start it. It never
@@ -55,6 +57,9 @@ export function SetupList({
     return () => window.clearTimeout(t);
   }, [setup.ready]);
   if (!setup.items.length) return null;
+  // Ready only means the connectors are done. Start stays up until the agent is
+  // still waiting — a running one already has Stop, and this row would sit beside it.
+  if (gone && running) return null;
   if (gone)
     return (
       <div className="setup-list">

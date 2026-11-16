@@ -55,7 +55,11 @@ export type SetupItem = { name: string; requestId: number; stars: number; connec
 export type AgentSetup = { items: SetupItem[]; building: number; progress: number; ready: boolean };
 
 export async function setups(): Promise<Record<string, AgentSetup>> {
-  const agents = all<{ agent_id: string }>('SELECT agent_id FROM agent_state WHERE setup = 1').map(r => r.agent_id);
+  // Start is only for an agent that is still stopped. One already running (or on
+  // standby) left setup, even if a path set its state without clearing the flag —
+  // otherwise the card keeps "Start the agent" beside Stop.
+  exec("UPDATE agent_state SET setup = NULL WHERE setup = 1 AND state != 'stopped'");
+  const agents = all<{ agent_id: string }>("SELECT agent_id FROM agent_state WHERE setup = 1 AND state = 'stopped'").map(r => r.agent_id);
   if (!agents.length) return {};
   const connected = new Set((await listIntegrations()).filter(i => i.connected).map(i => i.id));
   const out: Record<string, AgentSetup> = {};

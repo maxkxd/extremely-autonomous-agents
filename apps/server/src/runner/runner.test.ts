@@ -932,6 +932,14 @@ test('a new agent in setup is ready once every connector is connected, and waits
   assert.deepEqual({ ...one<{ state: string; setup: number | null }>('SELECT state, setup FROM agent_state WHERE agent_id = ?', 'zz-setup') }, { state: 'stopped', setup: 1 });
 });
 
+test('an agent already running does not keep the Start row', async () => {
+  const { setups } = await import('./setup.js');
+  exec("INSERT INTO agent_state (agent_id, state, setup, updated_at) VALUES ('zz-running', 'active', 1, 0)");
+  exec("INSERT INTO requests (agent_id, what, why, status, created_at, setup, service) VALUES ('zz-running', 'Connect GitHub', 'x', 'done', 0, 1, 'github')");
+  assert.equal((await setups())['zz-running'], undefined);
+  assert.equal(one<{ setup: number | null }>('SELECT setup FROM agent_state WHERE agent_id = ?', 'zz-running')?.setup ?? null, null);
+});
+
 test('a setup connector is rated 1-5 before it goes to the person, whichever way it goes', () => {
   const id = Number(exec("INSERT INTO requests (agent_id, what, why, created_at, stage, setup) VALUES ('zz-rate', 'Set up Gmail', 'x', 0, 'engineer', 1)").lastInsertRowid);
   const row = () => one<Parameters<typeof rate>[0]>('SELECT * FROM requests WHERE id = ?', id)!;

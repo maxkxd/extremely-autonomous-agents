@@ -39,7 +39,7 @@ export function resumeDue(now: number): string[] {
   const due = Object.entries(all).filter(([, at]) => at <= now).map(([id]) => id);
   if (!due.length) return [];
   for (const id of due) {
-    run("UPDATE agent_state SET state = 'active', updated_at = ? WHERE agent_id = ? AND state != 'active'", now, id);
+    run("UPDATE agent_state SET state = 'active', setup = NULL, updated_at = ? WHERE agent_id = ? AND state != 'active'", now, id);
     delete all[id];
   }
   setSetting(RESUME_AT, all);
@@ -84,6 +84,8 @@ export const SELF_SETTINGS: ToolDef[] = [
         if (!Number.isFinite(until) || until <= ctx.now()) throw new Error('until is a date-time in the future, like 2026-11-09T09:00.');
       }
       run('UPDATE agent_state SET state = ?, updated_at = ? WHERE agent_id = ?', state, ctx.now(), ctx.agent.id);
+      // Standby leaves "stopped", so the card's Start row ends, same as a person resuming it.
+      if (state !== 'stopped') run('UPDATE agent_state SET setup = NULL WHERE agent_id = ?', ctx.agent.id);
       const all = getSetting<Record<string, number>>(RESUME_AT, {});
       if (until) all[ctx.agent.id] = until;
       else delete all[ctx.agent.id];

@@ -54,9 +54,26 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
   const [openId, setOpenId] = useState<string | null>(null);
   // Events' webhook addresses and the tunnel (docs/events.md), kept in step with the list.
   const [events, setEvents] = useLastSeen<{ tunnel: TunnelState; events: EventInfo[] }>('integrations:events', { tunnel: { status: 'off', url: null, error: null }, events: [] });
+  // Disconnected just now. A list fetched before the disconnect landed still says
+  // connected, and would put "Disconnect" back until a reload.
+  const gone = useRef(new Set<string>());
+  const listed = useRef(0);
+  const apply = (v: IntegrationsView): IntegrationsView => ({
+    ...v,
+    integrations: v.integrations.map(i => (gone.current.has(i.id) || (i.keyFrom && gone.current.has(i.keyFrom.id)) ? { ...i, connected: false } : i)),
+  });
   const refresh = () => {
-    getEvents().then(setEvents, () => {});
-    return getIntegrations().then(setView, e => setError((e as Error).message));
+    const gen = ++listed.current;
+    getEvents().then(e => { if (gen === listed.current) setEvents(e); }, () => {});
+    return getIntegrations().then(v => {
+      if (gen !== listed.current) return;
+      for (const i of v.integrations) if (!i.connected) gone.current.delete(i.id);
+      setView(apply(v));
+    }, e => { if (gen === listed.current) setError((e as Error).message); });
+  };
+  const onDisconnected = (id: string) => {
+    gone.current.add(id);
+    setView(v => (v ? apply(v) : v));
   };
   useEffect(() => {
     refresh();
@@ -88,7 +105,7 @@ export function Integrations({ onOpenApproval, focus, onFocused }: { onOpenAppro
           {isAdmin() && <CodePlugins />}
           {isAdmin() && view.integrations.some(i => i.events.some(e => e.webhook)) && <WebhookTunnel tunnel={events.tunnel} onChange={t => setEvents(v => ({ ...v, tunnel: t }))} />}
           {shown.map(i => (
-            <IntegrationRow key={i.id} i={i} refresh={refresh} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} events={events.events} />
+            <IntegrationRow key={i.id} i={i} refresh={refresh} onDisconnected={onDisconnected} open={openId === i.id} setOpen={o => setOpenId(o ? i.id : null)} onOpenApproval={onOpenApproval} events={events.events} />
           ))}
           <AddMcp refresh={refresh} open={openId === 'add'} setOpen={o => setOpenId(o ? 'add' : null)} />
         </ul>
@@ -134,7 +151,7 @@ function ServiceMark({ id }: { id: string }) {
   );
 }
 
-type RowProps = { i: IntegrationView; refresh: () => void; open: boolean; setOpen: (o: boolean) => void; onOpenApproval: (id: string) => void; events: EventInfo[] };
+type RowProps = { i: IntegrationView; refresh: () => void; onDisconnected: (id: string) => void; open: boolean; setOpen: (o: boolean) => void; onOpenApproval: (id: string) => void; events: EventInfo[] };
 
 // Not connected and it failed: what it said, and that the Agency Engineer is on it -
 // the person doesn't have to report it (a sign-in that never came back has no message).
@@ -146,10 +163,12 @@ const failedLine = (i: IntegrationView) =>
 // A service you sign in to, or one that takes a key.
 const IntegrationRow = (p: RowProps) => (p.i.signIn ? <SignInRow {...p} /> : <KeyRow {...p} />);
 
-function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps) {
+function KeyRow({ i, refresh, onDisconnected, open, setOpen, onOpenApproval, events }: RowProps) {
   const [key, setKey] = useState('');
   // Disconnect and Remove take it away from every agent using it: a second click says so first.
   const [sure, setSure] = useState<'disconnect' | 'remove' | null>(null);
+  // Set on mouse down, before the row's blur can clear the confirm.
+  const arm = useRef(false);
   // A fields sign-in: what's typed, by field (saved secrets start blank and are kept if left so).
   const [vals, setVals] = useState<Record<string, string>>({});
   const fieldsReady = !!i.fields?.every(f => f.optional || f.saved || (vals[f.name] ?? f.value ?? '').trim());
@@ -222,8 +241,20 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
         ) : i.connected ? (
           <>
             <ApproveButton i={i} onOpenApproval={onOpenApproval} />
-            <span onBlur={() => setSure(null)}>
-              <SpinButton spinning={false} onClick={() => (sure === 'disconnect' ? (setSure(null), run(() => disconnectIntegration(i.id))) : setSure('disconnect'))}>
+            <span
+              onMouseDown={() => { arm.current = sure === 'disconnect'; }}
+              onBlur={() => { if (!arm.current) setSure(s => (s === 'disconnect' ? null : s)); }}
+            >
+              <SpinButton spinning={busy} onClick={() => {
+                if (arm.current) {
+                  arm.current = false;
+                  setSure(null);
+                  void run(async () => {
+                    await disconnectIntegration(i.id);
+                    onDisconnected(i.id);
+                  });
+                } else setSure('disconnect');
+              }}>
                 {sure === 'disconnect' ? 'Disconnect for every agent?' : 'Disconnect'}
               </SpinButton>
             </span>
@@ -354,9 +385,10 @@ function KeyRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps)
 // A service you sign in to (OAuth, e.g. Gmail): your own OAuth client (made
 // once in the service's console, steps shown), then its sign-in page in a
 // window. The server tests it the moment it lands; this waits for that.
-function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowProps) {
+function SignInRow({ i, refresh, onDisconnected, open, setOpen, onOpenApproval, events }: RowProps) {
   const signIn = i.signIn!;
   const [sure, setSure] = useState(false); // Disconnect asks once more: every agent using it loses it
+  const arm = useRef(false);
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [busy, setBusy] = useState(false);
@@ -438,8 +470,20 @@ function SignInRow({ i, refresh, open, setOpen, onOpenApproval, events }: RowPro
         {i.connected ? (
           <>
             <ApproveButton i={i} onOpenApproval={onOpenApproval} />
-            <span onBlur={() => setSure(false)}>
-              <SpinButton spinning={false} onClick={() => (sure ? (setSure(false), act(() => disconnectIntegration(i.id))) : setSure(true))}>
+            <span
+              onMouseDown={() => { arm.current = sure; }}
+              onBlur={() => { if (!arm.current) setSure(false); }}
+            >
+              <SpinButton spinning={busy} onClick={() => {
+                if (arm.current) {
+                  arm.current = false;
+                  setSure(false);
+                  void act(async () => {
+                    await disconnectIntegration(i.id);
+                    onDisconnected(i.id);
+                  });
+                } else setSure(true);
+              }}>
                 {sure ? 'Disconnect for every agent?' : 'Disconnect'}
               </SpinButton>
             </span>
