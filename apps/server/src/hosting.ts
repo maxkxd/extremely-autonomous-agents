@@ -8,7 +8,7 @@ import { DATA_DIR } from './paths.js';
 import { getSetting, setSetting } from './runner/db.js';
 import { deleteSecret, getSecret, setSecret } from './vault.js';
 import { HERE_HEADER } from './access.js';
-import { relayState, startRelay, stopRelay } from './relay.js';
+import { moveRelay, relayState, startRelay, stopRelay } from './relay.js';
 import { connectionBaseUrl, list as listConnections } from './models/connections.js';
 
 // Hosting an organization (docs/architecture.md, "Accounts and organizations").
@@ -120,14 +120,20 @@ export async function startHosting(h: Hosting) {
   const was = hosting();
   if (was && was.orgId !== h.orgId) throw new Error(`This computer already hosts ${was.orgName}.`);
   if (!was) setSetting(`hosting:${h.orgId}:share_ai`, true);
+  // Our backend moved to a new address (its issuer): the organization's agency
+  // starts again trusting it, and the relay connects there (docs/backend-hosting.md).
+  const moved = !!was && !was.self && !h.self && was.issuer !== h.issuer;
   setSetting('hosting', h);
   const publicKey = await hostKey(h.orgId);
   if (!child) {
     stopping = false;
     await launch(h);
+  } else if (moved) {
+    console.log(`[${h.orgName}] our backend is now ${h.issuer}: starting again.`);
+    child.kill(); // its exit starts it again, with the new address
   }
   // Registered before (started again): reachable by members straight away. Self-hosted: at its own address.
-  if (!h.self) void startRelay(h);
+  if (!h.self) void (moved ? moveRelay(h) : startRelay(h));
   return { publicKey };
 }
 

@@ -431,6 +431,11 @@ export async function initAccount() {
   state.signIn = config?.signIn ?? null;
   state.issuer = config?.issuer ?? BACKEND;
   state.hosting = hosting.hosting;
+  // Our backend says it is now reached at another address (it moved host): the
+  // organization hosted here follows, or members' tokens stop being accepted.
+  const h = state.hosting;
+  if (config?.issuer && h && !h.self && h.issuer !== config.issuer)
+    void local('/api/hosting/start', { orgId: h.orgId, orgName: h.orgName, issuer: config.issuer }).then(() => { if (state.hosting) state.hosting.issuer = config.issuer; }, () => {});
   if (state.signIn) await refreshMe().catch(() => {});
   // Signed in: the email you sign in with is the one your agents reach you at.
   const email = accountEmail();

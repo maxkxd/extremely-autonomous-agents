@@ -49,6 +49,8 @@ All from the environment: `.env` locally (gitignored), Railway's **Variables** i
 
 ## Railway
 
+Where it runs now, its address (api.extremely.agency) and how to redeploy: [docs/backend-hosting.md](../../docs/backend-hosting.md).
+
 1. New project → **Deploy from GitHub repo** → this repo. In the service's Settings, set **Root Directory** to `apps/backend`. Railway runs `npm start`.
 2. **+ New → Database → PostgreSQL**. In the backend service's Variables, add `DATABASE_URL` as a reference to the database's `DATABASE_URL`.
 3. Add the Clerk variables, `ORG_TOKEN_PRIVATE_KEY` (run `npm run keygen` locally and paste the line straight into Railway), `PUBLIC_URL` and `NODE_ENV=production`.
