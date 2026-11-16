@@ -522,3 +522,28 @@ test('pictures reach the model: MCP image content, and only the last few are sen
   keepRecentImages(msgs, 3);
   assert.deepEqual(msgs.map(m => (m.role === 'tool' ? m.results[0].images?.length ?? 0 : -1)), [0, 0, 1, 1, 1]);
 });
+
+test("upload_file takes a finished film straight from the studios on this computer - nothing outside them", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const home = mkdtempSync(join(tmpdir(), 'eaa-home-'));
+  const was = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME };
+  process.env.USERPROFILE = home;
+  process.env.HOME = home;
+  try {
+    mkdirSync(join(home, 'LaunchStudio', 'renders', 'demo-16x9'), { recursive: true });
+    writeFileSync(join(home, 'LaunchStudio', 'renders', 'demo-16x9', 'demo-16x9.mp4'), 'FILMDATA');
+    const c = ctx('r-studio');
+    await call('open', { url: 'https://example.com/compose' }, c);
+    const from = b.calls.length;
+    await call('upload_file', { ref: 1, path: '~/LaunchStudio/renders/demo-16x9/demo-16x9.mp4' }, c).catch(() => {});
+    const sent = b.calls.slice(from).some(x => JSON.stringify(x.params).includes(Buffer.from('FILMDATA').toString('base64')));
+    assert.ok(sent, "the film's bytes went into the page");
+    await assert.rejects(call('upload_file', { ref: 1, path: '~/LaunchStudio/../secrets.txt' }, c), /outside the studio folder/);
+    await assert.rejects(call('upload_file', { ref: 1, path: '~/Documents/notes.txt' }, c), /in your workspace/, 'any other ~ path is only ever looked for inside the workspace');
+    await runEnded('r-studio');
+  } finally {
+    process.env.USERPROFILE = was.USERPROFILE;
+    process.env.HOME = was.HOME;
+  }
+});

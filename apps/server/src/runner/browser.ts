@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { lookup } from 'node:dns/promises';
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { basename, dirname, extname, join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, extname, join, normalize, relative } from 'node:path';
 import { CdpPage, FRAME_BASE, KEYS, modifierBits, type Bounds, type CdpConn, type MouseButton, type MouseOpts, type Rect } from './cdp.js';
 import { browserConn, listBrowsers, managedProfile, onBrowserOffline, onBrowserOnline, type LinkedBrowser } from './browser-link.js';
 import { cantOpen, createProfile, failedRecently, openProfile, profilesAvailable, setOnlineSource } from './agent-profiles.js';
@@ -2419,11 +2419,26 @@ function toolsFor(prefix: string, actTier: 'T0' | 'T1', where: string): ToolDef[
 // Files to upload: one from the agent's workspace, or one from the public web, kept
 // for the run in a folder of its own. The browser gets its contents, not a path: it
 // may be on another computer than the agency.
-const UPLOAD_MAX_MB = 10;
+// Videos for posts are what pushed this up: a 60-second launch film is 10-20 MB, and
+// Bluesky, Mastodon and X all take that. The file goes into the page in one message,
+// well under the link's frame size.
+const UPLOAD_MAX_MB = 40;
+// The agency's own studios render on this computer, outside any workspace: a film
+// finished in Launch Studio or Video Studio is attached straight from there
+// ("~/LaunchStudio/renders/<project>/<file>.mp4") - no copying, no hosting it first.
+const STUDIOS = ['LaunchStudio', 'VideoStudio'];
+function studioFile(path: string): string | null {
+  const m = /^~[\/](LaunchStudio|VideoStudio)[\/](.+)$/.exec(path.trim());
+  if (!m || !STUDIOS.includes(m[1])) return null;
+  const root = join(homedir(), m[1]);
+  const full = normalize(join(root, m[2]));
+  if (relative(root, full).startsWith('..') || full === root) throw new Error('That path is outside the studio folder.');
+  return full;
+}
 async function workspaceFile(agentId: string, path: unknown) {
-  const full = inWorkspace(agentId, path);
+  const full = studioFile(String(path ?? '')) ?? inWorkspace(agentId, path);
   const st = await stat(full).catch(() => null);
-  if (!st?.isFile()) throw new Error(`No file at ${String(path)} in your workspace.`);
+  if (!st?.isFile()) throw new Error(`No file at ${String(path)}${studioFile(String(path ?? "")) ? "" : " in your workspace"}.`);
   if (st.size > UPLOAD_MAX_MB * 1_048_576) throw new Error(`${String(path)} is over ${UPLOAD_MAX_MB} MB.`);
   return full;
 }
@@ -2557,11 +2572,11 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
     {
       id: 'signed_in_browser.upload_file',
       tier: 'T1',
-      description: `Attach a file to a numbered upload field in ${where} - or to the button or label that opens one ("Upload logo"): a file from your workspace (path), or one on the public web (url, e.g. the logo on your website). Up to ${UPLOAD_MAX_MB} MB.`,
+      description: `Attach a file to a numbered upload field in ${where} - or to the button or label that opens one ("Upload logo"): a file from your workspace or a finished film from Launch Studio / Video Studio on this computer (path), or one on the public web (url, e.g. the logo on your website). Up to ${UPLOAD_MAX_MB} MB - a post's video goes in this way, no hosting needed.`,
       schema: obj(
         {
           ref: { type: 'number', description: 'The upload field, or the button that opens it, from the last page you saw' },
-          path: { type: 'string', description: 'A file in your workspace, e.g. "kit/logo.svg"' },
+          path: { type: 'string', description: 'A file in your workspace, e.g. "kit/logo.svg" - or a finished film from the studios on this computer, e.g. "~/LaunchStudio/renders/croonzo-read-it-16x9/croonzo-read-it-16x9.mp4"' },
           url: { type: 'string', description: 'Or a file on the public web, https://...' },
           browser: BROWSER_ARG,
         },
@@ -2588,7 +2603,7 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       schema: obj(
         {
           ref: { type: 'number', description: 'The drop zone, from the last page you saw' },
-          path: { type: 'string', description: 'A file in your workspace, e.g. "kit/logo.png"' },
+          path: { type: 'string', description: 'A file in your workspace, e.g. "kit/logo.png" - or a file from the studios on this computer, e.g. "~/LaunchStudio/renders/<project>/<file>.mp4"' },
           url: { type: 'string', description: 'Or a file on the public web, https://...' },
           browser: BROWSER_ARG,
         },
