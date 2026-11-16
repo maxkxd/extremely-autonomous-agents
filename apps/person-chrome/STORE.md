@@ -6,7 +6,7 @@ Unpacked id, from the `key` in `manifest.json` (development only): `cakbmeciolcl
 
 The stores assign their own ids on the first upload. The app does not use the id to talk to the extension, so that is fine. Write the published ids here after each store accepts the package.
 
-- Chrome Web Store id:
+- Chrome Web Store id: `akdfgnfhkbamelmmhlfkgebomokcdmim`. 0.2.0 submitted 2026-11-16, in-depth review (broad host access). Listing: https://chromewebstore.google.com/detail/akdfgnfhkbamelmmhlfkgebomokcdmim
 - Edge Add-ons id: `lpnecgpodgaabojgddcjhchajceboild` (Store ID 0RDCKCMC0WBM). 0.2.0 submitted 2026-11-16, in review. Listing: https://microsoftedge.microsoft.com/addons/detail/lpnecgpodgaabojgddcjhchajceboild
 - Privacy policy URL: `https://extremely.agency/privacy#browser-extension` (section 6a of the site's privacy policy). Update that section to match `PRIVACY.md` before 0.2.0 is submitted.
 

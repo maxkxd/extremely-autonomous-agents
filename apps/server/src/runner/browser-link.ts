@@ -316,9 +316,12 @@ export function removeBrowser(n: number): void {
   void persist().catch(() => {});
 }
 
+// The extension's store listings (both submitted 2026-11-16). The env vars override either.
+const CHROME_LISTING = 'https://chromewebstore.google.com/detail/akdfgnfhkbamelmmhlfkgebomokcdmim';
+const EDGE_LISTING = 'https://microsoftedge.microsoft.com/addons/detail/lpnecgpodgaabojgddcjhchajceboild';
 export const storeLinks = (): { chrome?: string; edge?: string } => ({
-  ...(process.env.EAA_STORE_CHROME ? { chrome: process.env.EAA_STORE_CHROME } : {}),
-  ...(process.env.EAA_STORE_EDGE ? { edge: process.env.EAA_STORE_EDGE } : {}),
+  chrome: process.env.EAA_STORE_CHROME || CHROME_LISTING,
+  edge: process.env.EAA_STORE_EDGE || EDGE_LISTING,
 });
 
 // --- The WebSocket endpoint ---------------------------------------------------------------
