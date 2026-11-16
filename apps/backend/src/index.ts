@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createApp } from './app.js';
-import { connect, migrate } from './db.js';
+import { connect, migrate, whenDbIsUp } from './db.js';
 import { createAuth } from './tokens.js';
 import { attachRelay } from './relay.js';
 
@@ -9,7 +9,9 @@ import { attachRelay } from './relay.js';
 // trust. Settings come from the environment (apps/backend/README.md).
 
 const db = await connect();
-await migrate(db);
+// On a deploy the database can come up after us: wait for it (up to 3 minutes)
+// rather than crash and fail the health check.
+await whenDbIsUp(() => migrate(db));
 const auth = await createAuth();
 const port = Number(process.env.PORT ?? 5180);
 const server = createServer(createApp(db, auth));
