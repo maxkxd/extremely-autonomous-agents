@@ -18,7 +18,7 @@ Tests: `node --test apps/person-chrome/test/`.
 
 ## Where to submit
 
-1. Chrome: [Chrome Web Store developer dashboard](https://chrome.google.com/webstore/devconsole). A Google account and a one-time $5 developer registration. Upload the zip as a new version of the existing item (or a new item before the first one is published), fill the tabs below, submit for review. Expect a longer review than 0.1.0: this version asks for `debugger`, cookies and every site.
+1. Chrome: [Chrome Web Store developer dashboard](https://chrome.google.com/webstore/devconsole). A Google account and a one-time $5 developer registration. Upload the zip as a new version of the existing item (or a new item before the first one is published), fill the tabs below, submit for review. Expect a longer review than 0.1.0: this version asks for `debugger` and every site.
 2. Edge: [Partner Center, Edge extensions](https://partner.microsoft.com/dashboard/microsoftedge/overview). No fee. Upload the same zip, fill the same answers, Publish. Certification is usually within seven business days. Edge rejects a listing whose name or description says Chrome. This package says "this browser".
 
 On both, set visibility to Public when you want every customer to find it. Hidden or unlisted still needs the same review, and only people with the link can install it.
@@ -49,23 +49,21 @@ Lets your EXTREMELY agents use this browser: they work in their own collapsed ta
 
 **Web navigation.** Notices when an agent tab opens a pop-up or a new tab (for example a "Sign in with..." window), so that tab belongs to the agent too and joins its group.
 
-**Cookies.** The agency reads and sets cookies in this browser's profile when it asks (DevTools' `Storage.getCookies` and `Storage.setCookies`), so its agents can carry a sign-in from this browser into their other work. Cookies go only to the agency the person paired with, over that pairing's connection, and only when it asks.
-
 **Downloads.** Lists files downloaded by agent tabs and reads a finished one (up to 50 MB) for the agency. Downloads the person makes in their own tabs are not listed.
 
 **Storage.** Remembers the pairings (agency address and a token), the pause switch and this browser's name, and, for the current browser session only, which tabs are agent tabs.
 
 **Alarms.** Every 30 seconds, reconnects a pairing whose connection dropped, because Chrome stops idle extension workers.
 
-**Host access (`<all_urls>`).** The agents' tabs can be on any site the agent's job needs, and cookies and downloads are per site. The only content script is on `http://127.0.0.1` and `http://localhost`, and it acts only on EXTREMELY's pairing page (`/browser/connect`), to pair this browser. A pairing link for an agency on another computer asks the person before it pairs.
+**Host access (`<all_urls>`).** The agents' tabs can be on any site the agent's job needs, and downloads are per site. The only content script is on `http://127.0.0.1` and `http://localhost`, and it acts only on EXTREMELY's pairing page (`/browser/connect`), to pair this browser. A pairing link for an agency on another computer asks the person before it pairs.
 
-**Not requested.** `webRequest`, `history`, `bookmarks`, `scripting`, native messaging.
+**Not requested.** `cookies`, `webRequest`, `history`, `bookmarks`, `scripting`, native messaging.
 
 ## Privacy tab
 
 Remote code: No. All logic is in the package. The agency sends DevTools commands (data), not code to load.
 
-Data the extension handles: in the agents' own tabs, page content and screenshots the agent asks for; addresses and titles of those tabs; cookies of this browser profile when the agency asks; files downloaded by agent tabs.
+Data the extension handles: in the agents' own tabs, page content and screenshots the agent asks for; addresses and titles of those tabs; files downloaded by agent tabs.
 
 That data goes only to the EXTREMELY agency the person paired with: on the same computer (`ws://127.0.0.1`), or the person's own hosted agency over `wss`. It is not sold, not used for advertising, and not sent anywhere else.
 

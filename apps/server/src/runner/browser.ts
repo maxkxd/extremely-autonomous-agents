@@ -332,11 +332,13 @@ async function openSession(ctx: RunCtx, n: number, key: string): Promise<Session
   const sh = onlineShared(n);
   if (!sh) throw noBrowser(ctx);
   sh.runs.add(ctx.runId);
+  // Counted as opening until it's in sessions: in between (the guard is a round trip)
+  // a sweep from another run's end would take the new tab for a stray and close it.
   sh.opening++;
   let s: Session;
   try {
     // In the run's own tab group, titled with the agent's name.
-    const page = await CdpPage.open(sh.cdp, BOUNDS, 'about:blank', { eaaGroup: { key: ctx.runId, title: ctx.agent.name } }).finally(() => sh.opening--);
+    const page = await CdpPage.open(sh.cdp, BOUNDS, 'about:blank', { eaaGroup: { key: ctx.runId, title: ctx.agent.name } });
     try {
       await page.guard(allowUrl());
     } catch (e) {
@@ -344,11 +346,13 @@ async function openSession(ctx: RunCtx, n: number, key: string): Promise<Session
       throw e;
     }
     s = { runId: ctx.runId, browser: n, page, cdp: page, agent: { id: ctx.agent.id, name: ctx.agent.name } };
+    sessions.set(key, s);
   } catch (e) {
     sh.runs.delete(ctx.runId);
     throw e;
+  } finally {
+    sh.opening--;
   }
-  sessions.set(key, s);
   lastUsed.set(ctx.agent.id, n);
   if (endedRuns.has(ctx.runId)) {
     await closeSession(key);
@@ -501,11 +505,12 @@ async function setAside(ctx: RunCtx, n: number, ref: number) {
   sessions.delete(key);
   recordings.get(key)?.halt();
   recordings.delete(key);
+  // Its own user of the browser, so the run ending doesn't close the tab under it - set
+  // before anything is awaited, or a sweep in between would close it as nobody's.
+  sessions.set(own, { ...s, runId: own, others: [] });
+  shared.get(n)?.runs.add(own);
   // The run's other tabs aren't the waiting click's: they go now, as at the run's end.
   await dropOthers(s);
-  // Its own user of the browser, so the run ending doesn't close the tab under it.
-  sessions.set(own, { ...s, runId: own });
-  shared.get(n)?.runs.add(own);
   waitingPages.set(id, { key: own, runId: ctx.runId, since: Date.now() });
   setTimeout(() => void checkWaiting(), UNCLAIMED_MS + 1_000).unref();
   void checkWaiting();
@@ -574,14 +579,16 @@ async function keepForPerson(ctx: RunCtx, n: number, what: string, why: string) 
   sessions.delete(key);
   recordings.get(key)?.halt();
   recordings.delete(key);
-  await dropOthers(s);
-  // The person's now, not the agent's to keep open.
-  if (keptOpen.delete(page.targetId)) saveKept();
-  release(page.targetId);
-  sh.runs.delete(ctx.runId);
+  // Kept from here on, before anything is awaited: out of sessions and not yet kept, a
+  // sweep in between would close the very tab the person is about to get.
   const k: Kept = { id: newPageId(), browser: n, targetId: page.targetId, site, url, request: r.id, agent: s.agent, runId: ctx.runId, since: Date.now(), captcha, openers: s.openers ?? [] };
   kept.set(k.id, k);
+  // The person's now, not the agent's to keep open.
+  keptOpen.delete(page.targetId);
   saveKept();
+  release(page.targetId);
+  sh.runs.delete(ctx.runId);
+  await dropOthers(s);
   // Off the debugger, so Google, Cloudflare and hCaptcha see a browser nobody is driving.
   await page.detach();
   await sh.cdp.send('EAA.groupTab', { targetId: page.targetId, ...WAITING, collapsed: false }).catch(e => console.error(`[browser] Browser ${n}: moving the kept tab to "Waiting on you" failed:`, (e as Error).message));
@@ -598,11 +605,17 @@ async function keepGoogle(ctx: RunCtx, n: number, what: string, why: string) {
   if ([...kept.values()].some(k => k.request === r.id && k.google)) return `Request #${r.id} is already open for this, with Google's sign-in waiting in its tab in ${label(n)}. You'll hear when they're done.`;
   const sh = onlineShared(n);
   if (!sh) throw noBrowser(ctx);
-  const { targetId } = await sh.cdp.send<{ targetId: string }>('Target.createTarget', { url: GOOGLE_SIGN_IN, background: true, eaaGroup: WAITING });
-  await sh.cdp.send('EAA.groupTab', { targetId, ...WAITING, collapsed: false }).catch(() => {});
-  const k: Kept = { id: newPageId(), browser: n, targetId, site: 'accounts.google.com', url: GOOGLE_SIGN_IN, request: r.id, agent: { id: ctx.agent.id, name: ctx.agent.name }, runId: ctx.runId, since: Date.now(), google: true, openers: [] };
-  kept.set(k.id, k);
+  let k: Kept;
+  sh.opening++; // until it's kept: a sweep meanwhile would close it as nobody's
+  try {
+    const { targetId } = await sh.cdp.send<{ targetId: string }>('Target.createTarget', { url: GOOGLE_SIGN_IN, background: true, eaaGroup: WAITING });
+    k = { id: newPageId(), browser: n, targetId, site: 'accounts.google.com', url: GOOGLE_SIGN_IN, request: r.id, agent: { id: ctx.agent.id, name: ctx.agent.name }, runId: ctx.runId, since: Date.now(), google: true, openers: [] };
+    kept.set(k.id, k);
+  } finally {
+    sh.opening--;
+  }
   saveKept();
+  await sh.cdp.send('EAA.groupTab', { targetId: k.targetId, ...WAITING, collapsed: false }).catch(() => {});
   watchKept();
   return `${r.isNew ? `Filed request #${r.id}` : `Request #${r.id} is open for this`}: Google's sign-in is waiting for the person in a normal tab of ${label(n)}, which nothing drives, so Google takes it. Its button brings them to it. ${label(n)} is still yours meanwhile: carry on. You'll hear when they're done; after that "Sign in with Google" on any site is yours (choose the account).`;
 }
@@ -714,10 +727,17 @@ export async function openPersonTab(raw: unknown, url: string) {
   const n = Number(raw) || pairedBrowsers().find(b => connOf(b.n))?.n;
   const sh = n ? onlineShared(n) : null;
   if (!sh) throw new Error(n ? `Browser ${n} isn't online right now.` : NO_BROWSER);
-  const { targetId } = await sh.cdp.send<{ targetId: string }>('Target.createTarget', { url: checkUrl(url).toString(), background: false, eaaGroup: WAITING });
-  await sh.cdp.send('Target.activateTarget', { targetId }).catch(() => {});
-  await sh.cdp.send('EAA.releaseTab', { targetId }).catch(() => {});
-  return targetId;
+  // Counted as opening until released: until then it's an agent tab no run has, which
+  // a sweep would close under the person.
+  sh.opening++;
+  try {
+    const { targetId } = await sh.cdp.send<{ targetId: string }>('Target.createTarget', { url: checkUrl(url).toString(), background: false, eaaGroup: WAITING });
+    await sh.cdp.send('Target.activateTarget', { targetId }).catch(() => {});
+    await sh.cdp.send('EAA.releaseTab', { targetId }).catch(e => console.error(`[browser] Browser ${n}: handing the opened tab to the person failed:`, (e as Error).message));
+    return targetId;
+  } finally {
+    sh.opening--;
+  }
 }
 
 const UNCONFIRMED = "Not confirmed: the sign-up may never have finished, so the account may not exist. Sign in with it yourself before you use it or ask a person to sign in with it; if the site says there's no such account, it was never made - sign up again, or if the site blocks sign-ups, ask the person to create it themselves (show_person on the filled-in sign-up page). Once it works, confirm_password.";
@@ -1633,15 +1653,20 @@ async function tabsTool(ctx: RunCtx, a: Record<string, unknown>): Promise<string
       page = s.page;
     } else {
       await stopIfWindowClosed(s);
-      sh.opening++;
+      sh.opening++; // until it's the run's (s.others): a sweep meanwhile would close it
       try {
         page = await CdpPage.open(sh.cdp, BOUNDS, 'about:blank', { eaaGroup: { key: ctx.runId, title: ctx.agent.name } });
+        try {
+          await page.guard(allowUrl());
+        } catch (e) {
+          await page.close();
+          throw e;
+        }
+        s.others = [...(s.others ?? []), page];
+        switchTo(s, page);
       } finally {
         sh.opening--;
       }
-      await page.guard(allowUrl());
-      s.others = [...(s.others ?? []), page];
-      switchTo(s, page);
     }
     await page.goto(url);
     await settle(page, 5_000, 1_500);
@@ -1664,6 +1689,19 @@ async function tabsTool(ctx: RunCtx, a: Record<string, unknown>): Promise<string
     // A tab kept from an earlier run: the debugger goes back on it, and it's this run's too.
     const page = await CdpPage.attach(sh.cdp, k!.targetId);
     await page.guard(allowUrl());
+    // Off the debugger it wasn't guarded: the page may have gone anywhere since (a
+    // redirect to this computer or its network). Its next navigations are guarded again.
+    const at = await page.url().catch(() => '');
+    let onLan = false;
+    try {
+      if (/^https?:/i.test(at)) checkUrl(at);
+    } catch {
+      onLan = true;
+    }
+    if (onLan) {
+      await page.detach();
+      throw new Error(`That tab is on an address that isn't on the public web now (${at.slice(0, 200)}), so it's left alone. Close it (tabs close), or open what you need in a new one.`);
+    }
     k!.page = page;
     let run = current();
     if (!run) {

@@ -16,9 +16,7 @@ In the tabs the agents open (and pop-ups those tabs open), never in your own tab
 - those tabs' addresses and titles
 - files those tabs download
 
-For this browser profile, only when your agency asks:
-
-- cookies, read and set, so your agents can stay signed in to the sites they work on
+It never reads or hands over this browser profile's cookies as a whole: the agents use the sign-ins you have the way a person does, by working on the site.
 
 The extension never attaches to, reads, lists or closes a tab it did not open for an agent. A page handed to you (a CAPTCHA, a code, a sign-in) has the debugger detached before you see it. **Pause agents** in the toolbar popup detaches it from every tab and stops new agent tabs until you resume.
 

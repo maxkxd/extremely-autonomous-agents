@@ -304,6 +304,11 @@ test('tabs: open, list, switch, close; a tab kept open outlives the run, the swe
   const next = ctx('r-tabs-2');
   list = await call('tabs', {}, next);
   assert.match(list, /1\. .*\/two {3}\(kept open from an earlier run until .*: An export is still running\)/);
+  // Off the debugger it went to this computer's network: not taken back while it's there.
+  b.tabs.get(two)!.url = 'http://192.168.1.1/admin';
+  await assert.rejects(call('tabs', { action: 'switch', tab: 1 }, next), /isn't on the public web now/);
+  assert.equal(b.tabs.get(two)!.attached, false);
+  b.tabs.get(two)!.url = 'https://example.com/two';
   await call('tabs', { action: 'switch', tab: 1 }, next);
   assert.equal(b.tabs.get(two)!.attached, true);
   await runEnded('r-tabs-2');

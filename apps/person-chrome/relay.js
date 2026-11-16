@@ -2,8 +2,8 @@
 // that only has the agents' own tabs in it. The contract is docs/browser-extension.md.
 //
 // Everything with a sessionId goes to chrome.debugger. The few browser-level methods
-// the server needs (Target.*, Browser.*, Storage.*, EAA.*) are answered here from the
-// tabs, tabGroups, windows, cookies and downloads APIs.
+// the server needs (Target.*, Browser.*, EAA.*) are answered here from the tabs,
+// tabGroups, windows and downloads APIs.
 //
 // It takes the chrome API object as a parameter so Node tests can hand it a fake one.
 // `send(agencyUrl, frame)` puts one frame on that agency's connection.
@@ -25,65 +25,38 @@ const GROUP_COLORS = new Set(['grey', 'blue', 'red', 'yellow', 'green', 'pink', 
 // included). Only these act on the tab itself or its own frames.
 const SESSION_TARGET_OK = new Set(['Target.setAutoAttach', 'Target.detachFromTarget', 'Target.getTargetInfo']);
 
+// Also refused inside a session: these read, set or clear the cookies of the whole
+// profile - every site the person is signed in to - not the tab's. The agency never
+// needs them, and a pairing (one with an agency on another computer included) must
+// not be able to take every sign-in the person has in one call.
+const SESSION_PROFILE_WIDE = new Set([
+  'Network.getAllCookies',
+  'Network.clearBrowserCookies',
+  'Storage.getCookies',
+  'Storage.setCookies',
+  'Storage.clearCookies',
+]);
+
+// Where an agent tab may be sent (createTarget, Page.navigate): web pages and a blank
+// one. Not file:// (with "Allow access to file URLs" on, that would read the person's
+// disk), chrome:// or another extension's pages. The agency only ever asks for these.
+export function navigable(url) {
+  const u = String(url ?? '');
+  if (u === '' || u === 'about:blank') return true;
+  try {
+    const p = new URL(u).protocol;
+    return p === 'http:' || p === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 export function tabIdOf(id) {
   const m = /^t:(\d+)$/.exec(String(id ?? ''));
   return m ? Number(m[1]) : null;
 }
 
 export const targetIdOf = tabId => 't:' + tabId;
-
-// chrome.cookies -> DevTools Network.Cookie.
-export function toCdpCookie(c) {
-  const name = String(c.name ?? '');
-  const value = String(c.value ?? '');
-  const out = {
-    name,
-    value,
-    domain: c.domain,
-    path: c.path || '/',
-    expires: c.session || c.expirationDate == null ? -1 : c.expirationDate,
-    size: name.length + value.length,
-    httpOnly: !!c.httpOnly,
-    secure: !!c.secure,
-    session: !!c.session,
-    priority: 'Medium',
-    sameParty: false,
-    sourceScheme: c.secure ? 'Secure' : 'NonSecure',
-    sourcePort: c.secure ? 443 : 80,
-  };
-  const sameSite = { strict: 'Strict', lax: 'Lax', no_restriction: 'None' }[c.sameSite];
-  if (sameSite) out.sameSite = sameSite;
-  if (c.partitionKey?.topLevelSite) out.partitionKey = { topLevelSite: c.partitionKey.topLevelSite, hasCrossSiteAncestor: !!c.partitionKey.hasCrossSiteAncestor };
-  return out;
-}
-
-// DevTools Network.CookieParam -> chrome.cookies.set details.
-// DevTools writes a host-only cookie's domain without a leading dot and a domain
-// cookie's with one; chrome.cookies.set makes a host-only cookie when `domain` is
-// left out. So a cookie read with getCookies comes back exactly as it was.
-export function toChromeCookie(p) {
-  if (!p || !p.name) throw new Error('A cookie needs a name.');
-  const domain = String(p.domain || '');
-  const secure = p.sameSite === 'None' ? true : !!p.secure; // SameSite=None is refused without Secure
-  let url = p.url;
-  if (!url) {
-    if (!domain) throw new Error(`Cookie ${p.name} needs a url or a domain.`);
-    const path = p.path && String(p.path).startsWith('/') ? p.path : '/';
-    url = `${secure ? 'https' : 'http'}://${domain.replace(/^\./, '')}${path}`;
-  }
-  const spec = { url, name: String(p.name), value: String(p.value ?? ''), secure, httpOnly: !!p.httpOnly };
-  if (domain.startsWith('.')) spec.domain = domain;
-  if (p.path) spec.path = String(p.path);
-  const sameSite = { Strict: 'strict', Lax: 'lax', None: 'no_restriction' }[p.sameSite];
-  if (sameSite) spec.sameSite = sameSite;
-  if (typeof p.expires === 'number' && p.expires > 0) spec.expirationDate = p.expires;
-  if (p.partitionKey) {
-    spec.partitionKey = typeof p.partitionKey === 'string'
-      ? { topLevelSite: p.partitionKey }
-      : { topLevelSite: p.partitionKey.topLevelSite, hasCrossSiteAncestor: !!p.partitionKey.hasCrossSiteAncestor };
-  }
-  return spec;
-}
 
 export function fileUrl(path) {
   const p = String(path).replace(/\\/g, '/');
@@ -227,6 +200,8 @@ export function createRelay(chromeApi, send, opts = {}) {
     if (method.startsWith('Target.') && (!SESSION_TARGET_OK.has(method) || (method === 'Target.getTargetInfo' && params.targetId))) {
       throw fail(`Not supported in the extension: ${method} inside a session`);
     }
+    if (SESSION_PROFILE_WIDE.has(method)) throw fail(`Not supported in the extension: ${method} (it reaches every site's cookies)`);
+    if (method === 'Page.navigate' && !navigable(params.url)) throw fail(`Not allowed in the extension: ${String(params.url).slice(0, 100)} isn't a web address`);
     if (paused) throw fail(PAUSED);
     const top = tabIdOf(sessionId);
     let target;
@@ -255,8 +230,6 @@ export function createRelay(chromeApi, send, opts = {}) {
       case 'Browser.getWindowForTarget': return windowForTarget(agency, p);
       case 'Browser.setWindowBounds': return setWindowBounds(agency, p);
       case 'Browser.getVersion': return version();
-      case 'Storage.getCookies': return getCookies();
-      case 'Storage.setCookies': return setCookies(p);
       case 'EAA.groupTab': return groupTab(agency, p);
       case 'EAA.tabGroup': return tabGroup(agency, p);
       case 'EAA.releaseTab': return releaseTab(agency, p);
@@ -308,6 +281,7 @@ export function createRelay(chromeApi, send, opts = {}) {
 
   async function createTarget(agency, p) {
     if (paused) throw fail(PAUSED);
+    if (!navigable(p.url)) throw fail(`Not allowed in the extension: ${String(p.url).slice(0, 100)} isn't a web address`);
     const group = p.eaaGroup && p.eaaGroup.key != null ? p.eaaGroup : null;
     const windowId = await windowFor(agency, group);
     // newWindow / background / bounds are DevTools' way to keep a page out of sight. Here
@@ -484,31 +458,6 @@ export function createRelay(chromeApi, send, opts = {}) {
     return { protocolVersion: '1.3', product: m ? 'Chrome/' + m[1] : 'Chrome', revision: '', userAgent: ua, jsVersion: '', extensionVersion: opts.version || '', extensionProtocol: PROTOCOL };
   }
 
-  async function getCookies() {
-    let list;
-    try {
-      list = await c.cookies.getAll({ partitionKey: {} }); // partitioned ones too
-    } catch {
-      list = await c.cookies.getAll({});
-    }
-    return { cookies: list.map(toCdpCookie) };
-  }
-
-  async function setCookies(p) {
-    const cookies = Array.isArray(p.cookies) ? p.cookies : [];
-    const failed = [];
-    for (const cp of cookies) {
-      try {
-        const done = await c.cookies.set(toChromeCookie(cp));
-        if (!done) throw new Error('refused');
-      } catch (e) {
-        failed.push(`${cp?.name}@${cp?.domain || cp?.url} (${e?.message || e})`);
-      }
-    }
-    if (failed.length) throw new Error(`Could not set ${failed.length} of ${cookies.length} cookies: ${failed.slice(0, 5).join(', ')}`);
-    return {};
-  }
-
   async function groupTab(agency, p) {
     const tabId = own(agency, p.targetId);
     if (p.key == null) throw fail('EAA.groupTab needs a key.');
@@ -642,6 +591,10 @@ export function createRelay(chromeApi, send, opts = {}) {
     if (tabId == null || state.tabs[tabId]) return;
     const op = state.tabs[openerId];
     if (!op) return;
+    // Only from a tab an agent is driving (debugger on). A tab kept for the person, or one
+    // an agent left open, is off the debugger and in the person's hands: what they open
+    // from it is theirs, and must never be listed to the agency or closed as its stray.
+    if (!state.attached[openerId]) return;
     state.tabs[tabId] = { agency: op.agency, groupKey: op.groupKey, opener: Number(openerId), url: tab?.pendingUrl || tab?.url || '', title: tab?.title || '' };
     void save();
     const now = (await c.tabs.get(tabId).catch(() => null)) || tab;

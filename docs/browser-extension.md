@@ -57,7 +57,7 @@ Sent without a `sessionId`:
 
 | Method | Extension does |
 |---|---|
-| `Target.createTarget {url, newWindow?, background?, eaaGroup?: {key, title, color?}}` | `chrome.tabs.create({url, active: false})` in the agent window (below), added to the tab group for `eaaGroup.key`. The group is created collapsed, titled `eaaGroup.title`, and reused while it has tabs. Returns `{targetId: "t:<id>"}`. The tab becomes an **agent tab**. |
+| `Target.createTarget {url, newWindow?, background?, eaaGroup?: {key, title, color?}}` | `url` must be `http(s)` or `about:blank`. `chrome.tabs.create({url, active: false})` in the agent window (below), added to the tab group for `eaaGroup.key`. The group is created collapsed, titled `eaaGroup.title`, and reused while it has tabs. Returns `{targetId: "t:<id>"}`. The tab becomes an **agent tab**. |
 | `Target.attachToTarget {targetId, flatten: true}` | `chrome.debugger.attach({tabId}, "1.3")`, only for an agent tab (else an error "Not an agent tab"). Returns `{sessionId: "t:<id>"}`. Attaching an already-attached tab returns the same id. |
 | `Target.detachFromTarget {sessionId}` | `chrome.debugger.detach`. The tab stays open and stays an agent tab. |
 | `Target.closeTarget {targetId}` | `chrome.tabs.remove`, agent tabs only. Returns `{success}`. |
@@ -67,19 +67,18 @@ Sent without a `sessionId`:
 | `Target.setDiscoverTargets` | Accepted, no-op. Events are always sent (below). |
 | `Browser.getWindowForTarget` / `Browser.setWindowBounds` | Resolve `{windowId, bounds}` from `chrome.windows`, and apply size to the agent window only. |
 | `Browser.getVersion` | `{product, userAgent, protocolVersion: "1.3", extensionVersion}` |
-| `Storage.getCookies {browserContextId?}` / `Storage.setCookies {cookies}` | `chrome.cookies.getAll({})` / `chrome.cookies.set`, in DevTools cookie shape. |
 | `EAA.groupTab {targetId, key, title, color?, collapsed?}` | Move an agent tab into another group, for example a "Waiting on you" group that isn't collapsed. |
 | `EAA.tabGroup {targetId}` | Read-only: the group an agent tab is in, `{groupId, title, collapsed, color, windowId, active}`, or `{groupId: -1, active}` when it's in none. |
 | `EAA.releaseTab {targetId}` | Stop treating it as an agent tab. It leaves its group, is detached and stays open. This is what the person keeps. |
 | `EAA.downloads {since}` | Downloads started from agent tabs since a time: `{items:[{id, url, filename, state, bytes, startTime, tabTargetId?}]}`. |
 | `EAA.downloadFile {id}` | `{base64, mime, filename}` for a finished download (up to 50 MB), read through `fetch` of its file URL where allowed. If it isn't readable, an error saying so. |
-| Anything else without `sessionId` | `error` "Not supported in the extension: <method>". `Target.createBrowserContext` included. |
+| Anything else without `sessionId` | `error` "Not supported in the extension: <method>". `Target.createBrowserContext`, `Storage.getCookies` and `Storage.setCookies` included. |
 
 **Agent window:**
 - Agent tabs open in the browser's last-focused normal window, so collapsed groups sit quietly at the end of the strip.
 - If no normal window exists, the extension creates one with `focused: false` (unfocused, minimized when the platform allows).
 
-**Popups:** a tab or window opened by an agent tab (`chrome.tabs.onCreated` with an `openerTabId` that's an agent tab, or `chrome.webNavigation.onCreatedNavigationTarget`) becomes an agent tab too, joins its opener's group, and is reported to the server.
+**Popups:** a tab or window opened by an agent tab the debugger is on (`chrome.tabs.onCreated` with an `openerTabId` that's an attached agent tab, or `chrome.webNavigation.onCreatedNavigationTarget`) becomes an agent tab too, joins its opener's group, and is reported to the server. What's opened from a detached agent tab (a page kept for the person, a tab kept open) is the person's: never listed, so never swept.
 - Chrome opens a `target=_blank` tab in front. Unless the tab in front before it was an agent tab (one shown to the person), the extension gives the front back to the person's tab and collapses the group again.
 
 ### Events the extension sends without a `sessionId`
@@ -93,15 +92,17 @@ Sent without a `sessionId`:
 
 `chrome.debugger.sendCommand(source, method, params)`, where `source` is `{tabId}` or `{tabId, sessionId}`. The result or error is passed back. `chrome.debugger.onEvent` is forwarded with the right session id.
 
-What `chrome.debugger` can't do is reported as an error. The server must never depend on it:
+What `chrome.debugger` can't do, or what would reach past the tab, is reported as an error. The server must never depend on it:
 - `Browser.*`
-- `Target.createTarget` from inside a session
+- `Target.*` other than `setAutoAttach`, `detachFromTarget` and `getTargetInfo` (for the tab itself)
 - `Target.createBrowserContext`
+- the whole profile's cookies: `Network.getAllCookies`, `Network.clearBrowserCookies`, `Storage.getCookies`, `Storage.setCookies`, `Storage.clearCookies`
+- `Page.navigate` to anything but `http(s)` or `about:blank` (no `file://`, `chrome://`)
 
 ### What the extension never does
 
 - It never attaches to, reads, lists or closes a tab that isn't an agent tab.
-- It never sends cookies anywhere except to the agency it's paired with, and only when the agency asks (`Storage.getCookies`).
+- It never hands over the profile's cookies: no agency, paired or not, can read every site's sign-in in one call.
 - It keeps no remote code. All logic is in the package.
 
 ### State the extension keeps

@@ -1,7 +1,7 @@
 import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
-import { __leaveAloneForTest, __setBrowserConnForTest, agentTabCount, CONNECT_A_BROWSER, GOOGLE_SIGN_IN, hasKeptPage, keptCaptcha, NO_BROWSER, onPersonDone, pageViewForTests, showKeptPage, SIGNED_IN_TOOLS } from './browser.js';
+import { __leaveAloneForTest, __setBrowserConnForTest, agentTabCount, cleanUpBrowsers, CONNECT_A_BROWSER, GOOGLE_SIGN_IN, hasKeptPage, keptCaptcha, NO_BROWSER, onPersonDone, pageViewForTests, showKeptPage, SIGNED_IN_TOOLS } from './browser.js';
 import type { CdpConn } from './cdp.js';
 import { all, one, resetDbForTests, run as exec } from './db.js';
 import { runEnded, type RunCtx } from './tools.js';
@@ -298,4 +298,39 @@ test('tick_security_check: the tab is left alone first, and a check that passes 
   assert.equal(b1.tabs.get(id)!.attached, true);
   await runEnded('r-tick');
   assert.equal(b1.tabs.has(id), false);
+});
+
+// Another run ending sweeps the browser for agent tabs nobody has (closeStrayPages).
+// One that lands while a tab is still being opened or kept must leave that tab alone.
+class Racy extends FakeBrowser {
+  sweepAt = '';
+  async send<T = any>(method: string, params: Record<string, any> = {}, sessionId?: string): Promise<T> {
+    if (method === this.sweepAt) {
+      this.sweepAt = '';
+      await cleanUpBrowsers();
+    }
+    return super.send<T>(method, params, sessionId);
+  }
+}
+test('a sweep while a tab is being opened, or kept for the person, never closes it', async () => {
+  const b = new Racy();
+  await __setBrowserConnForTest(7, b, 'Chrome - Race');
+  const c = ctx('r-race', agent('zz-ext-r', 'Racer'));
+  // Between the tab being made and it being the run's: its guard (Fetch.enable).
+  b.sweepAt = 'Fetch.enable';
+  await call('open', { url: 'https://example.com/', browser: 7 }, c);
+  assert.equal(b.sweepAt, '', 'the sweep ran');
+  assert.equal(b.of('Target.closeTarget').length, 0, 'the new tab was not swept');
+  // The same for a second tab (tabs open).
+  b.sweepAt = 'Fetch.enable';
+  await call('tabs', { action: 'open', url: 'https://example.com/two', browser: 7 }, c);
+  assert.equal(b.of('Target.closeTarget').length, 0);
+  assert.equal(b.tabs.size, 2);
+  // Google's sign-in tab, between being made and being kept.
+  b.sweepAt = 'EAA.groupTab';
+  await call('show_person', { what: 'Sign in to Google for the agents', google: true, browser: 7 }, c);
+  assert.equal(b.of('Target.closeTarget').length, 0, 'the Google tab was not swept');
+  await runEnded('r-race');
+  assert.deepEqual([...b.tabs.values()].map(t => t.url), ['https://accounts.google.com/'], "the run's tabs close; the kept one stays");
+  await __setBrowserConnForTest(7, null);
 });

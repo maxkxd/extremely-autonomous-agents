@@ -123,6 +123,28 @@ test('pairing with a code works once; the code is spent', async () => {
   removeBrowser(ok.browser);
 });
 
+test('a run of wrong codes cancels the open ones: no guessing a code from the network', async () => {
+  const { code } = pairCode();
+  for (let i = 0; i < 10; i++) {
+    const g = new Ext();
+    await g.open();
+    g.send({ type: 'pair', code: 'ZZZZ-ZZZZ', protocol: 1, version: '0.2.0', browser: 'chrome' });
+    assert.equal((await g.next()).type, 'error');
+    await g.closed;
+  }
+  const late = new Ext();
+  await late.open();
+  late.send({ type: 'pair', code, protocol: 1, version: '0.2.0', browser: 'chrome' });
+  const f = await late.next();
+  assert.equal(f.type, 'error', 'the real code was cancelled too');
+  await late.closed;
+  // A new code works again.
+  const { ext, n } = await pair();
+  ext.ws.close();
+  await ext.closed;
+  removeBrowser(n);
+});
+
 test('an expired code is refused', async () => {
   _testing.setCodeTtlMs(1);
   const { code } = pairCode();

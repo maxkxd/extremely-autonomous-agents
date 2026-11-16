@@ -97,11 +97,25 @@ const normalizeCode = (c: unknown) => {
   return s.length === 8 ? `${s.slice(0, 4)}-${s.slice(4)}` : '';
 };
 
+// Wrong codes since the last one was made. The link is reachable from the network
+// (the local agency listens on every interface, a hosted one on the internet), and a
+// guessed code would pair a fake "browser" that agents then type store passwords
+// into. So a run of wrong guesses spends every open code: a guesser gets at most this
+// many tries per Connect a browser, and the person just presses it again.
+const MAX_WRONG_CODES = 10;
+let wrongCodes = 0;
+
 // One use: taking it deletes it, whether or not the pairing then works.
 function takeCode(raw: unknown): 'ok' | 'expired' | 'unknown' {
   const code = normalizeCode(raw);
   const until = code ? codes.get(code) : undefined;
-  if (until === undefined) return 'unknown';
+  if (until === undefined) {
+    if (++wrongCodes >= MAX_WRONG_CODES && codes.size) {
+      logError(`${wrongCodes} wrong pairing codes: every open code is cancelled`);
+      codes.clear();
+    }
+    return 'unknown';
+  }
   codes.delete(code);
   return until > Date.now() ? 'ok' : 'expired';
 }
@@ -136,6 +150,7 @@ export function pairCode(base?: string): { code: string; url: string; link: stri
     code = `${s.slice(0, 4)}-${s.slice(4)}`;
   } while (codes.has(code));
   codes.set(code, Date.now() + codeTtlMs);
+  wrongCodes = 0;
   const pub = process.env.EAA_PUBLIC_URL?.trim();
   const url = pub ? wsAddress(pub) : base ? wsAddress(base) : `ws://127.0.0.1:${linkPort()}${PATH}`;
   const n = process.env.EAA_ORG_NAME?.trim() || 'EXTREMELY';

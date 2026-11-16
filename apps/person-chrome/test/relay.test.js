@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRelay, toCdpCookie, toChromeCookie, fileUrl, PAUSED } from '../relay.js';
+import { createRelay, fileUrl, navigable, PAUSED } from '../relay.js';
 import { setup, tick } from './fake-chrome.js';
 
 const A = 'ws://127.0.0.1:5175/api/browser-link';
@@ -116,6 +116,7 @@ test('getTargets lists only this agency\'s agent tabs, with openerId', async () 
   await call(B, 'Target.createTarget', { url: 'https://other.example.com/' });
   const opener = f.tabs.get(101);
   assert.ok(opener);
+  await call(A, 'Target.attachToTarget', { targetId: 't:101' });
   const popup = await f.chrome.tabs.create({ url: 'https://example.com/popup', windowId: 1 });
   await f.chrome.tabs.onCreated.fire({ ...popup, openerTabId: 101 });
 
@@ -161,6 +162,7 @@ test('the person\'s tabs, and another agency\'s, are refused for everything', as
 test('popups of agent tabs become agent tabs in the opener\'s group, reported once', async () => {
   const { f, call, events } = await setup(createRelay);
   await call(A, 'Target.createTarget', { url: 'https://example.com/', eaaGroup: group });
+  await call(A, 'Target.attachToTarget', { targetId: 't:100' });
   const popup = await f.chrome.tabs.create({ url: 'https://accounts.example.com/', windowId: 1 });
   await f.chrome.tabs.onCreated.fire({ ...popup, openerTabId: 100 });
   await f.chrome.webNavigation.onCreatedNavigationTarget.fire({ sourceTabId: 100, tabId: popup.id, url: 'https://accounts.example.com/' });
@@ -177,11 +179,26 @@ test('popups of agent tabs become agent tabs in the opener\'s group, reported on
   assert.equal(events(A, 'Target.targetCreated').length, 2);
 });
 
+test("what the person opens from a tab kept for them (debugger off) is theirs, never the agency's", async () => {
+  const { f, call, events } = await setup(createRelay);
+  await call(A, 'Target.createTarget', { url: 'https://example.com/signup', eaaGroup: group });
+  await call(A, 'Target.attachToTarget', { targetId: 't:100' });
+  await call(A, 'Target.detachFromTarget', { sessionId: 't:100' }); // kept for the person
+  const theirs = await f.chrome.tabs.create({ url: 'https://example.com/terms', windowId: 1, active: true });
+  await f.chrome.tabs.onCreated.fire({ ...theirs, openerTabId: 100 });
+  await f.chrome.webNavigation.onCreatedNavigationTarget.fire({ sourceTabId: 100, tabId: theirs.id, url: 'https://example.com/terms' });
+  assert.equal(events(A, 'Target.targetCreated').length, 1, 'not reported');
+  assert.deepEqual((await call(A, 'Target.getTargets')).result.targetInfos.map(t => t.targetId), ['t:100'], 'not listed, so never swept');
+  assert.match((await call(A, 'Target.closeTarget', { targetId: 't:' + theirs.id })).error.message, /Not an agent tab/);
+  assert.ok(f.tabs.has(theirs.id));
+});
+
 test('a popup that opens in front gives the front back to the person and stays in the collapsed group', async () => {
   const { f, call } = await setup(createRelay);
   const person = f.personTab();
   await f.chrome.tabs.onActivated.fire({ tabId: person, windowId: 1 });
   const agent = Number((await call(A, 'Target.createTarget', { url: 'https://example.com/', eaaGroup: group })).result.targetId.slice(2));
+  await call(A, 'Target.attachToTarget', { targetId: 't:' + agent });
   const gid = f.tabs.get(agent).groupId;
   // target=_blank from the agent tab: Chrome opens it in front, and expands the group.
   f.tabs.get(person).active = false;
@@ -201,6 +218,7 @@ test('a popup from an agent tab the person is looking at stays in front', async 
   const person = f.personTab();
   await f.chrome.tabs.onActivated.fire({ tabId: person, windowId: 1 });
   const agent = Number((await call(A, 'Target.createTarget', { url: 'https://example.com/', eaaGroup: group })).result.targetId.slice(2));
+  await call(A, 'Target.attachToTarget', { targetId: 't:' + agent });
   await call(A, 'Target.activateTarget', { targetId: 't:' + agent }); // shown to the person
   const popup = await f.chrome.tabs.create({ url: 'https://example.com/terms', windowId: 1, active: true });
   f.tabs.get(agent).active = false;
@@ -247,35 +265,36 @@ test('url and title changes of agent tabs become targetInfoChanged', async () =>
   assert.equal(changed[0].params.targetInfo.title, 'Hello');
 });
 
-test('cookies: chrome shape to DevTools shape and back', () => {
-  const chromeCookie = { name: 'sid', value: 'abc', domain: '.example.com', hostOnly: false, path: '/', secure: true, httpOnly: true, sameSite: 'no_restriction', session: false, expirationDate: 1900000000, storeId: '0' };
-  const cdp = toCdpCookie(chromeCookie);
-  assert.deepEqual(cdp, { name: 'sid', value: 'abc', domain: '.example.com', path: '/', expires: 1900000000, size: 6, httpOnly: true, secure: true, session: false, priority: 'Medium', sameParty: false, sourceScheme: 'Secure', sourcePort: 443, sameSite: 'None' });
-  assert.deepEqual(toChromeCookie(cdp), { url: 'https://example.com/', name: 'sid', value: 'abc', secure: true, httpOnly: true, domain: '.example.com', path: '/', sameSite: 'no_restriction', expirationDate: 1900000000 });
-
-  // Host-only and a session cookie: no domain given to chrome, no expiry.
-  const hostOnly = toCdpCookie({ name: 'a', value: '1', domain: 'app.example.com', hostOnly: true, path: '/x', secure: false, httpOnly: false, sameSite: 'unspecified', session: true });
-  assert.equal(hostOnly.expires, -1);
-  assert.equal(hostOnly.sameSite, undefined);
-  assert.deepEqual(toChromeCookie(hostOnly), { url: 'http://app.example.com/x', name: 'a', value: '1', secure: false, httpOnly: false, path: '/x' });
-
-  // SameSite=None is always Secure; a url is used as given.
-  assert.equal(toChromeCookie({ name: 'n', value: 'v', url: 'https://example.com/', sameSite: 'None' }).secure, true);
-  assert.throws(() => toChromeCookie({ name: 'n', value: 'v' }), /needs a url or a domain/);
+test("no profile-wide cookies: not at the browser level, not inside a tab's session", async () => {
+  const { f, call } = await setup(createRelay);
+  f.cookies.push({ name: 'sid', value: 'abc', domain: '.bank.example', path: '/', secure: true, httpOnly: true, session: true });
+  for (const m of ['Storage.getCookies', 'Storage.setCookies']) {
+    const r = await call(A, m, { cookies: [] });
+    assert.match(r.error.message, /Not supported in the extension/, m);
+  }
+  await call(A, 'Target.createTarget', { url: 'https://example.com/' });
+  await call(A, 'Target.attachToTarget', { targetId: 't:100' });
+  for (const m of ['Network.getAllCookies', 'Network.clearBrowserCookies', 'Storage.getCookies', 'Storage.setCookies', 'Storage.clearCookies']) {
+    const r = await call(A, m, {}, 't:100');
+    assert.match(r.error.message, /Not supported in the extension/, m);
+  }
+  assert.equal(f.calls.sendCommand.length, 0);
+  assert.equal(f.calls.cookiesSet.length, 0);
 });
 
-test('Storage.getCookies and setCookies go through chrome.cookies', async () => {
+test('agent tabs go to web pages only: never file://, chrome:// or javascript:', async () => {
+  for (const ok of ['', 'about:blank', 'https://example.com/', 'http://example.com/x']) assert.equal(navigable(ok), true, ok);
+  for (const bad of ['file:///C:/Users/x/secret.txt', 'chrome://settings', 'javascript:alert(1)', 'chrome-extension://abc/page.html', 'view-source:https://example.com/', 'not a url']) assert.equal(navigable(bad), false, bad);
   const { f, call } = await setup(createRelay);
-  f.cookies.push({ name: 'sid', value: 'abc', domain: '.example.com', path: '/', secure: true, httpOnly: true, sameSite: 'lax', session: true });
-  const got = await call(A, 'Storage.getCookies', {});
-  assert.equal(got.result.cookies[0].sameSite, 'Lax');
-  assert.equal(got.result.cookies[0].expires, -1);
-
-  const ok = await call(A, 'Storage.setCookies', { cookies: [{ name: 'x', value: '1', domain: '.example.com', path: '/' }] });
-  assert.deepEqual(ok.result, {});
-  assert.equal(f.calls.cookiesSet[0].domain, '.example.com');
-  const bad = await call(A, 'Storage.setCookies', { cookies: [{ name: 'bad', value: '1', domain: 'example.com' }, { name: 'y', value: '2', domain: 'example.com' }] });
-  assert.match(bad.error.message, /Could not set 1 of 2 cookies: bad@example.com/);
+  const c = await call(A, 'Target.createTarget', { url: 'file:///etc/passwd' });
+  assert.match(c.error.message, /isn't a web address/);
+  assert.equal(f.tabs.size, 0);
+  await call(A, 'Target.createTarget', { url: 'about:blank' });
+  await call(A, 'Target.attachToTarget', { targetId: 't:100' });
+  const n = await call(A, 'Page.navigate', { url: 'file:///C:/Users/x/secret.txt' }, 't:100');
+  assert.match(n.error.message, /isn't a web address/);
+  assert.equal(f.calls.sendCommand.length, 0);
+  assert.ok((await call(A, 'Page.navigate', { url: 'https://example.com/' }, 't:100')).result);
 });
 
 test('paused: no new tabs or attaches, attached tabs are let go, the agency hears', async () => {
