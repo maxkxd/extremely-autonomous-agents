@@ -145,6 +145,7 @@ async function quitClaudeDesktop() {
 // when it starts, and writes its own back while it runs), then opens it. Open:
 // restarted when the person said so (restart), else they're asked.
 async function addToClaudeDesktop(url: string, key: string, restart: boolean): Promise<'done' | 'needs-restart'> {
+  if (process.platform === 'linux') throw new Error('Claude Desktop has no Linux version. Connect Cursor instead, or use the agency from Claude Code.');
   const files = await claudeConfigs();
   if (!files.length) throw new Error("Claude Desktop isn't installed on this computer, or hasn't been opened yet. Install it from claude.com/download, open it once, then try again.");
   if (await claudeDesktopOpen()) {
