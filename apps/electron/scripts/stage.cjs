@@ -97,7 +97,11 @@ for (const arch of (process.env.EAA_EXTRA_ARCHS ?? '').split(',').map(a => a.tri
   const other = path.join(STAGE, `server-${arch}`);
   fs.mkdirSync(other, { recursive: true });
   for (const f of ['package.json', 'package-lock.json']) fs.copyFileSync(path.join(server, f), path.join(other, f));
-  run(`npm ci --omit=dev --no-audit --no-fund --cpu=${arch}`, other);
+  // --ignore-scripts: their binaries come prebuilt in per-processor packages
+  // (@esbuild/darwin-x64, @koromix/koffi-darwin-x64). koffi's install script checks
+  // its binary by loading it on this machine, which can't load another processor's,
+  // so it would fall back to compiling from source - for the wrong processor.
+  run(`npm ci --omit=dev --no-audit --no-fund --ignore-scripts --cpu=${arch}`, other);
   slim(path.join(other, 'node_modules'));
   fs.renameSync(path.join(other, 'node_modules'), path.join(STAGE, `node_modules-${arch}`));
   fs.rmSync(other, { recursive: true, force: true });
