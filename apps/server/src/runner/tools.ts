@@ -13,6 +13,7 @@ import type { Call, ToolImage, ToolSpec } from './providers.js';
 import { DATA_DIR } from '../paths.js';
 import { hasIntegration, repairingConnectionOf } from '../integrations/index.js';
 import { paceMine, queueMine, scheduleMine } from './action-queue.js';
+import { callEnded, callStarted, callTimeoutMs, toolTimedOut, withTimeout } from './watchdog.js';
 
 // The tools a run can call (docs/runner.md). Built-in agency tools work for
 // every agent; integration tools (web, email, GitHub...) are added one area
@@ -997,8 +998,20 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
     if (id === 'gmail.send_to_me') call = { ...call, args: { ...call.args, _to: (await ownerEmail(ctx.agent.id)) ?? undefined } };
     let images: ToolImage[] | undefined;
     let content: string;
-    if (impl.media) ({ text: content, images } = await impl.media(call.args, ctx));
-    else content = await impl.impl(call.args, ctx);
+    // Raced against its budget (watchdog.ts layer 1): a hung tool hands the model an
+    // error and the run goes on; counted as the tool failing, so one that keeps
+    // hanging reaches the Agency Engineer.
+    const budget = callTimeoutMs(id);
+    const slot = callStarted(ctx.runId, id, ctx.now());
+    let raced: Awaited<ReturnType<typeof withTimeout<{ text: string; images?: ToolImage[] }>>>;
+    try {
+      raced = await withTimeout(impl.media ? impl.media(call.args, ctx) : Promise.resolve(impl.impl(call.args, ctx)).then((text: string) => ({ text })), budget);
+    } finally {
+      callEnded(ctx.runId, slot, ctx.now());
+    }
+    if (!raced.ok) throw new Error(toolTimedOut(id, budget));
+    content = raced.value.text;
+    images = raced.value.images;
     healthOk(ctx.agent.id, id, ctx.now());
     let counted = n;
     // Only for an agent with real output besides files (Outreach: emails, the CRM);

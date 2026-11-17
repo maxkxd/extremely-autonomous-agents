@@ -1,3 +1,4 @@
+import { describeTrip, endWatch, touch, watchRun } from './watchdog.js';
 import { randomBytes } from 'node:crypto';
 import { listIds, readMeta } from '../files.js';
 import { loadPerson, loadProfile, profileForPrompt } from '../org.js';
@@ -392,6 +393,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   // What it holds that isn't connected is asked for (or closed, now it is).
   if (!BUILT_IN_IDS.includes(agent.id)) requestConnections(agent.id, agent.name, agent.tiers, startedAt, (a, t, k) => deps.wake(a, t as Trigger, k));
   const ctx: RunCtx = { agent, runId: id, level, now: deps.now, fleet: () => fleetOf(agent.id), wake: (a, t, k) => deps.wake(a, t as Trigger, k), person, signal };
+  watchRun(id, agent.id, deps.now(), signal);
   const resume = resumeFrom ? `\n\n${resumeText(resumeFrom)}` : '';
   const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task, person)}${resume}` }];
   let acts = 0;
@@ -491,6 +493,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
           });
           health = recordSuccess(health, c);
           used = c;
+          touch(id, 'the model', deps.now());
         } catch (e) {
           if (signal?.aborted) throw e;
           health = recordFailure(health, c, deps.now(), e instanceof ModelError ? e.kind : undefined);
@@ -544,8 +547,15 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   }
 
   await runEnded(id); // let go of anything the run held open (a browser)
+  // Stopped by the watchdog (watchdog.ts): a hung run, so a failure - and the agent
+  // is booked straight back in to carry on, since nobody is there to restart it.
+  const trip = endWatch(id);
+  if (trip) {
+    error = describeTrip(trip);
+    deps.wake(agent.id, 'self-booked', `${error} Pick up where that run left off: check what it already finished (your files, renders, open tasks and approvals) and carry on with the rest. If the same step hangs again, report it as a broken tool and work around it.`);
+  }
   // Stopped by a person: cut short on purpose, not a failure - no backoff.
-  const stopped = !!signal?.aborted;
+  const stopped = !!signal?.aborted && !trip;
   const status = stopped ? 'stopped' : error ? 'failed' : 'succeeded';
   const endedAt = deps.now();
   exec(

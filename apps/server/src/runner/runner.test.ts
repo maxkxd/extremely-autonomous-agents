@@ -1324,3 +1324,61 @@ test("Google's quota answers (403s) pause a service's tools like any rate limit,
   assert.equal(rateLimitPause('Google answered 429: RESOURCE_EXHAUSTED'), 60_000);
   assert.equal(rateLimitPause('Google answered 403: The caller does not have permission'), null);
 });
+
+test('watchdog: a hung model call is caught as idle, the run fails with why, and the agent is booked straight back in', async () => {
+  const { sweep, IDLE_MS } = await import('./watchdog.js');
+  setLevel(CHILL);
+  const controller = new AbortController();
+  const woken: [string, string, string][] = [];
+  // A model call that never answers until it's aborted.
+  const hung: Adapter = async ({ signal }) =>
+    new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new Error('aborted'))));
+  const started = Date.now();
+  const p = runAgent(agent(), 'scheduled', null, deps(hung, { wake: (a, t, k) => void woken.push([a, t, k]) }), controller.signal);
+  await new Promise(r => setTimeout(r, 30));
+  assert.equal(sweep(started + 60_000).length, 0, 'not idle yet');
+  const tripped = sweep(started + IDLE_MS + 60_000);
+  assert.equal(tripped.length, 1);
+  assert.equal(tripped[0].trip?.kind, 'idle');
+  controller.abort(); // what the scheduler's watchdogTick does
+  const r = await p;
+  assert.equal(r.status, 'failed');
+  assert.match(r.error ?? '', /Stopped by the watchdog: nothing happened for 20 min/);
+  assert.equal(woken.length, 1);
+  assert.deepEqual(woken[0].slice(0, 2), [ID, 'self-booked']);
+  assert.match(woken[0][2], /Pick up where that run left off/);
+});
+
+test('watchdog: a tool call in flight suspends idle detection, and the ceiling still catches a run that never ends', async () => {
+  const { watchRun, callStarted, callEnded, sweep, endWatch, IDLE_MS, CEILING_MS } = await import('./watchdog.js');
+  const t0 = 1_000_000;
+  watchRun('w1', 'a', t0);
+  const n = callStarted('w1', 'video.render', t0 + 1000);
+  assert.equal(sweep(t0 + IDLE_MS * 2).length, 0, 'a long tool call has its own deadline');
+  callEnded('w1', n, t0 + IDLE_MS * 2);
+  assert.equal(sweep(t0 + IDLE_MS * 2 + 60_000).length, 0);
+  const late = sweep(t0 + CEILING_MS + 1);
+  assert.equal(late.length, 1);
+  assert.equal(late[0].trip?.kind, 'ceiling');
+  endWatch('w1');
+});
+
+test('watchdog: a hung tool call times out with an error the model reads, and slow tools get a longer budget', async () => {
+  const { withTimeout, callTimeoutMs, TOOL_TIMEOUT_MS, toolTimedOut } = await import('./watchdog.js');
+  const never = new Promise<string>(() => {});
+  assert.deepEqual(await withTimeout(never, 20), { ok: false });
+  assert.deepEqual(await withTimeout(Promise.resolve('x'), 1000), { ok: true, value: 'x' });
+  assert.equal(callTimeoutMs('gmail.send_email'), TOOL_TIMEOUT_MS);
+  assert.ok(callTimeoutMs('video.render') > TOOL_TIMEOUT_MS);
+  assert.match(toolTimedOut('x.y', TOOL_TIMEOUT_MS), /did NOT finish.*run continues/);
+});
+
+test('watchdog: a run row left running with nothing behind it is swept to failed', async () => {
+  const { watchdogTick } = await import('./scheduler.js');
+  const now = Date.now();
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES ('ghost', 'nobody-here', 'scheduled', 0, 'running', ?)", now - 30 * 60_000);
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES ('fresh', 'nobody-here2', 'scheduled', 0, 'running', ?)", now - 60_000);
+  watchdogTick(now + 120_000);
+  assert.equal(one<{ status: string }>("SELECT status FROM runs WHERE id = 'ghost'")!.status, 'failed');
+  assert.equal(one<{ status: string }>("SELECT status FROM runs WHERE id = 'fresh'")!.status, 'running', 'a run just started is left alone');
+});

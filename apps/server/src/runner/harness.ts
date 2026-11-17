@@ -61,6 +61,14 @@ export async function claudeOnce(args: string[], prompt: string, cwd: string, si
     const child = cmd.shell
       ? spawn([shellQuote(cmd.bin), ...args.map(shellQuote)].join(' '), { cwd, env: claudeEnv(), windowsHide: true, signal, shell: true })
       : spawn(cmd.bin, args, { cwd, env: claudeEnv(), windowsHide: true, signal });
+    // Stopped (a person, or the watchdog finding it hung): on Windows the CLI runs
+    // under a shell, and killing the shell can leave Claude Code itself running -
+    // still spending the plan. Kill the whole process tree.
+    const killTree = () => {
+      if (process.platform === 'win32' && child.pid) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).on('error', () => {});
+    };
+    signal?.addEventListener('abort', killTree, { once: true });
+    child.on('close', () => signal?.removeEventListener('abort', killTree));
     let out = '';
     let err = '';
     child.stdout.on('data', d => (out += d));

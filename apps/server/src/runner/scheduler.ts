@@ -1,4 +1,5 @@
 import { listIds, readMeta } from '../files.js';
+import { describeTrip, endWatch, GRACE_MS, sweep, watched } from './watchdog.js';
 import { liveEvents, loadIntegrations, recheckStale } from '../integrations/index.js';
 import './web.js'; // registers the web tools
 import { accountsTick } from './browser.js'; // also registers the browser tools
@@ -142,6 +143,7 @@ export async function tick(deps: RunDeps = liveDeps) {
   if (ticking) return;
   ticking = true;
   try {
+    watchdogTick(deps.now());
     models = await availableModels();
     checks = await allChecks();
     await fillBuiltInModels().catch(() => {});
@@ -390,6 +392,36 @@ function start(agent: AgentDef, trigger: Trigger, task: string | null, deps: Run
     });
 }
 let slot = 0;
+
+// The watchdog (watchdog.ts): a run idle for 20 min, or past the 4-hour ceiling,
+// is aborted; one that doesn't let go within GRACE_MS is freed here and its row
+// marked failed, and its agent booked straight back in; a row left 'running'
+// with nothing behind it (its run lost without a restart) is swept the same way.
+// So no agent is ever held by a run that has stopped.
+let lastOrphanSweep = 0;
+export function watchdogTick(now: number) {
+  for (const w of sweep(now)) {
+    const entry = [...running.values()].find(r => r.controller.signal === w.signal);
+    console.error(`[watchdog] ${w.agentId} run ${w.runId}: ${w.trip ? describeTrip(w.trip) : ''}`);
+    entry?.controller.abort();
+  }
+  for (const w of watched()) {
+    if (!w.trip || now - w.trip.at < GRACE_MS) continue;
+    const key = [...running.entries()].find(([, r]) => r.controller.signal === w.signal)?.[0];
+    if (key) running.delete(key);
+    const why = `${describeTrip(w.trip)} It didn't let go when stopped, so it was cut loose.`;
+    exec("UPDATE runs SET status = 'failed', error = ?, ended_at = ? WHERE id = ? AND status = 'running'", why, now, w.runId);
+    endWatch(w.runId);
+    book(w.agentId, 'self-booked', `${why} Pick up where that run left off: check what it already finished and carry on with the rest.`, now);
+  }
+  if (now - lastOrphanSweep < 60_000) return;
+  lastOrphanSweep = now;
+  const live = new Set(watched().map(w => w.runId));
+  for (const r of all<{ id: string; agent_id: string; started_at: number }>("SELECT id, agent_id, started_at FROM runs WHERE status = 'running'")) {
+    if (live.has(r.id) || isRunning(r.agent_id) || now - r.started_at < 10 * 60_000) continue;
+    exec("UPDATE runs SET status = 'failed', error = 'The run was lost - nothing was running it any more.', ended_at = ? WHERE id = ? AND status = 'running'", now, r.id);
+  }
+}
 
 // Stop: the runs going now are cut short.
 export function abortRun(agentId: string) {
