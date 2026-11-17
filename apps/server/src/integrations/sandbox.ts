@@ -78,7 +78,7 @@ export async function buildPlugin(module: string, code: string, hash: string): P
 // programs the agency installed run with (programs.ts), those first on the PATH.
 const sandboxEnv = () => programEnv();
 
-type Done = { result?: string; error?: string; tools?: { id: string; tier: string; description: string; input: unknown; run: string }[] };
+type Done = { result?: string; images?: { data: string; mimeType: string }[]; error?: string; tools?: { id: string; tier: string; description: string; input: unknown; run: string }[] };
 
 // limits: a draft tried before a person approved it - reads (GET) only, and only
 // to its own service's hosts, so its key can't be sent anywhere else.

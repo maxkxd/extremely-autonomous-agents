@@ -60,3 +60,17 @@ test('declared folders must be specific', () => {
   assert.throws(() => declaredPath('relative/dir'), /absolute/);
   assert.match(declaredPath('~/Pictures/Morning Wallpaper'), /Pictures.Morning Wallpaper$/);
 });
+
+test('a tool can give back pictures with its text; anything else stays text', async () => {
+  const PICTURES = `export default { tools: [
+    { id: 'p.look', tier: 'T0', description: '', input: {}, run: async () => ({ text: 'a frame', images: [{ data: 'aGk=', mimeType: 'image/jpeg' }, { data: 5 }] }) },
+    { id: 'p.obj', tier: 'T0', description: '', input: {}, run: async () => ({ a: 1 }) },
+  ]};`;
+  const f = await buildPlugin('zz-pictures', PICTURES, 'beef'.repeat(16));
+  const look = await runSandboxed(f, perms, { op: 'run', tool: 'p.look', args: {} });
+  assert.equal(look.result, 'a frame');
+  assert.deepEqual(look.images, [{ data: 'aGk=', mimeType: 'image/jpeg' }]);
+  const obj = await runSandboxed(f, perms, { op: 'run', tool: 'p.obj', args: {} });
+  assert.equal(obj.result, '{"a":1}');
+  assert.equal(obj.images, undefined);
+});

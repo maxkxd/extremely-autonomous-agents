@@ -161,11 +161,11 @@ async function renewToken(id: string, auth: FieldsAuth, creds: Record<string, st
 // built-in modules say it their own way ("Gmail sign-in has expired..."): those too.
 export const REFUSED_TOKEN = /answered 401\b|invalid[_ ]token|token (has )?expired|sign-in has expired|unauthenticated/i;
 // getKey: keyOf, or a test's stand-in (renewing goes over the network).
-export async function withKey(
+export async function withKey<T = string>(
   integration: Integration,
-  run: (key: string | undefined) => Promise<string>,
+  run: (key: string | undefined) => Promise<T>,
   getKey: (id: string, def: Integration, fresh?: boolean) => Promise<string | undefined> = keyOf,
-): Promise<string> {
+): Promise<T> {
   const key = await getKey(integration.id, integration);
   try {
     return await run(key);
@@ -307,7 +307,20 @@ export function readsByName(name: string) {
 }
 const mcpTier = (integration: McpIntegration, t: McpTool): Tier => integration.tiers?.[t.name] ?? (t.readOnly || readsByName(t.name) ? 'T0' : 'T2');
 
-type Provider = { integration: Integration; call: (args: Record<string, unknown>) => Promise<string> };
+// A code tool may give back pictures with its text (ToolResultWithImages): the agent
+// sees them (ToolDef.media). Anything else is text. At most 6 pictures of up to 4 MB
+// each, png, jpeg, webp or gif.
+type Rich = { text: string; images: { data: string; mimeType: string }[] };
+const PICTURE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+function asRich(r: unknown): Rich {
+  if (r && typeof r === 'object' && Array.isArray((r as Rich).images)) {
+    const x = r as Rich;
+    const images = x.images.filter(i => i && typeof i.data === 'string' && i.data.length <= 4 * 1048576 * 1.37 && PICTURE_TYPES.has(String(i.mimeType))).slice(0, 6);
+    return { text: String(x.text ?? ''), images };
+  }
+  return { text: String(r ?? ''), images: [] };
+}
+type Provider = { integration: Integration; call: (args: Record<string, unknown>) => Promise<string | Rich> };
 
 // Every tool any integration offers, with who can serve it. For agents, one
 // being redrafted is its live version; for the engineer testing, the draft.
@@ -340,7 +353,7 @@ function providers(forAgents = false): Map<string, { def: Omit<ToolDef, 'impl'>;
       for (const tool of moduleOf(integration.module)?.tools ?? [])
         add(tool.id, { id: tool.id, tier: tool.tier, description: tool.description, schema: tool.input }, {
           integration,
-          call: async args => withKey(integration, key => tool.run(args, key, KIT)),
+          call: async args => asRich(await withKey<unknown>(integration, key => tool.run(args, key, KIT))),
         });
     } else {
       for (const t of states()[integration.id]?.tools ?? []) {
@@ -361,16 +374,25 @@ function providers(forAgents = false): Map<string, { def: Omit<ToolDef, 'impl'>;
 let registered: ToolDef[] = [];
 function register() {
   const defs: ToolDef[] = [];
-  for (const [id, { def, by }] of providers(true))
+  for (const [id, { def, by }] of providers(true)) {
+    const serve = (args: Record<string, unknown>) => {
+      const p = by.find(p => isLive(p.integration.id)) ?? by.find(p => isFree(p.integration));
+      if (!p) throw new Error(`No integration that provides ${id} is connected. File a request for one.`);
+      return p.call(args);
+    };
     defs.push({
       ...def,
       ready: () => by.some(p => canServe(p.integration)),
-      impl: args => {
-        const p = by.find(p => isLive(p.integration.id)) ?? by.find(p => isFree(p.integration));
-        if (!p) throw new Error(`No integration that provides ${id} is connected. File a request for one.`);
-        return p.call(args);
+      impl: async args => {
+        const r = await serve(args);
+        return typeof r === 'string' ? r : r.text;
+      },
+      media: async args => {
+        const r = await serve(args);
+        return typeof r === 'string' ? { text: r, images: [] } : r;
       },
     });
+  }
   const now = new Set(defs.map(d => d.id));
   unregisterTools(registered.filter(d => !now.has(d.id)));
   registerTools(defs);
@@ -1122,7 +1144,9 @@ export async function testIntegrationTool(id: string, toolId: string, args: Reco
     return tryDraftTool(integration.module, resolvePermissions(integration.permissions), toolId, args, await keyOf(id, integration), (await targetsOf(integration)).hosts);
   const p = providers().get(toolId)?.by.find(x => x.integration.id === id);
   if (!p) throw new Error(`${integration.name} has no tool "${toolId}". Its tools: ${toolsOf(id).map(([t]) => t).join(', ') || 'none found yet'}.`);
-  return p.call(args);
+  const r = await p.call(args);
+  return typeof r === 'string' ? r : `${r.text}${r.images.length ? `
+(and ${r.images.length} picture${r.images.length > 1 ? 's' : ''})` : ''}`;
 }
 
 // Where an integration's key may go (engineer.check_key): the hosts it sends it

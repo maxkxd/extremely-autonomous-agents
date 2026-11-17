@@ -14,7 +14,8 @@ export type CodeTool = {
   tier: Tier;
   description: string;
   input: Record<string, unknown>; // JSON Schema
-  run: (args: Record<string, unknown>, token: string | undefined, kit: Kit) => Promise<string>;
+  // Text, or text with pictures for the agent to look at (a frame, a contact sheet).
+  run: (args: Record<string, unknown>, token: string | undefined, kit: Kit) => Promise<string | ToolResultWithImages>;
 };
 
 export type Kit = { fetch: (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }) => Promise<Response> };
@@ -23,3 +24,6 @@ export type CodeModule = {
   tools: CodeTool[];
   account?: (token: string | undefined) => Promise<string>;
 };
+
+// What a code tool gives back with pictures: base64 data, image/png or image/jpeg.
+export type ToolResultWithImages = { text: string; images: { data: string; mimeType: string }[] };

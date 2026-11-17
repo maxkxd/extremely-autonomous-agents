@@ -56,7 +56,10 @@ process.on('message', async msg => {
       const tool = mod.tools.find(t => t.id === msg.tool);
       if (!tool) throw new Error(`No tool "${msg.tool}".`);
       const out = await tool.run(msg.args ?? {}, msg.token, kit);
-      process.send({ done: { result: typeof out === 'string' ? out : JSON.stringify(out) } });
+      // Text with pictures (a frame, a contact sheet) goes back as both; anything else as text.
+      if (out && typeof out === 'object' && Array.isArray(out.images))
+        process.send({ done: { result: String(out.text ?? ''), images: out.images.filter(i => i && typeof i.data === 'string' && typeof i.mimeType === 'string').map(i => ({ data: i.data, mimeType: i.mimeType })) } });
+      else process.send({ done: { result: typeof out === 'string' ? out : JSON.stringify(out) } });
     }
   } catch (e) {
     process.send({ done: { error: String(e?.message ?? e).slice(0, 1000) } });

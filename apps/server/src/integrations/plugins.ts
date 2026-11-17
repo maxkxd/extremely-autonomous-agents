@@ -135,7 +135,7 @@ export async function installPlugin(module: string, approvedHash: string, permis
       run: async (args, token) => {
         const out = await runSandboxed(built, permissions, { op: 'run', tool: t.id, args, token });
         if (out.error) throw new Error(/ERR_ACCESS_DENIED|Access to this API has been restricted/i.test(out.error) ? `The plugin tried something it didn't declare (a file or program outside its permissions): ${out.error}` : out.error);
-        return out.result ?? '';
+        return out.images?.length ? { text: out.result ?? '', images: out.images } : (out.result ?? '');
       },
     })),
   };
