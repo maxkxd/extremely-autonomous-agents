@@ -17,7 +17,11 @@ exports.default = async function afterPack(context) {
   const resources = context.packager.platform.name === 'mac' ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources') : path.join(context.appOutDir, 'resources');
   const to = path.join(resources, 'server', 'node_modules');
   if (!fs.existsSync(from)) throw new Error(`Nothing staged at ${from}: run npm run stage first.`);
-  fs.cpSync(from, to, { recursive: true });
+  // Without .bin: its command links are for npm scripts, and the app never runs
+  // them. A Mac app can't hold a link that leads outside it (codesign's "invalid
+  // destination for symbolic link"), and cpSync would make every relative link
+  // absolute - so links are kept as written (verbatimSymlinks).
+  fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true, filter: src => path.basename(src) !== '.bin' });
   // Chromium's WebGPU shader compiler (25 MB): the app's own pages don't use WebGPU.
   if (context.packager.platform.name === 'windows') for (const f of ['dxcompiler.dll', 'dxil.dll']) fs.rmSync(path.join(context.appOutDir, f), { force: true });
 };
