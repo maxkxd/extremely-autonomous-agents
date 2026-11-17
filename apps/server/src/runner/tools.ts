@@ -816,12 +816,12 @@ const workspaceCounted = new Map<string, number>();
 // was calling a broken one ten times a second. The failures are on record (tool
 // health), where the Agency Doctor sees them.
 const FAILS_PER_RUN = 3;
-// A write that isn't the agent's counted output, made over and over in one run
-// (81 Drive documents), is padding: refused past this many. Not working a page in
-// the browser - clicking, typing, signing in - which is how a browser job gets done
-// at all: one sign-up form is ten fields (Directory Submitter was cut off mid-form).
-const REPEATS_PER_RUN = 10;
-const BROWSER_STEPS = /^(signed_in_browser|browser)\.(click|type|choose|type_password|scroll|back|open|upload_file|press|hover|drag|tabs|resize|drop_file|run_js|tick_security_check|keep_open|start_sign_up|check_account|show_person|wait_for_person)$/;
+// No cap on how often an agent calls a tool in a run (Max, 18 Nov 2026: "NEVER
+// EVER ... caps ... unless for like legal or banning reasons"). The old cap of 10
+// calls of any uncounted tool stopped real work: a launch film needs dozens of
+// frame pulls, scans and asset fetches. The one left is reports to the owner's
+// own inbox (a couple a run): an agent sent Max five in one run.
+const REPORTS_PER_RUN = 2;
 const repeatsInRun = new Map<string, number>();
 const failedInRun = new Map<string, { n: number; last: string }>();
 // A service that says its limit is reached (429, "rate limit"): its tools pause for
@@ -972,14 +972,12 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
       counted: 0,
     });
   const failKey = `${ctx.runId}|${id}`;
-  if (!n && (tier !== 'T0' || id === 'files.write_file') && !/^(tasks|requests|memory|ops|engineer|doctor)\./.test(id) && !BROWSER_STEPS.test(id)) {
+  if (id === 'gmail.send_to_me') {
     const made = (repeatsInRun.get(failKey) ?? 0) + 1;
     repeatsInRun.set(failKey, made);
-    // A report to the person: a couple a run (Revenue Ops sent Max five).
-    const cap = id === 'gmail.send_to_me' ? 2 : REPEATS_PER_RUN;
-    if (made > cap)
+    if (made > REPORTS_PER_RUN)
       return record({
-        content: `That's ${cap} calls of ${id} this run, and it isn't what your output is counted by. Enough of it: finish your real work, or if that's blocked, say so in your summary and end the run.`,
+        content: `That's ${REPORTS_PER_RUN} reports to your owner this run. Put the rest in your summary.`,
         error: true,
         outcome: 'refused',
         counted: 0,
