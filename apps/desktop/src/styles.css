@@ -2070,6 +2070,7 @@ a.sbtn { text-decoration: none; color: inherit; }
 .bmsg.is-builder .rt-p:last-child, .bmsg.is-builder .rt-list:last-child { margin-bottom: 0; }
 
 /* Settings > Tools: each tool, opening to its level (Silent, Logged, Approval). */
+.stools-search { margin-bottom: 10px; }
 .stools { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .stools > li { border: 1px solid var(--hairline); border-radius: 10px; }
 .stools > li.open { border-color: var(--border); }

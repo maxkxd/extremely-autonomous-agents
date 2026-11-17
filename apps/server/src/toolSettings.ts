@@ -141,6 +141,21 @@ export async function listTools(): Promise<ToolView[]> {
       if (t.tier !== tier) t.tier = 'mixed';
     }
   }
+  // Tools a connection provides that no agent holds yet still belong on the page (a
+  // person looks for them here); no agent, so there's no level to set until one is given it.
+  for (const [id, via] of fromIntegrations) {
+    if (byTool.has(id) || BUILTIN_IDS.has(id)) continue;
+    const [server, ...rest] = id.split('.');
+    const known = CATALOG_INDEX.get(id);
+    byTool.set(id, {
+      id,
+      name: NAMES[id] ?? words(rest.join(' ') || id),
+      source: known ? service(server) : via.via || service(server),
+      does: (known?.does ?? via.description ?? '').split('\n')[0].slice(0, 200),
+      tier: known?.tier ?? 'T2',
+      agents: [],
+    });
+  }
   return [...byTool.values()].sort((a, b) => a.source.localeCompare(b.source) || a.name.localeCompare(b.name));
 }
 

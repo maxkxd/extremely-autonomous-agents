@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Building2, Check, ChevronDown, ChevronRight, Gauge, LogIn, LogOut, Plug, Plus, Trash2, User, UserRound, Wrench, X } from 'lucide-react';
+import { Building2, Check, ChevronDown, ChevronRight, Gauge, LogIn, LogOut, Plug, Plus, Search, Trash2, User, UserRound, Wrench, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, rangeDays, rangeLabel, type TimeRange } from './data';
 import { RangePicker } from './RangePicker';
 import { peek, remember, useLastSeen } from './lastSeen';
@@ -1435,12 +1435,14 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
   const off = useOffline();
   const [tools, setTools] = useLastSeen<ToolView[] | null>('settings:tools', null);
   const [open, setOpen] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const load = () => getTools().then(setTools, e => setError((e as Error).message));
   useEffect(() => void load(), []);
   // Arriving for one tool (an approval's menu): opened, in view, glowing.
   useEffect(() => {
     if (!focus || !tools) return;
+    setQuery(''); // a filter must not hide the tool being brought into view
     setOpen(focus);
     onFocused?.();
     window.setTimeout(() => {
@@ -1471,6 +1473,14 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
       load();
     }
   };
+  // Every word typed must appear in the tool's name, service, description, id or one of its agents.
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = !tools
+    ? []
+    : tools.filter(t => {
+        const hay = `${t.name} ${t.source} ${t.does} ${t.id} ${t.agents.map(a => a.name).join(' ')}`.toLowerCase();
+        return words.every(w => hay.includes(w));
+      });
   return (
     <section className="ssection">
       <h2>Tools</h2>
@@ -1482,8 +1492,14 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
       ) : !tools.length ? (
         <p className="snotes-empty">No agent uses any tools yet.</p>
       ) : (
+        <>
+        <label className="model-search stools-search">
+          <Search size={14} />
+          <input value={query} placeholder="Search tools" aria-label="Search tools" onChange={e => setQuery(e.target.value)} />
+        </label>
+        {!shown.length && <p className="snotes-empty">No tools match "{query}".</p>}
         <ul className="stools">
-          {tools.map(t => {
+          {shown.map(t => {
             const level = levelOf(t.tier);
             const isOpen = open === t.id;
             return (
@@ -1499,7 +1515,7 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
                 {isOpen && (
                   <div className="stool-body">
                     {t.does && <p className="stool-does">{t.does}</p>}
-                    <p className="stool-used">Used by {t.agents.map(a => a.name).join(', ')}</p>
+                    <p className="stool-used">{t.agents.length ? `Used by ${t.agents.map(a => a.name).join(', ')}` : 'No agent has this yet'}</p>
                     <fieldset
                       className="stool-slider"
                       disabled={!t.agents.some(mine) || !!off}
@@ -1529,6 +1545,7 @@ function ToolsSection({ focus, onFocused }: { focus?: string | null; onFocused?:
             );
           })}
         </ul>
+        </>
       )}
     </section>
   );
