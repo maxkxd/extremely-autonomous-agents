@@ -322,6 +322,29 @@ function asRich(r: unknown): Rich {
 }
 type Provider = { integration: Integration; call: (args: Record<string, unknown>) => Promise<string | Rich> };
 
+// A tool can report success while it plainly failed: a script that crashed but whose
+// caller didn't check, a program that wouldn't start, a job whose own last line says
+// FAILED, an empty answer from a tool that was meant to do something. Those must never
+// pass as work done (a launch-engine breakdown printed "{}" and the agent built on it):
+// they're thrown as failures, so the app counts them and the Agency Engineer is told
+// when a tool keeps failing. Only unmistakable signs - text a working tool never returns.
+const FAILED_SIGNS: [RegExp, string][] = [
+  [/^Traceback \(most recent call last\):/m, 'a Python crash'],
+  [/^RESULT: FAILED\b.*$/m, 'its own check failed'],
+  [/is not recognized as an internal or external command|: command not found$/m, "a program it runs wouldn't start"],
+  [/\bERR_ACCESS_DENIED\b|Access to this API has been restricted/, 'the sandbox refused something it did'],
+  [/^node:internal\/[^\n]*\n\s+throw /m, 'a Node crash'],
+];
+export function silentFailure(text: string, tier: string): string | null {
+  const t = String(text ?? '');
+  if (!t.trim()) return tier === 'T0' ? null : 'it returned nothing at all';
+  for (const [re, what] of FAILED_SIGNS) {
+    const m = t.match(re);
+    if (m) return `${what}: ${m[0].slice(0, 160)}`;
+  }
+  return null;
+}
+
 // Every tool any integration offers, with who can serve it. For agents, one
 // being redrafted is its live version; for the engineer testing, the draft.
 function providers(forAgents = false): Map<string, { def: Omit<ToolDef, 'impl'>; by: Provider[] }> {
@@ -375,10 +398,15 @@ let registered: ToolDef[] = [];
 function register() {
   const defs: ToolDef[] = [];
   for (const [id, { def, by }] of providers(true)) {
-    const serve = (args: Record<string, unknown>) => {
+    const serve = async (args: Record<string, unknown>) => {
       const p = by.find(p => isLive(p.integration.id)) ?? by.find(p => isFree(p.integration));
       if (!p) throw new Error(`No integration that provides ${id} is connected. File a request for one.`);
-      return p.call(args);
+      const r = await p.call(args);
+      const text = typeof r === 'string' ? r : r.text;
+      const failed = silentFailure(text, def.tier);
+      if (failed && !(typeof r !== 'string' && r.images.length && !text.trim()))
+        throw new Error(`${id} reported success but it failed (${failed}). Don't carry on as if it worked. What it returned: ${text.slice(-700)}`);
+      return r;
     };
     defs.push({
       ...def,
