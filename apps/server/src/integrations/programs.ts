@@ -5,6 +5,7 @@ import { chmod, cp, mkdir, readdir, readFile, realpath, rename, rm, stat, writeF
 import { delimiter, dirname, join, relative, sep } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { safeFetch } from '../runner/net.js';
 import { DATA_DIR } from '../paths.js';
@@ -26,6 +27,10 @@ const MANIFEST = join(ROOT, 'programs.json');
 const run = promisify(execFile);
 const MAX_DOWNLOAD = 1024 * 1024 * 1024; // 1 GB
 const WIN = process.platform === 'win32';
+// Loaded first in every Node program the agency starts, so the programs those start
+// (ffmpeg, a headless Chrome...) don't each open a console window (hide-windows.cjs).
+export const HIDE_WINDOWS = fileURLToPath(new URL('./hide-windows.cjs', import.meta.url));
+const NODE_FIRST = ['--require', HIDE_WINDOWS];
 
 export type ProgramSource =
   // A file attached to a release on GitHub: a single program, or a .zip / .tar.gz / .tar.xz of one.
@@ -211,7 +216,7 @@ export async function programCommands(): Promise<Record<string, string[]>> {
     if (verified.get(p.name) !== true) continue;
     // A PyPI package's commands are in its Python's folders.
     const dirs = p.source.kind === 'pypi' ? (m.programs.python?.pathDirs ?? []) : p.pathDirs;
-    if (p.scripts) for (const [bin, rel] of Object.entries(p.scripts)) out[bin] = [process.execPath, join(ROOT, rel)];
+    if (p.scripts) for (const [bin, rel] of Object.entries(p.scripts)) out[bin] = [process.execPath, ...NODE_FIRST, join(ROOT, rel)];
     else
       for (const bin of p.bins)
         for (const d of dirs) {
@@ -452,7 +457,7 @@ const plainEnv = (): NodeJS.ProcessEnv => programEnv();
 async function nodeShim() {
   if (!process.env.ELECTRON_RUN_AS_NODE) return;
   await mkdir(NODE_SHIM, { recursive: true });
-  if (WIN) await writeFile(join(NODE_SHIM, 'node.cmd'), `@set ELECTRON_RUN_AS_NODE=1\r\n@"${process.execPath}" %*\r\n`);
+  if (WIN) await writeFile(join(NODE_SHIM, 'node.cmd'), `@set ELECTRON_RUN_AS_NODE=1\r\n@"${process.execPath}" --require "${HIDE_WINDOWS}" %*\r\n`);
   else {
     await writeFile(join(NODE_SHIM, 'node'), `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec "${process.execPath}" "$@"\n`);
     await chmod(join(NODE_SHIM, 'node'), 0o755);
@@ -633,7 +638,7 @@ async function installNpm(spec: InstallSpec, m: Manifest, by: string | null): Pr
     const env = nodeEnv({ npm_config_cache: join(ROOT, '.npm-cache'), npm_config_userconfig: join(ROOT, '.npmrc-user-none'), npm_config_globalconfig: join(ROOT, '.npmrc-global-none'), npm_config_registry: 'https://registry.npmjs.org/', npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' });
     await writeFile(join(staging, 'package.json'), '{ "private": true }\n');
     try {
-      await run(process.execPath, [cli, 'install', `${pkg}@${spec.version}`, '--prefix', staging, '--registry=https://registry.npmjs.org/', '--omit=dev', '--no-audit', '--no-fund', '--save-exact'], { timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env });
+      await run(process.execPath, [...NODE_FIRST, cli, 'install', `${pkg}@${spec.version}`, '--prefix', staging, '--registry=https://registry.npmjs.org/', '--omit=dev', '--no-audit', '--no-fund', '--save-exact'], { timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env });
     } catch (e) {
       const err = e as { stderr?: string; message: string };
       throw new Error(`npm couldn't install ${pkg} ${spec.version}: ${(err.stderr?.trim().split('\n').filter(l => /ERR/.test(l)).slice(-3).join(' ') || err.message).slice(0, 400)}`);
@@ -647,7 +652,7 @@ async function installNpm(spec: InstallSpec, m: Manifest, by: string | null): Pr
     const final = join(ROOT, dirRel);
     const scripts = Object.fromEntries(wanted.map(b => [b, `${dirRel}/node_modules/${pkg}/${binMap[b].replace(/^\.\//, '')}`]));
     let check: string | null = null;
-    if (wanted.length) check = await tryIt(process.execPath, [join(staging, 'node_modules', ...pkg.split('/'), binMap[wanted[0]]), ...(spec.checkArgs ?? ['--version'])], nodeEnv());
+    if (wanted.length) check = await tryIt(process.execPath, [...NODE_FIRST, join(staging, 'node_modules', ...pkg.split('/'), binMap[wanted[0]]), ...(spec.checkArgs ?? ['--version'])], nodeEnv());
     await rm(final, { recursive: true, force: true });
     await mkdir(dirname(final), { recursive: true });
     await moveInto(staging, final);

@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transform } from 'esbuild';
 import { safeFetch } from '../runner/net.js';
 import { DATA_DIR } from '../paths.js';
-import { programCommands, programEnv, programsChecked, programsRoot } from './programs.js';
+import { HIDE_WINDOWS, programCommands, programEnv, programsChecked, programsRoot } from './programs.js';
 
 // Where code plugins run (docs/integrations.md): a separate Node process under
 // Node's permission model, allowed only what the plugin declared - the folders
@@ -105,8 +105,11 @@ function runChild(
 ): Promise<Done> {
   for (const d of perms.write) void mkdir(d, { recursive: true }).catch(() => {});
   // One flag per path (Node 24 doesn't take a comma-separated list).
-  const reads = [...new Set([BUILT, ...perms.read, ...perms.write, ...(perms.commands ? programReads() : [])])];
+  const reads = [...new Set([BUILT, HIDE_WINDOWS, ...perms.read, ...perms.write, ...(perms.commands ? programReads() : [])])];
   const execArgv = [
+    // Programs the plugin starts get no console window of their own (hide-windows.cjs).
+    '--require',
+    HIDE_WINDOWS,
     '--permission',
     ...reads.map(p => `--allow-fs-read=${p}`),
     ...perms.write.map(p => `--allow-fs-write=${p}`),
