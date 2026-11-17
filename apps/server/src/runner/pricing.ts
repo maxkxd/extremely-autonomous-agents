@@ -1,5 +1,5 @@
 import { startOfDay, startOfMonth } from './clock.js';
-import { getSetting, one } from './db.js';
+import { one } from './db.js';
 
 // What a run cost (docs/runner.md, "Money and limits"). OpenRouter's public
 // model list is the price book: it prices most providers' models under their
@@ -98,32 +98,4 @@ export function spentToday(now: number, agentId?: string): number {
     ? one<{ s: number | null }>('SELECT SUM(cost_usd) AS s FROM runs WHERE agent_id = ? AND started_at >= ?', agentId, since)
     : one<{ s: number | null }>('SELECT SUM(cost_usd) AS s FROM runs WHERE started_at >= ?', since);
   return row?.s ?? 0;
-}
-
-// --- The pay-per-use limit per day ------------------------------------------------
-//
-// Runs that spill off a plan onto an API key cost real money per call (a week's ~$550
-// on an Anthropic key), so the organization can cap that spend per day - only runs on
-// pay-per-use connections count, never plans or local models (priced, but not paid per
-// call). null: no limit; 0: never use pay-per-use AI. Reached, model choice skips
-// pay-per-use connections until the host's next day (run.ts eligibleModels).
-export const PAID_DAILY_CAP = 'spend_cap_paid_daily_usd';
-const FREE_LIST = [...FREE];
-
-// A run's pay-per-use part (paid_usd, kept as it goes); runs from before that, or
-// helper calls on one connection, by the connection they ran on.
-export function paidSpentToday(now: number): number {
-  const row = one<{ s: number | null }>(
-    `SELECT SUM(CASE WHEN paid_usd IS NOT NULL THEN paid_usd WHEN connection IS NOT NULL AND connection NOT IN (${FREE_LIST.map(() => '?').join(', ')}) THEN cost_usd ELSE 0 END) AS s FROM runs WHERE started_at >= ?`,
-    ...FREE_LIST,
-    startOfDay(now),
-  );
-  return row?.s ?? 0;
-}
-
-export const paidDailyCap = () => getSetting<number | null>(PAID_DAILY_CAP, null);
-// Whether pay-per-use AI can be used now.
-export function paidAllowed(now: number): boolean {
-  const cap = paidDailyCap();
-  return cap == null || (cap > 0 && paidSpentToday(now) < cap);
 }

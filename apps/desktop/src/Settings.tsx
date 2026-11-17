@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Building2, Check, ChevronDown, ChevronRight, Gauge, KeyRound, LogIn, LogOut, Plug, Plus, Trash2, User, UserRound, Wrench, X } from 'lucide-react';
+import { Building2, Check, ChevronDown, ChevronRight, Gauge, LogIn, LogOut, Plug, Plus, Trash2, User, UserRound, Wrench, X } from 'lucide-react';
 import { ACCOUNT, AGENTS, rangeDays, rangeLabel, type TimeRange } from './data';
 import { RangePicker } from './RangePicker';
 import { peek, remember, useLastSeen } from './lastSeen';
@@ -62,7 +62,6 @@ import {
   setToolTier,
   setAgentRunner,
   setOrgCap,
-  setPaidDailyCap,
   type KeyPerson,
   type Person,
   type Profile,
@@ -1315,7 +1314,7 @@ function UsageSection() {
         <span className="susage-limit-head">Monthly limit</span>
       </div>
       {/* Above the list, as on Connectors (it was below ten rows of locked boxes). */}
-      {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change the limits.</p>}
+      {!isAdmin() && <p className="slocked-note">Only the owner or an admin can change the monthly limits.</p>}
       {/* Each one's monthly spending limit sits beside its cost this month
           (docs/runner.md, "Money and limits"): reached, pay-per-use models pause
           until next month; plans and local models carry on. Blank: no limit. */}
@@ -1344,22 +1343,6 @@ function UsageSection() {
               {unknown > 0 && '*'}
             </span>
             <CapInput value={usage.orgCapUsd} disabled={!isAdmin()} why={off} onSave={v => setOrgCap(parseCap(v)).catch(() => {})} label="Monthly limit for the whole organization" />
-          </li>
-        )}
-        {/* What API keys (pay-per-use AI) cost today, and a limit per day: reached, runs
-            use plans only until tomorrow; 0 never uses a key. Plans don't count. */}
-        {usage && (
-          <li className="susage-org" title={`Pay-per-use AI (API keys) today: ${money(usage.paidTodayUsd ?? 0)}. Plans don't count.`}>
-            <span className="susage-name">
-              <KeyRound size={14} strokeWidth={1.75} />
-              Pay-per-use AI, per day
-            </span>
-            <span className="susage-bar">
-              <span style={{ width: `${usage.paidDailyCapUsd ? Math.min(1, (usage.paidTodayUsd ?? 0) / usage.paidDailyCapUsd) * 100 : 0}%` }} />
-            </span>
-            <span className="susage-runs">today</span>
-            <span className="susage-spend">{money(usage.paidTodayUsd ?? 0)}</span>
-            <CapInput value={usage.paidDailyCapUsd ?? null} zero disabled={!isAdmin()} why={off} onSave={v => setPaidDailyCap(parseCap(v)).catch(() => {})} label="Pay-per-use AI limit per day" />
           </li>
         )}
         {rows.map(({ a, spend }) => {
@@ -1397,25 +1380,24 @@ function UsageSection() {
 // A limit typed in: dollars, or blank for none. Anything else isn't a limit
 // ("-5" used to clear it silently, "abc" was taken as none, 20 digits came back rounded).
 const MAX_CAP = 1_000_000;
-// zero: 0 is a limit too (the pay-per-use one: never).
-const capProblem = (v: string, zero = false) => {
+const capProblem = (v: string) => {
   if (v.trim() === '') return null;
   const n = Number(v.replace(/[$,\s]/g, ''));
-  if (!Number.isFinite(n) || n < 0 || (n === 0 && !zero)) return `A limit is an amount in dollars, like 50${zero ? ' (0 for never)' : ''} - or leave it blank for none.`;
-  if (n > MAX_CAP) return `A limit can be up to $${MAX_CAP.toLocaleString()} a ${zero ? 'day' : 'month'}.`;
+  if (!Number.isFinite(n) || n <= 0) return 'A limit is an amount in dollars, like 50 - or leave it blank for none.';
+  if (n > MAX_CAP) return `A limit can be up to $${MAX_CAP.toLocaleString()} a month.`;
   return null;
 };
 const parseCap = (v: string) => (v.trim() === '' ? null : Math.round(Number(v.replace(/[$,\s]/g, '')) * 100) / 100);
 
 // A monthly dollar limit that saves when you leave it (or press Enter). One that isn't
 // a limit turns red and says why on hover - never a box stuck under it.
-function CapInput({ value, onSave, label, disabled, why, zero }: { value: number | null; onSave: (v: string) => void; label: string; disabled?: boolean; why?: string | null; zero?: boolean }) {
+function CapInput({ value, onSave, label, disabled, why }: { value: number | null; onSave: (v: string) => void; label: string; disabled?: boolean; why?: string | null }) {
   const [text, setText] = useState(value == null ? '' : String(value));
   const [problem, setProblem] = useState<string | null>(null);
   const saved = useRef(text);
   const save = () => {
     if (text === saved.current) return setProblem(null);
-    const bad = capProblem(text, zero);
+    const bad = capProblem(text);
     setProblem(bad);
     if (bad) return;
     saved.current = text;

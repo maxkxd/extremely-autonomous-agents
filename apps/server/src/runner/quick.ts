@@ -6,7 +6,7 @@ import { brokenModel, choiceKey, isBenched, recordFailure, recordSuccess, type H
 import { one, run as exec } from './db.js';
 import { pickDefaults, type Want } from './defaults.js';
 import { harnessFor, type HarnessResult } from './harness.js';
-import { costOf, isFree, paidAllowed } from './pricing.js';
+import { costOf, isFree } from './pricing.js';
 import { adapterFor, ModelError } from './providers.js';
 import { getHealth, newRunId, overSpend, postRun, putHealth, stateOf, type Trigger } from './run.js';
 
@@ -67,8 +67,7 @@ export async function ask(agentId: string, a: Ask): Promise<string> {
   if (stateOf(agentId, startedAt).state === 'stopped') throw new HelperStopped('The agency is stopped.');
   const avail = await availableModels().catch(() => []);
   const connected = new Set(avail.map(m => m.connection));
-  // Past a spend limit, or today's pay-per-use limit: plans and local models only.
-  const over = overSpend(agentId, startedAt) || !paidAllowed(startedAt);
+  const over = overSpend(agentId, startedAt);
   const health = getHealth();
   const usable = cleanChoices((await allChoices())[agentId] ?? []).filter(c => connected.has(c.connection) && (isFree(c.connection) || !over));
   // Its models in order, ones cooling down after a failure last.

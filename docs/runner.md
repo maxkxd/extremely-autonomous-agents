@@ -198,13 +198,6 @@ opening says what it already did, so nothing is done twice.
   whole organisation, and an optional monthly cap per agent (the host's
   calendar month). Hitting one pauses that spending until the next month;
   plans and local models aren't affected.
-- **Pay-per-use AI limit per day** (Settings -> Usage, `spend_cap_paid_daily_usd`,
-  `runner/pricing.ts`): only what runs spend on pay-per-use connections (API
-  keys) counts, never plans or local models. Reached, model choice skips
-  pay-per-use connections until the host's next day: a run moves to a plan in
-  its list, or waits if it has none, and the person gets one request while
-  agents wait on it. Auto-switch never moves an agent onto a key past it. 0:
-  never use pay-per-use AI. Empty: no limit.
 - **What a run cost**: OpenRouter's public price list, refreshed daily. A
   run on a plan is priced as the same model on an API would be - more than it
   really costs, but it shows what the plan is worth, and it counts toward the

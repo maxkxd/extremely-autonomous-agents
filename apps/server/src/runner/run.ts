@@ -10,7 +10,7 @@ import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { queueForPrompt } from './action-queue.js';
 import { backoffMs, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
-import { costOf, isFree, paidAllowed, paidDailyCap, spentThisMonth } from './pricing.js';
+import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
 import { dropWakeParts, isMerged, parseWake, wakeLabel } from './wakes.js';
 import type { Harness } from './harness.js';
@@ -114,14 +114,11 @@ export const getHealth = () => getSetting<Health>(HEALTH_KEY, {});
 export const putHealth = (h: Health) => setSetting(HEALTH_KEY, h);
 
 // The models a run can use now: usable, with an adapter, and - when a spend
-// cap is reached, or the pay-per-use limit for today - free ones only (plans and
-// local models). paidLimit false: as if there were no pay-per-use limit (to tell
-// whether that's what holds it).
-export function eligibleModels(agent: AgentDef, deps: RunDeps, paidLimit = true): ModelChoice[] {
-  const now = deps.now();
-  const canPay = !overSpend(agent.id, now) && (!paidLimit || paidAllowed(now));
+// cap is reached - free ones only (plans and local models).
+export function eligibleModels(agent: AgentDef, deps: RunDeps): ModelChoice[] {
+  const over = overSpend(agent.id, deps.now());
   return agent.models.filter(
-    c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)) && (isFree(c.connection) || canPay),
+    c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)) && (isFree(c.connection) || !over),
   );
 }
 
@@ -148,11 +145,6 @@ export function noModelReason(agent: AgentDef, deps: RunDeps): string {
     return `This month's $${orgCap.toFixed(2)} spending limit is reached. It runs again next month, or now on an AI plan.`;
   if (cap != null && spentThisMonth(now, agent.id) >= cap)
     return `Its $${cap.toFixed(2)} monthly limit is reached. It runs again next month, or now on an AI plan.`;
-  const paid = paidDailyCap();
-  if (paid != null && !paidAllowed(now) && usable.every(c => !isFree(c.connection)))
-    return paid === 0
-      ? 'Pay-per-use AI is off (a $0 daily limit in Settings > Usage), and all its models are pay-per-use. It runs on an AI plan.'
-      : `Today's $${paid.toFixed(2)} pay-per-use AI limit is reached. It runs again tomorrow, or now on an AI plan.`;
   return 'No model it can use right now.';
 }
 
@@ -405,7 +397,6 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   let input = 0;
   let output = 0;
   let cost: number | null = 0;
-  let paid = 0; // the part of it on pay-per-use connections
   const told: Told = { requests: [], tasks: [] };
   let used: ModelChoice | null = null;
   let summary = '';
@@ -513,11 +504,8 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
       cost = cost == null || c == null ? null : cost + c;
       // Spend so far is on the run as it goes - Usage shows it, and a monthly limit
       // crossed mid-run ends the run there, not at its end (no run limits any more).
-      // What it spent on a pay-per-use connection counts toward the limit per day
-      // (pricing.ts): reached, the next turn moves to a plan, or the run ends there.
-      if (c != null && !isFree(used!.connection)) paid += c;
       if (cost != null && !isFree(used!.connection)) {
-        exec('UPDATE runs SET cost_usd = ?, paid_usd = ? WHERE id = ?', cost, paid, id);
+        exec('UPDATE runs SET cost_usd = ? WHERE id = ?', cost, id);
         if (overSpend(agent.id, deps.now())) throw new Error(OVER_LIMIT);
       }
       messages.push({ role: 'assistant', text: turn.text, calls: turn.calls, raw: turn.raw });
@@ -556,7 +544,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   const status = stopped ? 'stopped' : error ? 'failed' : 'succeeded';
   const endedAt = deps.now();
   exec(
-    'UPDATE runs SET status = ?, ended_at = ?, connection = ?, model = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, paid_usd = ?, acts = ?, nudges = ?, summary = ?, error = ? WHERE id = ?',
+    'UPDATE runs SET status = ?, ended_at = ?, connection = ?, model = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, acts = ?, nudges = ?, summary = ?, error = ? WHERE id = ?',
     status,
     endedAt,
     used?.connection ?? null,
@@ -564,7 +552,6 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
     input,
     output,
     cost,
-    paid,
     acts,
     nudges,
     summary || null,

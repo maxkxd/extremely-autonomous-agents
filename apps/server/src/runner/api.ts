@@ -34,7 +34,7 @@ import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { BUILT_IN_IDS, HELPER_IDS } from './helpers.js';
 import { clearResume } from './selfsettings.js';
-import { PAID_DAILY_CAP, paidDailyCap, paidSpentToday, spentToday } from './pricing.js';
+import { spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
 import { mcpUrlFor, rpcAs } from './agency-mcp.js';
 import { setDirectoryOrgs, writeMcpDirectory } from './mcp-directory.js';
@@ -83,17 +83,6 @@ export function capUsd(v: unknown): number | null {
   const n = Number(s);
   if (!/^\d+(\.\d{1,2})?$/.test(s) || !(n > 0) || n > MAX_CAP_USD)
     throw new Error('A monthly limit is a dollar amount above 0, to the cent at most, like 25 or 12.50 - up to 1,000,000. Leave it empty for no limit.');
-  return n;
-}
-
-// The pay-per-use limit per day as typed: like a monthly one, but 0 is a limit too
-// (never use pay-per-use AI). Empty clears it.
-export function dailyCapUsd(v: unknown): number | null {
-  if (v == null || (typeof v === 'string' && !v.trim())) return null;
-  const s = typeof v === 'number' ? String(v) : typeof v === 'string' ? v.trim().replace(/^\$/, '').replace(/,/g, '') : '';
-  const n = Number(s);
-  if (!/^\d+(\.\d{1,2})?$/.test(s) || !(n >= 0) || n > MAX_CAP_USD)
-    throw new Error('A daily limit is a dollar amount, to the cent at most, like 20 or 7.50 - 0 for never, up to 1,000,000. Leave it empty for no limit.');
   return n;
 }
 
@@ -847,17 +836,11 @@ export const runnerRoutes: Record<string, Route> = {
         monthUnknownRuns: m?.unknown ?? 0,
       });
     }
-    return { orgCapUsd: getSetting<number | null>('spend_cap_org_usd', null), spentTodayUsd: spentToday(now), paidDailyCapUsd: paidDailyCap(), paidTodayUsd: paidSpentToday(now), agents };
+    return { orgCapUsd: getSetting<number | null>('spend_cap_org_usd', null), spentTodayUsd: spentToday(now), agents };
   },
   'POST /api/usage': async (_req, _q, body) => {
     const { orgCapUsd } = await body<{ orgCapUsd: unknown }>();
     setSetting('spend_cap_org_usd', capUsd(orgCapUsd));
-    return { ok: true };
-  },
-  // The organization's pay-per-use AI limit per day (pricing.ts). Admins only (access.ts).
-  'POST /api/usage/paid-daily': async (_req, _q, body) => {
-    const { paidDailyCapUsd } = await body<{ paidDailyCapUsd: unknown }>();
-    setSetting(PAID_DAILY_CAP, dailyCapUsd(paidDailyCapUsd));
     return { ok: true };
   },
 };

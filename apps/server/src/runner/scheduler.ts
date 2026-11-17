@@ -23,7 +23,7 @@ import { bookWake, dropWakeParts, formatWake, isDebounced, parseWake, requestOf,
 
 const SHORT_RUNS_WINDOW_MS = 24 * 3_600_000; // Apocalyptic's slow-down looks back a day at most
 import { fileRequest, settleJoined, toolsFor } from './tools.js';
-import { costOf, isFree, paidAllowed, paidDailyCap, spentThisMonth, startOfDay } from './pricing.js';
+import { costOf, isFree, spentThisMonth, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
 import { adapterFor } from './providers.js';
 import { eligibleModels, runAgent, stateOf, type RunDeps, type Trigger } from './run.js';
@@ -165,7 +165,6 @@ export async function tick(deps: RunDeps = liveDeps) {
     // Memory nearly full (pressure.ts): runs already going carry on, but no new one
     // starts until it drops. What's booked or due waits; nothing is dropped.
     const braked = memoryBrake.update(await memoryFraction());
-    let paidWaiting = false; // a run due that only the pay-per-use limit holds back
     for (const id of await listIds()) {
       const engineer = id === FLEET_ENGINEER;
       const others = runsOf(id);
@@ -192,10 +191,7 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (others.length && !next.bookingId) continue;
       const eligible = eligibleModels(agent, deps);
       // Nothing it can run on: wait (a message still gets an answer saying why).
-      if (!eligible.length && next.trigger !== 'your message') {
-        paidWaiting ||= eligibleModels(agent, deps, false).length > 0;
-        continue;
-      }
+      if (!eligible.length && next.trigger !== 'your message') continue;
       const local = eligible[0]?.connection === 'ollama';
       if (local && [...running.values()].some(r => r.connection === 'ollama')) continue;
       // Memory nearly full: it waits (its booking stays, its schedule keeps counting) and starts once memory drops.
@@ -210,7 +206,6 @@ export async function tick(deps: RunDeps = liveDeps) {
         exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now, id);
       start(agent, next.trigger, next.task, deps, eligible[0]?.connection ?? null, resumeFrom, booked?.p ?? null);
     }
-    paidCapRequest(paidWaiting, now);
   } finally {
     ticking = false;
   }
@@ -264,33 +259,6 @@ export function capRequest(connections: string[], now: number) {
     {
       what: CAP_WHAT,
       why: `The agency's limit of $${cap!.toFixed(2)} for this month is reached, and every AI connected is pay-per-use, so no agent can run - the Agency Engineer included. Raise or remove the limit (Settings > Usage), or connect an AI plan you already pay for (Claude, ChatGPT or Copilot), which the limit doesn't apply to. Otherwise everything starts again next month.`,
-    },
-    now,
-    () => {},
-  );
-}
-
-// The pay-per-use limit for today reached (pricing.ts) with a run waiting that has
-// only pay-per-use models: one request to the person while it lasts, closed when the
-// day turns (or the limit is raised or removed).
-const PAID_CAP_WHAT = "Today's pay-per-use AI limit is reached - some agents are waiting";
-export function paidCapRequest(waiting: boolean, now: number) {
-  const cap = paidDailyCap();
-  const open = one<{ id: number }>("SELECT id FROM requests WHERE what = ? AND status = 'open'", PAID_CAP_WHAT);
-  if (paidAllowed(now)) {
-    if (open) exec("UPDATE requests SET status = 'done', answer = 'Pay-per-use AI can be used again.', answered_at = ?, stage = NULL WHERE id = ?", now, open.id);
-    return;
-  }
-  if (open || !waiting) return;
-  fileRequest(
-    FLEET_ENGINEER,
-    null,
-    {
-      what: PAID_CAP_WHAT,
-      why:
-        cap === 0
-          ? "The pay-per-use AI limit per day is $0, so API keys are never used - and some agents have only pay-per-use models, so they're waiting. Give them an AI plan on their cards (Claude, ChatGPT or Copilot), or raise the limit in Settings > Usage."
-          : `Today's pay-per-use AI limit of $${cap!.toFixed(2)} is reached, so API keys aren't used again until tomorrow - and some agents have only pay-per-use models, so they're waiting. They start again tomorrow, or now if you raise the limit (Settings > Usage) or give them an AI plan on their cards.`,
     },
     now,
     () => {},
