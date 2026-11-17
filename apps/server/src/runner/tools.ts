@@ -283,12 +283,17 @@ const wholeTask = (text: string, what: string) => {
 // them files no more until they've answered some (Paid Ads, blocked at
 // Apocalyptic, had filed ten - a Bing account, a "please check" - each run another).
 // Refused, not failed: the tool works.
+// The ones filed in the run that's asking are one batch, not a pile: an agent that
+// fills in all twelve sign-ups and then hands the person the twelve checks at once is
+// doing what it should (asking in bulk), so those count only against a far higher
+// ceiling, there to stop a runaway.
 export const MAX_WAITING_ON_PERSON = 5;
-export function tooManyWaiting(agentId: string): string | null {
-  const waiting = all<{ id: number }>("SELECT id FROM requests WHERE agent_id = ? AND status = 'open' AND stage IN ('person', 'waiting_you') ORDER BY id", agentId);
-  return waiting.length < MAX_WAITING_ON_PERSON
-    ? null
-    : `Not filed: ${waiting.length} of your requests are already waiting on the person (${waiting.map(r => `#${r.id}`).join(', ')}), and they haven't got to them yet. Don't add more for now: put this in your end-of-run summary, and ask it once one of those is answered. Carry on with what you have.`;
+export const MAX_ONE_BATCH = 30;
+export function tooManyWaiting(agentId: string, runId?: string | null): string | null {
+  const waiting = all<{ id: number; run_id: string | null }>("SELECT id, run_id FROM requests WHERE agent_id = ? AND status = 'open' AND stage IN ('person', 'waiting_you') ORDER BY id", agentId);
+  const older = waiting.filter(r => !runId || r.run_id !== runId);
+  if (older.length < MAX_WAITING_ON_PERSON && waiting.length < MAX_ONE_BATCH) return null;
+  return `Not filed: ${waiting.length} of your requests are already waiting on the person (${waiting.map(r => `#${r.id}`).join(', ')}), and they haven't got to them yet. Don't add more for now: put this in your end-of-run summary, and ask it once one of those is answered. Carry on with what you have.`;
 }
 
 // The title of a request to rewrite an agent's instructions (the Engineer's
@@ -888,7 +893,7 @@ export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>)
   if (!impl || (!BUILTIN_IDS.has(id) && !(id in heldTools(ctx.agent)))) return record({ content: `There is no tool "${call.name}" you can use.`, error: true, outcome: 'refused', counted: 0 });
   if (impl.ready && !impl.ready()) return record({ content: `${id} isn't connected right now.`, error: true, outcome: 'refused', counted: 0 });
 
-  const hit = limitHit(ctx.agent, id, ctx.now()) ?? (id === 'requests.request_resource' ? tooManyWaiting(ctx.agent.id) : null);
+  const hit = limitHit(ctx.agent, id, ctx.now()) ?? (id === 'requests.request_resource' ? tooManyWaiting(ctx.agent.id, ctx.runId) : null);
   if (hit) return record({ content: hit, error: true, outcome: 'refused', counted: 0 });
 
   // A required input left out or empty is refused here, before anything runs

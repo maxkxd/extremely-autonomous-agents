@@ -178,7 +178,7 @@ function profileRequest(ctx: RunCtx, n: number, why: string): number | null {
   const what = PROFILE_DIDNT_OPEN(n);
   const open = one<{ id: number }>("SELECT id FROM requests WHERE status = 'open' AND what = ? ORDER BY id LIMIT 1", what);
   if (open) return open.id;
-  if (tooManyWaiting(ctx.agent.id)) return null;
+  if (tooManyWaiting(ctx.agent.id, ctx.runId)) return null;
   const id = fileRequest(
     ctx.agent.id,
     ctx.runId,
@@ -196,7 +196,7 @@ function profileRequest(ctx: RunCtx, n: number, why: string): number | null {
 function connectRequest(ctx: RunCtx): number | null {
   const open = one<{ id: number }>("SELECT id FROM requests WHERE status = 'open' AND what = ? ORDER BY id LIMIT 1", CONNECT_A_BROWSER);
   if (open) return open.id;
-  if (tooManyWaiting(ctx.agent.id)) return null;
+  if (tooManyWaiting(ctx.agent.id, ctx.runId)) return null;
   const can = profilesAvailable();
   const id = fileRequest(
     ctx.agent.id,
@@ -630,7 +630,7 @@ function requestFor(ctx: RunCtx, n: number, url: string, what: string, why: stri
   const line = BROWSER_LINE(url, n);
   const open = all<{ id: number; evidence: string | null }>("SELECT id, evidence FROM requests WHERE agent_id = ? AND status = 'open' AND evidence LIKE ?", ctx.agent.id, `%${line}%`);
   if (open[0]) return { id: open[0].id, isNew: false };
-  const full = tooManyWaiting(ctx.agent.id);
+  const full = tooManyWaiting(ctx.agent.id, ctx.runId);
   if (full) return full;
   const said = note ?? `The page is kept as the agent left it, in a tab of ${label(n)} in its "Waiting on you" group: press the button to go straight to it, do what's asked, then press Done here.`;
   const id = fileRequest(ctx.agent.id, ctx.runId, { what, why, evidence: `${line}\n${said}` }, ctx.now(), ctx.wake);
@@ -682,7 +682,7 @@ async function keepForPerson(ctx: RunCtx, n: number, what: string, why: string) 
   await page.detach();
   await sh.cdp.send('EAA.groupTab', { targetId: page.targetId, ...WAITING, collapsed: false }).catch(e => console.error(`[browser] Browser ${n}: moving the kept tab to "Waiting on you" failed:`, (e as Error).message));
   watchKept();
-  return `This page is kept for the person exactly as it is, in its own tab in ${label(n)} (the "Waiting on you" group, with the debugger off it, so a check like Cloudflare sees a normal browser), and ${r.isNew ? `request #${r.id} is filed` : `request #${r.id} (already filed) points to it now`}. Its button brings them straight to that tab. Your next browser step starts on a new page. Don't file another request for this. You'll hear when they're done: then open the site again and check it worked.`;
+  return `This page is kept for the person exactly as it is, in its own tab in ${label(n)} (the "Waiting on you" group, with the debugger off it, so a check like Cloudflare sees a normal browser), and ${r.isNew ? `request #${r.id} is filed` : `request #${r.id} (already filed) points to it now`}. Its button brings them straight to that tab. Your next browser step starts on a new page. Don't file another request for this. Now carry on with everything else that doesn't need them - above all the rest of this batch (the other sign-ups, the other sites), each filled in up to its check and kept the same way - so they get it all at once. You'll hear when they're done: then open the site again and check it worked.`;
 }
 
 // Google's sign-in, for the person: a tab in the same browser that's never attached
@@ -2693,7 +2693,7 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       id: 'signed_in_browser.show_person',
       tier: 'T1',
       description:
-        "For what only a person can do on a page: a CAPTCHA puzzle (after tick_security_check didn't pass it), a code sent to their phone, an ID check. Fill in everything else first and call this while you're still on that page: the tab is kept as it is, with the browser's debugger off it (so a check like Cloudflare sees a normal browser), in a \"Waiting on you\" tab group, and a request is filed whose button brings the person straight to it. They do the check, press Submit and press Done on the request: the tab comes back to you still open (tabs list), so carry on there. Don't file a request yourself as well. Your next browser step starts on a new page; get on with other work, and you'll hear when they're done. google true instead: the person signs in to Google in a normal tab of this browser (Google won't let a driven browser sign in) - after that \"Sign in with Google\" on any site is yours: click it and choose the account.",
+        "For what only a person can do on a page: a CAPTCHA puzzle (after tick_security_check didn't pass it), a code sent to their phone, an ID check. Fill in everything else first and call this while you're still on that page: the tab is kept as it is, with the browser's debugger off it (so a check like Cloudflare sees a normal browser), in a \"Waiting on you\" tab group, and a request is filed whose button brings the person straight to it. They do the check, press Submit and press Done on the request: the tab comes back to you still open (tabs list), so carry on there. Don't file a request yourself as well. Your next browser step starts on a new page: get on with the rest - the other sign-ups or pages of the same batch first, each filled in up to its own check and kept with show_person, so the person does them all in one go - and you'll hear when they're done. google true instead: the person signs in to Google in a normal tab of this browser (Google won't let a driven browser sign in) - after that \"Sign in with Google\" on any site is yours: click it and choose the account.",
       schema: obj(
         {
           what: { type: 'string', description: 'For the request\'s title, in 10 words or fewer: what they need to do and why - "Pass the CAPTCHA to send the Tech Talks Daily pitch"' },

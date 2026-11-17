@@ -16,7 +16,7 @@ import { decideApproval } from './approvals.js';
 import { fleetReport } from './doctor.js';
 import { answerRequest, evidenceForPeople } from './api.js';
 import { dropGuesses, notWaitingAlready, rate, requestNotWaiting, withdrawProposal } from './engineer.js';
-import { actsIn, execute, MAX_WAITING_ON_PERSON, registerTools, requestConnections, serviceLabel, settleJoined, tooManyWaiting, WORKSPACES } from './tools.js';
+import { actsIn, execute, MAX_ONE_BATCH, MAX_WAITING_ON_PERSON, registerTools, requestConnections, serviceLabel, settleJoined, tooManyWaiting, WORKSPACES } from './tools.js';
 
 const ID = 'zz-runner-test';
 
@@ -1097,6 +1097,18 @@ test('an agent with a pile of requests waiting on the person files no more until
   add('person');
   assert.match(tooManyWaiting('zz-asker') ?? '', /Not filed: 5 of your requests are already waiting on the person/);
   exec("DELETE FROM requests WHERE agent_id = 'zz-asker'");
+});
+
+test("one run's requests are one batch: an agent can hand the person all twelve checks at once", () => {
+  exec("DELETE FROM requests WHERE agent_id = 'zz-batch'");
+  const add = (run: string) => exec("INSERT INTO requests (agent_id, run_id, what, why, status, created_at, stage) VALUES ('zz-batch', ?, 'q', 'x', 'open', 1, 'person')", run);
+  for (let i = 0; i < 12; i++) add('run-now');
+  assert.equal(tooManyWaiting('zz-batch', 'run-now'), null);
+  // A later run sees them as a pile: answer some first.
+  assert.match(tooManyWaiting('zz-batch', 'run-later') ?? '', /Not filed: 12/);
+  for (let i = 12; i < MAX_ONE_BATCH; i++) add('run-now');
+  assert.match(tooManyWaiting('zz-batch', 'run-now') ?? '', /Not filed/);
+  exec("DELETE FROM requests WHERE agent_id = 'zz-batch'");
 });
 
 test('a task handed over arrives whole, or is refused with why - never cut short in silence', async () => {
