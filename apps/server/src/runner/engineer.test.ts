@@ -82,6 +82,17 @@ test("giving tools adds them to the agent's TOOLS.yaml, keeping the builder's ti
   assert.equal(y.tool_tiers['images.search_photos'], 'T0');
   assert.equal(y.tool_tiers['pexels.get_photo'], 'T0');
   assert.deepEqual(y.servers, ['tasks', 'images', 'pexels']);
+
+  // A person's tier replaces the one already there, and the call reports what is
+  // really set; files on the computer are never lowered this way.
+  const now = await giveTools(AGENT, [
+    { id: 'images.search_photos', tier: 'T2' },
+    { id: 'computer_files.read_file', tier: 'T0' },
+  ], { byPerson: true });
+  assert.deepEqual(now, { 'images.search_photos': 'T2', 'computer_files.read_file': 'T2' });
+  const y2 = parse(await readFile(join(DATA, AGENT, 'TOOLS.yaml'), 'utf8'));
+  assert.equal(y2.tool_tiers['images.search_photos'], 'T2');
+  assert.equal(y2.tool_tiers['pexels.get_photo'], 'T0');
 });
 
 test('a plugin reaches the network only through kit.fetch', async () => {

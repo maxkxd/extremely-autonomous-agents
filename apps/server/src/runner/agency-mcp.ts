@@ -649,8 +649,9 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
     run: async a => {
       const { agentId, meta } = await agentOrThrow(a.agent_id);
       const tools = (a.tools as { id: string; tier: Tier }[]) ?? [];
-      await giveTools(agentId, tools);
-      return `${meta.name} now has ${tools.map(t => `${t.id} (${t.tier})`).join(', ')}.`;
+      const now = await giveTools(agentId, tools, { byPerson: true });
+      const kept = tools.filter(t => now[t.id] !== t.tier).map(t => `${t.id} stays ${now[t.id]} (files on the computer are lowered only on the Tools page)`);
+      return `${meta.name} now has ${tools.map(t => `${t.id} (${now[t.id]})`).join(', ')}.${kept.length ? ` Not changed: ${kept.join('; ')}.` : ''}`;
     },
   },
   {

@@ -517,23 +517,31 @@ export async function giveEvents(agentId: string, events: string[]) {
 }
 
 // Adds tools to an agent's TOOLS.yaml, keeping the builder's comments.
-export async function giveTools(agentId: string, tools: { id: string; tier: Tier }[]) {
+// Returns each tool's tier as it now stands, so a caller never reports a tier
+// that wasn't set. `byPerson`: a person asked for these tiers (their agency MCP),
+// so theirs replaces the one already there. Otherwise the builder's tier for a
+// tool it defined wins. Files on the computer always start at approval and are
+// never lowered here: only the person lowers them, on the Tools page.
+export async function giveTools(agentId: string, tools: { id: string; tier: Tier }[], opts: { byPerson?: boolean } = {}): Promise<Record<string, Tier>> {
   const file = join(DATA, slug(agentId), 'TOOLS.yaml');
   const doc = parseDocument(await readFile(file, 'utf8'));
   const allowed = new Set(((doc.get('tools_allowed') as { toJSON(): string[] } | undefined)?.toJSON() ?? []) as string[]);
   const tiers = (((doc.get('tool_tiers') as { toJSON(): Record<string, Tier> } | undefined)?.toJSON() ?? {}) as Record<string, Tier>);
   const servers = new Set(((doc.get('servers') as { toJSON(): string[] } | undefined)?.toJSON() ?? []) as string[]);
+  const now: Record<string, Tier> = {};
   for (const t of tools) {
     allowed.add(t.id);
-    // The builder's tier for a tool it defined wins. Files on the computer always
-    // start at approval: only the person lowers them, on the Tools page.
-    tiers[t.id] ??= t.id.startsWith('computer_files.') ? 'T2' : t.tier;
+    if (t.id.startsWith('computer_files.')) tiers[t.id] ??= 'T2';
+    else if (opts.byPerson) tiers[t.id] = t.tier;
+    else tiers[t.id] ??= t.tier;
+    now[t.id] = tiers[t.id];
     servers.add(t.id.split('.')[0]);
   }
   doc.set('tools_allowed', [...allowed]);
   doc.set('tool_tiers', tiers);
   doc.set('servers', [...servers]);
   await writeFile(file, doc.toString());
+  return now;
 }
 
 
