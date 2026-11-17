@@ -5,6 +5,11 @@ directory, invites, the relay, the anonymous reports) runs on **Railway**: one
 Node service plus a Postgres database. Setup, settings and the API are in
 [apps/backend/README.md](../apps/backend/README.md).
 
+**Only the backend runs on Railway.** Hosted organisations (the paid plan) run
+on a Hetzner server, many to a box, set up with
+[deploy/vps/README.md](../deploy/vps/README.md). Never put an organisation's
+agency on Railway: one busy organisation cost more there than the plan sells for.
+
 ## Its address
 
 **`https://api.extremely.agency`** is the address the app, the join page
