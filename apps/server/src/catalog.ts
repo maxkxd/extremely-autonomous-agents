@@ -48,11 +48,13 @@ const BROWSER_KIT_TOOLS: CatalogTool[] = [
   t('click_to_pay', 'T2', 'The click that spends money'),
   t('click_to_post', 'T2', 'The click that posts publicly as the business'),
   t('click_to_start_tool', 'T2', 'The click that starts a new business tool (a CRM, a help desk)'),
-  t('make_password', 'T1', "Sign up for an account: a strong password kept in the agency's store"),
+  t('accounts', 'T0', 'The accounts it owes: write down the ones it needs, see which really exist'),
+  t('start_sign_up', 'T1', 'Start signing up for an account: a strong password, hidden until the account is seen working'),
   t('type_password', 'T1', 'Type a password from the store'),
   t('passwords', 'T0', "List the store's accounts (never the passwords)"),
-  t('confirm_password', 'T0', 'Mark a store account as working, once it has'),
+  t('check_account', 'T1', 'Have the app check an account really works, which puts its password in the store'),
   t('show_person', 'T1', 'Keep a filled-in page for the person in their browser (a CAPTCHA, a phone code)'),
+  t('wait_for_person', 'T1', 'Hand the person every kept sign-up page in one request, and wait for them'),
 ];
 
 export const CATALOG: CatalogServer[] = [

@@ -13,7 +13,36 @@ import { fileRequest, inWorkspace, onApprovalSettled, onRunEnd, registerTools, t
 import { readable } from './web.js';
 import { all, one, run as exec } from './db.js';
 import { setKeptPageCheck } from './kept-pages.js';
-import { ACCOUNTS_PER_SITE, confirmPassword, listPasswords, makePassword, passwordRow, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
+import { ACCOUNTS_PER_SITE, listPasswords, passwordRow, profileFor, readPassword, siteOf } from './passwords.js';
+import {
+  accountLine,
+  accountRow,
+  accountsDue,
+  accountsInAsk,
+  accountsOf,
+  accountsOwed,
+  askFiled,
+  attemptFailed,
+  baseDomain,
+  cancelAccount,
+  canWork,
+  dueText,
+  holdForRun,
+  isAccountAsk,
+  judgeAccountPage,
+  markWorking,
+  needAccounts,
+  nudged,
+  PAGE_FACTS_EXPR,
+  pageKept,
+  passwordTyped,
+  personFinished,
+  startAttempt,
+  waitingInRun,
+  type AccountRow,
+  type PageFacts,
+} from './accounts.js';
+import { FLEET_ENGINEER } from './agent.js';
 import { DATA_DIR } from '../paths.js';
 
 // Browsing for agents (docs/browser-extension.md): in Chrome or Edge, through the
@@ -533,7 +562,12 @@ const UNCLAIMED_MS = 2 * 60_000;
 // A page kept for the person (a CAPTCHA, then Submit) waits for them far longer: it's
 // a tab in their browser, and they may not look for days.
 const PERSON_MAX_MS = 7 * 24 * 3_600_000;
-const PERSON_MAX = 20;
+const PERSON_MAX = 60;
+// How long a run waits on the person inside signed_in_browser.wait_for_person before it
+// ends and is woken instead. Waiting costs nothing: no model is called meanwhile.
+export let WAIT_FOR_PERSON_MIN = 60;
+let WAIT_POLL_MS = 1_000;
+export const __setWaitForTest = (minutes: number, pollMs: number) => void ((WAIT_FOR_PERSON_MIN = minutes), (WAIT_POLL_MS = pollMs));
 // resume: approved, and back with the agent that queued it, to finish the job (its next run takes it).
 type Waiting = { key: string; runId: string; since: number; resume?: string };
 const waitingPages = new Map<string, Waiting>(); // by page id (the approval's _page)
@@ -642,7 +676,10 @@ function requestFor(ctx: RunCtx, n: number, url: string, what: string, why: stri
 // A page kept for a person's request: a tab in browser n, never attached while it's
 // theirs. openers: the pages behind it when it's a window a site opened (a sign-in
 // pop-up may need its opener), closed with it.
-type KeptRecord = { id: string; browser: number; targetId: string; site: string; url: string; request?: number; agent?: { id: string; name: string }; runId: string; since: number; google?: boolean; captcha?: boolean };
+// account: the account (accounts.ts) the page is a sign-up or sign-in for - such pages
+// share ONE request per agent, filed once the whole batch is kept (fileAccountAsk);
+// until then request is unset. what, why: the agent's words for that page, for the ask.
+type KeptRecord = { id: string; browser: number; targetId: string; site: string; url: string; request?: number; agent?: { id: string; name: string }; runId: string; since: number; google?: boolean; captcha?: boolean; account?: string; what?: string; why?: string };
 type Kept = KeptRecord & { openers: CdpPage[] };
 const kept = new Map<string, Kept>();
 
@@ -650,7 +687,7 @@ const kept = new Map<string, Kept>();
 // looked at as it's kept, while the debugger is still on it. The app says so on the request.
 const CAPTCHA_EXPR = `!!document.querySelector('iframe[src*="challenges.cloudflare.com"], iframe[src*="/recaptcha/"], iframe[src*="hcaptcha.com"], .cf-turnstile, .g-recaptcha, .h-captcha, input[name="cf-turnstile-response"], textarea[name="g-recaptcha-response"], textarea[name="h-captcha-response"]')`;
 
-async function keepForPerson(ctx: RunCtx, n: number, what: string, why: string) {
+async function keepForPerson(ctx: RunCtx, n: number, what: string, why: string, accountId?: unknown) {
   const key = sessionKey(ctx.runId, n);
   const s = sessions.get(key);
   if (!s?.cdp || s.page.isClosed()) throw new Error('There is no page open in your browser to keep. Open the page, fill in everything you can, then call show_person.');
@@ -659,18 +696,22 @@ async function keepForPerson(ctx: RunCtx, n: number, what: string, why: string) 
   const url = await s.page.url().catch(() => '');
   const site = siteOfUrl(url);
   if (!site) throw new Error("This page has no web address to keep. Open the page you need the person on first.");
-  const r = requestFor(ctx, n, url, what, why);
+  // An account's page (named, or the one sign-up this run has going on this site): it
+  // waits with the rest of the batch for one request, filed when they're all kept.
+  const account = accountId != null && String(accountId).trim() ? ownAccount(ctx, accountId) : signUpHere(ctx, site);
+  if (account?.state === 'cancelled') return `Not kept: ${account.id} was cancelled by a person. Leave it.`;
+  const r = account ? null : requestFor(ctx, n, url, what, why);
   if (typeof r === 'string') return r;
   const captcha = !!(await Promise.race([s.page.evaluate<boolean>(CAPTCHA_EXPR).catch(() => false), sleep(2_000).then(() => false)]));
-  // Kept before for this request (the agent filled it in again): the new page replaces it.
-  await letGoOfKept([...kept.values()].filter(k => k.request === r.id).map(k => k.id));
+  // Kept before for this request or this account (the agent filled it in again): the new page replaces it.
+  await letGoOfKept([...kept.values()].filter(k => (r ? k.request === r.id : k.account === account!.id)).map(k => k.id));
   const page = s.cdp;
   sessions.delete(key);
   recordings.get(key)?.halt();
   recordings.delete(key);
   // Kept from here on, before anything is awaited: out of sessions and not yet kept, a
   // sweep in between would close the very tab the person is about to get.
-  const k: Kept = { id: newPageId(), browser: n, targetId: page.targetId, site, url, request: r.id, agent: s.agent, runId: ctx.runId, since: Date.now(), captcha, openers: s.openers ?? [] };
+  const k: Kept = { id: newPageId(), browser: n, targetId: page.targetId, site, url, request: r?.id, agent: s.agent ?? { id: ctx.agent.id, name: ctx.agent.name }, runId: ctx.runId, since: Date.now(), captcha, openers: s.openers ?? [], ...(account ? { account: account.id, what, why } : {}) };
   kept.set(k.id, k);
   // The person's now, not the agent's to keep open.
   keptOpen.delete(page.targetId);
@@ -682,7 +723,151 @@ async function keepForPerson(ctx: RunCtx, n: number, what: string, why: string) 
   await page.detach();
   await sh.cdp.send('EAA.groupTab', { targetId: page.targetId, ...WAITING, collapsed: false }).catch(e => console.error(`[browser] Browser ${n}: moving the kept tab to "Waiting on you" failed:`, (e as Error).message));
   watchKept();
+  if (account) {
+    pageKept(account.id, Date.now());
+    const left = accountsOwed(ctx.agent.id).filter(x => x.id !== account.id && (x.state === 'needed' || x.state === 'started' || x.state === 'returned'));
+    return `Kept for the person exactly as it is, in its own tab in ${label(n)} ("Waiting on you", with the debugger off it), for ${account.id} (${account.username ?? account.site}). No request is filed yet, on purpose: every page of this batch goes to them in ONE request. Your next browser step starts on a new page. ${left.length ? `Now the next account - still to do: ${left.map(x => `${x.id} ${x.site}`).join(', ')}. When each is working or kept like this, call signed_in_browser.wait_for_person.` : 'That was the last one: call signed_in_browser.wait_for_person now - it files the one request and waits for them.'}`;
+  }
+  if (!r) throw new Error('No request for this page.');
   return `This page is kept for the person exactly as it is, in its own tab in ${label(n)} (the "Waiting on you" group, with the debugger off it, so a check like Cloudflare sees a normal browser), and ${r.isNew ? `request #${r.id} is filed` : `request #${r.id} (already filed) points to it now`}. Its button brings them straight to that tab. Your next browser step starts on a new page. Don't file another request for this. Now carry on with everything else that doesn't need them - above all the rest of this batch (the other sign-ups, the other sites), each filled in up to its check and kept the same way - so they get it all at once. You'll hear when they're done: then open the site again and check it worked.`;
+}
+
+// --- Accounts' pages: one request for the whole batch (accounts.ts) ----------------------
+//
+// A sign-up (or a sign-in) stopped at a check only a person can do is kept like any page
+// for the person - but it is never asked for on its own. Twelve sign-ups, one CAPTCHA
+// each, used to be twelve requests, filed one per run. Now the pages wait unasked until
+// the batch is ready (signed_in_browser.wait_for_person, or the run's end), and go to the
+// person in ONE request listing every page with its own button. Pages kept later, while
+// that request is still open, join it.
+const ownAccount = (ctx: RunCtx, raw: unknown): AccountRow => {
+  const row = accountRow(raw);
+  if (!row || !canWork(row, ctx.agent.id)) throw new Error(`There's no account ${String(raw ?? '').trim()} of yours. signed_in_browser.accounts lists them.`);
+  return row;
+};
+// The one sign-up this run has going on this site, when show_person didn't say which.
+function signUpHere(ctx: RunCtx, site: string): AccountRow | null {
+  const going = accountsOwed(ctx.agent.id).filter(r => r.state === 'started' && r.run_id === ctx.runId && [baseDomain(r.site), r.typed_host ? baseDomain(r.typed_host) : ''].includes(baseDomain(site)));
+  return going.length === 1 ? going[0] : null;
+}
+export const ACCOUNT_ASK = 'accounts';
+// Each page's line carries which page it is: twelve sign-ups share one address.
+const PAGE_MARK = /[#&]eaa-page=(wp_\w+)$/;
+const markedUrl = (k: KeptRecord) => `${k.url}${k.url.includes('#') ? '&' : '#'}eaa-page=${k.id}`;
+const askPages = (request: number) => [...kept.values()].filter(k => k.request === request && k.account).sort((a, b) => a.since - b.since);
+// The request as it stands: only the pages still waiting, each with its own button.
+function rewriteAsk(request: number) {
+  const pages = askPages(request);
+  if (!pages.length) return;
+  const sites = [...new Set(pages.map(k => k.site))];
+  const what = pages.length === 1 ? `Finish the ${sites[0]} sign-up: one check on its page` : `Finish ${pages.length} sign-ups: one check on each page`;
+  const why = `${pages[0].agent?.name ?? 'An agent'} filled in ${pages.length === 1 ? 'this page' : 'each of these pages'} as far as it can go: what's left on ${pages.length === 1 ? 'it' : 'each'} is something only a person can do (a CAPTCHA puzzle, a code sent to your phone). Do the check on each, press Submit there, then press Done beside it. The agent finishes each account as soon as you're done, and the app checks every one really works.`;
+  const lines = pages.flatMap((k, i) => {
+    const a = accountRow(k.account);
+    return [`${i + 1}. ${k.site}${a?.username ? ` - ${a.username}` : ''}: ${(k.what || 'Do the check on this page').slice(0, 160)}`, BROWSER_LINE(markedUrl(k), k.browser)];
+  });
+  exec("UPDATE requests SET what = ?, why = ?, evidence = ? WHERE id = ? AND status = 'open'", what, why, `${lines.join('\n')}\nEach page is kept exactly as the agent left it, in the "Waiting on you" group of your browser.`, request);
+}
+// Every page this agent has kept for an account and not asked for yet, in its one
+// request: the open one if there is one, else a new one. Its number, or null (nothing to ask).
+export function fileAccountAsk(agent: { id: string; name: string }, runId: string | null, now = Date.now()): number | null {
+  const fresh = [...kept.values()].filter(k => k.account && k.request == null && k.agent?.id === agent.id);
+  let request = one<{ id: number }>("SELECT id FROM requests WHERE agent_id = ? AND status = 'open' AND service = ? ORDER BY id LIMIT 1", agent.id, ACCOUNT_ASK)?.id ?? null;
+  if (!fresh.length) return request != null && askPages(request).length ? request : null;
+  // Straight to the person (not the Agency Engineer to work out): it's only theirs to do.
+  request ??= Number(
+    exec("INSERT INTO requests (agent_id, run_id, what, why, created_at, stage, service) VALUES (?, ?, ?, ?, ?, 'person', ?)", agent.id, runId, 'Finish sign-ups', 'Pages waiting on you.', now, ACCOUNT_ASK).lastInsertRowid,
+  );
+  for (const k of fresh) k.request = request;
+  askFiled(fresh.map(k => k.account!), request, now);
+  rewriteAsk(request);
+  saveKept();
+  watchKept();
+  return request;
+}
+// A run over with pages kept and never asked for (it ended without wait_for_person, or
+// was cut short): asked for now.
+onRunEnd(runId => {
+  const agents = new Map([...kept.values()].filter(k => k.account && k.request == null && k.runId === runId && k.agent).map(k => [k.agent!.id, k.agent!]));
+  for (const a of agents.values()) fileAccountAsk(a, runId);
+});
+
+// An account's page gone before the person did its check: that try failed, the account
+// is owed again (its agent is woken for it: accountsTick), and the page leaves the
+// request - which closes, by the agency, only when no page of it is left.
+async function accountPageLost(p: { request?: number; site: string; account?: string }, why: string) {
+  const now = Date.now();
+  if (p.account) await attemptFailed(p.account, `the page kept for the person on ${p.site} closed before its check was done (${why})`, now);
+  if (p.request == null) return;
+  if (askPages(p.request).length) return rewriteAsk(p.request);
+  if (accountsInAsk(p.request).some(a => a.state === 'returned')) return void personDone(p.request, 'The pages still waiting were lost; the ones already finished are with the agent.');
+  exec(
+    "UPDATE requests SET status = 'withdrawn', answer = ?, answered_at = ?, delivered_at = ?, stage = NULL WHERE id = ? AND status = 'open'",
+    `Closed by the agency, not by a person: the pages kept for this closed before anyone got to them (${why}). The agent signs up again and asks once more.`,
+    now,
+    now,
+    p.request,
+  );
+}
+
+// The accounts and their pages, put right whatever happened in between (a restart, a
+// request closed by someone else, a run that died): the record never stays on a state
+// nothing will move it from. Run with every scheduler tick.
+export async function reconcileAccounts(now = Date.now()) {
+  await readKept();
+  const running = (runId: string | null) => !!runId && !!one("SELECT 1 FROM runs WHERE id = ? AND status = 'running'", runId);
+  const withPage = new Set([...kept.values(), ...(fromBefore ?? [])].map(k => k.account).filter(Boolean));
+  for (const r of all<AccountRow>("SELECT * FROM accounts WHERE state IN ('started', 'waiting')")) {
+    if (r.state === 'started') {
+      // A run that ended (or died) mid-sign-up: nothing was seen working, so it failed.
+      if (!running(r.run_id) && now - r.updated_at > 60_000) await attemptFailed(r.id, 'the run ended before the sign-up was finished and checked', now);
+      continue;
+    }
+    const req = r.request_id != null ? one<{ status: string }>('SELECT status FROM requests WHERE id = ?', r.request_id) : null;
+    if (req?.status === 'rejected') await cancelAccount(r.id, 'A person turned its request down.', now);
+    else if (req && req.status !== 'open') personFinished(r.id, now, true);
+    else if (!withPage.has(r.id) && now - r.updated_at > 2 * 60_000) await attemptFailed(r.id, 'the page kept for the person was lost', now);
+  }
+  const unasked = new Map([...kept.values()].filter(k => k.account && k.request == null && k.agent && !running(k.runId)).map(k => [k.agent!.id, k.agent!]));
+  for (const a of unasked.values()) fileAccountAsk(a, null, now);
+}
+// And every account still owed with nobody on it: its agent is woken for it - whatever
+// its ferocity, and however long ago it failed - until it works or a person cancels it.
+export async function accountsTick(book: (agentId: string, trigger: string, task: string) => void, now = Date.now()) {
+  await reconcileAccounts(now);
+  for (const [worker, rows] of accountsDue(now)) {
+    // In a run now: it has them in front of it (its instructions list them).
+    if (one("SELECT 1 FROM runs WHERE agent_id = ? AND status = 'running'", worker)) continue;
+    book(worker, 'request done', dueText(rows, worker));
+    nudged(rows, now);
+  }
+}
+// The one request for accounts' pages was answered (api.ts): done - each page still
+// waiting counts as finished by the person; turned down - they don't want those
+// accounts, which are cancelled. Its agent is woken to finish and check them, unless a
+// run of it is waiting on this very request (wait_for_person): that run carries on.
+export async function accountAskAnswered(request: number, status: 'done' | 'rejected', book: (agentId: string, trigger: string, task: string) => void, now = Date.now()) {
+  const rows = accountsInAsk(request);
+  for (const r of rows) {
+    if (status === 'rejected') await cancelAccount(r.id, 'A person turned its request down.', now);
+    else personFinished(r.id, now);
+  }
+  if (waitingInRun(request)) return;
+  const worker = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', request)?.agent_id;
+  if (!worker) return;
+  exec('UPDATE requests SET delivered_at = ? WHERE id = ?', now, request);
+  book(worker, 'request done', askOutcome(request, status));
+}
+// What its agent hears once the ask is answered.
+function askOutcome(request: number, status: 'done' | 'rejected'): string {
+  const rows = accountsInAsk(request);
+  if (status === 'rejected') return `A person turned down the sign-ups you kept for them, so these accounts are cancelled - don't make them: ${rows.map(r => `${r.id} ${r.site}`).join(', ') || 'all of them'}. The Agency Engineer asks them what they'd rather; carry on with the rest of your job.`;
+  const back = rows.filter(r => r.state === 'returned');
+  return [
+    `The person finished with the pages you kept for them. Now finish each account and have the app check it - they are not working until it says so:`,
+    ...back.map(r => accountLine(r)),
+    "Each page they left open is in your tabs (signed_in_browser.tabs list): switch to it - don't open it fresh - finish what's left of the sign-up (the next step, a confirmation email's link), open the account's profile or settings page, then signed_in_browser.check_account. One whose tab is gone: open the site and see whether it's signed in. One that didn't go through: start_sign_up again, and if it needs the person again, show_person with its account_id - then wait_for_person once for all of those.",
+  ].join('\n');
 }
 
 // Google's sign-in, for the person: a tab in the same browser that's never attached
@@ -764,6 +949,14 @@ async function finishKept(id: string, how: 'closed' | 'done', note?: string) {
   const k = kept.get(id);
   if (!k) return;
   await letGoOfKept([id]);
+  if (k.account) {
+    // Its tab is gone, done or not: the agent looks (signed in? check_account says), and
+    // the request stays for the pages still waiting.
+    personFinished(k.account, Date.now(), k.request == null);
+    if (k.request == null) return;
+    if (askPages(k.request).length) return rewriteAsk(k.request);
+    return personDone(k.request, note ?? 'The person finished with every page.');
+  }
   if (k.request == null) return;
   if (note) personDone(k.request, note);
   else if (k.google) personDone(k.request, `${how === 'closed' ? 'Closed' : 'Finished with'} the Google sign-in tab. Check you are signed in to Google now (open the site and sign in with Google - choose the account, nothing to type).`);
@@ -787,17 +980,34 @@ export async function finishKeptPage(targetId: string) {
 // is what the agent needs next, so the tab stays open and goes back to the agent - into
 // its own collapsed group, kept like keep_open for a day - and the request is answered.
 // Its next run finds it in tabs list and carries on there.
-export async function doneWithKeptPage(request: number): Promise<boolean> {
-  const k = [...kept.values()].find(x => x.request === request);
-  if (!k) return false;
-  kept.delete(k.id);
-  for (const o of k.openers) await o.close().catch(() => {});
-  const conn = connOf(k.browser);
+// url: which page of a request with several (an accounts' request: its own Done beside
+// each page) - that one goes back, and the request is answered once none is left.
+export async function doneWithKeptPage(request: number, url?: string): Promise<boolean> {
+  const pages = [...kept.values()].filter(x => x.request === request);
+  const marked = PAGE_MARK.exec(url ?? '')?.[1];
+  // Its Done pressed twice: already back with the agent.
+  if (marked && !pages.some(x => x.id === marked)) return pages.length > 0 || isAccountAsk(request);
   const now = Date.now();
-  if (conn && k.agent) {
-    await conn.send('EAA.groupTab', { targetId: k.targetId, key: `back:${k.agent.id}`, title: k.agent.name, collapsed: true }).catch(e => console.error(`[browser] Giving request #${request}'s tab back to ${k.agent!.name} failed:`, (e as Error).message));
-    keptOpen.set(k.targetId, { targetId: k.targetId, browser: k.browser, agentId: k.agent.id, agentName: k.agent.name, runId: k.runId, reason: `The person finished request #${request} on this page`, since: now, until: now + KEEP_OPEN_MS });
+  const giveBack = async (k: Kept) => {
+    kept.delete(k.id);
+    for (const o of k.openers) await o.close().catch(() => {});
+    const conn = connOf(k.browser);
+    if (conn && k.agent) {
+      await conn.send('EAA.groupTab', { targetId: k.targetId, key: `back:${k.agent.id}`, title: k.agent.name, collapsed: true }).catch(e => console.error(`[browser] Giving request #${request}'s tab back to ${k.agent!.name} failed:`, (e as Error).message));
+      keptOpen.set(k.targetId, { targetId: k.targetId, browser: k.browser, agentId: k.agent.id, agentName: k.agent.name, runId: k.runId, reason: `The person finished request #${request} on this page`, since: now, until: now + KEEP_OPEN_MS });
+    }
+    if (k.account) personFinished(k.account, now);
+  };
+  if (pages.some(x => x.account)) {
+    for (const k of marked ? pages.filter(x => x.id === marked) : pages) await giveBack(k);
+    saveKept();
+    if (askPages(request).length) rewriteAsk(request);
+    else personDone(request, 'The person finished with every page.');
+    return true;
   }
+  const k = pages[0];
+  if (!k) return false;
+  await giveBack(k);
   saveKept();
   personDone(
     request,
@@ -829,8 +1039,11 @@ export const keptCaptcha = async (request: number) => [...kept.values()].some(k 
 // or the agent wrote on the card, "open x.com in the agents' browser") - that address
 // opens as a plain tab of the person's in that browser. Only the request's own page
 // button closes the request when its page is gone.
-export async function showKeptPage(request: number, button?: { url?: string; browser?: number }): Promise<'shown' | 'offline' | 'gone' | 'opened'> {
-  const k = [...kept.values()].find(x => x.request === request);
+// finished: that page of a request with several is already back with the agent.
+export async function showKeptPage(request: number, button?: { url?: string; browser?: number }): Promise<'shown' | 'offline' | 'gone' | 'opened' | 'finished'> {
+  const marked = PAGE_MARK.exec(button?.url ?? '')?.[1];
+  const k = [...kept.values()].find(x => x.request === request && (!marked || x.id === marked));
+  if (marked && !k) return (await readKept()).some(x => x.id === marked) ? 'offline' : 'finished';
   if (!k) {
     if ((await readKept()).some(x => x.request === request)) return 'offline';
     const own = /Open in signed-in browser:\s*(https?:\/\/\S+)/.exec(one<{ evidence: string | null }>('SELECT evidence FROM requests WHERE id = ?', request)?.evidence ?? '')?.[1];
@@ -904,14 +1117,15 @@ export async function openPersonTab(raw: unknown, url: string) {
   }
 }
 
-const UNCONFIRMED = "Not confirmed: the sign-up may never have finished, so the account may not exist. Sign in with it yourself before you use it or ask a person to sign in with it; if the site says there's no such account, it was never made - sign up again, or if the site blocks sign-ups, ask the person to create it themselves (show_person on the filled-in sign-up page). Once it works, confirm_password.";
+const UNCONFIRMED = "Not confirmed: saved before the app checked sign-ups itself, so the account may not exist. Before you use one, or ask a person to: sign in with it, open its profile or settings page, and call signed_in_browser.check_account with its password_id - the app confirms it, or says why not. If the site says there's no such account, it was never made.";
 
 // A kept page gone before the person got to it (the browser closed, it waited too
 // long). Everything filled in on it is gone, so the request is closed - a request
 // left open would say "everything is filled in" with nothing behind it, and its
 // button would open an empty form. The agent is woken and told plainly that nobody
 // turned it down: if it still needs it, it fills the page in again and files anew.
-export async function keptPageLost(p: { request?: number; site: string; url: string }, why: string) {
+export async function keptPageLost(p: { request?: number; site: string; url: string; account?: string }, why: string) {
+  if (p.account || (p.request != null && isAccountAsk(p.request))) return accountPageLost(p, why);
   if (p.request == null) return;
   const open = one<{ agent_id: string; what: string }>("SELECT agent_id, what FROM requests WHERE id = ? AND status = 'open'", p.request);
   if (!open) return;
@@ -2628,39 +2842,103 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
     decisive('click_to_post', 'posts something publicly as the business (a post, a public reply, a review)'),
     decisive('click_to_start_tool', 'starts using a new business tool - a CRM, a help desk, an email platform - rather than an account to do your job'),
     {
-      id: 'signed_in_browser.make_password',
-      tier: 'T1',
-      description: `Signing up for an account: makes a strong password and keeps it in the agency's password store - you never see it. Type it with signed_in_browser.type_password. Says which browser the account belongs in (a browser holds up to ${ACCOUNTS_PER_SITE} accounts on one site).`,
-      schema: obj({ site: { type: 'string', description: 'The site the account is for, e.g. google.com, linkedin.com' }, username: { type: 'string', description: 'The username or email address for the account' }, note: { type: 'string', description: 'What the account is for, for the person' } }, ['site', 'username']),
+      id: 'signed_in_browser.accounts',
+      tier: 'T0',
+      description:
+        "The accounts you owe - the app's own record of every website account your job needs, and whether each really exists. need: write down every account you're going to need BEFORE signing up for any (all twelve, not one), each with its site and what it's for; asking again for one already there changes nothing. With nothing given it lists them. An account is only real once it says working: that's the app having seen it signed in (check_account), never your own word. Each stays owed, and you're woken for it, until it works or a person cancels it.",
+      schema: obj(
+        {
+          need: {
+            type: 'array',
+            description: 'Accounts to write down as needed, all of them at once',
+            items: { type: 'object', properties: { site: { type: 'string', description: 'The site, e.g. x.com' }, purpose: { type: 'string', description: 'What this one is for, so two on one site are told apart: "Northside Bikes brand account", "outreach account 3"' } }, required: ['site', 'purpose'] },
+          },
+          for_agent: { type: 'string', description: "Agency Engineer only: the agent whose accounts these are (a new agent's, made during its setup)" },
+          cancel: { type: 'array', items: { type: 'string' }, description: 'Agency Engineer only: account ids a person said they no longer want' },
+          person_said: { type: 'string', description: "With cancel: the person's own words" },
+        },
+        [],
+      ),
       impl: async (a, ctx) => {
-        const site = siteOf(String(a.site ?? ''));
+        const engineer = ctx.agent.id === FLEET_ENGINEER;
+        const now = ctx.now();
+        if (a.for_agent != null && !engineer && String(a.for_agent) !== ctx.agent.id) throw new Error('for_agent is the Agency Engineer\'s. Leave it out: the accounts are yours.');
+        const owner = a.for_agent != null && String(a.for_agent).trim() ? String(a.for_agent).trim() : ctx.agent.id;
+        if (owner !== ctx.agent.id && !one('SELECT 1 FROM agent_state WHERE agent_id = ?', owner)) throw new Error(`There's no agent "${owner}".`);
+        const said: string[] = [];
+        const cancel = Array.isArray(a.cancel) ? a.cancel.map(String) : [];
+        if (cancel.length) {
+          if (!engineer) throw new Error("Only a person cancels an account (they turn its request down, or tell the Agency Engineer). An account you owe stays owed: keep at it.");
+          if (!String(a.person_said ?? '').trim()) throw new Error("Give person_said: the person's own words saying they don't want it. Without them it stays owed.");
+          for (const id of cancel) said.push((await cancelAccount(id, `A person said: ${String(a.person_said).trim()}`, now)) ? `${id} is cancelled.` : `${id} wasn't cancelled (no such account, or it already works or is cancelled).`);
+        }
+        const need = (Array.isArray(a.need) ? a.need : []).filter((x): x is { site: string; purpose: string } => !!x && typeof x === 'object' && typeof (x as { site?: unknown }).site === 'string');
+        if (need.length > 60) throw new Error('Up to 60 at a time.');
+        if (need.length) {
+          const rows = needAccounts(owner, need.map(x => ({ site: String(x.site), purpose: String(x.purpose ?? '') })), now);
+          said.push(`Written down: ${rows.length} account${rows.length === 1 ? '' : 's'}${owner !== ctx.agent.id ? ` for ${owner}` : ''}.`);
+        }
+        const mine = owner !== ctx.agent.id ? accountsOf(owner).filter(r => r.state !== 'working' && r.state !== 'cancelled') : accountsOwed(ctx.agent.id);
+        const working = accountsOf(owner).filter(r => r.state === 'working');
+        const others = owner !== ctx.agent.id || mine.some(r => r.agent_id !== ctx.agent.id);
+        return [
+          ...said,
+          mine.length ? `Owed (${mine.length}):\n${mine.map(r => accountLine(r, others)).join('\n')}` : 'Nothing owed.',
+          working.length ? `Working (${working.length}):\n${working.map(r => `- ${r.id} ${r.site}: ${r.username} (password #${r.password_id}, browser ${r.browser ?? '?'}) - ${r.purpose}`).join('\n')}` : '',
+          mine.some(r => r.state === 'needed' || r.state === 'returned')
+            ? 'Do them all in one go: for each, start_sign_up, fill the form, type_password, submit, and check_account once it is signed in. At a check only a person can do: show_person with its account_id, and on to the next. When every one is working or kept for the person, wait_for_person - once.'
+            : '',
+        ]
+          .filter(Boolean)
+          .join('\n\n');
+      },
+    },
+    {
+      id: 'signed_in_browser.start_sign_up',
+      tier: 'T1',
+      description: `Start signing up for one of the accounts you owe (signed_in_browser.accounts): makes a strong password, kept hidden until the account is seen working - you never see it - and says which browser to sign up in (a browser holds up to ${ACCOUNTS_PER_SITE} accounts on one site). Then fill the site's form and type the password with type_password. If an earlier try already put a password into the site, the account may exist: it says so, and you sign in with that one first. new_password true: you saw the site say there is no such account (or the password is wrong) - the old one is thrown away and a new one made.`,
+      schema: obj(
+        {
+          account_id: { type: 'string', description: 'The account, from signed_in_browser.accounts' },
+          username: { type: 'string', description: 'The username or email address the account will use' },
+          new_password: { type: 'boolean', description: "True only after the site said the earlier try's account doesn't exist" },
+        },
+        ['account_id', 'username'],
+      ),
+      impl: async (a, ctx) => {
+        const row = ownAccount(ctx, a.account_id);
         const username = String(a.username ?? '').trim();
-        if (!username) throw new Error('Give the username or email address the account uses.');
+        if (!username) throw new Error('Give the username or email address the account will use.');
         const paired = pairedBrowsers().map(b => b.n);
         // No browser yet: the agents' first profile holds it.
         if (!paired.length && profilesAvailable().ok) paired.push(createProfile());
-        let { profile: n, isNew } = profileFor(site, paired.length ? paired : [1]);
+        let { profile: n, isNew } = profileFor(row.site, paired.length ? paired : [1]);
         if (isNew) {
           // Every browser has its fill of this site: a new agents' profile takes the next.
           const can = profilesAvailable();
           if (!can.ok)
-            throw new Error(`Every browser already holds ${ACCOUNTS_PER_SITE} ${site} accounts, so another one there needs another browser, and the app can't make one here (${can.why}). Ask the person to connect one more Chrome or Edge profile (Settings > Connectors > Browser, Connect another profile), then make the password again.`);
+            throw new Error(`Every browser already holds ${ACCOUNTS_PER_SITE} ${row.site} accounts, so another one there needs another browser, and the app can't make one here (${can.why}). Ask the person to connect one more Chrome or Edge profile (Settings > Connectors > Browser, Connect another profile), then start the sign-up again.`);
           n = createProfile();
         }
-        const id = await savePassword({ site, username, password: makePassword(), profile: n, agentId: ctx.agent.id, note: a.note ? String(a.note) : null });
-        return `Password #${id} made for ${username} at ${site} and kept in the store, marked not confirmed. Sign up in ${label(n)}: pass browser ${n} to the signed_in_browser tools, and type the password with signed_in_browser.type_password, password_id "${id}". Once the sign-up has really finished (you're in the account, or its confirmation is done), call signed_in_browser.confirm_password with "${id}". If the site refuses the sign-up, say so in your notes and memory: the account doesn't exist.`;
+        const t = await startAttempt(row.id, { username, browser: n, runId: ctx.runId, fresh: a.new_password === true, now: ctx.now() });
+        const b = t.row.browser ?? n;
+        if (t.reuse)
+          return `${row.id}: an earlier try already typed a password into ${row.site} as ${username}, so the account may exist. Don't sign up again yet: in ${label(b)} (pass browser ${b}), open ${row.site}'s sign-in page and sign in as ${username}, typing the password with signed_in_browser.type_password, password_id "${t.passwordId}". Signed in: finish anything it still asks, open the profile or settings page, and signed_in_browser.check_account. The site says there's no such account, or the password is wrong: call start_sign_up again with new_password true, and sign up afresh.`;
+        return `${row.id}: password #${t.passwordId} made for ${username} at ${row.site}. It is NOT in the password store yet - it joins it only when the app has seen the account working. Sign up in ${label(b)}: pass browser ${b} to the signed_in_browser tools, fill the form, and type the password with signed_in_browser.type_password, password_id "${t.passwordId}" (in both boxes if it asks twice). Then submit. Signed in: open the account's profile or settings page and call signed_in_browser.check_account with "${row.id}". Stopped by something only a person can do: signed_in_browser.show_person with account_id "${row.id}", then straight on to your next account.`;
       },
     },
     {
       id: 'signed_in_browser.type_password',
       tier: 'T1',
       description: 'Type a password from the store into a numbered password field (you never see it). submit presses Enter afterwards.',
-      schema: obj({ ref: { type: 'number' }, password_id: { type: 'string', description: 'The password number from make_password or passwords' }, submit: { type: 'boolean' }, browser: BROWSER_ARG }, ['ref', 'password_id']),
+      schema: obj({ ref: { type: 'number' }, password_id: { type: 'string', description: 'The password number from start_sign_up or passwords' }, submit: { type: 'boolean' }, browser: BROWSER_ARG }, ['ref', 'password_id']),
       impl: async (a, ctx) => {
         const row = passwordRow(String(a.password_id ?? ''));
         const s = await session(ctx, whichBrowser(ctx, browserArg(a) ?? row?.profile));
         await stopIfWindowClosed(s);
         const typed = await s.page.fill(Number(a.ref), await readPassword(String(a.password_id ?? '')));
+        // For the account it's a sign-up for: only a password the field kept can be confirmed.
+        if (row) passwordTyped(row.id, typed.ok, await s.page.url().catch(() => ''), ctx.now());
         if (a.submit) await s.page.pressEnter();
         await wait(a.submit ? 1500 : 200);
         // Never what the field holds: that's the password.
@@ -2670,7 +2948,7 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
     {
       id: 'signed_in_browser.passwords',
       tier: 'T0',
-      description: "The accounts in the agency's password store: site, username, password number and the browser it's in - never the passwords.",
+      description: "The accounts in the agency's password store: site, username, password number and the browser it's in - never the passwords. Only accounts that exist are here: a sign-up still under way is in signed_in_browser.accounts.",
       schema: obj({ site: { type: 'string', description: 'Only this site (optional)' } }, []),
       impl: async a => {
         const rows = listPasswords(a.site ? String(a.site) : null);
@@ -2680,25 +2958,87 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       },
     },
     {
-      id: 'signed_in_browser.confirm_password',
-      tier: 'T0',
-      description: "Mark a store account as working: call once you've seen it work - the sign-up finished (you're in the account, its email or code confirmation is done) or you signed in with it. Until then it's NOT CONFIRMED and may not exist.",
-      schema: obj({ password_id: { type: 'string', description: 'The password number from make_password or passwords' } }, ['password_id']),
-      impl: async a => {
-        const row = confirmPassword(String(a.password_id ?? ''));
-        return `#${row.id} (${row.username} at ${row.site}) is confirmed.`;
+      id: 'signed_in_browser.check_account',
+      tier: 'T1',
+      description:
+        "Have the app check that an account you signed up for really works - the only way one becomes working and its password joins the store. Call it on a page of that site where the account shows signed in (its profile, account settings, or home page). The app reads the page itself: it must be on that site, show no sign-up or sign-in form, show the account signed in, and the password must have gone in as typed. It says working, or exactly what's missing - then fix that and check again. Your own word that a sign-up worked counts for nothing: unchecked, the account does not exist. password_id instead: an old NOT CONFIRMED store account, after signing in with it.",
+      schema: obj({ account_id: { type: 'string', description: 'The account, from signed_in_browser.accounts' }, password_id: { type: 'string', description: 'Or, for an old store account marked NOT CONFIRMED: its password number' }, browser: BROWSER_ARG }, []),
+      impl: async (a, ctx) => {
+        const now = ctx.now();
+        let row: AccountRow;
+        if (a.account_id != null && String(a.account_id).trim()) row = ownAccount(ctx, a.account_id);
+        else {
+          // Saved before sign-ups were checked: it becomes an account in the record, checked like any.
+          const pw = passwordRow(String(a.password_id ?? ''));
+          if (!pw) throw new Error('Give account_id (signed_in_browser.accounts lists them).');
+          if (pw.confirmed_at) return `#${pw.id} (${pw.username} at ${pw.site}) is already confirmed.`;
+          const had = pw.account_id ? accountRow(pw.account_id) : undefined;
+          row = had ?? needAccounts(pw.agent_id ?? ctx.agent.id, [{ site: pw.site, purpose: pw.note || `${pw.username} at ${pw.site}` }], now)[0];
+          if (!had) {
+            exec("UPDATE accounts SET state = 'started', username = ?, browser = ?, password_id = ?, typed_ok = 1, run_id = ?, updated_at = ? WHERE id = ? AND state != 'working'", pw.username, pw.profile, pw.id, ctx.runId, now, row.id);
+            exec('UPDATE passwords SET account_id = ? WHERE id = ?', row.id, pw.id);
+            row = accountRow(row.id)!;
+          }
+          if (!canWork(row, ctx.agent.id)) throw new Error("That account isn't yours.");
+        }
+        if (row.state === 'working') return `${row.id} (${row.username} at ${row.site}) is already working.`;
+        if (row.state === 'cancelled') return `${row.id} was cancelled by a person. Leave it.`;
+        if (row.state === 'waiting') return `${row.id}'s page is with the person: nothing to check until they've finished (signed_in_browser.wait_for_person).`;
+        const n = whichBrowser(ctx, browserArg(a) ?? row.browser);
+        const s = sessions.get(sessionKey(ctx.runId, n));
+        if (!s?.cdp || s.page.isClosed())
+          return `Not checked: you have no page open in ${label(n)}. Open a page of ${row.site} where the account shows signed in (its profile or settings) - or, if the person left its tab open, signed_in_browser.tabs list and switch to it - then check again.`;
+        await untilFree(s.cdp);
+        const facts = await s.page.evaluate<PageFacts>(PAGE_FACTS_EXPR);
+        const problems = judgeAccountPage(row, facts);
+        if (problems.length) {
+          exec('UPDATE accounts SET last_error = ?, updated_at = ? WHERE id = ?', `not seen working: ${problems[0]}`.slice(0, 400), now, row.id);
+          return `NOT working yet - ${row.id} (${row.username} at ${row.site}) stays owed, and is not in the password store:\n${problems.map(x => `- ${x}`).join('\n')}\n\nFix that and check again. If the sign-up itself didn't go through, start_sign_up again; if it needs the person, show_person with account_id "${row.id}".`;
+        }
+        const done = markWorking(row.id, now);
+        const left = accountsOwed(ctx.agent.id).filter(x => x.state === 'needed' || x.state === 'started' || x.state === 'returned');
+        return `Working: ${done.id} - ${done.username} at ${done.site} is signed in, and its password (#${done.password_id}) is in the password store now, in browser ${done.browser ?? n}.${left.length ? ` Still to do: ${left.map(x => `${x.id} ${x.site}`).join(', ')}.` : ''}`;
+      },
+    },
+    {
+      id: 'signed_in_browser.wait_for_person',
+      tier: 'T1',
+      description: `Hand the person every page you kept for an account (show_person with account_id) in ONE request, and wait here for them - up to ${WAIT_FOR_PERSON_MIN} minutes - so you carry straight on when they finish. Call it once, when every account you owe is either working or kept for them: never after the first. It comes back when they're done (their tabs are yours again: finish each sign-up and check_account), or says they haven't got to it - then end your run, and you're woken the moment they finish.`,
+      schema: obj({}, []),
+      impl: async (_a, ctx) => {
+        const undone = accountsOwed(ctx.agent.id).filter(x => (x.state === 'needed' || x.state === 'started') && (x.next_try_at ?? 0) <= ctx.now() + 60_000);
+        const request = fileAccountAsk({ id: ctx.agent.id, name: ctx.agent.name }, ctx.runId, ctx.now());
+        if (request == null) return `Nothing of yours is waiting on the person: no account's page is kept for them. ${undone.length ? `Still yours to do first: ${undone.map(x => `${x.id} ${x.site}`).join(', ')}.` : 'Carry on.'}`;
+        const pages = askPages(request).length;
+        const release = holdForRun(request);
+        const until = Date.now() + WAIT_FOR_PERSON_MIN * 60_000;
+        let status = 'open';
+        try {
+          while (Date.now() < until && !ctx.signal?.aborted && !endedRuns.has(ctx.runId)) {
+            status = one<{ status: string }>('SELECT status FROM requests WHERE id = ?', request)?.status ?? 'done';
+            if (status !== 'open') break;
+            await sleep(WAIT_POLL_MS);
+          }
+          if (status === 'open') return `Request #${request} is with the person (${pages} page${pages === 1 ? '' : 's'}), and they haven't finished in ${WAIT_FOR_PERSON_MIN} minutes. Don't wait longer and don't ask again: end your run with a summary that says these accounts are waiting on them. You'll be woken the moment they finish, whatever your ferocity.${undone.length ? ` (Before you end: ${undone.map(x => `${x.id} ${x.site}`).join(', ')} ${undone.length === 1 ? 'is' : 'are'} still yours to do.)` : ''}`;
+          // Heard here, in this run: not again as news, and no second wake for it.
+          exec('UPDATE requests SET delivered_at = ? WHERE id = ?', ctx.now(), request);
+          return askOutcome(request, status === 'rejected' ? 'rejected' : 'done');
+        } finally {
+          release();
+        }
       },
     },
     {
       id: 'signed_in_browser.show_person',
       tier: 'T1',
       description:
-        "For what only a person can do on a page: a CAPTCHA puzzle (after tick_security_check didn't pass it), a code sent to their phone, an ID check. Fill in everything else first and call this while you're still on that page: the tab is kept as it is, with the browser's debugger off it (so a check like Cloudflare sees a normal browser), in a \"Waiting on you\" tab group, and a request is filed whose button brings the person straight to it. They do the check, press Submit and press Done on the request: the tab comes back to you still open (tabs list), so carry on there. Don't file a request yourself as well. Your next browser step starts on a new page: get on with the rest - the other sign-ups or pages of the same batch first, each filled in up to its own check and kept with show_person, so the person does them all in one go - and you'll hear when they're done. google true instead: the person signs in to Google in a normal tab of this browser (Google won't let a driven browser sign in) - after that \"Sign in with Google\" on any site is yours: click it and choose the account.",
+        "For what only a person can do on a page: a CAPTCHA puzzle (after tick_security_check didn't pass it), a code sent to their phone, an ID check. On a sign-up or sign-in for an account you owe, give its account_id: the page is kept but NOT asked for yet - go on to your next account, and signed_in_browser.wait_for_person hands the person every such page in one request. Any other page: fill in everything else first and call this while you're still on that page: the tab is kept as it is, with the browser's debugger off it (so a check like Cloudflare sees a normal browser), in a \"Waiting on you\" tab group, and a request is filed whose button brings the person straight to it. They do the check, press Submit and press Done on the request: the tab comes back to you still open (tabs list), so carry on there. Don't file a request yourself as well. Your next browser step starts on a new page: get on with the rest - the other sign-ups or pages of the same batch first, each filled in up to its own check and kept with show_person, so the person does them all in one go - and you'll hear when they're done. google true instead: the person signs in to Google in a normal tab of this browser (Google won't let a driven browser sign in) - after that \"Sign in with Google\" on any site is yours: click it and choose the account.",
       schema: obj(
         {
           what: { type: 'string', description: 'For the request\'s title, in 10 words or fewer: what they need to do and why - "Pass the CAPTCHA to send the Tech Talks Daily pitch"' },
           why: { type: 'string', description: "What's filled in and waiting, and what happens once they've done it" },
           google: { type: 'boolean', description: 'True for signing in to Google in this browser, not a page you are on' },
+          account_id: { type: 'string', description: 'The account this page is a sign-up or sign-in for (signed_in_browser.accounts)' },
           browser: BROWSER_ARG,
         },
         ['what'],
@@ -2709,7 +3049,7 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
         const words = what.split(/\s+/).length;
         if (words > 14) return `Not done: what is ${words} words. Make it 10 words or fewer - what they need to do and why - and put the rest in why.`;
         const why = String(a.why ?? '').trim() || what;
-        return a.google ? keepGoogle(ctx, n, what, why) : keepForPerson(ctx, n, what, why);
+        return a.google ? keepGoogle(ctx, n, what, why) : keepForPerson(ctx, n, what, why, a.account_id);
       },
     },
   ];

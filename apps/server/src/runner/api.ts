@@ -25,7 +25,8 @@ import { answerRemoteMcp, remoteMcpUrl, takeRemoteMcp } from './remote-mcp.js';
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals, recentlyWithdrawn, runApprovedNow, scheduledApprovals } from './approvals.js';
-import { agentTabCount, doneWithKeptPage, hasKeptPage, keptCaptcha, onPersonDone, releaseKeptFor, showKeptPage } from './browser.js';
+import { accountAskAnswered, agentTabCount, doneWithKeptPage, hasKeptPage, keptCaptcha, onPersonDone, releaseKeptFor, showKeptPage } from './browser.js';
+import { isAccountAsk } from './accounts.js';
 import { listBrowsers, openConnectPage, pairCode, removeBrowser, renameBrowser, storeLinks } from './browser-link.js';
 import { createProfile, openProfile, profilesAvailable } from './agent-profiles.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
@@ -174,7 +175,11 @@ export async function answerRequest(id: number, status: 'done' | 'rejected', ans
   // Its agent hears now, as when the Agency Engineer settles one - not at its next
   // scheduled run (a weekly agent waited a week for the price list it asked for).
   const asker = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', id)?.agent_id;
-  if (asker && asker !== FLEET_ENGINEER) {
+  // The one request for accounts' pages (accounts.ts): its accounts go back to their agent
+  // to finish and check - or are cancelled, turned down - and it is woken for exactly
+  // that, the Agency Engineer too when the accounts are a new agent's.
+  if (isAccountAsk(id)) await accountAskAnswered(id, status, (agent, trigger, task) => book(agent, trigger as 'request done', task));
+  else if (asker && asker !== FLEET_ENGINEER) {
     const note = answer?.trim() ? `: "${answer.trim().slice(0, 600)}"` : '';
     book(asker, 'request done', status === 'done' ? `A person marked your request #${id} done${note}` : `A person turned down your request #${id}${note}`);
   }
@@ -753,18 +758,20 @@ export const runnerRoutes: Record<string, Route> = {
     const how = await showKeptPage(request, { url: typeof url === 'string' ? url : undefined, browser: typeof browser === 'number' ? browser : undefined });
     if (how === 'offline') throw new Error("That page is in your browser, but it isn't connected to EXTREMELY right now. Open it with the EXTREMELY extension on, then press this again.");
     if (how === 'gone') throw new Error('That page was lost, so this request is closed. Its agent has been told and will do it again if it still needs to.');
+    if (how === 'finished') throw new Error('That page is finished already: it is back with the agent.');
     // kept: it's the request's own page, so the app offers Done for it.
     return { ok: true, kept: how === 'shown' };
   },
   // Done on a kept page: the tab stays open and goes back to the agent; the request is answered.
   'POST /api/browser/done': async (_req, _q, body) => {
-    const { request } = await body<{ request?: number }>();
+    // url: which page, on a request that lists several (accounts' sign-ups).
+    const { request, url } = await body<{ request?: number; url?: string }>();
     if (typeof request !== 'number') throw new Error('Which request?');
     const r = one<{ agent_id: string; status: string }>('SELECT agent_id, status FROM requests WHERE id = ?', request);
     if (r) await requireMakerOrAdmin(r.agent_id);
     // Done pressed again (twice, or the card's other Done): the first already answered it.
     if (r?.status === 'done') return { ok: true };
-    if (!(await doneWithKeptPage(request))) throw new Error('That page is no longer kept. Close its tab if it is still open, or reply on the request.');
+    if (!(await doneWithKeptPage(request, typeof url === 'string' ? url : undefined))) throw new Error('That page is no longer kept. Close its tab if it is still open, or reply on the request.');
     return { ok: true };
   },
 

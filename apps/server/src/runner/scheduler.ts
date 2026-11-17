@@ -1,7 +1,7 @@
 import { listIds, readMeta } from '../files.js';
 import { liveEvents, loadIntegrations, recheckStale } from '../integrations/index.js';
 import './web.js'; // registers the web tools
-import './browser.js'; // registers the browser tools
+import { accountsTick } from './browser.js'; // also registers the browser tools
 import './computer.js'; // registers the tools for files on this computer
 import { ensureBrowserKit, ensureFleetEngineer, startEngineer } from './engineer.js';
 import { ensureDoctor } from './doctor.js';
@@ -160,6 +160,9 @@ export async function tick(deps: RunDeps = liveDeps) {
     dropStaleRequestRuns();
     // Requests that joined another agent's (one per connection), once it's settled.
     settleJoined((agentId, trigger, task) => book(agentId, trigger as Trigger, task), now);
+    // Accounts agents owe (accounts.ts): put right after whatever happened, and each
+    // one nobody is on has its agent woken for it - at any ferocity.
+    void accountsTick((agentId, trigger, task) => book(agentId, trigger as Trigger, task), now).catch(e => console.error('Checking the accounts agents owe failed:', (e as Error).message));
     // Events due a check (events.ts): in the background, so a slow service never holds up a tick.
     void pollEvents(book).catch(e => console.error('Polling events failed:', (e as Error).message));
     // Memory nearly full (pressure.ts): runs already going carry on, but no new one

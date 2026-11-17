@@ -12,6 +12,8 @@ import { forgetAgentRuns } from './runner/forget.js';
 import { topUpModels } from './runner/defaults.js';
 import { book } from './runner/scheduler.js';
 import { fileRequest, registeredToolIds, requestConnections, serviceLabel } from './runner/tools.js';
+import { needAccounts } from './runner/accounts.js';
+import { siteOf } from './runner/passwords.js';
 
 // Adding and removing agents: the app's builder and packs, and the agency's
 // MCP server (runner/agency-mcp.ts) for an AI IDE, all come through here.
@@ -55,6 +57,7 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
     tool_tiers?: Record<string, string>;
     new_tools?: { id: string; description: string; input_schema: unknown }[];
     new_events?: { id: string; description: string; how?: string }[];
+    accounts?: { site?: string; purpose?: string; how_many?: number }[];
   };
   const asked = new Set(all<{ what: string }>("SELECT what FROM requests WHERE agent_id = ? AND status = 'open'", files.id).map(r => r.what));
   const filed: string[] = [];
@@ -127,8 +130,61 @@ export async function requestWhatsMissing(files: Pick<AgentFiles, 'id' | 'name' 
     }
     ask(`Set up ${label} events`, `I'd like to be woken when:\n${list.map(e => `- ${e.description}`).join('\n')}`, [`Events: ${list.map(e => e.id).join(', ')}`, ...eventHow(list)].join('\n') || null, server);
   }
+  for (const what of setupAccounts(files, yaml.accounts ?? [], asked)) filed.push(what);
   // GitHub connected already: the files its instructions name are checked now.
   void import('./runner/engineer.js').then(m => m.checkCharterFiles(files.id)).catch(() => {});
+  return filed;
+}
+
+// The new website accounts it was built to need (TOOLS.yaml accounts), written down
+// as owed (runner/accounts.ts). While it's in setup they're setup items on its card,
+// one per site, and the Agency Engineer makes them: a request each, closed by the app
+// once it has seen that site's accounts working. Out of setup, they're simply the
+// agent's own to make. Asked again (a pack agent after its tailoring), nothing is doubled.
+function setupAccounts(files: Pick<AgentFiles, 'id' | 'name'>, list: { site?: string; purpose?: string; how_many?: number }[], asked: Set<string>): string[] {
+  const bySite = new Map<string, { site: string; purpose: string }[]>();
+  for (const a of list) {
+    if (!a || typeof a.site !== 'string' || !a.site.trim()) continue;
+    let site: string;
+    try {
+      site = siteOf(a.site);
+    } catch {
+      continue;
+    }
+    const n = Math.max(1, Math.min(20, Math.round(Number(a.how_many) || 1)));
+    const purpose = String(a.purpose ?? '').trim() || `An account on ${site}`;
+    for (let i = 1; i <= n; i++) bySite.set(site, [...(bySite.get(site) ?? []), { site, purpose: n > 1 ? `${purpose} (${i} of ${n})` : purpose }]);
+  }
+  const now = Date.now();
+  const inSetup = all<{ n: number }>("SELECT 1 AS n FROM agent_state WHERE agent_id = ? AND setup = 1 AND state = 'stopped'", files.id).length > 0;
+  const filed: string[] = [];
+  for (const [site, accounts] of bySite) {
+    if (!inSetup) {
+      needAccounts(files.id, accounts, now);
+      continue;
+    }
+    const what = accounts.length > 1 ? `Make ${accounts.length} ${site} accounts` : `Make a ${site} account`;
+    let request = all<{ id: number }>("SELECT id FROM requests WHERE agent_id = ? AND what = ? AND status = 'open'", files.id, what)[0]?.id;
+    if (request == null) {
+      request = fileRequest(
+        files.id,
+        null,
+        {
+          what,
+          why: `I can't start my job without ${accounts.length > 1 ? 'these accounts' : 'this account'} on ${site}:\n${accounts.map(a => `- ${a.purpose}`).join('\n')}`,
+          evidence: `New ${accounts.length > 1 ? 'accounts' : 'account'}, signed up for by the agency in the browser. The only part for a person is a check a site insists on (a CAPTCHA, a code), asked for once, for all of them together.`,
+        },
+        now,
+        (agent, trigger, task) => book(agent, trigger as 'request', task),
+        true,
+      );
+      // On its card, as one item it can't start without.
+      exec('UPDATE requests SET setup = 1, setup_name = ?, stars = 5 WHERE id = ?', `${site} ${accounts.length > 1 ? 'accounts' : 'account'}`, request);
+      asked.add(what);
+      filed.push(what);
+    }
+    needAccounts(files.id, accounts, now, request);
+  }
   return filed;
 }
 
@@ -138,4 +194,6 @@ export async function deleteAgent(id: string) {
   await remove(id);
   await removeChoices(id);
   await forgetAgentRuns(id);
+  // What it still owed is nobody's now (accounts that work stay, in the password store).
+  exec("UPDATE accounts SET state = 'cancelled', last_error = 'Its agent was deleted.', updated_at = ? WHERE agent_id = ? AND state NOT IN ('working', 'cancelled')", Date.now(), id);
 }

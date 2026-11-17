@@ -38,6 +38,8 @@ export type RunCtx = {
   person?: string | null;
   // Running what a person approved, after the run that queued it.
   approved?: boolean;
+  // The run was stopped: a tool that waits (signed_in_browser.wait_for_person) stops waiting.
+  signal?: AbortSignal;
 };
 
 type Impl = (args: Record<string, unknown>, ctx: RunCtx) => Promise<string> | string;
@@ -818,7 +820,7 @@ const FAILS_PER_RUN = 3;
 // the browser - clicking, typing, signing in - which is how a browser job gets done
 // at all: one sign-up form is ten fields (Directory Submitter was cut off mid-form).
 const REPEATS_PER_RUN = 10;
-const BROWSER_STEPS = /^(signed_in_browser|browser)\.(click|type|choose|type_password|scroll|back|open|upload_file|press|hover|drag|tabs|resize|drop_file|run_js|tick_security_check|keep_open)$/;
+const BROWSER_STEPS = /^(signed_in_browser|browser)\.(click|type|choose|type_password|scroll|back|open|upload_file|press|hover|drag|tabs|resize|drop_file|run_js|tick_security_check|keep_open|start_sign_up|check_account|show_person|wait_for_person)$/;
 const repeatsInRun = new Map<string, number>();
 const failedInRun = new Map<string, { n: number; last: string }>();
 // A service that says its limit is reached (429, "rate limit"): its tools pause for

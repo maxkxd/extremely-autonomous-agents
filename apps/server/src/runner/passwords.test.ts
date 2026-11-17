@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openDb, run as exec } from './db.js';
 import { ACCOUNTS_PER_SITE, confirmPassword, deletePassword, listPasswords, makePassword, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
+import { needAccounts } from './accounts.js';
 import { SIGNED_IN_TOOLS } from './browser.js';
 import { BASELINE, BROWSER_KIT } from '../catalog.js';
 
@@ -54,10 +55,14 @@ test("the agents' tools never hand a password back, and every agent holds the ki
   const out = await list.impl({}, {} as never);
   assert.match(out, /linkedin\.com - me@x\.test \(browser 1\)/);
   assert.ok(!out.includes('Hidden#Pass1'));
-  const made = SIGNED_IN_TOOLS.find(t => t.id === 'signed_in_browser.make_password')!;
-  const said = await made.impl({ site: 'linkedin.com', username: 'second@x.test' }, { agent: { id: 'zz-a' } } as never);
+  // Signing up: the password is made for an account the agent owes, and never shown.
+  const [owed] = needAccounts('zz-a', [{ site: 'linkedin.com', purpose: 'Second profile' }], Date.now());
+  const made = SIGNED_IN_TOOLS.find(t => t.id === 'signed_in_browser.start_sign_up')!;
+  const said = await made.impl({ account_id: owed.id, username: 'second@x.test' }, { agent: { id: 'zz-a' }, runId: 'r_pw', now: () => Date.now() } as never);
   assert.match(said, /browser 1/);
-  assert.ok(!/[A-Za-z0-9!@#$%*?]{20}/.test(said.replace(/#\w+|password_id "\w+"/g, '')), 'the password itself is not in what the agent sees');
+  assert.ok(!/[A-Za-z0-9!@#$%*?]{20}/.test(said.replace(/#\w+|password_id "\w+"|"a_\w+"/g, '')), 'the password itself is not in what the agent sees');
+  assert.doesNotMatch(String(await list.impl({}, {} as never)), /second@x\.test/, "a sign-up under way isn't in the store");
+  assert.equal(SIGNED_IN_TOOLS.some(t => /make_password|confirm_password/.test(t.id)), false, 'no way left to save or confirm an account on the agent\'s word');
   // Every agent's baseline includes it; paying, posting and starting a new tool wait for a person.
   for (const { id, tier } of BROWSER_KIT) assert.ok(BASELINE.some(b => `${b.server}.${b.tool.name}` === id && b.tool.tier === tier), id);
   const tier = (id: string) => BROWSER_KIT.find(t => t.id === id)?.tier;
@@ -68,7 +73,7 @@ test("the agents' tools never hand a password back, and every agent holds the ki
   exec('DELETE FROM passwords');
 });
 
-test("an agent's new account is not confirmed until it's seen to work; a person's is", async () => {
+test("an account saved before sign-ups were checked stays marked not confirmed; a person's is confirmed", async () => {
   exec('DELETE FROM passwords');
   const mine = await savePassword({ site: 'proton.me', username: 'desk@proton.me', password: 'p', profile: 1, agentId: 'zz-a' });
   const theirs = await savePassword({ site: 'proton.me', username: 'me@proton.me', password: 'p', profile: 1, agentId: null, confirmed: true });
@@ -76,7 +81,7 @@ test("an agent's new account is not confirmed until it's seen to work; a person'
   assert.equal(byId().get(mine), null, 'the sign-up may never finish');
   assert.ok(byId().get(theirs));
   const list = SIGNED_IN_TOOLS.find(t => t.id === 'signed_in_browser.passwords')!;
-  assert.match(String(await list.impl({ site: 'proton.me' }, {} as never)), /desk@proton\.me \(browser 1\) - NOT CONFIRMED[\s\S]*Sign in with it yourself/);
+  assert.match(String(await list.impl({ site: 'proton.me' }, {} as never)), /desk@proton\.me \(browser 1\) - NOT CONFIRMED[\s\S]*check_account with its password_id/);
   confirmPassword(mine);
   assert.ok(byId().get(mine));
   assert.doesNotMatch(String(await list.impl({ site: 'proton.me' }, {} as never)), /NOT CONFIRMED/);

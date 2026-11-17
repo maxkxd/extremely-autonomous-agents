@@ -46,7 +46,7 @@ Every agent is defined by three files the person never sees:
 People's pronouns: everything you write (Charter, tool notes, KPI labels, profile and person notes, your replies) refers to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name, and don't copy a pronoun from an existing note that only guessed one.
 
 How agents work with people, which every agent must respect:
-- Every agent has its own web browser (signed_in_browser.*) and signs up for the accounts its job needs itself, keeping passwords in the agency's store; only a CAPTCHA or a phone code needs a person. An agent asks a person for things through Requests (a key, spend, a decision) and Approvals (a T2 action). It never expects anyone to read its own channel.
+- Every agent has its own web browser (signed_in_browser.*) and the agency signs up for the accounts its job needs itself, keeping passwords in the agency's store; only a CAPTCHA or a phone code needs a person. New accounts the job can't start without go in accounts: they're made during the agent's setup, before it first runs, and the person does every check for them in one go. An agent asks a person for things through Requests (a key, spend, a decision) and Approvals (a T2 action). It never expects anyone to read its own channel.
 - How hard an agent works is set separately by the person (its ferocity), so don't ask about cadence beyond what the job itself needs (e.g. "within an hour of a ticket arriving" is a job requirement; "run more" isn't).
 - API keys and passwords are added later in settings. Never ask for them and tell the person not to paste them into the chat.
 
@@ -365,6 +365,8 @@ export function builderGuide(ctx: Context): string {
 
 const DEPARTMENTS = ['engineering', 'marketing', 'sales', 'finance', 'research', 'operations'] as const;
 
+const ACCOUNTS = z.array(z.object({ site: z.string().describe('The site, e.g. x.com'), purpose: z.string().describe('What it is for, in a few words: "the brand\'s X profile"'), how_many: z.number().describe('Usually 1') }));
+
 export const BuildSchema = z.object({
   name: z.string().describe('Short agent name, 1-3 words, title case, e.g. "Invoice Chaser"'),
   department: z.enum(DEPARTMENTS),
@@ -422,6 +424,10 @@ export const BuildSchema = z.object({
       }),
     )
     .describe('Events nothing connected provides yet that this agent should wake on. The Agency Engineer sets each up and the person connects it. Empty when none.'),
+  // Left out by an AI app building through the agency's MCP server: none.
+  accounts: ACCOUNTS.default([]).describe(
+      "New website accounts the agency signs up for before this agent first runs: ones the job can't start without, on sites nothing here connects to (an X profile for the brand, a Reddit account, a Product Hunt maker account). They're made during its setup - the Agency Engineer signs up, the person only does a CAPTCHA or a phone code, all of them in one go - and each shows on the agent's card. Not the person's own existing accounts (they sign in to those themselves), and nothing a connected service covers. For an agent whose job is to keep making accounts as it goes (one per brand it launches): only the ones it starts with - the Charter says it makes the rest itself, writing down every one it needs first. Empty when it needs none.",
+  ),
   kpi: z
     .array(z.object({ id: z.string().describe('A tool id from tools'), label: z.string().describe('Plural, lowercase, e.g. "invoices chased"') }))
     .describe('1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing.'),
@@ -485,14 +491,16 @@ A tier belongs to a whole tool, not to a situation. So when SOME uses of a tool 
 // grammar is just over Claude's size limit ("The compiled grammar is too large"),
 // and each list of entries is what counts; this leaves room for two more. Turned
 // back into a Build, each list checked against its own schema.
-const TEXT_LISTS = ['approval_hours', 'natural_limits', 'new_events'] as const;
+const TEXT_LISTS = ['approval_hours', 'natural_limits', 'new_events', 'accounts'] as const;
+const listOf = (k: (typeof TEXT_LISTS)[number]) => (k === 'accounts' ? ACCOUNTS : BuildSchema.shape[k]);
 const asJsonText = (k: (typeof TEXT_LISTS)[number]) =>
-  z.string().describe(`${BuildSchema.shape[k].description ?? ''} As JSON text: an array of {${Object.keys((BuildSchema.shape[k].element as z.ZodObject).shape).join(', ')}}, or [] for none.`);
+  z.string().describe(`${BuildSchema.shape[k].description ?? ''} As JSON text: an array of {${Object.keys((listOf(k).element as z.ZodObject).shape).join(', ')}}, or [] for none.`);
 const BuildOutputSchema = BuildSchema.extend({
   report_place: BuildSchema.shape.report_place.unwrap(), // always said, empty for none
   approval_hours: asJsonText('approval_hours'),
   natural_limits: asJsonText('natural_limits'),
   new_events: asJsonText('new_events'),
+  accounts: asJsonText('accounts'),
 });
 const fromText = <T extends z.ZodType>(schema: T, text: string): z.infer<T> | [] => {
   try {
@@ -521,6 +529,7 @@ const fromOutput = (o: z.infer<typeof BuildOutputSchema>): Build => ({
   approval_hours: fromText(BuildSchema.shape.approval_hours, o.approval_hours),
   natural_limits: fromText(BuildSchema.shape.natural_limits, o.natural_limits),
   new_events: fromText(BuildSchema.shape.new_events, o.new_events),
+  accounts: fromText(ACCOUNTS, o.accounts),
 });
 export const buildOutputForTests = { schema: BuildOutputSchema, fromOutput };
 

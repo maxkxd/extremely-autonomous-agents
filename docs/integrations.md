@@ -516,17 +516,19 @@ is forced under `agent/`. Approving a review is for people.
       online." and files one request, "Connect a browser" (not again while it's
       open), answered when one comes online. A browser going offline ends its
       runs' tabs; their next step hears the same.
-    - Agents sign up for accounts themselves: `make_password` makes a strong
-      password, keeps it in the password store (runner/passwords.ts: the
-      vault, `pw:<id>`) and says which browser to use; `type_password` types
-      it in. Agents never see a password; owners and admins do, in Settings >
-      Connectors > Signed-in browser > Passwords. The store is keyed by browser
-      number (the old profile numbers carry over).
+    - Agents sign up for accounts themselves, and the app keeps the record
+      of them (docs/accounts.md): `accounts` writes down every account needed,
+      `start_sign_up` makes a strong password (runner/passwords.ts: the vault,
+      `pw:<id>`) and says which browser to use, `type_password` types it in,
+      and `check_account` has the app read the signed-in page. Only then is
+      the account in the password store. Agents never see a password; owners
+      and admins do, in Settings > Connectors > Signed-in browser > Passwords.
+      The store is keyed by browser number (the old profile numbers carry over).
     - A browser holds up to 10 accounts on one site (Google's limit per
       browser); the 11th needs another browser profile paired.
     - Levels: open, scroll, back and `passwords` silent; click, type, choose,
-      `press`, `tick_security_check`, `show_person`, `make_password` and
-      `type_password` logged; the click that pays, posts publicly or starts a
+      `press`, `tick_security_check`, `show_person`, `start_sign_up`,
+      `check_account`, `wait_for_person` and `type_password` logged; the click that pays, posts publicly or starts a
       new business tool is its own tool (`click_to_pay`, `click_to_post`,
       `click_to_start_tool`) at approval. The agent's rules make it use those
       for those clicks.

@@ -169,7 +169,7 @@ Routes:
 - **No browser online and none the app can open** (no agents' profile, or no Edge or Chromium here): the tool answers plainly, with why profiles can't open, and files one request, "Connect a browser" (not again while it's open).
 - **`show_person`:** the tab is detached, moved to a "Waiting on you" group (not collapsed) and released from the run. The request's button calls `POST /api/browser/show`, which activates it. When the person closes it, the request is answered and the agent hears.
 - **`show_person` with `google: true`:** opens `https://accounts.google.com/` as a released, never-attached tab in that browser and focuses it. Done when the person closes it.
-- **Password store:** keyed by browser number (formerly profile number; numbers carry over). When every browser already holds 10 accounts on a site, `make_password` makes the next agents' profile for the new one (where the app can; otherwise it says to connect another profile).
+- **Password store:** keyed by browser number (formerly profile number; numbers carry over). When every browser already holds 10 accounts on a site, `start_sign_up` makes the next agents' profile for the new one (where the app can; otherwise it says to connect another profile).
 
 ## Agent profiles
 

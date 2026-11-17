@@ -64,7 +64,7 @@ function BrowserButton({ url, request, browser }: { url: string; request: number
   const [finishing, setFinishing] = useState(false);
   const done = () => {
     setFinishing(true);
-    doneInBrowser(request)
+    doneInBrowser(request, url)
       .then(() => setKept(false), notifyError)
       .finally(() => setFinishing(false));
   };

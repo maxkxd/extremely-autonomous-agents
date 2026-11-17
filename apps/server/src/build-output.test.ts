@@ -20,6 +20,7 @@ const base = {
   profile_notes: [],
   person_notes: [],
   report_place: '',
+  accounts: '[]',
 };
 
 test('the JSON-text lists come back as lists', () => {

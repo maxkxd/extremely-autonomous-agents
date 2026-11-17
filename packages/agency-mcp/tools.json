@@ -524,6 +524,34 @@
           },
           "description": "Events nothing connected provides yet that this agent should wake on. The Agency Engineer sets each up and the person connects it. Empty when none."
         },
+        "accounts": {
+          "default": [],
+          "description": "New website accounts the agency signs up for before this agent first runs: ones the job can't start without, on sites nothing here connects to (an X profile for the brand, a Reddit account, a Product Hunt maker account). They're made during its setup - the Agency Engineer signs up, the person only does a CAPTCHA or a phone code, all of them in one go - and each shows on the agent's card. Not the person's own existing accounts (they sign in to those themselves), and nothing a connected service covers. For an agent whose job is to keep making accounts as it goes (one per brand it launches): only the ones it starts with - the Charter says it makes the rest itself, writing down every one it needs first. Empty when it needs none.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "site": {
+                "type": "string",
+                "description": "The site, e.g. x.com"
+              },
+              "purpose": {
+                "type": "string",
+                "description": "What it is for, in a few words: \"the brand's X profile\""
+              },
+              "how_many": {
+                "type": "number",
+                "description": "Usually 1"
+              }
+            },
+            "required": [
+              "site",
+              "purpose",
+              "how_many"
+            ],
+            "additionalProperties": false
+          }
+        },
         "kpi": {
           "type": "array",
           "items": {
@@ -669,6 +697,7 @@
         "new_tools",
         "events",
         "new_events",
+        "accounts",
         "kpi",
         "max_runs_per_day",
         "ferocity",
@@ -886,6 +915,34 @@
           },
           "description": "Events nothing connected provides yet that this agent should wake on. The Agency Engineer sets each up and the person connects it. Empty when none."
         },
+        "accounts": {
+          "default": [],
+          "description": "New website accounts the agency signs up for before this agent first runs: ones the job can't start without, on sites nothing here connects to (an X profile for the brand, a Reddit account, a Product Hunt maker account). They're made during its setup - the Agency Engineer signs up, the person only does a CAPTCHA or a phone code, all of them in one go - and each shows on the agent's card. Not the person's own existing accounts (they sign in to those themselves), and nothing a connected service covers. For an agent whose job is to keep making accounts as it goes (one per brand it launches): only the ones it starts with - the Charter says it makes the rest itself, writing down every one it needs first. Empty when it needs none.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "site": {
+                "type": "string",
+                "description": "The site, e.g. x.com"
+              },
+              "purpose": {
+                "type": "string",
+                "description": "What it is for, in a few words: \"the brand's X profile\""
+              },
+              "how_many": {
+                "type": "number",
+                "description": "Usually 1"
+              }
+            },
+            "required": [
+              "site",
+              "purpose",
+              "how_many"
+            ],
+            "additionalProperties": false
+          }
+        },
         "kpi": {
           "type": "array",
           "items": {
@@ -1031,6 +1088,7 @@
         "new_tools",
         "events",
         "new_events",
+        "accounts",
         "kpi",
         "max_runs_per_day",
         "ferocity",

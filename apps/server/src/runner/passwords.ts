@@ -18,7 +18,12 @@ export const ACCOUNTS_PER_SITE = 10;
 // signed in with it, or a person added it). Until then it may not exist at all: an
 // agent saves the password before the sign-up, and a site can refuse the sign-up
 // after (Proton blocked one from the cloud's network and the inbox was never made).
-export type PasswordRow = { id: string; site: string; username: string; profile: number; agent_id: string | null; note: string | null; created_at: number; confirmed_at: number | null };
+//
+// account_id: the account a sign-up's password is for (accounts.ts). Until that account
+// is seen working the password is hidden from every list here - it isn't an account
+// yet, and may never be: the store only shows accounts that exist.
+export type PasswordRow = { id: string; site: string; username: string; profile: number; agent_id: string | null; note: string | null; created_at: number; confirmed_at: number | null; account_id: string | null };
+const SHOWN = '(account_id IS NULL OR confirmed_at IS NOT NULL)';
 
 // "https://www.LinkedIn.com/login" -> "linkedin.com"; "YouTube" -> "youtube.com" is
 // left to the agent: a bare word stays a word.
@@ -63,11 +68,11 @@ export function moveProfilePasswords(from: number, to: number, before: number): 
   return Number(exec('UPDATE passwords SET profile = ? WHERE profile = ? AND created_at < ?', to, from, before).changes);
 }
 
-export async function savePassword(p: { site: string; username: string; password: string; profile: number; agentId: string | null; note?: string | null; confirmed?: boolean }) {
+export async function savePassword(p: { site: string; username: string; password: string; profile: number; agentId: string | null; note?: string | null; confirmed?: boolean; accountId?: string | null }) {
   const id = randomBytes(6).toString('hex');
   await setSecret(`pw:${id}`, p.password);
   exec(
-    'INSERT INTO passwords (id, site, username, profile, agent_id, note, created_at, confirmed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO passwords (id, site, username, profile, agent_id, note, created_at, confirmed_at, account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     id,
     siteOf(p.site),
     p.username.trim(),
@@ -76,6 +81,7 @@ export async function savePassword(p: { site: string; username: string; password
     p.note?.trim() || null,
     Date.now(),
     p.confirmed ? Date.now() : null,
+    p.accountId ?? null,
   );
   return id;
 }
@@ -90,8 +96,8 @@ export function confirmPassword(id: string) {
 
 export const listPasswords = (site?: string | null) =>
   site
-    ? all<PasswordRow>('SELECT * FROM passwords WHERE site = ? ORDER BY profile, created_at', siteOf(site))
-    : all<PasswordRow>('SELECT * FROM passwords ORDER BY site, profile, created_at');
+    ? all<PasswordRow>(`SELECT * FROM passwords WHERE site = ? AND ${SHOWN} ORDER BY profile, created_at`, siteOf(site))
+    : all<PasswordRow>(`SELECT * FROM passwords WHERE ${SHOWN} ORDER BY site, profile, created_at`);
 
 export const passwordRow = (id: string) => one<PasswordRow>('SELECT * FROM passwords WHERE id = ?', String(id ?? '').replace(/^#/, ''));
 

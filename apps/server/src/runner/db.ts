@@ -69,6 +69,8 @@ export function openDb(path = FILE): DatabaseSync {
     // When a password-store account was seen to work (passwords.ts); NULL: not yet - the
     // sign-up may never have finished.
     'ALTER TABLE passwords ADD COLUMN confirmed_at INTEGER',
+    // The account a sign-up's password is for (accounts.ts): hidden from the store until it works.
+    'ALTER TABLE passwords ADD COLUMN account_id TEXT',
     // A person added those themselves: they work.
     'UPDATE passwords SET confirmed_at = created_at WHERE agent_id IS NULL AND confirmed_at IS NULL',
     // Messages to the Engineer from before: whoever wrote them.
@@ -318,6 +320,32 @@ CREATE TABLE IF NOT EXISTS passwords (
   note TEXT,
   created_at INTEGER NOT NULL
 );
+
+-- The accounts agents owe (runner/accounts.ts): each website account an agent has to
+-- have, from the moment it's needed until the app has seen it working or a person
+-- cancelled it. state: needed | started | waiting | returned | working | cancelled.
+CREATE TABLE IF NOT EXISTS accounts (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,           -- whose account it is
+  site TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  state TEXT NOT NULL,
+  username TEXT,
+  browser INTEGER,
+  password_id TEXT,                 -- this try's password (passwords.id), hidden until working
+  typed_ok INTEGER,                 -- that password was read back as typed, this try
+  typed_host TEXT,                  -- the host it was typed on
+  attempts INTEGER NOT NULL DEFAULT 0, -- tries that failed
+  last_error TEXT,
+  run_id TEXT,                      -- the run signing up now
+  request_id INTEGER,               -- the ask its page waits in
+  setup_request INTEGER,            -- a new agent's setup item
+  next_try_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  working_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS accounts_agent ON accounts(agent_id, state);
 
 -- Gaps in the app itself (runner/app-gaps.ts): a built-in tool or the runner
 -- falling short, found by the Agency Engineer or Doctor. Kept here in full; only

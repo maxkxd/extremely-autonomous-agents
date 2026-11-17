@@ -385,7 +385,8 @@ export const removeBrowser = (n: number) => post<{ ok: boolean }>('/api/browser/
 // url/browser: the button's own address, so a link that isn't the request's kept page opens itself.
 export const showInBrowser = (request: number, url?: string, browser?: number) => post<{ ok: boolean; kept?: boolean }>('/api/browser/show', { request, url, browser });
 // Done on a kept page: answers the request and gives the open tab back to its agent.
-export const doneInBrowser = (request: number) => post<{ ok: boolean }>('/api/browser/done', { request });
+// url: which page, on a request that lists several (each has its own Done).
+export const doneInBrowser = (request: number, url?: string) => post<{ ok: boolean }>('/api/browser/done', { request, url });
 // The connect page, opened in this computer's default browser: the browser is on this
 // computer wherever the agency runs, so it's this computer's own server that opens it.
 export async function openBrowserConnect(link: string): Promise<{ ok: boolean }> {

@@ -92,6 +92,10 @@ export function compose(
     natural_limits: (b.natural_limits ?? [])
       .filter(l => tiers[l.tool] && l.max > 0 && l.per_hours > 0)
       .map(l => ({ tool: l.tool, max: Math.round(l.max), per_hours: l.per_hours, why: l.why })),
+    // New website accounts it can't start without, made during its setup (runner/accounts.ts).
+    accounts: (b.accounts ?? [])
+      .filter(a => a && typeof a.site === 'string' && a.site.trim())
+      .map(a => ({ site: a.site.trim(), purpose: String(a.purpose ?? '').trim(), how_many: Math.max(1, Math.min(20, Math.round(Number(a.how_many) || 1))) })),
   };
   const kpi = {
     agent_id: id,

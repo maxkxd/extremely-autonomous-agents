@@ -5,7 +5,30 @@ import { EventEmitter } from 'node:events';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { _testing as profilesTesting, adoptProfileFolders, PROFILES_DIR } from './agent-profiles.js';
-import { __leaveAloneForTest, __setBrowserConnForTest, agentTabCount, doneWithKeptPage, cleanUpBrowsers, closeRequestsWithLostPages, CONNECT_A_BROWSER, GOOGLE_SIGN_IN, hasKeptPage, keptCaptcha, NO_BROWSER, onPersonDone, pageViewForTests, PROFILE_DIDNT_OPEN, showKeptPage, SIGNED_IN_TOOLS } from './browser.js';
+import {
+  __leaveAloneForTest,
+  __setBrowserConnForTest,
+  __setWaitForTest,
+  accountAskAnswered,
+  accountsTick,
+  agentTabCount,
+  doneWithKeptPage,
+  cleanUpBrowsers,
+  closeRequestsWithLostPages,
+  CONNECT_A_BROWSER,
+  GOOGLE_SIGN_IN,
+  hasKeptPage,
+  keptCaptcha,
+  NO_BROWSER,
+  onPersonDone,
+  pageViewForTests,
+  PROFILE_DIDNT_OPEN,
+  reconcileAccounts,
+  showKeptPage,
+  SIGNED_IN_TOOLS,
+} from './browser.js';
+import { accountRow, passwordTyped, waitingInRun, type PageFacts } from './accounts.js';
+import { listPasswords, passwordRow } from './passwords.js';
 import type { CdpConn } from './cdp.js';
 import { all, one, resetDbForTests, run as exec } from './db.js';
 import { runEnded, type RunCtx } from './tools.js';
@@ -15,7 +38,8 @@ import { runEnded, type RunCtx } from './tools.js';
 // tab detached for the person, closed by the person, the browser going offline and
 // coming back.
 
-type Tab = { url: string; group?: { key: string; title: string; collapsed?: boolean }; attached: boolean; openerId?: string; captcha?: boolean; checkbox?: boolean };
+// facts: what the app reads off the page when it checks an account (accounts.ts).
+type Tab = { url: string; group?: { key: string; title: string; collapsed?: boolean }; attached: boolean; openerId?: string; captcha?: boolean; checkbox?: boolean; facts?: PageFacts };
 type Call = { method: string; params: Record<string, any>; sessionId?: string };
 
 class FakeBrowser implements CdpConn {
@@ -136,6 +160,7 @@ class FakeBrowser implements CdpConn {
     if (call.startsWith('find(')) return true;
     if (expr === 'document.readyState') return 'complete';
     if (expr === 'location.href') return t.url;
+    if (expr.includes('passwordFields')) return t.facts ?? { url: t.url, passwordFields: 0, text: '', controls: '' };
     if (expr.includes('cf-turnstile-response')) return !!t.captcha;
     if (expr.includes('scrollIntoView')) return { x: 5, y: 5 };
     if (expr.includes('innerWidth')) return { w: 1280, h: 900 };
@@ -465,4 +490,185 @@ test('Done on a kept page: the request is answered and the tab stays open, back 
   assert.ok(b.tabs.has(tab), 'still open after the next run ends too');
   assert.equal(await doneWithKeptPage(r.id), false, 'a second Done finds nothing kept');
   await __setBrowserConnForTest(32, null);
+});
+
+// --- Accounts' pages (accounts.ts): one request for a whole batch ----------------------
+
+const acct = agent('zz-acc', 'Growth');
+const signedInPage = (username: string) => ({ url: 'https://x.test/settings/account', passwordFields: 0, text: `Account\n${username}`, controls: 'Log out /logout' });
+const requestCount = () => one<{ n: number }>('SELECT COUNT(*) AS n FROM requests')!.n;
+const buttons = (evidence: string | null) => [...(evidence ?? '').matchAll(/Open in signed-in browser: (\S+)/g)].map(m => m[1]);
+let accB = new FakeBrowser();
+let accIds: string[] = [];
+let accTabs: string[] = [];
+let accRequest = 0;
+
+test('three sign-ups, each stopped at a check: nothing is asked until the batch is ready, then ONE request with a button per page', async () => {
+  await __setBrowserConnForTest(41, accB, 'Chrome - Agents');
+  const c = ctx('r-acc-1', acct);
+  const listed = await call('accounts', { need: [1, 2, 3].map(i => ({ site: 'x.test', purpose: `Outreach account ${i}` })) }, c);
+  assert.match(listed, /Written down: 3 accounts[\s\S]*Owed \(3\)/);
+  accIds = all<{ id: string }>("SELECT id FROM accounts WHERE agent_id = 'zz-acc' ORDER BY created_at, id").map(r => r.id);
+  const before = requestCount();
+  for (const [i, id] of accIds.entries()) {
+    const started = await call('start_sign_up', { account_id: id, username: `n${i + 1}@bikes.test` }, c);
+    assert.match(started, /NOT in the password store yet/);
+    assert.ok(!/[A-Za-z0-9!@#$%*?]{20}/.test(started.replace(/#\w+|password_id "\w+"|"a_\w+"/g, '')), 'the password itself is never shown');
+    passwordTyped(accountRow(id)!.password_id!, true, 'https://x.test/i/flow/signup', Date.now());
+    accB.next = { captcha: true };
+    await call('open', { url: 'https://x.test/i/flow/signup', browser: 41 }, c);
+    accTabs.push([...accB.tabs.keys()].at(-1)!);
+    const said = await call('show_person', { what: 'Pass the CAPTCHA to finish the X sign-up', account_id: id, browser: 41 }, c);
+    assert.match(said, /No request is filed yet/);
+    assert.equal(accB.tabs.get(accTabs[i])!.attached, false, 'off the debugger, as any page for the person');
+    assert.equal(accountRow(id)!.state, 'waiting');
+  }
+  assert.equal(requestCount(), before, 'three pages kept, nothing asked yet');
+  assert.deepEqual(listPasswords('x.test'), [], 'and nothing in the password store');
+  // The batch is ready: one request. (The person doesn't answer in time here.)
+  __setWaitForTest(0.001, 10);
+  const waited = await call('wait_for_person', {}, c);
+  assert.match(waited, /haven't finished[\s\S]*woken the moment they finish/);
+  assert.equal(requestCount(), before + 1);
+  const r = one<{ id: number; what: string; evidence: string; stage: string; service: string; agent_id: string }>('SELECT id, what, evidence, stage, service, agent_id FROM requests ORDER BY id DESC LIMIT 1')!;
+  accRequest = r.id;
+  assert.deepEqual([r.what, r.stage, r.service, r.agent_id], ['Finish 3 sign-ups: one check on each page', 'person', 'accounts', 'zz-acc']);
+  assert.equal(buttons(r.evidence).length, 3);
+  assert.equal(new Set(buttons(r.evidence)).size, 3, 'each button is its own page, though all three share one address');
+  assert.match(r.evidence, /1\. x\.test - n1@bikes\.test: Pass the CAPTCHA/);
+  assert.equal(hasKeptPage(r.id), true);
+  // Asked again, it's the same request.
+  await call('wait_for_person', {}, c);
+  assert.equal(requestCount(), before + 1);
+  await runEnded('r-acc-1');
+  assert.equal(accTabs.every(t => accB.tabs.has(t)), true, 'the kept pages outlive the run');
+});
+
+test("each page has its own button and its own Done; the request closes when the last is done, and a run waiting on it carries straight on", async () => {
+  const urls = buttons(lastRequest().evidence);
+  assert.equal(await showKeptPage(accRequest, { url: urls[1], browser: 41 }), 'shown');
+  assert.equal(accB.of('Target.activateTarget').at(-1)!.params.targetId, accTabs[1], 'the page that button names, not the first');
+  // Done beside the first page: it goes back to the agent; the other two still wait.
+  assert.equal(await doneWithKeptPage(accRequest, urls[0]), true);
+  assert.equal(accountRow(accIds[0])!.state, 'returned');
+  const r = lastRequest();
+  assert.deepEqual([r.status, r.what, buttons(r.evidence).length], ['open', 'Finish 2 sign-ups: one check on each page', 2]);
+  assert.equal(await showKeptPage(accRequest, { url: urls[0], browser: 41 }), 'finished');
+  assert.equal(await doneWithKeptPage(accRequest, urls[0]), true, 'Done pressed twice is no error');
+  // The agent's next run waits on the request - and the person finishes meanwhile.
+  __setWaitForTest(1, 10);
+  const c = ctx('r-acc-2', acct);
+  const waiting = call('wait_for_person', {}, c);
+  await tick();
+  assert.equal(waitingInRun(accRequest), true);
+  accB.personCloses(accTabs[1]); // they closed one tab...
+  await tick();
+  assert.equal(lastRequest().status, 'open', 'one page is still waiting');
+  await doneWithKeptPage(accRequest, urls[2]); // ...and pressed Done on the last
+  const out = await waiting;
+  assert.equal(waitingInRun(accRequest), false);
+  assert.equal(lastRequest().status, 'done');
+  assert.match(out, /The person finished with the pages you kept/);
+  for (const id of accIds) assert.match(out, new RegExp(`${id} x\\.test`));
+  assert.deepEqual(accIds.map(id => accountRow(id)!.state), ['returned', 'returned', 'returned']);
+  assert.ok(accB.tabs.has(accTabs[0]) && accB.tabs.has(accTabs[2]), 'the tabs they pressed Done on are left open for the agent');
+  assert.match(await call('tabs', { action: 'list', browser: 41 }, c), /x\.test\/i\/flow\/signup/);
+
+  // The agent's word counts for nothing: the app reads the page.
+  accB.next = { facts: { url: 'https://x.test/i/flow/signup', passwordFields: 1, text: 'Create your account', controls: 'Next' } };
+  await call('open', { url: 'https://x.test/i/flow/signup', browser: 41 }, c);
+  const no = await call('check_account', { account_id: accIds[0], browser: 41 }, c);
+  assert.match(no, /NOT working yet[\s\S]*still shows a password box/);
+  assert.equal(accountRow(accIds[0])!.state, 'returned');
+  assert.deepEqual(listPasswords('x.test'), []);
+  // The sign-up finished and the account's settings page is open (the run's same tab).
+  await call('open', { url: 'https://x.test/settings/account', browser: 41 }, c);
+  accB.tabs.get([...accB.tabs.keys()].at(-1)!)!.facts = signedInPage('n1@bikes.test');
+  const yes = await call('check_account', { account_id: accIds[0], browser: 41 }, c);
+  assert.match(yes, /^Working: .*n1@bikes\.test at x\.test[\s\S]*Still to do/);
+  assert.deepEqual(listPasswords('x.test').map(p => p.username), ['n1@bikes.test'], 'only now is it in the store');
+  await runEnded('r-acc-2');
+});
+
+test('the request answered while no run waits: the agent is woken once, with what to finish; turned down, the accounts are cancelled', async () => {
+  const booked: { agent: string; trigger: string; task: string }[] = [];
+  await accountAskAnswered(accRequest, 'done', (a, trigger, task) => booked.push({ agent: a, trigger, task }));
+  assert.equal(booked.length, 1);
+  assert.deepEqual([booked[0].agent, booked[0].trigger], ['zz-acc', 'request done']);
+  assert.match(booked[0].task, /not working until it says so[\s\S]*check_account/);
+  // A second batch, turned down by the person.
+  const c = ctx('r-acc-3', acct);
+  await call('accounts', { need: [{ site: 'reddit.test', purpose: 'Community account' }] }, c);
+  const id = one<{ id: string }>("SELECT id FROM accounts WHERE site = 'reddit.test'")!.id;
+  await call('start_sign_up', { account_id: id, username: 'northside_bikes' }, c);
+  const pw = accountRow(id)!.password_id!;
+  await call('open', { url: 'https://reddit.test/register', browser: 41 }, c);
+  // No account_id: the one sign-up this run has going on this site is the one meant.
+  passwordTyped(pw, true, 'https://reddit.test/register', Date.now());
+  assert.match(await call('show_person', { what: 'Pass the CAPTCHA to finish the Reddit sign-up', browser: 41 }, c), /No request is filed yet/);
+  // The run ends without wait_for_person: the pages it kept are asked for all the same.
+  await runEnded('r-acc-3');
+  const r = lastRequest();
+  assert.equal(r.what, 'Finish the reddit.test sign-up: one check on its page');
+  assert.equal(accountRow(id)!.request_id, r.id);
+  exec("UPDATE requests SET status = 'rejected' WHERE id = ?", r.id);
+  booked.length = 0;
+  await accountAskAnswered(r.id, 'rejected', (a, trigger, task) => booked.push({ agent: a, trigger, task }));
+  assert.equal(accountRow(id)!.state, 'cancelled');
+  assert.equal(passwordRow(pw), undefined, "its password is deleted with it");
+  assert.match(booked[0].task, /cancelled - don't make them/);
+  await assert.rejects(call('accounts', { cancel: [accIds[1]], person_said: 'no' }, c), /Only a person cancels/);
+});
+
+test('a kept page lost before the person got to it: that try failed, the account is owed again and its agent woken - never given up', async () => {
+  const c = ctx('r-acc-4', acct);
+  await call('accounts', { need: [{ site: 'producthunt.test', purpose: 'Maker account' }] }, c);
+  const id = one<{ id: string }>("SELECT id FROM accounts WHERE site = 'producthunt.test'")!.id;
+  await call('start_sign_up', { account_id: id, username: 'maker@bikes.test' }, c);
+  const pw = accountRow(id)!.password_id!;
+  passwordTyped(pw, true, 'https://producthunt.test/signup', Date.now());
+  await call('open', { url: 'https://producthunt.test/signup', browser: 41 }, c);
+  await call('show_person', { what: 'Pass the CAPTCHA to finish the Product Hunt sign-up', account_id: id, browser: 41 }, c);
+  await runEnded('r-acc-4');
+  const r = lastRequest();
+  assert.equal(r.status, 'open');
+  // The browser restarts: the tab is gone when it's back.
+  await __setBrowserConnForTest(41, null);
+  accB = new FakeBrowser();
+  await __setBrowserConnForTest(41, accB, 'Chrome - Agents');
+  await tick();
+  const a = accountRow(id)!;
+  assert.deepEqual([a.state, a.attempts], ['needed', 1]);
+  assert.match(a.last_error!, /closed before its check was done \(the browser closed\)/);
+  assert.equal(a.password_id, pw, 'its password reached the site, so it is kept (hidden) for the next try');
+  const closed = one<{ status: string; answer: string }>('SELECT status, answer FROM requests WHERE id = ?', r.id)!;
+  assert.equal(closed.status, 'withdrawn');
+  assert.match(closed.answer, /not by a person/);
+  // Its wait over, the agent is woken for it - and for the two the person finished but it never checked.
+  const booked: { agent: string; trigger: string; task: string }[] = [];
+  const later = Date.now() + 7 * 3_600_000;
+  await accountsTick((agent, trigger, task) => booked.push({ agent, trigger, task }), later);
+  const mine = booked.filter(b => b.agent === 'zz-acc');
+  assert.equal(mine.length, 1, 'one wake for everything it owes');
+  assert.match(mine[0].task, new RegExp(`${id} producthunt\\.test: Maker account \\(maker@bikes\\.test\\) - to make - 1 try failed`));
+  assert.match(mine[0].task, new RegExp(`${accIds[1]} x\\.test`));
+  booked.length = 0;
+  await accountsTick((agent, trigger, task) => booked.push({ agent, trigger, task }), later + 60_000);
+  assert.equal(booked.filter(b => b.agent === 'zz-acc').length, 0, 'not woken again a minute later');
+});
+
+test("a sign-up whose run ended without it being checked is a failed try, whatever the run's summary said", async () => {
+  const c = ctx('r-acc-5', acct);
+  await call('accounts', { need: [{ site: 'mastodon.test', purpose: 'Brand account' }] }, c);
+  const id = one<{ id: string }>("SELECT id FROM accounts WHERE site = 'mastodon.test'")!.id;
+  await call('start_sign_up', { account_id: id, username: 'northside' }, c);
+  const pw = accountRow(id)!.password_id!;
+  await runEnded('r-acc-5');
+  await reconcileAccounts(Date.now() + 5 * 60_000);
+  const a = accountRow(id)!;
+  assert.deepEqual([a.state, a.attempts, a.password_id], ['needed', 1, null]);
+  assert.match(a.last_error!, /the run ended before the sign-up was finished and checked/);
+  assert.equal(passwordRow(pw), undefined, 'never typed: nothing is saved');
+  assert.deepEqual(listPasswords('mastodon.test'), []);
+  await __setBrowserConnForTest(41, null);
 });
