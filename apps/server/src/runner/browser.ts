@@ -1040,12 +1040,40 @@ export const keptCaptcha = async (request: number) => [...kept.values()].some(k 
 // opens as a plain tab of the person's in that browser. Only the request's own page
 // button closes the request when its page is gone.
 // finished: that page of a request with several is already back with the agent.
-export async function showKeptPage(request: number, button?: { url?: string; browser?: number }): Promise<'shown' | 'offline' | 'gone' | 'opened' | 'finished'> {
+// The page's browser offline: an agents' profile is opened (as for an agent), its kept
+// pages found again or closed as lost, and the button tried once more - it opens the
+// browser rather than telling the person to.
+export async function showKeptPage(request: number, button?: { url?: string; browser?: number }, retried = false): Promise<'shown' | 'offline' | 'gone' | 'opened' | 'finished'> {
+  const offline = async (p: { id: string; browser: number }) => {
+    const n = p.browser;
+    if (retried || !managedProfile(n) || cantOpen(n)) return 'offline' as const;
+    try {
+      await openProfile(n);
+      await onlineShared(n)?.adopted;
+    } catch (e) {
+      console.error(`[browser] Opening browser ${n} for request #${request} failed:`, (e as Error).message);
+      return 'offline' as const;
+    }
+    if (!kept.has(p.id)) {
+      // Still waiting to be found: finding the browser's pages failed, so nothing is known.
+      if ((fromBefore ?? []).some(x => x.id === p.id)) return 'offline' as const;
+      // Not in it (the person closed the tab): adoptKeptPages has told its agent.
+      return 'gone' as const;
+    }
+    return showKeptPage(request, button, true);
+  };
+  // Pages kept from before a restart not yet found again (readKept's own list is the
+  // file as read at start, so it would still list ones found or lost since).
+  const waiting = async () => (await readKept(), fromBefore ?? []);
   const marked = PAGE_MARK.exec(button?.url ?? '')?.[1];
   const k = [...kept.values()].find(x => x.request === request && (!marked || x.id === marked));
-  if (marked && !k) return (await readKept()).some(x => x.id === marked) ? 'offline' : 'finished';
+  if (marked && !k) {
+    const w = (await waiting()).find(x => x.id === marked);
+    return w ? offline(w) : 'finished';
+  }
   if (!k) {
-    if ((await readKept()).some(x => x.request === request)) return 'offline';
+    const w = (await waiting()).find(x => x.request === request);
+    if (w) return offline(w);
     const own = /Open in signed-in browser:\s*(https?:\/\/\S+)/.exec(one<{ evidence: string | null }>('SELECT evidence FROM requests WHERE id = ?', request)?.evidence ?? '')?.[1];
     if (button?.url && button.url !== own) {
       await openPersonTab(button.browser, button.url);
@@ -1056,7 +1084,7 @@ export async function showKeptPage(request: number, button?: { url?: string; bro
     return 'gone';
   }
   const conn = connOf(k.browser);
-  if (!conn) return 'offline';
+  if (!conn) return offline(k);
   try {
     await conn.send('Target.activateTarget', { targetId: k.targetId });
     return 'shown';

@@ -449,6 +449,48 @@ test("one that won't come online: a plain answer and one request; not started ag
   profilesTesting.setBrowser(null);
 });
 
+test("a request's button with its agents' profile offline: the profile opens, then the tab is shown - or, closed meanwhile, the request is closed as lost", async () => {
+  await agentsProfile(23);
+  profilesTesting.setBrowser({ exe: 'C:/fake/msedge.exe', kind: 'edge' });
+  profilesTesting.setSpawn(fakeSpawn);
+  profilesTesting.setWaits(2000, 500);
+  const keep = async (run: string) => {
+    const b = new FakeBrowser();
+    await __setBrowserConnForTest(23, b, "Agents' profile 23");
+    const c = ctx(run, agent('zz-ext-p4', 'Directory Submitter'));
+    await call('open', { url: 'https://example.com/submit', browser: 23 }, c);
+    await call('show_person', { what: 'Solve the puzzle, then press Submit' }, c);
+    const r = lastRequest();
+    const tab = [...b.tabs.keys()].at(-1)!;
+    await runEnded(run);
+    b.close();
+    await __setBrowserConnForTest(23, null);
+    return { r, tab };
+  };
+  // Still there: shown, after one start of the profile.
+  const a = await keep('r-prof-4');
+  starts.length = 0;
+  let again: FakeBrowser | undefined;
+  started = n => void __setBrowserConnForTest(n, (again = new FakeBrowser({ [a.tab]: { url: 'https://example.com/submit', group: { key: 'waiting', title: 'Waiting on you' } } })), "Agents' profile 23");
+  assert.equal(await showKeptPage(a.r.id), 'shown');
+  assert.equal(starts.length, 1, 'the button opened the profile');
+  assert.equal(again!.of('Target.activateTarget').at(-1)!.params.targetId, a.tab);
+  assert.equal(one<{ status: string }>('SELECT status FROM requests WHERE id = ?', a.r.id)!.status, 'open');
+  again!.close();
+  await __setBrowserConnForTest(23, null);
+  // Closed by the person while the profile was offline: gone, and the request closed by the agency.
+  const g = await keep('r-prof-5');
+  started = n => void __setBrowserConnForTest(n, new FakeBrowser(), "Agents' profile 23");
+  assert.equal(await showKeptPage(g.r.id), 'gone');
+  await tick();
+  const st = one<{ status: string; answer: string | null }>('SELECT status, answer FROM requests WHERE id = ?', g.r.id)!;
+  assert.equal(st.status, 'withdrawn');
+  assert.match(st.answer ?? '', /not by a person/);
+  await __setBrowserConnForTest(23, null);
+  profilesTesting.reset();
+  profilesTesting.setBrowser(null);
+});
+
 test("a link the Engineer wrote on a card opens that page; it never closes the request - only the request's own lost page does", async () => {
   const b = new FakeBrowser();
   await __setBrowserConnForTest(31, b, 'Edge');

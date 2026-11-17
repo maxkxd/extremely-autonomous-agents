@@ -756,8 +756,8 @@ export const runnerRoutes: Record<string, Route> = {
     const r = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', request);
     if (r) await requireMakerOrAdmin(r.agent_id);
     const how = await showKeptPage(request, { url: typeof url === 'string' ? url : undefined, browser: typeof browser === 'number' ? browser : undefined });
-    if (how === 'offline') throw new Error("That page is in your browser, but it isn't connected to EXTREMELY right now. Open it with the EXTREMELY extension on, then press this again.");
-    if (how === 'gone') throw new Error('That page was lost, so this request is closed. Its agent has been told and will do it again if it still needs to.');
+    if (how === 'offline') throw new Error("That page was left in a browser that isn't connected to EXTREMELY right now. Open that browser with the EXTREMELY extension on, then press this again.");
+    if (how === 'gone') throw new Error('That page was closed, and what was filled in on it went with it. Its agent has been told and will do it again if it still needs to.');
     if (how === 'finished') throw new Error('That page is finished already: it is back with the agent.');
     // kept: it's the request's own page, so the app offers Done for it.
     return { ok: true, kept: how === 'shown' };
