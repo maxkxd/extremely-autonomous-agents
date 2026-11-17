@@ -59,7 +59,14 @@ function BrowserButton({ url, request, browser }: { url: string; request: number
   const google = /^accounts\.(google|youtube)\.com$/.test(hostOf(url));
   // kept: it was the request's own page, so Done answers it and gives the tab back.
   const [kept, setKept] = useState(false);
-  const open = () => showInBrowser(request, url, browser).then(r => (setOpened(true), setKept(!!r.kept)), notifyError);
+  // Opening: its browser may be starting first (up to ~40 s), so the button says so.
+  const [opening, setOpening] = useState(false);
+  const open = () => {
+    setOpening(true);
+    showInBrowser(request, url, browser)
+      .then(r => (setOpened(true), setKept(!!r.kept)), notifyError)
+      .finally(() => setOpening(false));
+  };
   // Pressed once only: after it works the page is the agent's again, so Done goes.
   const [finishing, setFinishing] = useState(false);
   const done = () => {
@@ -71,17 +78,17 @@ function BrowserButton({ url, request, browser }: { url: string; request: number
   if (opened && kept)
     return (
       <span className="rt-browser">
-        <button className="rt-settings" disabled={finishing} onClick={done}>
+        <button className="rt-settings" disabled={finishing || opening} onClick={done}>
           Done
         </button>{' '}
-        <button className="rt-settings" onClick={open}>
-          Open it again
+        <button className="rt-settings" disabled={opening} onClick={open}>
+          {opening ? 'Opening…' : 'Open it again'}
         </button>
       </span>
     );
   return (
-    <button className="rt-settings" onClick={open}>
-      {opened ? 'Open it again' : google ? 'Sign in to Google in your browser' : 'Open it in your browser'}
+    <button className="rt-settings" disabled={opening} onClick={open}>
+      {opening ? 'Opening…' : opened ? 'Open it again' : google ? 'Sign in to Google in your browser' : 'Open it in your browser'}
     </button>
   );
 }

@@ -627,13 +627,20 @@ function OwnBrowserStep({ request, google }: { request: number; google?: boolean
             Done
           </button>
           <button className="rq-btn" disabled={busy !== null} onClick={open}>
-            Open it again
+            {busy === 'open' ? (
+              <>
+                <Spinner size={14} />
+                Opening…
+              </>
+            ) : (
+              'Open it again'
+            )}
           </button>
         </>
       ) : (
         <button className="rq-btn finished" disabled={busy !== null} onClick={open}>
           {busy === 'open' ? <Spinner size={14} /> : <ExternalLink size={16} strokeWidth={2.25} />}
-          {google ? 'Sign in to Google in your browser' : 'Open it in your browser'}
+          {busy === 'open' ? 'Opening…' : google ? 'Sign in to Google in your browser' : 'Open it in your browser'}
         </button>
       )}
     </div>
