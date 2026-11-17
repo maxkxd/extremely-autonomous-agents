@@ -163,6 +163,7 @@ test('admins: AI connections, the agency, caps, settings; members not', () => {
     'POST /api/connections/disconnect',
     'POST /api/runner/agency',
     'POST /api/usage',
+    'POST /api/usage/paid-daily',
     'POST /api/events/tunnel',
     'POST /api/settings/code-plugins',
     'POST /api/browser/sign-in',
@@ -230,6 +231,15 @@ test("members control only the agents they made; anyone may write to the Agency 
     assert.equal(await why(call(admin, 'POST /api/runner/agent', { id: files.id, spendCapUsd: '' })), 'ok');
     assert.equal(one<{ spend_cap_usd: number | null }>('SELECT spend_cap_usd FROM agent_state WHERE agent_id = ?', files.id)?.spend_cap_usd, null);
     assert.match(await why(call(admin, 'POST /api/usage', { orgCapUsd: '-5' })), /^A monthly limit/);
+    // The pay-per-use limit per day: 0 is a limit (never), empty is none.
+    for (const bad of [-1, 'abc', '1.005'])
+      assert.match(await why(call(admin, 'POST /api/usage/paid-daily', { paidDailyCapUsd: bad })), /^A daily limit/, String(bad));
+    assert.equal(await why(call(admin, 'POST /api/usage/paid-daily', { paidDailyCapUsd: 0 })), 'ok');
+    assert.equal(one<{ value: string }>("SELECT value FROM settings WHERE key = 'spend_cap_paid_daily_usd'")?.value, '0');
+    assert.equal(await why(call(admin, 'POST /api/usage/paid-daily', { paidDailyCapUsd: '$20' })), 'ok');
+    assert.equal(one<{ value: string }>("SELECT value FROM settings WHERE key = 'spend_cap_paid_daily_usd'")?.value, '20');
+    assert.equal(await why(call(admin, 'POST /api/usage/paid-daily', { paidDailyCapUsd: '' })), 'ok');
+    assert.equal(one<{ value: string }>("SELECT value FROM settings WHERE key = 'spend_cap_paid_daily_usd'")?.value, 'null');
     assert.equal(await why(call(member, 'POST /api/runner/agent', { id: files.id, spendCapUsd: 10 })), 'A spend limit needs an admin.');
   } finally {
     await remove(files.id);

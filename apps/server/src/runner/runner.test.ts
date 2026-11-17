@@ -10,6 +10,7 @@ import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from '.
 import { ModelError, type Adapter, type Call } from './providers.js';
 import { LOOPING, loopGuard, OVER_LIMIT, postRun, runAgent, SAME_CALL_LIMIT, stateOf, type RunDeps } from './run.js';
 import { book, dropStaleRequestRuns, engineerCanJoin, engineerScope, nextRun } from './scheduler.js';
+import { WAKE_WINDOWS } from './wakes.js';
 import { forgetAgentRuns } from './forget.js';
 import { decideApproval } from './approvals.js';
 import { fleetReport } from './doctor.js';
@@ -707,10 +708,11 @@ test("quick replies on a request join the Agency Engineer's waiting run: one run
   replyToEngineer(4, 'Max', 'use acme/web');
   replyToEngineer(4, 'Max', 'actually acme/app');
   replyToEngineer(41, 'Max', 'yes');
+  // Every wake is debounced now (wakes.ts): all three, #41's too, wait in one run, each
+  // under its own heading (was: #4's two replies in one booking, #41 in another).
   const queued = all<{ task: string }>("SELECT task FROM bookings WHERE agent_id = 'fleet' ORDER BY id").map(b => b.task);
-  assert.equal(queued.length, 2);
-  assert.match(queued[0], /replied on request #4: "use acme\/web"\nThen: "actually acme\/app"/);
-  assert.match(queued[1], /request #41: "yes"/);
+  assert.equal(queued.length, 1);
+  assert.match(queued[0], /— Reply on request #4:\nMax replied on request #4: "use acme\/web"\n\n— Reply on request #4:\nMax replied on request #4: "actually acme\/app"\n\n— Reply on request #41:\nMax replied on request #41: "yes"/);
 });
 
 test('a resumed Agency Engineer run is told what it already said, so it does not answer twice', async () => {
@@ -1239,7 +1241,8 @@ test('asked in its chat, an agent changes its own ferocity, pauses itself until 
   exec('UPDATE agent_state SET ferocity = ? WHERE agent_id = ?', RELENTLESS, ID);
   assert.equal(nextRun(agent(), stateOf(ID), Date.now()), null, 'no scheduled run on a day it was told not to work');
   book(ID, 'your message', 'hi');
-  assert.equal(nextRun(agent(), stateOf(ID), Date.now())?.trigger, 'your message', 'a message is still answered');
+  // (A message settles a few seconds first, in case more follow: wakes.ts.)
+  assert.equal(nextRun(agent(), stateOf(ID), Date.now() + WAKE_WINDOWS['your message'].settleMs)?.trigger, 'your message', 'a message is still answered');
   assert.ok(!(await call('ops__set_my_run_days', { days: [] })).error);
 });
 

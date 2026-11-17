@@ -72,11 +72,8 @@ export async function deliver(src: EventSource, source: 'poll' | 'webhook', item
   const shown = fresh.slice(0, MAX_SHOWN).map(i => `- ${line(i.summary)}`).join('\n');
   const more = fresh.length > MAX_SHOWN ? `\n(and ${fresh.length - MAX_SHOWN} more)` : '';
   const block = `${src.integration.name} - ${src.event.description} (${src.event.id}): ${fresh.length} new\n${shown}${more}`;
-  for (const agentId of agents) {
-    const waiting = one<{ id: number; task: string | null }>("SELECT id, task FROM bookings WHERE agent_id = ? AND trigger = 'event' ORDER BY id LIMIT 1", agentId);
-    if (waiting) exec('UPDATE bookings SET task = ? WHERE id = ?', `${waiting.task ?? ''}\n\n${block}`.trim().slice(-12000), waiting.id);
-    else book(agentId, 'event', block);
-  }
+  // (book joins it to a wake already waiting: scheduler.ts, wakes.ts.)
+  for (const agentId of agents) book(agentId, 'event', block);
   return { fresh: fresh.length, woke: agents };
 }
 

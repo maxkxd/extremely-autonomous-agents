@@ -19,10 +19,11 @@ import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, apocalypticWait, backstop, scheduledDue, SHORT_RUNS_TO_RELENTLESS } from './ferocity.js';
 
 import { resumeDue, runsToday as runsOnDay } from './selfsettings.js';
+import { bookWake, dropWakeParts, formatWake, isDebounced, parseWake, requestOf, triggerFor, WAKE_WINDOWS, type Part } from './wakes.js';
 
 const SHORT_RUNS_WINDOW_MS = 24 * 3_600_000; // Apocalyptic's slow-down looks back a day at most
 import { fileRequest, settleJoined, toolsFor } from './tools.js';
-import { costOf, isFree, spentThisMonth, startOfDay } from './pricing.js';
+import { costOf, isFree, paidAllowed, paidDailyCap, spentThisMonth, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
 import { adapterFor } from './providers.js';
 import { eligibleModels, runAgent, stateOf, type RunDeps, type Trigger } from './run.js';
@@ -97,61 +98,39 @@ export const liveDeps: RunDeps = {
 // Also a reply already answered: replies sent while it was working on that
 // request queue a run, but it reads the whole conversation (list_requests) - if
 // it read it after they came and answered since, they've had their answer.
+// A booking gathers several events (wakes.ts): only the parts about such requests
+// go; the rest still run, and the booking goes only once nothing is left.
 export function dropStaleRequestRuns() {
-  const queued = all<{ id: number; task: string | null; trigger: string; created_at: number }>(
-    "SELECT id, task, trigger, created_at FROM bookings WHERE agent_id = ? AND trigger IN ('request', 'request reply', 'connected')",
-    FLEET_ENGINEER,
-  );
-  for (const b of queued) {
-    const request = Number(/request #(\d+)/i.exec(b.task ?? '')?.[1]);
-    if (!request) continue;
+  dropWakeParts(FLEET_ENGINEER, (p, b) => {
+    if (p.trigger !== 'request' && p.trigger !== 'request reply' && p.trigger !== 'connected') return false;
+    const request = requestOf(p.text);
+    if (!request) return false;
     const open = one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE id = ? AND status = 'open'", request)?.n;
-    if (!open) {
-      exec('DELETE FROM bookings WHERE id = ?', b.id);
-      continue;
-    }
-    if (b.trigger !== 'request reply') continue;
+    if (!open) return true;
+    if (p.trigger !== 'request reply') return false;
     // The latest reply it's for, and whether the engineer read the conversation after it, then answered.
     const lastReply = one<{ at: number | null }>("SELECT MAX(at) AS at FROM request_messages WHERE request_id = ? AND from_who = 'you'", request)?.at ?? b.created_at;
     const read = one<{ at: number | null }>("SELECT MIN(at) AS at FROM actions WHERE agent_id = ? AND tool = 'engineer.list_requests' AND at >= ?", FLEET_ENGINEER, lastReply)?.at;
-    const answered = read != null && one<{ n: number }>("SELECT COUNT(*) AS n FROM request_messages WHERE request_id = ? AND from_who = 'engineer' AND at > ?", request, read)?.n;
-    if (answered) exec('DELETE FROM bookings WHERE id = ?', b.id);
-  }
+    return !!(read != null && one<{ n: number }>("SELECT COUNT(*) AS n FROM request_messages WHERE request_id = ? AND from_who = 'engineer' AND at > ?", request, read)?.n);
+  });
 }
 
-// Hearing how approvals went waits a moment after the last one, so a person approving
-// 50 in a minute wakes the agent once, not 50 times (or 10: a run starting on the first
-// few, then another for the ones decided meanwhile, and so on). A steady stream still
-// gets heard within APPROVAL_MAX_WAIT_MS of the first.
-export const APPROVAL_SETTLE_MS = 45_000;
-export const APPROVAL_MAX_WAIT_MS = 10 * 60_000;
+// Kept for the approval code and its tests: an approval's own debounce (wakes.ts).
+export const APPROVAL_SETTLE_MS = WAKE_WINDOWS.approval.settleMs;
+export const APPROVAL_MAX_WAIT_MS = WAKE_WINDOWS.approval.maxMs;
 
-// A run to start as soon as it can (handoffs, your messages, Run now).
+// A run to start (handoffs, your messages, Run now...). Every event-driven wake is
+// debounced and joins the one already waiting (wakes.ts): a burst of handoffs,
+// requests, results and approvals is one run, not one each. Run now and a run it
+// booked itself start when they're due.
+// dueAt: when it can start; for a debounced wake, when the event happened (it's due a
+// settle after).
 // person: whose message it answers - the Agency Engineer keeps one chat per person.
 export function book(agentId: string, trigger: Trigger, task: string | null, dueAt = Date.now(), person: string | null = null) {
-  // Decisions made together wake it once, with all of them (six approvals had
-  // made six runs in a row).
-  // Results that come in together, likewise: one run hears them all.
-  if (trigger === 'task done' && one<{ id: number }>("SELECT id FROM bookings WHERE agent_id = ? AND trigger = 'task done'", agentId)) return;
-  // Messages sent while it was stopped (or before it got to them) are answered in
-  // one run, not one run each.
-  if ((trigger === 'approval' || trigger === 'your message') && task) {
-    const waiting = one<{ id: number; task: string | null; created_at: number }>('SELECT id, task, created_at FROM bookings WHERE agent_id = ? AND trigger = ? AND person_id IS ? ORDER BY id LIMIT 1', agentId, trigger, person);
-    if (waiting) {
-      // A big batch's outcomes: the first lot in full, then a pointer (they're all in approvals.queue_mine).
-      const full = trigger === 'approval' && (waiting.task?.length ?? 0) > MAX_WAKE_CHARS;
-      const more = '\n\n(More outcomes came in after these: approvals.queue_mine lists them, with recent failures.)';
-      const add = !full ? `\n\n${task}` : waiting.task!.endsWith(more) ? '' : more;
-      if (trigger === 'approval') exec("UPDATE bookings SET task = COALESCE(task, '') || ?, due_at = MIN(created_at + ?, MAX(due_at, ?)) WHERE id = ?", add, APPROVAL_MAX_WAIT_MS, dueAt + APPROVAL_SETTLE_MS, waiting.id);
-      else exec("UPDATE bookings SET task = COALESCE(task, '') || ? WHERE id = ?", add, waiting.id);
-      return;
-    }
-  }
-  if (trigger === 'approval') dueAt += APPROVAL_SETTLE_MS;
+  if (isDebounced(trigger)) return bookWake(agentId, trigger, task, dueAt, person);
   exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at, person_id) VALUES (?, ?, ?, ?, ?, ?)', agentId, trigger, task, dueAt, Date.now(), person);
 }
 
-const MAX_WAKE_CHARS = 12_000;
 // Approved actions are run by the queue (approvals.ts), which wakes agents through here.
 setQueueWake((agentId, trigger, task) => book(agentId, trigger as Trigger, task));
 
@@ -186,6 +165,7 @@ export async function tick(deps: RunDeps = liveDeps) {
     // Memory nearly full (pressure.ts): runs already going carry on, but no new one
     // starts until it drops. What's booked or due waits; nothing is dropped.
     const braked = memoryBrake.update(await memoryFraction());
+    let paidWaiting = false; // a run due that only the pay-per-use limit holds back
     for (const id of await listIds()) {
       const engineer = id === FLEET_ENGINEER;
       const others = runsOf(id);
@@ -212,20 +192,25 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (others.length && !next.bookingId) continue;
       const eligible = eligibleModels(agent, deps);
       // Nothing it can run on: wait (a message still gets an answer saying why).
-      if (!eligible.length && next.trigger !== 'your message') continue;
+      if (!eligible.length && next.trigger !== 'your message') {
+        paidWaiting ||= eligibleModels(agent, deps, false).length > 0;
+        continue;
+      }
       const local = eligible[0]?.connection === 'ollama';
       if (local && [...running.values()].some(r => r.connection === 'ollama')) continue;
       // Memory nearly full: it waits (its booking stays, its schedule keeps counting) and starts once memory drops.
       if (holdsBack(braked, running.size)) continue;
       const booked = next.bookingId ? one<{ r: string | null; p: string | null }>('SELECT resume_from AS r, person_id AS p FROM bookings WHERE id = ?', next.bookingId) : null;
       const resumeFrom = booked?.r ?? null;
-      if (next.bookingId) exec('DELETE FROM bookings WHERE id = ?', next.bookingId);
+      if (next.rest?.length) exec('UPDATE bookings SET task = ?, trigger = ? WHERE id = ?', formatWake(next.rest), triggerFor(next.rest, next.trigger), next.bookingId!);
+      else if (next.bookingId) exec('DELETE FROM bookings WHERE id = ?', next.bookingId);
       // A run it booked itself counts as its scheduled run: the schedule's clock
       // restarts, so booking a run never adds one on top of the level's pace.
       if (next.trigger === 'scheduled' || next.trigger === 'self-booked' || next.trigger === 'request done' || next.trigger === 'run now')
         exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now, id);
       start(agent, next.trigger, next.task, deps, eligible[0]?.connection ?? null, resumeFrom, booked?.p ?? null);
     }
+    paidCapRequest(paidWaiting, now);
   } finally {
     ticking = false;
   }
@@ -285,6 +270,33 @@ export function capRequest(connections: string[], now: number) {
   );
 }
 
+// The pay-per-use limit for today reached (pricing.ts) with a run waiting that has
+// only pay-per-use models: one request to the person while it lasts, closed when the
+// day turns (or the limit is raised or removed).
+const PAID_CAP_WHAT = "Today's pay-per-use AI limit is reached - some agents are waiting";
+export function paidCapRequest(waiting: boolean, now: number) {
+  const cap = paidDailyCap();
+  const open = one<{ id: number }>("SELECT id FROM requests WHERE what = ? AND status = 'open'", PAID_CAP_WHAT);
+  if (paidAllowed(now)) {
+    if (open) exec("UPDATE requests SET status = 'done', answer = 'Pay-per-use AI can be used again.', answered_at = ?, stage = NULL WHERE id = ?", now, open.id);
+    return;
+  }
+  if (open || !waiting) return;
+  fileRequest(
+    FLEET_ENGINEER,
+    null,
+    {
+      what: PAID_CAP_WHAT,
+      why:
+        cap === 0
+          ? "The pay-per-use AI limit per day is $0, so API keys are never used - and some agents have only pay-per-use models, so they're waiting. Give them an AI plan on their cards (Claude, ChatGPT or Copilot), or raise the limit in Settings > Usage."
+          : `Today's pay-per-use AI limit of $${cap!.toFixed(2)} is reached, so API keys aren't used again until tomorrow - and some agents have only pay-per-use models, so they're waiting. They start again tomorrow, or now if you raise the limit (Settings > Usage) or give them an AI plan on their cards.`,
+    },
+    now,
+    () => {},
+  );
+}
+
 // The tunnel's address changes each time it starts (a quick tunnel: no account), and every
 // service posting events was given the old one - so they all stop arriving, silently. Said
 // to the person once per change, with each new address and where it goes.
@@ -310,7 +322,8 @@ export function hookAddressRequest(base: string, hooks: { service: string; id: s
   );
 }
 
-type Next = { trigger: Trigger; task: string | null; bookingId?: number };
+// rest: what stays booked when only part of a booking runs now (on standby).
+type Next = { trigger: Trigger; task: string | null; bookingId?: number; rest?: Part[] };
 
 // What a person set off, which an agent on standby still runs: their message,
 // Run now, hearing how an approval it queued was decided, and (the Fleet
@@ -336,8 +349,16 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   const message = due.find(b => b.trigger === 'your message');
   if (message) return { trigger: message.trigger, task: message.task, bookingId: message.id };
   if (st.state === 'draining') {
-    const b = due.find(x => PERSON_DRIVEN.has(x.trigger));
-    return b ? { trigger: b.trigger, task: b.task, bookingId: b.id } : null;
+    // A wake that gathered several events (wakes.ts): only what a person set off runs
+    // now; the rest stays booked for when it's active again.
+    for (const b of due) {
+      const parts = parseWake(b.trigger, b.task);
+      const mine = parts.filter(p => p.trigger !== 'more' && PERSON_DRIVEN.has(p.trigger));
+      if (!mine.length) continue;
+      if (mine.length === parts.length) return { trigger: b.trigger, task: b.task, bookingId: b.id };
+      return { trigger: triggerFor(mine, b.trigger), task: formatWake(mine), bookingId: b.id, rest: parts.filter(p => !mine.includes(p)) };
+    }
+    return null;
   }
   // Run now is a person asking for a run this minute: not held back by a failure
   // backoff or the runaway backstop (it spun, then did nothing, after a few failures).

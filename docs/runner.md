@@ -64,6 +64,14 @@ high is the person's call; the builder still makes it do something useful:
   going is skipped, not queued.
 - Triggers: its schedule, booking itself, Apocalyptic's run-after-run, another
   agent handing it a task, a person messaging it, an approval being decided.
+- **Every event wake is debounced** (`runner/wakes.ts`): handoffs, requests,
+  replies, results, approvals, events, connections. A wake is due a settle
+  after the latest event and no later than a max after the first: 60 s / 5 min
+  by default, 45 s / 10 min for approvals, 8 s / 30 s for a person's DM. While
+  one is waiting, a new event joins it (any kind, each under its own heading in
+  the run's opening) instead of booking another run; a DM joins only the same
+  person's waiting DMs. Past 12,000 characters, a pointer to where the rest is
+  listed. Run now, its schedule and runs it booked itself aren't debounced.
 - A run that answers **a person's message** is never nudged past its answer.
 - At the end, the run posts to the agent's DM channel (docs/agent-dms.md).
 
@@ -190,6 +198,13 @@ opening says what it already did, so nothing is done twice.
   whole organisation, and an optional monthly cap per agent (the host's
   calendar month). Hitting one pauses that spending until the next month;
   plans and local models aren't affected.
+- **Pay-per-use AI limit per day** (Settings -> Usage, `spend_cap_paid_daily_usd`,
+  `runner/pricing.ts`): only what runs spend on pay-per-use connections (API
+  keys) counts, never plans or local models. Reached, model choice skips
+  pay-per-use connections until the host's next day: a run moves to a plan in
+  its list, or waits if it has none, and the person gets one request while
+  agents wait on it. Auto-switch never moves an agent onto a key past it. 0:
+  never use pay-per-use AI. Empty: no limit.
 - **What a run cost**: OpenRouter's public price list, refreshed daily. A
   run on a plan is priced as the same model on an API would be - more than it
   really costs, but it shows what the plan is worth, and it counts toward the

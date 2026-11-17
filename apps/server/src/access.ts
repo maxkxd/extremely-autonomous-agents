@@ -252,7 +252,7 @@ export async function requireMakerOrAdmin(agentId: string, requestId?: number | 
 // --- Who did what ---
 
 // Each change, with what it was about - ids and choices, never keys or what someone wrote.
-const ABOUT = ['id', 'agentId', 'packId', 'state', 'decision', 'status', 'ferocity', 'spendCapUsd', 'orgCapUsd', 'on', 'allowed', 'zone'];
+const ABOUT = ['id', 'agentId', 'packId', 'state', 'decision', 'status', 'ferocity', 'spendCapUsd', 'orgCapUsd', 'paidDailyCapUsd', 'on', 'allowed', 'zone'];
 
 export function recordAction(actor: Actor, method: string, path: string, body: unknown, now = Date.now()) {
   const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};

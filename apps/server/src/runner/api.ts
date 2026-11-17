@@ -34,7 +34,7 @@ import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { BUILT_IN_IDS, HELPER_IDS } from './helpers.js';
 import { clearResume } from './selfsettings.js';
-import { spentToday } from './pricing.js';
+import { PAID_DAILY_CAP, paidDailyCap, paidSpentToday, spentToday } from './pricing.js';
 import { hostZone, hostZoneSet, setHostZone, startOfMonth } from './clock.js';
 import { mcpUrlFor, rpcAs } from './agency-mcp.js';
 import { setDirectoryOrgs, writeMcpDirectory } from './mcp-directory.js';
@@ -86,6 +86,17 @@ export function capUsd(v: unknown): number | null {
   return n;
 }
 
+// The pay-per-use limit per day as typed: like a monthly one, but 0 is a limit too
+// (never use pay-per-use AI). Empty clears it.
+export function dailyCapUsd(v: unknown): number | null {
+  if (v == null || (typeof v === 'string' && !v.trim())) return null;
+  const s = typeof v === 'number' ? String(v) : typeof v === 'string' ? v.trim().replace(/^\$/, '').replace(/,/g, '') : '';
+  const n = Number(s);
+  if (!/^\d+(\.\d{1,2})?$/.test(s) || !(n >= 0) || n > MAX_CAP_USD)
+    throw new Error('A daily limit is a dollar amount, to the cent at most, like 20 or 7.50 - 0 for never, up to 1,000,000. Leave it empty for no limit.');
+  return n;
+}
+
 // The words of a typed command that could start a server here: a program
 // (npx, uvx, docker...) or a path to one. Plain words ("not a url at all") aren't one.
 const RUNNERS = /^(npx|npm|pnpm|pnpx|yarn|bunx?|node|deno|uvx?|pipx|python[\d.]*|py|docker|podman|java|go|dotnet|ruby|php|cmd|powershell|pwsh|bash|sh)(\.exe|\.cmd)?$/i;
@@ -122,16 +133,11 @@ export const evidenceForPeople = (evidence: unknown) => {
 };
 
 // A person's reply on a request wakes the Agency Engineer. Replies sent while
-// that wake is still waiting join it, so one run answers them all, not one each.
+// that wake is still waiting join it (book debounces every wake), so one run
+// answers them all, not one each.
 export function replyToEngineer(requestId: number, who: string, text: string) {
   const said = `"${text.slice(0, 1500)}"`;
-  const waiting = one<{ id: number; task: string | null }>(
-    "SELECT id, task FROM bookings WHERE agent_id = ? AND trigger = 'request reply' AND task LIKE ? ORDER BY id LIMIT 1",
-    FLEET_ENGINEER,
-    `%request #${requestId}:%`,
-  );
-  if (waiting) exec('UPDATE bookings SET task = ? WHERE id = ?', `${waiting.task ?? ''}\nThen: ${said}`.slice(-6000), waiting.id);
-  else book(FLEET_ENGINEER, 'request reply', `${who} replied on request #${requestId}: ${said}`);
+  book(FLEET_ENGINEER, 'request reply', `${who} replied on request #${requestId}: ${said}`);
 }
 
 // What a person says on a request: there for everyone, and the Engineer woken.
@@ -841,11 +847,17 @@ export const runnerRoutes: Record<string, Route> = {
         monthUnknownRuns: m?.unknown ?? 0,
       });
     }
-    return { orgCapUsd: getSetting<number | null>('spend_cap_org_usd', null), spentTodayUsd: spentToday(now), agents };
+    return { orgCapUsd: getSetting<number | null>('spend_cap_org_usd', null), spentTodayUsd: spentToday(now), paidDailyCapUsd: paidDailyCap(), paidTodayUsd: paidSpentToday(now), agents };
   },
   'POST /api/usage': async (_req, _q, body) => {
     const { orgCapUsd } = await body<{ orgCapUsd: unknown }>();
     setSetting('spend_cap_org_usd', capUsd(orgCapUsd));
+    return { ok: true };
+  },
+  // The organization's pay-per-use AI limit per day (pricing.ts). Admins only (access.ts).
+  'POST /api/usage/paid-daily': async (_req, _q, body) => {
+    const { paidDailyCapUsd } = await body<{ paidDailyCapUsd: unknown }>();
+    setSetting(PAID_DAILY_CAP, dailyCapUsd(paidDailyCapUsd));
     return { ok: true };
   },
 };

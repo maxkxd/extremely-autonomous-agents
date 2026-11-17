@@ -412,6 +412,9 @@ export const deletePassword = (id: string) => post<{ ok: boolean }>('/api/passwo
 export type Usage = {
   orgCapUsd: number | null;
   spentTodayUsd: number;
+  // The pay-per-use AI limit per day (API keys only, not plans): null none, 0 never.
+  paidDailyCapUsd?: number | null;
+  paidTodayUsd?: number;
   agents: {
     id: string;
     name: string;
@@ -425,6 +428,7 @@ export type Usage = {
 };
 export const getUsage = (days?: number) => request<Usage>(`/api/usage${days ? `?days=${days}` : ''}`);
 export const setOrgCap = (orgCapUsd: number | null) => post<{ ok: boolean }>('/api/usage', { orgCapUsd });
+export const setPaidDailyCap = (paidDailyCapUsd: number | null) => post<{ ok: boolean }>('/api/usage/paid-daily', { paidDailyCapUsd });
 
 // Whether a model really works on this account: one tiny test request when
 // it's picked. unsure: the check got no real answer (busy, down).

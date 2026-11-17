@@ -9,6 +9,7 @@ import { allChecks, checkModel, dueForRecheck, type Check } from '../models/chec
 import { brokenModel, choiceKey, type Health } from '../models/health.js';
 import { pickDefaults, type Want } from './defaults.js';
 import { DOCTOR } from './doctor.js';
+import { isFree, paidAllowed } from './pricing.js';
 
 // The agency's built-in agents, kept together here because they're different:
 // owned by no one, never deleted, no Ferocity, and one day hideable. The
@@ -114,7 +115,11 @@ export async function fillBuiltInModels() {
     const k = checks[choiceKey(c)];
     return k?.ok && !k.unsure ? k.at : 0;
   };
-  const works = (c: Pick<ModelChoice, 'connection' | 'model'>) => has(c) && !spent.has(c.connection) && checks[choiceKey(c)]?.ok !== false && !brokenModel(health, c, passedAt(c));
+  // Past today's pay-per-use limit, no agent is moved onto an API key (a run would
+  // only wait on it, and the plans it had spill money onto the key).
+  const canPay = paidAllowed(Date.now());
+  const works = (c: Pick<ModelChoice, 'connection' | 'model'>) =>
+    has(c) && !spent.has(c.connection) && (canPay || isFree(c.connection)) && checks[choiceKey(c)]?.ok !== false && !brokenModel(health, c, passedAt(c));
   // One that's back: its notice closes.
   for (const r of openLost())
     if (avail.some(a => a.connection === r.service))

@@ -10,7 +10,7 @@ import { Integration } from '../integrations/schema.js';
 import { all, resetDbForTests, setSetting } from './db.js';
 import { handleHook, hookToken, itemsFrom, pollEvents, verifySignature } from './events.js';
 import { stateOf } from './run.js';
-import { nextRun } from './scheduler.js';
+import { book as realBook, nextRun } from './scheduler.js';
 import { loadAgent } from './agent.js';
 
 const AGENT = 'zz-events-agent';
@@ -108,12 +108,14 @@ test('polling: the first poll tells the backlog once; new items after it wake th
   assert.equal(booked.length, 1);
 });
 
+// Joining a waiting wake is the scheduler's (every wake is debounced: wakes.ts), so
+// this one books for real rather than through the recording stand-in.
 test('a burst while the wake is still waiting joins it: one run, not one per item', async () => {
-  await pollEvents(book, 0, fetcher, sources); // baseline: nothing there
+  await pollEvents(realBook, 0, fetcher, sources); // baseline: nothing there
   answer = { data: [{ id: 'a', title: 'First' }] };
-  await pollEvents(book, 6 * 60_000, fetcher, sources);
+  await pollEvents(realBook, 6 * 60_000, fetcher, sources);
   answer = { data: [{ id: 'a', title: 'First' }, { id: 'b', title: 'Second' }] };
-  await pollEvents(book, 12 * 60_000, fetcher, sources);
+  await pollEvents(realBook, 12 * 60_000, fetcher, sources);
   const waiting = all<{ task: string }>("SELECT task FROM bookings WHERE agent_id = ? AND trigger = 'event'", AGENT);
   assert.equal(waiting.length, 1);
   assert.match(waiting[0].task, /First[\s\S]*Second/);

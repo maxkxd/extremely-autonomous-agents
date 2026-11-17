@@ -10,8 +10,9 @@ import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { queueForPrompt } from './action-queue.js';
 import { backoffMs, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
-import { costOf, isFree, spentThisMonth } from './pricing.js';
+import { costOf, isFree, paidAllowed, paidDailyCap, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
+import { dropWakeParts, isMerged, parseWake, wakeLabel } from './wakes.js';
 import type { Harness } from './harness.js';
 import { ModelError, type Adapter, type Msg } from './providers.js';
 
@@ -113,11 +114,14 @@ export const getHealth = () => getSetting<Health>(HEALTH_KEY, {});
 export const putHealth = (h: Health) => setSetting(HEALTH_KEY, h);
 
 // The models a run can use now: usable, with an adapter, and - when a spend
-// cap is reached - free ones only (plans and local models).
-export function eligibleModels(agent: AgentDef, deps: RunDeps): ModelChoice[] {
-  const over = overSpend(agent.id, deps.now());
+// cap is reached, or the pay-per-use limit for today - free ones only (plans and
+// local models). paidLimit false: as if there were no pay-per-use limit (to tell
+// whether that's what holds it).
+export function eligibleModels(agent: AgentDef, deps: RunDeps, paidLimit = true): ModelChoice[] {
+  const now = deps.now();
+  const canPay = !overSpend(agent.id, now) && (!paidLimit || paidAllowed(now));
   return agent.models.filter(
-    c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)) && (isFree(c.connection) || !over),
+    c => deps.modelInfo(c).usable && (deps.adapter(c.connection) || deps.harness(c.connection)) && (isFree(c.connection) || canPay),
   );
 }
 
@@ -144,6 +148,11 @@ export function noModelReason(agent: AgentDef, deps: RunDeps): string {
     return `This month's $${orgCap.toFixed(2)} spending limit is reached. It runs again next month, or now on an AI plan.`;
   if (cap != null && spentThisMonth(now, agent.id) >= cap)
     return `Its $${cap.toFixed(2)} monthly limit is reached. It runs again next month, or now on an AI plan.`;
+  const paid = paidDailyCap();
+  if (paid != null && !paidAllowed(now) && usable.every(c => !isFree(c.connection)))
+    return paid === 0
+      ? 'Pay-per-use AI is off (a $0 daily limit in Settings > Usage), and all its models are pay-per-use. It runs on an AI plan.'
+      : `Today's $${paid.toFixed(2)} pay-per-use AI limit is reached. It runs again tomorrow, or now on an AI plan.`;
   return 'No model it can use right now.';
 }
 
@@ -182,7 +191,8 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
   told?.requests.push(...answered.map(r => r.id));
   told?.tasks.push(...results.map(t => t.id));
   // Told now, so a wake still waiting to tell it has nothing left to say.
-  if (results.length) exec("DELETE FROM bookings WHERE agent_id = ? AND trigger = 'task done'", agent.id);
+  // (Only that part of a wake that gathered several events: the rest still runs.)
+  if (results.length) dropWakeParts(agent.id, p => p.trigger === 'task done');
   const news = [
     ...answered.map(r => `- Your request #${r.id} ("${r.what}") was ${r.status === 'done' ? 'answered' : r.status === 'withdrawn' ? 'closed by the agency (not by a person - not a no)' : 'turned down'}: ${r.answer ?? '(no note)'}`),
     ...results.map(t => `- Task #${t.id} you handed to ${t.agent_id} is done: ${t.result ?? '(no result given)'}`),
@@ -270,6 +280,12 @@ async function fleetOf(exceptId: string) {
 }
 
 function opening(agent: AgentDef, trigger: Trigger, task: string | null, person: string | null = null): string {
+  // Several events gathered into one wake (wakes.ts): each told as it would be on its own.
+  if (isMerged(task)) {
+    const parts = parseWake(trigger, task);
+    const each = parts.map(p => `— ${wakeLabel(p)}:\n${p.trigger === 'more' ? p.text : opening(agent, p.trigger, p.text, person)}`);
+    return `${parts.filter(p => p.trigger !== 'more').length} things came in for you together, each below under its own heading. Deal with every one of them in this run.\n\n${each.join('\n\n')}`;
+  }
   switch (trigger) {
     case 'scheduled':
       return 'Scheduled run. Start with what you owe (tasks.list_my_tasks), then do your job as your Charter says.';
@@ -389,6 +405,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   let input = 0;
   let output = 0;
   let cost: number | null = 0;
+  let paid = 0; // the part of it on pay-per-use connections
   const told: Told = { requests: [], tasks: [] };
   let used: ModelChoice | null = null;
   let summary = '';
@@ -496,8 +513,11 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
       cost = cost == null || c == null ? null : cost + c;
       // Spend so far is on the run as it goes - Usage shows it, and a monthly limit
       // crossed mid-run ends the run there, not at its end (no run limits any more).
+      // What it spent on a pay-per-use connection counts toward the limit per day
+      // (pricing.ts): reached, the next turn moves to a plan, or the run ends there.
+      if (c != null && !isFree(used!.connection)) paid += c;
       if (cost != null && !isFree(used!.connection)) {
-        exec('UPDATE runs SET cost_usd = ? WHERE id = ?', cost, id);
+        exec('UPDATE runs SET cost_usd = ?, paid_usd = ? WHERE id = ?', cost, paid, id);
         if (overSpend(agent.id, deps.now())) throw new Error(OVER_LIMIT);
       }
       messages.push({ role: 'assistant', text: turn.text, calls: turn.calls, raw: turn.raw });
@@ -536,7 +556,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   const status = stopped ? 'stopped' : error ? 'failed' : 'succeeded';
   const endedAt = deps.now();
   exec(
-    'UPDATE runs SET status = ?, ended_at = ?, connection = ?, model = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, acts = ?, nudges = ?, summary = ?, error = ? WHERE id = ?',
+    'UPDATE runs SET status = ?, ended_at = ?, connection = ?, model = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, paid_usd = ?, acts = ?, nudges = ?, summary = ?, error = ? WHERE id = ?',
     status,
     endedAt,
     used?.connection ?? null,
@@ -544,6 +564,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
     input,
     output,
     cost,
+    paid,
     acts,
     nudges,
     summary || null,
@@ -589,7 +610,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   // and it sat until its next daily run, after another AI was connected.
   if (status === 'failed' && error?.startsWith(NO_MODEL_ANSWERED) && !['scheduled', 'apocalyptic'].includes(trigger)) {
     const due = stateOf(agent.id, endedAt).backoff_until ?? endedAt;
-    exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at, resume_from) VALUES (?, ?, ?, ?, ?, ?)', agent.id, trigger, task, due, endedAt, id);
+    exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at, resume_from, person_id) VALUES (?, ?, ?, ?, ?, ?, ?)', agent.id, trigger, task, due, endedAt, id, person);
   }
 
   if (deps.compact && used) void compactMemory(agent, used, deps, id).catch(() => {});
