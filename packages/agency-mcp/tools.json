@@ -268,7 +268,7 @@
   {
     "name": "set_agent",
     "title": "Set an agent's ferocity or state",
-    "description": "An agent's ferocity (how hard it works: Chill, Steady, Driven, Relentless, Apocalyptic) or state (active, draining = standby: starts nothing itself, stopped: runs nothing). Built-in agents have neither.",
+    "description": "An agent's ferocity (how hard it works: Chill, Steady, Driven, Relentless, Apocalyptic; Steady is the default, on a schedule; Chill has none and runs only when given work - a task, a message, an event) or state (active, draining = standby: starts nothing itself, stopped: runs nothing). Built-in agents have neither.",
     "inputSchema": {
       "type": "object",
       "properties": {

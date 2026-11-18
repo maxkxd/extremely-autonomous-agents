@@ -98,7 +98,7 @@ export function resetDbForTests(path = ':memory:') {
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS agent_state (
   agent_id TEXT PRIMARY KEY,
-  ferocity INTEGER NOT NULL DEFAULT 1,          -- 0 Chill .. 4 Apocalyptic; 1 Steady is the default
+  ferocity INTEGER NOT NULL DEFAULT 1,          -- 0 Chill .. 4 Apocalyptic; 1 Steady is the default. Stores from before 18 Nov 2026 keep DEFAULT 0: always set it on insert (DEFAULT_LEVEL).
   state TEXT NOT NULL DEFAULT 'active',         -- active | draining | stopped
   last_scheduled_at INTEGER,                    -- when its schedule last started a run (ms)
   fail_streak INTEGER NOT NULL DEFAULT 0,       -- runs failed in a row, for backoff

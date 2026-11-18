@@ -10,7 +10,7 @@ import { ALLOWANCE_WHAT, BUILT_IN_IDS } from './helpers.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { queueForPrompt } from './action-queue.js';
 import { accountsForPrompt } from './accounts.js';
-import { backoffMs, DEFAULT_LEVEL, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
+import { backoffMs, CHILL, DEFAULT_LEVEL, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
 import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
@@ -277,21 +277,26 @@ async function fleetOf(exceptId: string) {
   return out;
 }
 
-function opening(agent: AgentDef, trigger: Trigger, task: string | null, person: string | null = null): string {
+// chill: the agent is on Chill (ferocity.ts) - it does what it was given, never "anything else its job needs".
+function opening(agent: AgentDef, trigger: Trigger, task: string | null, person: string | null = null, chill = false): string {
   // Several events gathered into one wake (wakes.ts): each told as it would be on its own.
   if (isMerged(task)) {
     const parts = parseWake(trigger, task);
-    const each = parts.map(p => `— ${wakeLabel(p)}:\n${p.trigger === 'more' ? p.text : opening(agent, p.trigger, p.text, person)}`);
+    const each = parts.map(p => `— ${wakeLabel(p)}:\n${p.trigger === 'more' ? p.text : opening(agent, p.trigger, p.text, person, chill)}`);
     return `${parts.filter(p => p.trigger !== 'more').length} things came in for you together, each below under its own heading. Deal with every one of them in this run.\n\n${each.join('\n\n')}`;
   }
   switch (trigger) {
     case 'scheduled':
       return 'Scheduled run. Start with what you owe (tasks.list_my_tasks), then do your job as your Charter says.';
     case 'self-booked':
-      return `You booked this run: ${task ?? 'to carry on'}. Carry on with that, then anything else your job needs.`;
+      return chill
+        ? `You booked this run: ${task ?? 'to carry on'}. Carry on with that and only that - you're on Chill, so once it's done, stop.`
+        : `You booked this run: ${task ?? 'to carry on'}. Carry on with that, then anything else your job needs.`;
     // A request it filed was answered or done (the Agency Engineer, or a person): woken to use it.
     case 'request done':
-      return `${task ?? 'A request you filed is done.'} Then anything else your job needs.`;
+      return chill
+        ? `${task ?? 'A request you filed is done.'} Use it for the work you were given; you're on Chill, so start nothing else of your own.`
+        : `${task ?? 'A request you filed is done.'} Then anything else your job needs.`;
     case 'apocalyptic':
       return 'Your next run, straight after the last one. Pick up where you left off and keep your output going: what you owe, then everything your Charter names.';
     case 'handoff':
@@ -409,7 +414,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   const alongside = pieces.length
     ? `\n\nRunning now beside you, each in its own parallel run of you - leave these pieces to them, even if this run was booked for one of them (then do the rest of your job instead):\n${pieces.map(p => `- ${(p.task ?? '').split('\n')[0].slice(0, 300)}`).join('\n')}`
     : '';
-  const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task, person)}${alongside}${resume}` }];
+  const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task, person, level === CHILL)}${alongside}${resume}` }];
   let acts = 0;
   let nudges = 0;
   // Output when it was last nudged: a nudge that brought nothing new (a limit reached,

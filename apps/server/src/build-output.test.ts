@@ -98,3 +98,11 @@ test("a made-up 'narrower' computer_files tool becomes the built-in write, at ap
   assert.equal(b.kpi[0].id, 'computer_files.write_file');
   assert.deepEqual(b.ferocity.counts, ['computer_files.write_file']);
 });
+
+test("a client on the tool list from before Steady became the default sends chill_every_hours: that's the pace", async () => {
+  const { BuildSchema } = await import('./builder.js');
+  const old = { chill_every_hours: 24, steady_every_hours: 16, driven_every_hours: 12, relentless_every_hours: 6, driven_soft_floor: 1, relentless_floor: 3, apocalyptic_floor: 9, counts: [], hint: '', extra_effort: '' };
+  assert.equal(BuildSchema.shape.ferocity.parse(old).steady_every_hours, 24);
+  const { chill_every_hours: _, ...now } = old;
+  assert.equal(BuildSchema.shape.ferocity.parse({ ...now, steady_every_hours: 12 }).steady_every_hours, 12);
+});

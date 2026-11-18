@@ -4,6 +4,7 @@ import { allChecks, type Check } from '../models/check.js';
 import { allChoices, cleanChoices, type ModelChoice } from '../models/choice.js';
 import { brokenModel, choiceKey, isBenched, recordFailure, recordSuccess, type Health } from '../models/health.js';
 import { one, run as exec } from './db.js';
+import { DEFAULT_LEVEL } from './ferocity.js';
 import { pickDefaults, type Want } from './defaults.js';
 import { harnessFor, type HarnessResult } from './harness.js';
 import { costOf, isFree } from './pricing.js';
@@ -85,7 +86,7 @@ export async function ask(agentId: string, a: Ask): Promise<string> {
   if (!order.length) throw new Error(`${name} has no model it can use. Connect one in Settings > Connectors, or pick some on its card.`);
 
   const id = newRunId();
-  exec('INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at) VALUES (?, ?, ?, ?, 0, ?, ?)', id, agentId, a.trigger, a.task, 'running', startedAt);
+  exec('INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)', id, agentId, a.trigger, a.task, DEFAULT_LEVEL, 'running', startedAt);
   let error = '';
   let fellBack = !usable.length;
   for (let i = 0; i < order.length; i++) {

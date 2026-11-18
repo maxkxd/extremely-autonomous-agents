@@ -284,7 +284,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'set_agent',
-    description: `An agent's ferocity (how hard it works: ${LEVELS.join(', ')}) or state (active, draining = standby: starts nothing itself, stopped: runs nothing). Built-in agents have neither.`,
+    description: `An agent's ferocity (how hard it works: ${LEVELS.join(', ')}; Steady is the default, on a schedule; Chill has none and runs only when given work - a task, a message, an event) or state (active, draining = standby: starts nothing itself, stopped: runs nothing). Built-in agents have neither.`,
     schema: obj({ agent_id: str('The agent id'), ferocity: { type: 'string', enum: [...LEVELS] }, state: { type: 'string', enum: ['active', 'draining', 'stopped'] } }, ['agent_id']),
     run: async a => {
       const { agentId, meta } = await agentOrThrow(a.agent_id);

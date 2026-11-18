@@ -7,7 +7,7 @@ import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER, countsAsOutput, loadAgent } from './agent.js';
 import { all, builtInLevels, one, run as exec } from './db.js';
 import { defaultModels } from './defaults.js';
-import { LEVELS } from './ferocity.js';
+import { DEFAULT_LEVEL, LEVELS } from './ferocity.js';
 import { remember } from './memory.js';
 import { fileRequest, INSTRUCTIONS_CHANGE, registerTools, servedHere, type ToolDef } from './tools.js';
 import { appGapTool, gapsForPrompt } from './app-gaps.js';
@@ -229,7 +229,7 @@ ${gaps}`);
 async function readAgent(id: string): Promise<string> {
   const agent = await loadAgent(id);
   if (!agent) throw new Error(`No agent "${id}".`);
-  const level = one<{ ferocity: number }>('SELECT ferocity FROM agent_state WHERE agent_id = ?', id)?.ferocity ?? 0;
+  const level = one<{ ferocity: number }>('SELECT ferocity FROM agent_state WHERE agent_id = ?', id)?.ferocity ?? DEFAULT_LEVEL;
   const runs = all<{ trigger: string; status: string; acts: number; floor: number | null; summary: string | null }>(
     'SELECT trigger, status, acts, floor, summary FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 5',
     id,

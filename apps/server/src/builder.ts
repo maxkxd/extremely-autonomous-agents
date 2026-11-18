@@ -367,6 +367,15 @@ const DEPARTMENTS = ['engineering', 'marketing', 'sales', 'finance', 'research',
 
 const ACCOUNTS = z.array(z.object({ site: z.string().describe('The site, e.g. x.com'), purpose: z.string().describe('What it is for, in a few words: "the brand\'s X profile"'), how_many: z.number().describe('Usually 1') }));
 
+// A client still on the tool list from before 18 Nov 2026 sends chill_every_hours (the job's
+// sensible pace, now Steady's) and steady_every_hours (the old, faster Steady, now gone): the
+// first is the pace.
+const legacyPace = (f: unknown) => {
+  if (!f || typeof f !== 'object' || !('chill_every_hours' in f)) return f;
+  const { chill_every_hours, ...rest } = f as Record<string, unknown>;
+  return { ...rest, steady_every_hours: chill_every_hours };
+};
+
 export const BuildSchema = z.object({
   name: z.string().describe('Short agent name, 1-3 words, title case, e.g. "Invoice Chaser"'),
   department: z.enum(DEPARTMENTS),
@@ -432,7 +441,9 @@ export const BuildSchema = z.object({
     .array(z.object({ id: z.string().describe('A tool id from tools'), label: z.string().describe('Plural, lowercase, e.g. "invoices chased"') }))
     .describe('1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing.'),
   max_runs_per_day: z.number().describe('Runaway backstop, not the cadence: comfortably above what the job needs'),
-  ferocity: z
+  ferocity: z.preprocess(
+    legacyPace,
+    z
     .object({
       steady_every_hours: z
         .number()
@@ -461,6 +472,7 @@ export const BuildSchema = z.object({
         ),
     })
     .describe('How hard it works at each ferocity level, set for this job. The person picks the level on the card.'),
+  ),
   natural_limits: z
     .array(z.object({ tool: z.string(), max: z.number(), per_hours: z.number(), why: z.string() }))
     .describe('Caps on an action at every ferocity - ONLY ones the person asked for in this conversation, in their own words ("at most one post a day"). Never add one because it seems sensible: the agency is here for as much good output as possible. The only other reason is a law, or a rule of the platform that would get the account banned (say which in why). Empty otherwise - and never write a cap into the Charter either.'),

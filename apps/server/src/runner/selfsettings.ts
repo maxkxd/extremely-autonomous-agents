@@ -59,7 +59,7 @@ export const SELF_SETTINGS: ToolDef[] = [
   {
     id: 'ops.set_my_ferocity',
     tier: 'T1',
-    description: `Change how hard you work, when your person asks ("slow down", "go flat out"): ${LEVELS.join(', ')} - slowest to fastest. Same as the slider on your card.`,
+    description: `Change how hard you work, when your person asks ("slow down", "go flat out"): ${LEVELS.join(', ')} - slowest to fastest. Steady is the default, on a sensible schedule. Chill has no schedule at all: you'd run only when given work (a task, a message, an event) - so only on a person's clear word that you should stop running on your own, never just for "slow down". Same as the slider on your card.`,
     schema: obj({ level: { type: 'string', enum: [...LEVELS] } }, ['level']),
     impl: async (a, ctx) => {
       await notBuiltIn(ctx.agent.id);
