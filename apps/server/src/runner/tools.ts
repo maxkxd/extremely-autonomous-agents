@@ -6,7 +6,7 @@ import { FLEET_ENGINEER, realName, type AgentDef } from './agent.js';
 import { all, getSetting, one, run } from './db.js';
 import { readMeta } from '../files.js';
 import { loadPerson } from '../org.js';
-import { APOCALYPTIC, LEVELS, parallelSlots } from './ferocity.js';
+import { APOCALYPTIC, parallelSlots } from './ferocity.js';
 import { remember } from './memory.js';
 import { SELF_SETTINGS } from './selfsettings.js';
 import type { Call, ToolImage, ToolSpec } from './providers.js';
@@ -575,11 +575,10 @@ const BUILTIN: ToolDef[] = [
     id: 'ops.start_parallel_run',
     tier: 'T0',
     description:
-      "Relentless and Apocalyptic: start a run of yourself on one independent piece of your work (one business's film, one account, one batch), working at the same time as you. It has your tools, files and memory, and its cost and output are yours. Name the piece exactly, with everything it needs (which folder or record is its own). Call it once per piece.",
+      "Start a run of yourself on one independent piece of your work (one business's film, one account, one batch), working at the same time as you. It has your tools, files and memory, and its cost and output are yours. Name the piece exactly, with everything it needs (which folder or record is its own). Call it once per piece.",
     schema: obj({ piece: str('The one piece of work it does, in full: what, which business/folder/record, and what done looks like') }, ['piece']),
     impl: (a, ctx) => {
       const slots = parallelSlots(ctx.level);
-      if (!slots) return `Not at your level (${LEVELS[ctx.level]}): parallel runs are for Relentless and Apocalyptic. Do the pieces one after another, or book your next run.`;
       if (ctx.parallel) return 'You are a parallel run yourself: do your own piece. Only your main run starts parallel runs.';
       const piece = String(a.piece ?? '').trim().slice(0, 4000);
       if (!piece) return 'Name the piece of work it is for.';

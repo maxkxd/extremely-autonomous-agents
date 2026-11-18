@@ -184,8 +184,8 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (st.state === 'stopped') continue;
       const agent = await loadAgent(id);
       if (!agent) continue;
-      // An agent already running: only its own parallel runs (ops.start_parallel_run, Relentless
-      // and Apocalyptic) start beside it, up to its level's slots - and its main run, if what's
+      // An agent already running: only its own parallel runs (ops.start_parallel_run, any level)
+      // start beside it, up to its level's slots - and its main run, if what's
       // going are only parallel ones. Everything else waits for its run to end, as before.
       if (!engineer && others.length) {
         const room = others.filter(r => r.parallel).length < parallelSlots(st.ferocity);

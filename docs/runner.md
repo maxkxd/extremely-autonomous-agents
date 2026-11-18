@@ -62,10 +62,11 @@ high is the person's call; the builder still makes it do something useful:
   agent's first working model (fallback and backoff: model-connections.md).
 - **One main run at a time per agent.** A scheduled run that comes due while one is
   going is skipped, not queued.
-- **Parallel runs at Relentless and Apocalyptic.** An agent with several independent
-  pieces of work (one launch film per business) starts a run of itself for each
-  (`ops.start_parallel_run`): up to 3 beside its main run at Relentless, 7 at
-  Apocalyptic. Each is told its one piece and to leave the others alone, and can't
+- **Parallel runs, at every level.** An agent with several independent pieces of
+  work (one launch film per business) starts a run of itself for each
+  (`ops.start_parallel_run`), up to 7 beside its main run. Every level can; the
+  higher the level, the harder its instructions push it to (Apocalyptic: every
+  independent piece gets its own run). Each is told its one piece and to leave the others alone, and can't
   start more. They're the agent's own runs (same tools, files, memory), so their cost
   and output count as the agent's. The memory brake still holds new ones back.
 - Triggers: its schedule, booking itself, Apocalyptic's run-after-run, another

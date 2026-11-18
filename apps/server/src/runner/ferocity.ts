@@ -14,15 +14,23 @@ export const APOCALYPTIC = 4;
 export const MAX_NUDGES = 4;
 
 // Parallel runs (Max, 18 Nov 2026: "agents should be able to spin up concurrent sessions and do it
-// viciously on relentless and apocalyptic"). At those levels an agent with several independent
-// pieces of work (five launch films, one per business) starts a run of itself for each piece
-// (ops.start_parallel_run) instead of doing them one after another. They're its own runs: same
-// tools, files, memory, cost and output. How many at once besides its main run: the machine's
-// bound, not a pace (the memory brake still holds new runs back when memory is nearly full).
-export const PARALLEL_RUNS = [0, 0, 0, 3, 7];
-export const parallelSlots = (level: number) => PARALLEL_RUNS[level] ?? 0;
-const PARALLEL = (level: number) =>
-  `Split your work: when you have several independent pieces (one film, account or lead batch per business, say), don't do them one after another. Start a parallel run of yourself for each piece with ops.start_parallel_run - up to ${parallelSlots(level)} at once beside this one. They're you: same tools, files, cost and output. Give each one piece and its own folder or record, never two runs on the same thing, and carry on with what's left here.`;
+// viciously on relentless and apocalyptic"; "on every level it should be able to but at that level
+// its instructed to use it more"). An agent with several independent pieces of work (five launch
+// films, one per business) starts a run of itself for each piece (ops.start_parallel_run) instead
+// of doing them one after another. They're its own runs: same tools, files, memory, cost and
+// output. Every level can; the higher the level, the harder it's told to. How many at once besides
+// its main run is the machine's bound, not a pace (the memory brake still holds new runs back when
+// memory is nearly full).
+export const PARALLEL_RUNS = 7;
+export const parallelSlots = (_level: number) => PARALLEL_RUNS;
+const HOW_PARALLEL = `Start one with ops.start_parallel_run for each piece - up to ${PARALLEL_RUNS} at once beside this run. They're you: same tools, files, cost and output. Give each one piece and its own folder or record, never two runs on the same thing.`;
+const PARALLEL = [
+  `You can work on several things at once: when a big job splits into independent pieces that would otherwise wait their turn, run them side by side. ${HOW_PARALLEL}`,
+  `You can work on several things at once: when you have several independent pieces of work, run them side by side rather than one after another. ${HOW_PARALLEL}`,
+  `Work on several things at once: whenever you have two or more independent pieces of work (one per business, account or batch), run them side by side. ${HOW_PARALLEL}`,
+  `Split your work: when you have several independent pieces (one film, account or lead batch per business, say), never do them one after another - run them all at once. ${HOW_PARALLEL} Then carry on with what's left here.`,
+  `Split everything you can: every independent piece of work (one film, account or lead batch per business, say) gets its own parallel run, all at once, as many as you have pieces. ${HOW_PARALLEL} Then carry on with what's left here.`,
+];
 
 // How readily it asks for things (docs/requests.md, "Ferocity and requests").
 const REQUEST_STANCE = [
@@ -94,7 +102,6 @@ export function ferocityInstructions(agent: AgentDef, level: number, callable?: 
         IMPROVE,
         'Woken by an event (an alert, a ticket, a new record): follow it to the bottom - the real cause, anything else it touches, anything like it elsewhere - and book a follow-up run (ops.book_next_run) for each lead you can\'t finish now.',
         'Before you end a run, if any work is left, book your next run (ops.book_next_run) naming it. Chaining runs is expected; do not set yourself a lower limit.',
-        PARALLEL(level),
       );
       break;
     case APOCALYPTIC:
@@ -103,10 +110,10 @@ export function ferocityInstructions(agent: AgentDef, level: number, callable?: 
         f ? `Every run has a floor of ${f.floor} output actions (${counted}). It is set high on purpose: push as far toward it as you can.` : '',
         IMPROVE,
         'Your next run starts as soon as this one ends, so you never need to book one.',
-        PARALLEL(level),
       );
       break;
   }
+  lines.push(PARALLEL[level]);
   if (level > CHILL) lines.push(`What extra effort means for your job: ${plan.extra_effort}`);
   lines.push(`Requests: ${REQUEST_STANCE[level]}`);
   return lines.filter(Boolean).join('\n\n');
