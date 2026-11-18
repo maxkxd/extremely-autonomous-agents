@@ -60,8 +60,14 @@ high is the person's call; the builder still makes it do something useful:
 
 - One run = one conversation with the model and its tool loop, using the
   agent's first working model (fallback and backoff: model-connections.md).
-- **One run at a time per agent.** A scheduled run that comes due while one is
+- **One main run at a time per agent.** A scheduled run that comes due while one is
   going is skipped, not queued.
+- **Parallel runs at Relentless and Apocalyptic.** An agent with several independent
+  pieces of work (one launch film per business) starts a run of itself for each
+  (`ops.start_parallel_run`): up to 3 beside its main run at Relentless, 7 at
+  Apocalyptic. Each is told its one piece and to leave the others alone, and can't
+  start more. They're the agent's own runs (same tools, files, memory), so their cost
+  and output count as the agent's. The memory brake still holds new ones back.
 - Triggers: its schedule, booking itself, Apocalyptic's run-after-run, another
   agent handing it a task, a person messaging it, an approval being decided.
 - **Every event wake is debounced** (`runner/wakes.ts`): handoffs, requests,

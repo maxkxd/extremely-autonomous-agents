@@ -6,7 +6,7 @@ import { FLEET_ENGINEER, realName, type AgentDef } from './agent.js';
 import { all, getSetting, one, run } from './db.js';
 import { readMeta } from '../files.js';
 import { loadPerson } from '../org.js';
-import { APOCALYPTIC } from './ferocity.js';
+import { APOCALYPTIC, LEVELS, parallelSlots } from './ferocity.js';
 import { remember } from './memory.js';
 import { SELF_SETTINGS } from './selfsettings.js';
 import type { Call, ToolImage, ToolSpec } from './providers.js';
@@ -30,6 +30,8 @@ export type RunCtx = {
   agent: AgentDef;
   runId: string;
   level: number;
+  // One of several runs of itself at once (ops.start_parallel_run): it doesn't start more.
+  parallel?: boolean;
   now: () => number;
   // The ids of every agent it can hand work to.
   fleet: () => Promise<{ id: string; name: string }[]>;
@@ -567,6 +569,26 @@ const BUILTIN: ToolDef[] = [
           ctx.now(),
         );
       return delay ? `Booked: your next run starts in about ${delay} minutes.` : 'Booked: your next run starts once this one ends.';
+    },
+  },
+  {
+    id: 'ops.start_parallel_run',
+    tier: 'T0',
+    description:
+      "Relentless and Apocalyptic: start a run of yourself on one independent piece of your work (one business's film, one account, one batch), working at the same time as you. It has your tools, files and memory, and its cost and output are yours. Name the piece exactly, with everything it needs (which folder or record is its own). Call it once per piece.",
+    schema: obj({ piece: str('The one piece of work it does, in full: what, which business/folder/record, and what done looks like') }, ['piece']),
+    impl: (a, ctx) => {
+      const slots = parallelSlots(ctx.level);
+      if (!slots) return `Not at your level (${LEVELS[ctx.level]}): parallel runs are for Relentless and Apocalyptic. Do the pieces one after another, or book your next run.`;
+      if (ctx.parallel) return 'You are a parallel run yourself: do your own piece. Only your main run starts parallel runs.';
+      const piece = String(a.piece ?? '').trim().slice(0, 4000);
+      if (!piece) return 'Name the piece of work it is for.';
+      const going = one<{ n: number }>("SELECT COUNT(*) AS n FROM runs WHERE agent_id = ? AND trigger = 'parallel' AND status = 'running'", ctx.agent.id)?.n ?? 0;
+      const queued = one<{ n: number }>("SELECT COUNT(*) AS n FROM bookings WHERE agent_id = ? AND trigger = 'parallel'", ctx.agent.id)?.n ?? 0;
+      run("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'parallel', ?, ?, ?)", ctx.agent.id, piece, ctx.now(), ctx.now());
+      return going + queued >= slots
+        ? `Queued: ${slots} parallel runs are already going or starting, so this one starts as soon as one of them ends.`
+        : 'Started: a parallel run of you begins on it within a few seconds.';
     },
   },
   ...SELF_SETTINGS,

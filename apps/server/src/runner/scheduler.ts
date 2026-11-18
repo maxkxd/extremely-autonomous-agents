@@ -17,7 +17,7 @@ import type { ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals, recoverInterruptedActions, runDueActions, setQueueWake } from './approvals.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
-import { APOCALYPTIC, apocalypticWait, backstop, scheduledDue, SHORT_RUNS_TO_RELENTLESS } from './ferocity.js';
+import { APOCALYPTIC, apocalypticWait, backstop, parallelSlots, scheduledDue, SHORT_RUNS_TO_RELENTLESS } from './ferocity.js';
 
 import { resumeDue, runsToday as runsOnDay } from './selfsettings.js';
 import { bookWake, dropWakeParts, formatWake, isDebounced, parseWake, requestOf, triggerFor, WAKE_WINDOWS, type Part } from './wakes.js';
@@ -44,7 +44,7 @@ export const MAX_PARALLEL = 32;
 // over an hour. Its extra runs don't take the agents' places.
 export const ENGINEER_PARALLEL = 8;
 
-type Running = { agentId: string; controller: AbortController; connection: string | null; startedAt: number; requests: number[]; services: string[] };
+type Running = { agentId: string; parallel?: boolean; controller: AbortController; connection: string | null; startedAt: number; requests: number[]; services: string[] };
 // Keyed by run: an agent's id, or the engineer's id and a slot.
 const running = new Map<string, Running>();
 export const isRunning = (agentId: string) => [...running.values()].some(r => r.agentId === agentId);
@@ -175,7 +175,7 @@ export async function tick(deps: RunDeps = liveDeps) {
       const others = runsOf(id);
       // The engineer's extra runs don't count against the agents.
       if (!engineer && running.size - Math.max(0, runsOf(FLEET_ENGINEER).length - 1) >= MAX_PARALLEL) break;
-      if (others.length >= (engineer ? ENGINEER_PARALLEL : 1)) continue;
+      if (engineer && others.length >= ENGINEER_PARALLEL) continue;
       const meta = await readMeta(id);
       // Helpers run only when called (quick.ts).
       if (!meta || meta.status === 'setting-up' || meta.service) continue;
@@ -184,6 +184,27 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (st.state === 'stopped') continue;
       const agent = await loadAgent(id);
       if (!agent) continue;
+      // An agent already running: only its own parallel runs (ops.start_parallel_run, Relentless
+      // and Apocalyptic) start beside it, up to its level's slots - and its main run, if what's
+      // going are only parallel ones. Everything else waits for its run to end, as before.
+      if (!engineer && others.length) {
+        const room = others.filter(r => r.parallel).length < parallelSlots(st.ferocity);
+        const mainGoing = others.some(r => !r.parallel);
+        const next = nextRun(agent, st, now, b => (b.trigger === 'parallel' ? room : !mainGoing));
+        if (!next || (next.trigger === 'parallel' ? !next.bookingId : mainGoing)) continue;
+        const eligible = eligibleModels(agent, deps);
+        if (!eligible.length) continue;
+        if (eligible[0]?.connection === 'ollama' && [...running.values()].some(r => r.connection === 'ollama')) continue;
+        if (holdsBack(braked, running.size)) continue;
+        if (next.bookingId) {
+          if (next.rest?.length) exec('UPDATE bookings SET task = ?, trigger = ? WHERE id = ?', formatWake(next.rest), triggerFor(next.rest, next.trigger), next.bookingId);
+          else exec('DELETE FROM bookings WHERE id = ?', next.bookingId);
+        }
+        if (next.trigger === 'scheduled' || next.trigger === 'self-booked' || next.trigger === 'request done' || next.trigger === 'run now')
+          exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now, id);
+        start(agent, next.trigger, next.task, deps, eligible[0]?.connection ?? null);
+        continue;
+      }
       // The engineer beside its own runs: only booked work that doesn't overlap them
       // (one more each tick). Next in line is work that runs alone (approvals): the
       // others finish first, rather than it waiting behind the whole queue.
@@ -382,8 +403,9 @@ function start(agent: AgentDef, trigger: Trigger, task: string | null, deps: Run
   const now = deps.now();
   const controller = new AbortController();
   const engineer = agent.id === FLEET_ENGINEER;
-  const key = engineer ? `${agent.id}#${++slot}` : agent.id;
-  running.set(key, { agentId: agent.id, controller, connection, startedAt: now, ...(engineer ? engineerScope(task) : { requests: [], services: [] }) });
+  const parallel = trigger === 'parallel';
+  const key = engineer || parallel ? `${agent.id}#${++slot}` : agent.id;
+  running.set(key, { agentId: agent.id, parallel, controller, connection, startedAt: now, ...(engineer ? engineerScope(task) : { requests: [], services: [] }) });
   void runAgent(agent, trigger, task, deps, controller.signal, resumeFrom, person)
     .catch(e => console.error(`Run of ${agent.id} crashed:`, (e as Error).message))
     .finally(() => {

@@ -43,7 +43,7 @@ import { canStillCount, execute, fileRequest, requestConnections, runEnded, tool
 // tool loop on its first working model, the floor and its nudges, then the
 // record and its post in the agent's DM channel.
 
-export type Trigger = 'scheduled' | 'self-booked' | 'request done' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'turned down' | 'connected' | 'connection failed' | 'event' | 'task done';
+export type Trigger = 'scheduled' | 'self-booked' | 'request done' | 'apocalyptic' | 'handoff' | 'your message' | 'approval' | 'run now' | 'request' | 'request reply' | 'turned down' | 'connected' | 'connection failed' | 'event' | 'task done' | 'parallel';
 
 // What a run needs from outside, so tests can stand it up without a network.
 export type RunDeps = {
@@ -342,6 +342,13 @@ Get on with the work it unblocks now.`;
 
 Follow "When a connection fails".`;
     // Something it watches for happened (docs/events.md).
+    // One of several runs of itself working at once (ops.start_parallel_run).
+    case 'parallel':
+      return `You are one of several runs of yourself working at the same time, each on its own piece. Yours:
+
+${task}
+
+Do this piece fully, as your Charter says, and only this piece: the other pieces have their own runs, so don't touch their files, records or accounts. Don't start parallel runs of your own. When it's done, end with what you finished.`;
     case 'event':
       return `Something you watch for happened:
 
@@ -392,7 +399,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   const { specs, ids, notReady } = toolsFor(agent);
   // What it holds that isn't connected is asked for (or closed, now it is).
   if (!BUILT_IN_IDS.includes(agent.id)) requestConnections(agent.id, agent.name, agent.tiers, startedAt, (a, t, k) => deps.wake(a, t as Trigger, k));
-  const ctx: RunCtx = { agent, runId: id, level, now: deps.now, fleet: () => fleetOf(agent.id), wake: (a, t, k) => deps.wake(a, t as Trigger, k), person, signal };
+  const ctx: RunCtx = { agent, runId: id, level, parallel: trigger === 'parallel', now: deps.now, fleet: () => fleetOf(agent.id), wake: (a, t, k) => deps.wake(a, t as Trigger, k), person, signal };
   watchRun(id, agent.id, deps.now(), signal);
   const resume = resumeFrom ? `\n\n${resumeText(resumeFrom)}` : '';
   const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task, person)}${resume}` }];

@@ -1398,3 +1398,37 @@ test("the Doctor sees output counted on a tool the agent never uses while its re
   // Counted on what it uses: nothing to say.
   assert.equal(unusedCounted(ID, ['signed_in_browser.click_to_post'], tiers, now), null);
 });
+
+test('Relentless and Apocalyptic agents start parallel runs of themselves; lower levels and parallel runs cannot', async () => {
+  const ids = new Map([['ops__start_parallel_run', 'ops.start_parallel_run']]);
+  const call = (piece: string) => ({ id: piece, name: 'ops__start_parallel_run', args: { piece } });
+  const ctx = (level: number, parallel = false) => ({ agent: agent(), runId: 'r_par', level, parallel, now: () => Date.now(), fleet: async () => [], wake: () => {} });
+  setLevel(DRIVEN);
+  const low = await execute(ctx(DRIVEN), call('Cvazo film'), ids);
+  assert.match(String(low.result ?? low.text ?? JSON.stringify(low)), /Relentless and Apocalyptic/);
+  setLevel(APOCALYPTIC);
+  for (const p of ['Cvazo film', 'Kwotzo film', 'Fifteo film']) await execute(ctx(APOCALYPTIC), call(p), ids);
+  const inner = await execute(ctx(APOCALYPTIC, true), call('another'), ids);
+  assert.match(JSON.stringify(inner), /parallel run yourself/);
+  const booked = all<{ task: string }>("SELECT task FROM bookings WHERE agent_id = ? AND trigger = 'parallel' ORDER BY id", ID).map(b => b.task);
+  assert.deepEqual(booked, ['Cvazo film', 'Kwotzo film', 'Fifteo film']);
+  // With its main run going, only parallel bookings are picked; with none going, any.
+  const st = stateOf(ID);
+  const next = nextRun(agent(), st, Date.now(), b => b.trigger === 'parallel');
+  assert.equal(next?.trigger, 'parallel');
+  assert.equal(next?.task, 'Cvazo film');
+});
+
+test('a parallel run is told its one piece, and its cost and output are the agent\'s own', async () => {
+  setLevel(APOCALYPTIC);
+  const seen: string[] = [];
+  const adapter: Adapter = async req => {
+    seen.push(req.messages[0].text);
+    return fake(1)(req);
+  };
+  const r = await runAgent(agent(), 'parallel', 'Make the Kwotzo film in projects/kwotzo-engine-2', deps(adapter));
+  assert.equal(r.status, 'succeeded');
+  assert.match(seen[0], /one of several runs of yourself[\s\S]*Kwotzo film[\s\S]*only this piece/);
+  const row = one<{ agent_id: string; trigger: string }>('SELECT agent_id, trigger FROM runs WHERE id = ?', r.id)!;
+  assert.deepEqual({ ...row }, { agent_id: ID, trigger: 'parallel' });
+});
