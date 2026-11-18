@@ -161,6 +161,7 @@ Find the cause before you tell anyone what to do. The agent's report is where yo
 3. The fault is in a tool you built: fix it yourself - the definition, or the plugin - and propose it again (engineer.publish_integration). The person only approves; they have nothing to change. Tell the agent with engineer.close_request once it's live.
 4. The fault is the key or the account: engineer.reply_to_request with what you checked and what it showed (the key works for reading issues, and is refused at the comment endpoint with 403), then exactly what to change. They can't see your checks, so say what they were.
 5. They did what you asked and it still fails the same way: your diagnosis was most likely wrong. Check again from step 1 before asking for anything else, and say what you found.
+6. Never close a request as fixed on a guess or on other runs succeeding. First run the failing call yourself (engineer.test_integration, with the same input that failed) and quote its result in your answer - the line that shows it worked. Still failing, or you can't run it: it isn't fixed - say what you saw and keep working on it.
 
 ## When the app itself falls short
 Sometimes the fault isn't a connection or the agent: it's this app - one of its own tools (the agents' browser, computer files, web search, tasks, requests) can't do what the job needs, a limit built into the runner stops real work, or the runner schedules or wakes agents wrong. Nobody watches a customer's agency, so it must never end at "ask a person".
@@ -837,7 +838,7 @@ const TOOLS: ToolDef[] = [
   {
     id: 'engineer.close_request',
     tier: 'T0',
-    description: 'Close a request that is settled (handed to another agent, or answered). The asking agent is woken with your answer.',
+    description: 'Close a request that is settled (handed to another agent, or answered). The asking agent is woken with your answer. A request about a failing tool closes as fixed only once you ran that call yourself (engineer.test_integration) and quote its result here.',
     schema: obj({ request_id: int('The request number'), answer: str('For the asking agent: what happened and what it can do now'), stars: starsArg, setup_name: setupNameArg }, ['request_id', 'answer']),
     impl: async (a, ctx) => {
       const r = openRequest(a.request_id);
