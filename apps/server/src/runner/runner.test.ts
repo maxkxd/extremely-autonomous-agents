@@ -1395,8 +1395,12 @@ test("the Doctor sees output counted on a tool the agent never uses while its re
   const tiers = { 'launch.publish': 'T1', 'signed_in_browser.click_to_post': 'T1', 'signed_in_browser.click': 'T1', 'web.fetch_page': 'T0' } as const;
   const line = unusedCounted(ID, ['launch.publish'], tiers, now);
   assert.match(line ?? '', /hasn't used once in 7 days \(6 runs\): launch\.publish - its real work went out through signed_in_browser\.click_to_post 3x$/);
-  // Counted on what it uses: nothing to say.
+  // Counted on what it uses: nothing to say - even beside a spare id it never calls.
   assert.equal(unusedCounted(ID, ['signed_in_browser.click_to_post'], tiers, now), null);
+  assert.equal(unusedCounted(ID, ['signed_in_browser.click_to_post', 'launch.publish'], tiers, now), null);
+  // Its counted sends are waiting in Approvals: queued, not missing.
+  exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, status, created_at, expires_at) VALUES ('apv_q', ?, 'r_q', 'launch.publish', '{}', 'pending', ?, ?)", ID, now, now + HOUR);
+  assert.equal(unusedCounted(ID, ['launch.publish'], tiers, now), null);
 });
 
 test('agents at every level start parallel runs of themselves; a parallel run cannot', async () => {

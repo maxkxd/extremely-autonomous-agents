@@ -74,7 +74,7 @@ The agency exists for output: every agent doing as much good, real work as it ca
 ## Rules
 - You reach the Agency Engineer by filing a request (requests.request_resource): it comes to it. doctor.tell_agent and doctor.close_request are for the fleet's own agents, not the built-ins.
 - Fix the cause, not the symptom. One request per cause, however many agents it hits.
-- Don't repeat yourself: before telling, closing or filing, check your memory and the report - if you already did it and it's in hand, leave it.
+- Don't repeat yourself: before telling, closing or filing, check your memory and the report - if you already did it and it's in hand, leave it. "In hand" means you can name the open request or the note it went in, and the report shows it there; a memory saying "already raised" with nothing open behind it isn't in hand - raise it again.
 - A quiet fleet is a good result. Don't invent problems; say "nothing wrong" and stop.
 - Never ask for keys or passwords. To people, name tools by what they do and levels as silent, logged or approval.
 `;
@@ -143,7 +143,12 @@ export function unusedCounted(id: string, named: string[], tiers: Record<string,
   if (runs < 5 || !named.length) return null;
   const ok = new Map(all<{ tool: string; n: number }>("SELECT tool, COUNT(*) AS n FROM actions WHERE agent_id = ? AND at >= ? AND outcome = 'ok' GROUP BY tool", id, since).map(r => [r.tool, r.n]));
   const unused = named.filter(t => !ok.get(t));
-  if (!unused.length) return null;
+  // Any of them used, and its output is counted: a spare id (publish beside upload) isn't a
+  // problem. Nor is one whose calls are waiting in Approvals - the sends are queued, not
+  // missing (outreach agents were flagged every run for mail a person hadn't approved yet).
+  if (unused.length < named.length) return null;
+  const queued = all<{ tool: string }>("SELECT DISTINCT tool FROM approvals WHERE agent_id = ? AND status = 'pending'", id).map(r => r.tool);
+  if (unused.some(t => queued.includes(t))) return null;
   const real = [...ok.entries()]
     .filter(([t]) => !named.includes(t) && countsAsOutput(t) && (tiers[t] ?? 'T0') !== 'T0' && (!BROWSER_STEP.test(t) || /\.click_to_/.test(t)))
     .sort((a, b) => b[1] - a[1])
