@@ -4,7 +4,7 @@ import { stringify } from 'yaml';
 import type { Tier } from '../catalog.js';
 import { DATA, listIds, readMeta, save, slug } from '../files.js';
 import { allChoices, setChoices, type ModelChoice } from '../models/choice.js';
-import { FLEET_ENGINEER, loadAgent } from './agent.js';
+import { FLEET_ENGINEER, countsAsOutput, loadAgent } from './agent.js';
 import { all, builtInLevels, one, run as exec } from './db.js';
 import { defaultModels } from './defaults.js';
 import { LEVELS } from './ferocity.js';
@@ -58,6 +58,7 @@ The agency exists for output: every agent doing as much good, real work as it ca
 2. For each real problem, find the cause (doctor.read_agent for an agent's instructions and recent runs), then fix it the right way:
    - An agent asked for something it was already given or told: doctor.tell_agent with the answer and where it came from, and doctor.close_request on the repeat.
    - An agent keeps filing the same request: find why it's never satisfied. Most often the connection's tools are named differently from the ones the agent is counted on (its KPI still says docs.read_document; the connection gives drive.read_doc) - the report says "output is counted on tools it doesn't hold", and read_agent shows both. A connection the Agency Engineer wrote: file a request for it to rename those tools to the ids the agent already uses, and say exactly which to which. An MCP server's tools are the server's own and can't be renamed: file a request for the Agency Engineer to point the agent's KPI and ferocity counts at the real ids with engineer.retarget_output (same labels), and tell the agent those ids. Either way, tell the agent it's being fixed. Close the repeats you can; one with a card waiting for a person isn't yours to close, so say in your summary that the person can reject it.
+   - Output counted on tools it hasn't used once in 7 days, while its real work went out through others (the report says which, and how often): it's doing its job and every bit of it counts as nothing - a tool its builder planned that was never built, or the wrong mailbox's send. File one request for the Agency Engineer to point its KPI and ferocity counts at the tools that do that job (engineer.retarget_output, keeping the labels): name each counted tool and the real ones it should become, and only real outcomes - a post, an email sent, a record made - never browser clicks or reads. This is fixed between you and the Agency Engineer: never ask a person about it.
    - A tool keeps failing the same way: if it's the connection (a required input it calls optional, a wrong address), file a request for the Agency Engineer with the error and what the definition should say - the description, the required inputs, the address. If it's how the agent calls it, doctor.tell_agent how to call it. Often it's both: do both.
    - An agent meets its target with busywork (most of its counted output is files in its own workspace, notes, or the same small update), or its real job is blocked and it's padding, or its instructions keep leading it wrong: rewrite its instructions (doctor.rewrite_instructions) - the whole Charter, changing every line that leads it there, so it works the right way throughout ("workspace files don't count as outreach: when sending is blocked, say so and stop early"). Never just add a rule at the end that the rest contradicts. Keep everything else it says and its voice, and keep it set up for the most good output.
    - The app itself falls short - one of its own tools (the report marks them "the app's own") fails the same way across runs or agents, a limit built into the runner stops real work, or runs are scheduled or woken wrong: doctor.report_app_gap, so the app's makers fix it in the official build. Write it as a neutral bug report for an open-source project: it becomes an issue on the app's public GitHub repository, which anyone in the world can read. Describe only the app - which tool or part, what it does, what it should do, how to reproduce it with a made-up example - never this organization or its work: no names of the business, its people, customers or agents, no sites, accounts, emails, addresses, file paths, numbers or content from their work, and nothing about what they sell or who they contact. The tool refuses what it can spot; the rest is on you. Then get the agents working meanwhile: doctor.tell_agent the way round it, or a request for the Agency Engineer to build one. Already filed (the report lists them): only again with something new.
@@ -130,6 +131,27 @@ function windowStart(now: number) {
   return Math.max(now - 24 * HOUR, last ?? 0);
 }
 
+// Output counted on tools the agent holds but never gets through, while its real
+// work goes out through others: a tool the builder planned and nobody built
+// (launch.publish), or the wrong mailbox's send. Every post then counted as
+// nothing and the agent read "0 output" for days. A week, at least 5 runs, and
+// real writes elsewhere, so a quiet agent or a slow week isn't flagged.
+const BROWSER_STEP = /^(signed_in_browser|browser)\./;
+export function unusedCounted(id: string, named: string[], tiers: Record<string, Tier>, now: number): string | null {
+  const since = now - 7 * 24 * HOUR;
+  const runs = one<{ n: number }>('SELECT COUNT(*) AS n FROM runs WHERE agent_id = ? AND started_at >= ?', id, since)?.n ?? 0;
+  if (runs < 5 || !named.length) return null;
+  const ok = new Map(all<{ tool: string; n: number }>("SELECT tool, COUNT(*) AS n FROM actions WHERE agent_id = ? AND at >= ? AND outcome = 'ok' GROUP BY tool", id, since).map(r => [r.tool, r.n]));
+  const unused = named.filter(t => !ok.get(t));
+  if (!unused.length) return null;
+  const real = [...ok.entries()]
+    .filter(([t]) => !named.includes(t) && countsAsOutput(t) && (tiers[t] ?? 'T0') !== 'T0' && (!BROWSER_STEP.test(t) || /\.click_to_/.test(t)))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+  if (!real.length) return null;
+  return `output is counted on tools it hasn't used once in 7 days (${runs} runs): ${unused.join(', ')} - its real work went out through ${real.map(([t, n]) => `${t} ${n}x`).join(', ')}`;
+}
+
 // ids: which agents to look at (tests); every agent otherwise.
 export async function fleetReport(now = Date.now(), since = windowStart(now), ids?: string[]): Promise<string> {
   const out: string[] = [`Since ${ago(since, now)}.`];
@@ -156,6 +178,8 @@ export async function fleetReport(now = Date.now(), since = windowStart(now), id
       const named = [...new Set([...agentDef.ferocity.counts, ...agentDef.output.map(o => o.action)])];
       const dangling = named.filter(t => t && !held.has(t) && !servedHere(t));
       if (dangling.length) lines.push(`output is counted on tools it doesn't hold: ${dangling.join(', ')}`);
+      const unused = unusedCounted(id, named.filter(t => !dangling.includes(t)), agentDef.tiers, now);
+      if (unused) lines.push(unused);
     }
     // Tools failing or refused, with the last error. One a person rejected isn't a tool problem.
     const bad = all<{ tool: string; outcome: string; n: number }>(

@@ -13,7 +13,7 @@ import { book, dropStaleRequestRuns, engineerCanJoin, engineerScope, nextRun } f
 import { WAKE_WINDOWS } from './wakes.js';
 import { forgetAgentRuns } from './forget.js';
 import { decideApproval } from './approvals.js';
-import { fleetReport } from './doctor.js';
+import { fleetReport, unusedCounted } from './doctor.js';
 import { answerRequest, evidenceForPeople } from './api.js';
 import { dropGuesses, notWaitingAlready, rate, requestNotWaiting, withdrawProposal } from './engineer.js';
 import { actsIn, execute, MAX_ONE_BATCH, MAX_WAITING_ON_PERSON, registerTools, requestConnections, serviceLabel, settleJoined, tooManyWaiting, WORKSPACES } from './tools.js';
@@ -1381,4 +1381,20 @@ test('watchdog: a run row left running with nothing behind it is swept to failed
   watchdogTick(now + 120_000);
   assert.equal(one<{ status: string }>("SELECT status FROM runs WHERE id = 'ghost'")!.status, 'failed');
   assert.equal(one<{ status: string }>("SELECT status FROM runs WHERE id = 'fresh'")!.status, 'running', 'a run just started is left alone');
+});
+
+test("the Doctor sees output counted on a tool the agent never uses while its real work goes through another", () => {
+  const now = Date.now();
+  for (let i = 0; i < 6; i++) exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES (?, ?, 'scheduled', 0, 'succeeded', ?)", `u${i}`, ID, now - (i + 1) * HOUR);
+  const act = (tool: string, n: number) => {
+    for (let i = 0; i < n; i++) exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES ('u0', ?, ?, '{}', 'T1', 'ok', 0, ?)", ID, tool, now - i * 60_000);
+  };
+  act('signed_in_browser.click_to_post', 3);
+  act('signed_in_browser.click', 20);
+  act('web.fetch_page', 9);
+  const tiers = { 'launch.publish': 'T1', 'signed_in_browser.click_to_post': 'T1', 'signed_in_browser.click': 'T1', 'web.fetch_page': 'T0' } as const;
+  const line = unusedCounted(ID, ['launch.publish'], tiers, now);
+  assert.match(line ?? '', /hasn't used once in 7 days \(6 runs\): launch\.publish - its real work went out through signed_in_browser\.click_to_post 3x$/);
+  // Counted on what it uses: nothing to say.
+  assert.equal(unusedCounted(ID, ['signed_in_browser.click_to_post'], tiers, now), null);
 });

@@ -1372,7 +1372,7 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.retarget_output',
     tier: 'T1',
     description:
-      "Point an agent's output at tools it actually holds, when a connection's own names replaced the ones it was built with. An MCP server's tools can't be renamed: move the KPI action and the ferocity count onto the real ids, and keep the label. One old id can move onto the single-record tool and its batch form. Past calls stay as recorded - their arguments aren't kept, so this doesn't invent a count for them. Then rewrite the lines of its Charter that still name the old ids (engineer.rewrite_instructions).",
+      "Point an agent's output at tools it actually holds, when a connection's own names replaced the ones it was built with, or when it's counted on a tool it never uses while its real work goes out through another (a planned tool nobody built, the wrong mailbox's send - the Agency Doctor's request names both). An MCP server's tools can't be renamed: move the KPI action and the ferocity count onto the real ids, and keep the label. One old id can move onto the single-record tool and its batch form. Past calls stay as recorded - their arguments aren't kept, so this doesn't invent a count for them. Then rewrite the lines of its Charter that still name the old ids (engineer.rewrite_instructions).",
     schema: obj(
       {
         agent_id: str('The agent'),
