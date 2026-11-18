@@ -1435,3 +1435,15 @@ test('a parallel run is told its one piece, and its cost and output are the agen
   const row = one<{ agent_id: string; trigger: string }>('SELECT agent_id, trigger FROM runs WHERE id = ?', r.id)!;
   assert.deepEqual({ ...row }, { agent_id: ID, trigger: 'parallel' });
 });
+
+test('a run that starts while parallel runs are going is told to leave their pieces alone', async () => {
+  setLevel(APOCALYPTIC);
+  exec("INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at) VALUES ('r_p1', ?, 'parallel', 'Kwotzo film only, project kwotzo-engine-2', 4, 'running', ?)", ID, Date.now());
+  const seen: string[] = [];
+  const adapter: Adapter = async req => {
+    seen.push((req.messages[0] as { text: string }).text);
+    return fake(1)(req);
+  };
+  await runAgent(agent(), 'self-booked', 'Kwotzo a8: run the bar', deps(adapter));
+  assert.match(seen[0], /leave these pieces to them[\s\S]*Kwotzo film only, project kwotzo-engine-2/);
+});

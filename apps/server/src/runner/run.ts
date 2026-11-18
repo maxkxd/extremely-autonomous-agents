@@ -402,7 +402,13 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   const ctx: RunCtx = { agent, runId: id, level, parallel: trigger === 'parallel', now: deps.now, fleet: () => fleetOf(agent.id), wake: (a, t, k) => deps.wake(a, t as Trigger, k), person, signal };
   watchRun(id, agent.id, deps.now(), signal);
   const resume = resumeFrom ? `\n\n${resumeText(resumeFrom)}` : '';
-  const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task, person)}${resume}` }];
+  // Its parallel runs going now (ops.start_parallel_run): each piece has its own run, so this one
+  // leaves them alone - a run booked before the split, on the same film, otherwise redid it.
+  const pieces = all<{ task: string | null }>("SELECT task FROM runs WHERE agent_id = ? AND trigger = 'parallel' AND status = 'running' AND id != ?", agent.id, id);
+  const alongside = pieces.length
+    ? `\n\nRunning now beside you, each in its own parallel run of you - leave these pieces to them, even if this run was booked for one of them (then do the rest of your job instead):\n${pieces.map(p => `- ${(p.task ?? '').split('\n')[0].slice(0, 300)}`).join('\n')}`
+    : '';
+  const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task, person)}${alongside}${resume}` }];
   let acts = 0;
   let nudges = 0;
   // Output when it was last nudged: a nudge that brought nothing new (a limit reached,
