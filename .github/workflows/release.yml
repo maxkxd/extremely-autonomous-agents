@@ -54,6 +54,22 @@ jobs:
         working-directory: apps/electron
         run: npm ci --no-audit --no-fund
 
+      # The one draft every job adds to, made before anything uploads. Left to
+      # electron-builder, the installer and its blockmap upload at once, each finds
+      # no release and makes its own - two drafts, the platforms split between them
+      # (0.3.1 did this).
+      - name: Make the draft release
+        if: inputs.target == 'installer'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ inputs.version }}"
+          FOUND=$(gh api "repos/${{ github.repository }}/releases" --paginate -q ".[] | select(.tag_name == \"$TAG\") | .id")
+          if [ -z "$FOUND" ]; then
+            gh release create "$TAG" -R "${{ github.repository }}" --draft --title "${{ inputs.version }}" --target "${{ github.sha }}" --notes ""
+          fi
+
       # Signed with Azure Trusted Signing once its details are in the `release`
       # environment; until then the installer is unsigned (Windows warns
       # "unknown publisher").
@@ -199,3 +215,37 @@ jobs:
           export APPLE_API_KEY="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8"
           printf '%s' "$APPLE_API_KEY_TEXT" > "$APPLE_API_KEY"
           npx electron-builder --mac --publish always
+
+  # Last: the draft holds every platform, in one release. Publishing a split or
+  # partial draft would break the download page's links and the updater for
+  # whichever platform is missing, so this fails the run instead.
+  check:
+    needs: [linux, mac]
+    if: inputs.target == 'installer'
+    runs-on: ubuntu-latest
+    steps:
+      - name: One draft, with every platform's files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          TAG="v${{ inputs.version }}"
+          IDS=$(gh api "repos/$REPO/releases" --paginate -q ".[] | select(.tag_name == \"$TAG\") | .id")
+          COUNT=$(printf '%s\n' "$IDS" | grep -c . || true)
+          if [ "$COUNT" != 1 ]; then
+            echo "::error::$COUNT releases are tagged $TAG; there should be one. Move the files into one draft and delete the rest before publishing."
+            exit 1
+          fi
+          HAVE=$(gh api "repos/$REPO/releases/$IDS/assets" --paginate -q '.[].name')
+          MISSING=""
+          for f in Extremely-Autonomous-Agents-Setup.exe latest.yml \
+                   Extremely-Autonomous-Agents-arm64.dmg Extremely-Autonomous-Agents-x64.dmg \
+                   Extremely-Autonomous-Agents-arm64.zip Extremely-Autonomous-Agents-x64.zip latest-mac.yml \
+                   Extremely-Autonomous-Agents.AppImage Extremely-Autonomous-Agents.deb latest-linux.yml; do
+            printf '%s\n' "$HAVE" | grep -qxF "$f" || MISSING="$MISSING $f"
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::The $TAG draft is missing:$MISSING"
+            exit 1
+          fi
+          echo "The $TAG draft has every platform's files."
