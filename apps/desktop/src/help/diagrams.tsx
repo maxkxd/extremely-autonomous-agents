@@ -138,7 +138,7 @@ const OUTREACH_NEW: Agent = {
   runs: 0,
   lastRun: null,
   decisions: { approved: 0, rejected: 0, expired: 0 },
-  ferocity: 0,
+  ferocity: 1,
 };
 const NEW_SETUP: AgentSetup = {
   items: [
@@ -294,8 +294,8 @@ function Models() {
 
 // What each level is like, Chill to Apocalyptic: a title, then what it means.
 const FEROCITY_TAGLINES: [string, string?][] = [
+  ['On Call', 'works only when given work'],
   ['The Default', 'will get the job done'],
-  ['Needle Mover', 'will go above expectations'],
   ['Intensely Overworked', 'will never leave output on the table'],
   ['Inhuman', 'will never rest'],
   ['The Paperclip Maximizer'],

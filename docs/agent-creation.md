@@ -77,13 +77,13 @@ the next check above, and the member list is sent by the app.
    **hold-to-accept** button under the card.
 7. **Accept.** Everything fades back to the dashboard and the card smashes into
    it, pushing the other cards out of the way. A new agent **always starts on
-   Chill**.
+   Steady**, the default.
 
 ## Adding a pack
 
 Clicking a pack's Add button goes straight to the black reveal with all its
 agents (up to three, sized to fit), X to cancel, hold to add. They all smash
-into the dashboard at once, on Chill.
+into the dashboard at once, on Steady.
 
 Pack agents ship **pre-built** (`apps/server/packs/`, by
 `scripts/build-packs.ts`): each was written with the closest real WAR agency

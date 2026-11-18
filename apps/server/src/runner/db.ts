@@ -81,6 +81,10 @@ export function openDb(path = FILE): DatabaseSync {
     } catch {
       // already there
     }
+  // 18 Nov 2026: Steady became the default (what Chill was) and Chill a level with no schedule
+  // (ferocity.ts). Every agent on the old Chill moves to Steady - once, so a later choice of Chill stays.
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'levels_steady_default'").get())
+    db.exec("UPDATE agent_state SET ferocity = 1 WHERE ferocity = 0; INSERT INTO settings (key, value) VALUES ('levels_steady_default', 'true')");
   return db;
 }
 
@@ -94,7 +98,7 @@ export function resetDbForTests(path = ':memory:') {
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS agent_state (
   agent_id TEXT PRIMARY KEY,
-  ferocity INTEGER NOT NULL DEFAULT 0,          -- 0 Chill .. 4 Apocalyptic
+  ferocity INTEGER NOT NULL DEFAULT 1,          -- 0 Chill .. 4 Apocalyptic; 1 Steady is the default
   state TEXT NOT NULL DEFAULT 'active',         -- active | draining | stopped
   last_scheduled_at INTEGER,                    -- when its schedule last started a run (ms)
   fail_streak INTEGER NOT NULL DEFAULT 0,       -- runs failed in a row, for backoff

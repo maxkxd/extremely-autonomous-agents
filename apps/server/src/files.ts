@@ -118,13 +118,17 @@ export function compose(
 // 10 minutes below Apocalyptic (a Relentless lead researcher's pace).
 export function ferocityPlan(f: NonNullable<Build['ferocity']>, tiers: Record<string, Tier>) {
   const hours = (h: number, fallback: number) => (Number.isFinite(h) && h > 0 ? Math.max(1 / 6, h) : fallback);
-  const chill = hours(f.chill_every_hours, 24);
+  // [0] is the job's sensible pace, Steady's (it was Chill's before Chill lost its schedule); [1],
+  // the old Steady's, is kept the same so stored plans keep four slots. Older builds' chill_every_hours
+  // is the same number.
+  const legacy = f as { chill_every_hours?: number };
+  const chill = hours(f.steady_every_hours ?? legacy.chill_every_hours ?? NaN, 24);
   const whole = (n: number, min: number) => Math.max(min, Math.round(Number.isFinite(n) ? n : min));
   const floor = whole(f.relentless_floor, 1);
   return {
     // A higher level never runs less often than the one below it (an SRE agent came
     // out Driven every 2 h, Relentless every 3).
-    every_hours: [chill, hours(f.steady_every_hours, chill / 1.5), hours(f.driven_every_hours, chill / 2), hours(f.relentless_every_hours, chill / 4)].map(
+    every_hours: [chill, chill, hours(f.driven_every_hours, chill / 2), hours(f.relentless_every_hours, chill / 4)].map(
       (h, i, all) => Math.min(h, ...all.slice(0, i)),
     ),
     soft_floor: whole(f.driven_soft_floor, 1),

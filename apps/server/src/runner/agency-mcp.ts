@@ -375,7 +375,7 @@ const TOOLS: Tool[] = [
         asked.length ? `Asked the Agency Engineer for (requests, shown to the person once it needs them):
 ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
         `Models: ${files.models.map(m => `${m.connection}/${m.model}`).join(', ') || 'none - give it some with set_agent_models'}`,
-        tools.ferocity ? `Chill: every ${tools.ferocity.every_hours[0]} hours` : '',
+        tools.ferocity ? `Steady (the default): every ${tools.ferocity.every_hours[0]} hours` : '',
       ]
         .filter(Boolean)
         .join('\n');

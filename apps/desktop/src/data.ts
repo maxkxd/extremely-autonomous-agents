@@ -193,22 +193,24 @@ export type FerocityLevel = {
 
 export const FEROCITY: FerocityLevel[] = [
   {
+    // No schedule: runs only when given work (a task, a hand-off, a message, an event), finishes it, starts nothing of its own.
     name: 'Chill',
+    cadence: 'Only when given work',
+    cron: '',
+    selfBook: 'when-work-left',
+    runsPerDay: 0,
+    requestStance:
+      'Make do with the tools you have. Only file a request when you are genuinely blocked and cannot do the work at all any other way.',
+  },
+  {
+    // The default every agent starts on (what Chill was until 18 Nov 2026).
+    name: 'Steady',
     cadence: 'Once a day',
     cron: '0 9 * * *',
     selfBook: 'never',
     runsPerDay: 1,
     requestStance:
       'Make do with the tools you have. Only file a request when you are genuinely blocked and cannot do the work at all any other way.',
-  },
-  {
-    name: 'Steady',
-    cadence: 'Every 4 hours',
-    cron: '0 */4 * * *',
-    selfBook: 'never',
-    runsPerDay: 6,
-    requestStance:
-      'File a request when a tool or resource would make you clearly more effective at your core job, not just when you are blocked.',
   },
   {
     name: 'Driven',

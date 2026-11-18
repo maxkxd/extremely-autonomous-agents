@@ -16,13 +16,13 @@ export type NaturalLimit = { tool: string; max: number; per_hours: number; why?:
 
 // The builder's numbers for this agent, per ferocity level (docs/runner.md).
 export type FerocityPlan = {
-  every_hours: [number, number, number, number]; // Chill, Steady, Driven, Relentless (Apocalyptic has none)
+  every_hours: [number, number, number, number]; // [0] the job's sensible pace (Steady's), [1] unused (the old Steady's), [2] Driven, [3] Relentless. Chill and Apocalyptic have none.
   soft_floor: number; // Driven: one gentle nudge below this
   floor: number; // Relentless
   apocalyptic_floor: number; // out of reach on purpose
   counts: string[]; // the actions that count toward a floor (server.tool)
   hint: string; // where else to look, sent with a nudge
-  extra_effort: string; // what more output means for this job, above Chill
+  extra_effort: string; // what more output means for this job, above Steady
 };
 
 export type AgentDef = {

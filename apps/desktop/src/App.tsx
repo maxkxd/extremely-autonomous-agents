@@ -411,7 +411,7 @@ function Agency() {
             runs: 0,
             lastRun: null,
             decisions: { approved: 0, rejected: 0, expired: 0 },
-            ferocity: 0,
+            ferocity: 1,
             settingUp: a.status === 'setting-up' || undefined,
             pack: a.pack ?? null,
           });

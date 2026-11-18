@@ -48,8 +48,7 @@ Example - an outreach agent that already has a LinkedIn connection:
 
 | Ferocity | Asks for... |
 |---|---|
-| Chill | An email box only if it literally has no way to reach anyone. Has LinkedIn, so it just uses that. |
-| Steady | An email box too - "it would make me much more effective". |
+| Chill, Steady | An email box only if it literally has no way to reach anyone. Has LinkedIn, so it just uses that. |
 | Driven | Email, plus enrichment data or a second channel with a clear payoff. |
 | Relentless | Anything that removes a limit on output. |
 | Apocalyptic | WhatsApp, SMS, phone calls, every channel it can think of - whatever gets more outreach done. |

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { DEFAULT_PLAN, planFrom, realName, type AgentDef } from './agent.js';
 import { all, one, resetDbForTests, run as exec, setSetting } from './db.js';
-import { APOCALYPTIC, apocalypticWait, APOCALYPTIC_GAP_MS, backoffMs, CHILL, DRIVEN, HOUR, RELENTLESS } from './ferocity.js';
+import { APOCALYPTIC, apocalypticWait, APOCALYPTIC_GAP_MS, backoffMs, CHILL, STEADY, DRIVEN, HOUR, RELENTLESS } from './ferocity.js';
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
 import { ModelError, type Adapter, type Call } from './providers.js';
 import { LOOPING, loopGuard, OVER_LIMIT, postRun, runAgent, SAME_CALL_LIMIT, stateOf, type RunDeps } from './run.js';
@@ -135,8 +135,8 @@ test('Driven: one gentle nudge at most', async () => {
   assert.equal(r.acts, 2);
 });
 
-test('Chill: never nudged', async () => {
-  setLevel(CHILL);
+test('Steady: never nudged', async () => {
+  setLevel(STEADY);
   const r = await runAgent(agent(), 'scheduled', null, deps(fake(1)));
   assert.equal(r.nudges, 0);
 });
@@ -200,7 +200,7 @@ test('T2 actions are queued for approval, never run, the run carries on, and the
 });
 
 test("an action waiting for a person carries the agent's reason to the card, never to the tool", async () => {
-  setLevel(CHILL);
+  setLevel(STEADY);
   let got: Record<string, unknown> | null = null;
   registerTools([
     {
@@ -251,7 +251,7 @@ test('closing a handed-over task wakes whoever handed it, once for results that 
 });
 
 test('a registered tool the agent does not hold is refused', async () => {
-  setLevel(CHILL);
+  setLevel(STEADY);
   registerTools([{ id: 'zztest.other', tier: 'T0', description: 'x', schema: { type: 'object' }, impl: () => 'ran' }]);
   const model: Adapter = async req =>
     req.messages.length > 1
@@ -262,7 +262,7 @@ test('a registered tool the agent does not hold is refused', async () => {
 });
 
 test('a run making the same failing call hundreds of times in a row is ended; output never is', async () => {
-  setLevel(CHILL);
+  setLevel(STEADY);
   let turns = 0;
   const stuck: Adapter = async () => {
     turns++;
@@ -289,7 +289,7 @@ test('the loop count only grows on the exact same call with nothing to show; out
 });
 
 test('a model that fails mid-run hands over to the next one, and no action is repeated', async () => {
-  setLevel(CHILL);
+  setLevel(STEADY);
   let calls = 0;
   const a: Adapter = async req => {
     calls++;
@@ -306,7 +306,7 @@ test('a model that fails mid-run hands over to the next one, and no action is re
 });
 
 test("a plan's run is priced as its API would charge: the plan's own figure, else its tokens", async () => {
-  setLevel(CHILL);
+  setLevel(STEADY);
   const plan = (usd?: number | null) => async () => ({ text: 'Done on the plan.', usage: { input: 1000, output: 100 }, ...(usd === undefined ? {} : { usd }) });
   const cost = async (_c: string, _m: string, input: number, output: number) => (input + output) / 1e6;
   const costOf = async (usd?: number | null) => {
@@ -321,7 +321,7 @@ test("a plan's run is priced as its API would charge: the plan's own figure, els
 });
 
 test('every model failing fails the run, posts why, and backs the agent off', async () => {
-  setLevel(CHILL);
+  setLevel(STEADY);
   const down: Adapter = async () => {
     throw new ModelError('down', 'server', 500);
   };
@@ -334,7 +334,7 @@ test('every model failing fails the run, posts why, and backs the agent off', as
 });
 
 test('an AI out of its allowance asks the person once, and closes when runs work again', async () => {
-  setLevel(CHILL);
+  setLevel(STEADY);
   const spent: Adapter = async () => {
     throw new ModelError('You have exceeded your monthly quota (Request ID: X1)', 'rate', 429);
   };
@@ -357,7 +357,7 @@ test('an AI out of its allowance asks the person once, and closes when runs work
 });
 
 test("a key's spending limit is out of allowance, not signed out", async () => {
-  setLevel(CHILL);
+  setLevel(STEADY);
   exec("UPDATE requests SET status = 'done' WHERE status = 'open'");
   const capped: Adapter = async () => {
     throw new ModelError('Key limit exceeded (monthly limit). $10.26 of $10.00 used; resets 2026-12-01', 'rate', 403);
@@ -383,7 +383,7 @@ test('disconnecting an AI yourself closes what was asked about it', async () => 
 });
 
 test("a person's reply no AI could answer is booked again; a scheduled run isn't", async () => {
-  setLevel(CHILL);
+  setLevel(STEADY);
   exec('DELETE FROM bookings');
   const down: Adapter = async () => {
     throw new ModelError('Key limit exceeded (monthly limit)', 'rate', 403);
@@ -400,7 +400,7 @@ test("a person's reply no AI could answer is booked again; a scheduled run isn't
 });
 
 test('the run posts to its DM channel with argument names only', async () => {
-  setLevel(CHILL);
+  setLevel(STEADY);
   await runAgent(agent(), 'scheduled', null, deps(fake(1)));
   const post = JSON.parse(one<{ body: string }>("SELECT body FROM dm WHERE kind = 'run'")!.body);
   assert.equal(post.kind, 'run');
@@ -432,10 +432,10 @@ test('memory compacts its oldest notes past the cap', async () => {
   assert.match(memoryForPrompt(ID, 5000), /Earlier, .* Summary of the early notes\./);
 });
 
-test('schedule: Chill runs on its schedule; Apocalyptic straight after the last run', () => {
+test('schedule: Steady runs on its schedule; Apocalyptic straight after the last run', () => {
   const now = Date.now();
   const a = agent();
-  setLevel(CHILL);
+  setLevel(STEADY);
   assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'scheduled'); // never run yet: now
   exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now - 2 * HOUR, ID);
   assert.equal(nextRun(a, stateOf(ID), now), null); // every 24 h
@@ -497,12 +497,12 @@ test('schedule: stopped runs nothing at all; backoff and the backstop hold every
   assert.equal(nextRun(a, stateOf(ID), now), null);
 
   resetDbForTests();
-  setLevel(CHILL);
+  setLevel(STEADY);
   for (let i = 0; i < 1000; i++) exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES (?, ?, 'scheduled', 0, 'succeeded', ?)", `r${i}`, ID, now - i);
   assert.equal(nextRun(a, stateOf(ID), now), null); // past the backstop for today (1,000 up to Driven)
   setLevel(RELENTLESS);
   assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'scheduled'); // none at Relentless and Apocalyptic
-  setLevel(CHILL);
+  setLevel(STEADY);
   // ...but a person's Run now isn't held back by either.
   exec('UPDATE agent_state SET backoff_until = ? WHERE agent_id = ?', now + 60_000, ID);
   exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'run now', NULL, ?, ?)", ID, now, now);
@@ -682,7 +682,7 @@ test("a request shows people its reasons, not the tool ids for the Agency Engine
 test('the agency on standby: nothing starts by itself, a person is still answered, and an agent stopped on its own stays stopped', () => {
   const now = Date.now();
   const a = agent();
-  setLevel(CHILL);
+  setLevel(STEADY);
   setSetting('agency_state', 'standby');
   assert.equal(stateOf(ID).state, 'draining');
   assert.equal(nextRun(a, stateOf(ID), now), null); // its schedule waits
@@ -1327,7 +1327,7 @@ test("Google's quota answers (403s) pause a service's tools like any rate limit,
 
 test('watchdog: a hung model call is caught as idle, the run fails with why, and the agent is booked straight back in', async () => {
   const { sweep, IDLE_MS } = await import('./watchdog.js');
-  setLevel(CHILL);
+  setLevel(STEADY);
   const controller = new AbortController();
   const woken: [string, string, string][] = [];
   // A model call that never answers until it's aborted.
@@ -1403,8 +1403,8 @@ test('agents at every level start parallel runs of themselves; a parallel run ca
   const ids = new Map([['ops__start_parallel_run', 'ops.start_parallel_run']]);
   const call = (piece: string) => ({ id: piece, name: 'ops__start_parallel_run', args: { piece } });
   const ctx = (level: number, parallel = false) => ({ agent: agent(), runId: 'r_par', level, parallel, now: () => Date.now(), fleet: async () => [], wake: () => {} });
-  setLevel(CHILL);
-  await execute(ctx(CHILL), call('Cvazo film'), ids);
+  setLevel(STEADY);
+  await execute(ctx(STEADY), call('Cvazo film'), ids);
   setLevel(APOCALYPTIC);
   for (const p of ['Kwotzo film', 'Fifteo film']) await execute(ctx(APOCALYPTIC), call(p), ids);
   const inner = await execute(ctx(APOCALYPTIC, true), call('another'), ids);
@@ -1413,7 +1413,7 @@ test('agents at every level start parallel runs of themselves; a parallel run ca
   assert.deepEqual(booked, ['Cvazo film', 'Kwotzo film', 'Fifteo film']);
   // Every level is told it can; the higher the level, the harder.
   const { ferocityInstructions } = await import('./ferocity.js');
-  assert.match(ferocityInstructions(agent(), CHILL), /ops\.start_parallel_run/);
+  assert.match(ferocityInstructions(agent(), STEADY), /ops\.start_parallel_run/);
   assert.match(ferocityInstructions(agent(), APOCALYPTIC), /Split everything you can/);
   // With its main run going, only parallel bookings are picked; with none going, any.
   const st = stateOf(ID);
@@ -1446,4 +1446,52 @@ test('a run that starts while parallel runs are going is told to leave their pie
   };
   await runAgent(agent(), 'self-booked', 'Kwotzo a8: run the bar', deps(adapter));
   assert.match(seen[0], /leave these pieces to them[\s\S]*Kwotzo film only, project kwotzo-engine-2/);
+});
+
+test('Chill has no schedule: it runs only when given work, and still finishes what it was given', async () => {
+  const now = Date.now();
+  const a = agent();
+  setLevel(CHILL);
+  assert.equal(nextRun(a, stateOf(ID), now), null); // never run, still nothing of its own
+  exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now - 30 * 24 * HOUR, ID);
+  assert.equal(nextRun(a, stateOf(ID), now), null);
+  exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'handoff', 'Finish the Kwotzo film', ?, ?)", ID, now - 1000, now);
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'handoff');
+  exec('DELETE FROM bookings');
+  book(ID, 'self-booked', 'The rest of the Kwotzo film', now - 1000);
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'self-booked'); // finishing its own work
+  const { ferocityInstructions } = await import('./ferocity.js');
+  assert.match(ferocityInstructions(a, CHILL), /no schedule/);
+  assert.match(ferocityInstructions(a, CHILL), /don't start new work of your own/);
+});
+
+test('Steady is the default and does what Chill used to; a built-in keeps its schedule', async () => {
+  const { DEFAULT_LEVEL, ferocityInstructions, paceHours } = await import('./ferocity.js');
+  assert.equal(DEFAULT_LEVEL, STEADY);
+  assert.equal(stateOf('zz-brand-new').ferocity, STEADY);
+  const a = agent();
+  assert.equal(paceHours(a, STEADY), a.ferocity.every_hours[0]);
+  assert.equal(paceHours(a, CHILL), null);
+  assert.match(ferocityInstructions(a, STEADY), /stop when it is done/);
+  assert.doesNotMatch(ferocityInstructions(a, STEADY), /What extra effort means/);
+  // The Agency Doctor is on no level of its own: still a look on its schedule.
+  const now = Date.now();
+  exec("INSERT INTO agent_state (agent_id, ferocity, updated_at) VALUES ('doctor', 0, ?)", now);
+  assert.equal(nextRun({ ...a, id: 'doctor' }, stateOf('doctor'), now)?.trigger, 'scheduled');
+});
+
+test('an agency from before moves every Chill agent to Steady once, and a later Chill stays', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const file = join(mkdtempSync(join(tmpdir(), 'eaa-levels-')), 'agency.db');
+  resetDbForTests(file);
+  exec("DELETE FROM settings WHERE key = 'levels_steady_default'");
+  exec("INSERT INTO agent_state (agent_id, ferocity, updated_at) VALUES ('old-chill', 0, 1), ('old-driven', 2, 1)");
+  resetDbForTests(file); // the agency restarts on the new build
+  assert.equal(one<{ ferocity: number }>("SELECT ferocity FROM agent_state WHERE agent_id = 'old-chill'")?.ferocity, STEADY);
+  assert.equal(one<{ ferocity: number }>("SELECT ferocity FROM agent_state WHERE agent_id = 'old-driven'")?.ferocity, DRIVEN);
+  exec("UPDATE agent_state SET ferocity = 0 WHERE agent_id = 'old-chill'");
+  resetDbForTests(file);
+  assert.equal(one<{ ferocity: number }>("SELECT ferocity FROM agent_state WHERE agent_id = 'old-chill'")?.ferocity, CHILL);
+  resetDbForTests();
 });

@@ -581,13 +581,9 @@
         "ferocity": {
           "type": "object",
           "properties": {
-            "chill_every_hours": {
-              "type": "number",
-              "description": "Chill (\"the default: gets the job done\"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168)"
-            },
             "steady_every_hours": {
               "type": "number",
-              "description": "Steady (\"needle mover: goes above expectations\"): somewhat more often than Chill where more runs find more work; the same where they would not"
+              "description": "Steady (\"the default: gets the job done\"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168). Chill has no schedule, so nothing is set for it."
             },
             "driven_every_hours": {
               "type": "number",
@@ -595,7 +591,7 @@
             },
             "relentless_every_hours": {
               "type": "number",
-              "description": "Relentless (\"inhuman, never rests\" - very high effort, not constant runs), in hours: as often as this job can turn up new real outcomes, which depends on the job, not on Chill. A stream of fresh work to find (lead research, outreach, content ideas): minutes - 0.17 (10 min) to 0.5. Work that arrives as events (bug triage on a Sentry alert, incidents, tickets): its events wake it, so this schedule is only an idle sweep, e.g. 6-8 hours - its intensity is each run digging to the bottom and booking follow-up runs, a high floor, and asking for more tools. Never more often than new work can appear (a weekly report stays weekly)."
+              "description": "Relentless (\"inhuman, never rests\" - very high effort, not constant runs), in hours: as often as this job can turn up new real outcomes, which depends on the job, not on Steady. A stream of fresh work to find (lead research, outreach, content ideas): minutes - 0.17 (10 min) to 0.5. Work that arrives as events (bug triage on a Sentry alert, incidents, tickets): its events wake it, so this schedule is only an idle sweep, e.g. 6-8 hours - its intensity is each run digging to the bottom and booking follow-up runs, a high floor, and asking for more tools. Never more often than new work can appear (a weekly report stays weekly)."
             },
             "driven_soft_floor": {
               "type": "number",
@@ -622,11 +618,10 @@
             },
             "extra_effort": {
               "type": "string",
-              "description": "What more effort means for this job above Chill, where doing the main action more would be useless or harmful: wider and better real work (more sources searched, harder cases taken on), never files written to reach a number - e.g. a wallpaper agent finds better candidates and asks what the person likes, rather than changing the wallpaper again"
+              "description": "What more effort means for this job above Steady, where doing the main action more would be useless or harmful: wider and better real work (more sources searched, harder cases taken on), never files written to reach a number - e.g. a wallpaper agent finds better candidates and asks what the person likes, rather than changing the wallpaper again"
             }
           },
           "required": [
-            "chill_every_hours",
             "steady_every_hours",
             "driven_every_hours",
             "relentless_every_hours",
@@ -972,13 +967,9 @@
         "ferocity": {
           "type": "object",
           "properties": {
-            "chill_every_hours": {
-              "type": "number",
-              "description": "Chill (\"the default: gets the job done\"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168)"
-            },
             "steady_every_hours": {
               "type": "number",
-              "description": "Steady (\"needle mover: goes above expectations\"): somewhat more often than Chill where more runs find more work; the same where they would not"
+              "description": "Steady (\"the default: gets the job done\"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168). Chill has no schedule, so nothing is set for it."
             },
             "driven_every_hours": {
               "type": "number",
@@ -986,7 +977,7 @@
             },
             "relentless_every_hours": {
               "type": "number",
-              "description": "Relentless (\"inhuman, never rests\" - very high effort, not constant runs), in hours: as often as this job can turn up new real outcomes, which depends on the job, not on Chill. A stream of fresh work to find (lead research, outreach, content ideas): minutes - 0.17 (10 min) to 0.5. Work that arrives as events (bug triage on a Sentry alert, incidents, tickets): its events wake it, so this schedule is only an idle sweep, e.g. 6-8 hours - its intensity is each run digging to the bottom and booking follow-up runs, a high floor, and asking for more tools. Never more often than new work can appear (a weekly report stays weekly)."
+              "description": "Relentless (\"inhuman, never rests\" - very high effort, not constant runs), in hours: as often as this job can turn up new real outcomes, which depends on the job, not on Steady. A stream of fresh work to find (lead research, outreach, content ideas): minutes - 0.17 (10 min) to 0.5. Work that arrives as events (bug triage on a Sentry alert, incidents, tickets): its events wake it, so this schedule is only an idle sweep, e.g. 6-8 hours - its intensity is each run digging to the bottom and booking follow-up runs, a high floor, and asking for more tools. Never more often than new work can appear (a weekly report stays weekly)."
             },
             "driven_soft_floor": {
               "type": "number",
@@ -1013,11 +1004,10 @@
             },
             "extra_effort": {
               "type": "string",
-              "description": "What more effort means for this job above Chill, where doing the main action more would be useless or harmful: wider and better real work (more sources searched, harder cases taken on), never files written to reach a number - e.g. a wallpaper agent finds better candidates and asks what the person likes, rather than changing the wallpaper again"
+              "description": "What more effort means for this job above Steady, where doing the main action more would be useless or harmful: wider and better real work (more sources searched, harder cases taken on), never files written to reach a number - e.g. a wallpaper agent finds better candidates and asks what the person likes, rather than changing the wallpaper again"
             }
           },
           "required": [
-            "chill_every_hours",
             "steady_every_hours",
             "driven_every_hours",
             "relentless_every_hours",

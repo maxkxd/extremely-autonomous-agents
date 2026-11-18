@@ -6,16 +6,19 @@ lessons from day one (see "From WAR" at the end).
 
 ## Ferocity sets how hard an agent works
 
-Five levels. The agent builder sets each agent's numbers for its job when it
+Five levels. Every agent starts on **Steady**, the default (until 18 Nov 2026
+that was Chill's behaviour; the old Steady, a little more often, was dropped,
+and agencies from before move their Chill agents to Steady once). The built-in
+agents have no level and keep their own schedules. The agent builder sets each agent's numbers for its job when it
 builds it (packs get theirs when they're customised). The multiples below are
 the guide the builder works from, not fixed formulas.
 
 | Level | Schedule (builder sets) | Re-running itself | Minimum output per run | Every run also... |
 |---|---|---|---|---|
-| **Chill** | What gets the job done: bug triage 2x a day, outreach daily, an ISMS policy check weekly | Allowed, but told not to once its work is done | None | - |
-| **Steady** | Somewhat more often than Chill, where more runs find more work | Encouraged when there's work left | None | - |
+| **Chill** | None: it runs only when given work - a task, an answered request, another agent's hand-off, a person's message, an event it watches for. Close to standby, except that everything that hands it work still wakes it | To finish what it was given, yes; never to start new work of its own | None | - |
+| **Steady** (the default) | What gets the job done: bug triage 2x a day, outreach daily, an ISMS policy check weekly | Allowed, but told not to once its work is done | None | - |
 | **Driven** | As often as there's usually new work to find | Encouraged | Soft floor: **one** gentle nudge if a run ends with very little output | Looks for better ways to do its job, new tools and wider scope, and files requests for them. A run that doesn't is doing it wrong |
-| **Relentless** | Set by the job, not by Chill: a stream of fresh work (lead research) every 10-30 min; event-driven work (bug triage on a Sentry alert) an idle sweep every 6-8 h, woken by its events. Very high effort, not constant runs | Strongly encouraged; woken by an event, it follows it to the bottom and books follow-ups | High floor (builder sets), up to 4 nudges | Same as Driven |
+| **Relentless** | Set by the job, not by Steady: a stream of fresh work (lead research) every 10-30 min; event-driven work (bug triage on a Sentry alert) an idle sweep every 6-8 h, woken by its events. Very high effort, not constant runs | Strongly encouraged; woken by an event, it follows it to the bottom and books follow-ups | High floor (builder sets), up to 4 nudges | Same as Driven |
 | **Apocalyptic** | None: the next run starts as soon as one ends (a 20-second breath). Each run in a row that falls short of its target makes the next wait a little longer, growing until about 20 short runs have it at Relentless's pace; one run that reaches its target and it's back to back again | Always (the runner books it) | Deliberately out of reach (builder sets); 4 nudges, then the run ends with whatever it made, and the next run starts | Same as Driven |
 
 An agent runs at its level whether or not the tools its output is counted by are
@@ -34,7 +37,7 @@ straight away, without a rebuild.
 ## When more of the main action isn't better
 
 Some jobs have a natural limit: an agent that changes the desktop wallpaper
-every morning gets the job done on Chill, and at Relentless or Apocalyptic
+every morning gets the job done on Steady, and at Relentless or Apocalyptic
 must not "produce output" by changing it every few minutes. Setting it that
 high is the person's call; the builder still makes it do something useful:
 
@@ -46,7 +49,7 @@ high is the person's call; the builder still makes it do something useful:
   When a person asked for the blocked action, the agent tells them a limit
   stopped it and that the Engineer can lift it: `engineer.set_limits` changes
   or removes an agent's limits, on a person's word only.
-- **What extra effort means, per agent.** For each level above Chill, the
+- **What extra effort means, per agent.** For each level above Steady, the
   builder writes what more output looks like for this job and which actions
   count toward its floor there. Wallpaper agent at Apocalyptic: stockpile and
   rate candidate images and jokes for future mornings, plan themes, and file

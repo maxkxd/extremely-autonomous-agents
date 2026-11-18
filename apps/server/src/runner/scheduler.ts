@@ -388,7 +388,7 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
     if (after && now - after < apocalypticWait(agent, short)) return null;
     return { trigger: 'apocalyptic', task: null };
   }
-  const scheduled = scheduledDue(agent, st.ferocity, st.last_scheduled_at ?? last?.ended_at ?? null, now);
+  const scheduled = scheduledDue(agent, st.ferocity, st.last_scheduled_at ?? last?.ended_at ?? null, now, BUILT_IN_IDS.includes(agent.id));
   return scheduled != null && scheduled <= now ? { trigger: 'scheduled', task: null } : null;
 }
 

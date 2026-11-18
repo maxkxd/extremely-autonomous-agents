@@ -10,7 +10,7 @@ import { ALLOWANCE_WHAT, BUILT_IN_IDS } from './helpers.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { queueForPrompt } from './action-queue.js';
 import { accountsForPrompt } from './accounts.js';
-import { backoffMs, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
+import { backoffMs, DEFAULT_LEVEL, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
 import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
@@ -101,9 +101,9 @@ export const agencyStopped = () => agencyState() === 'stopped';
 export function stateOf(agentId: string, now = Date.now()): AgentState {
   let row = one<AgentState>('SELECT * FROM agent_state WHERE agent_id = ?', agentId);
   if (!row) {
-    // A new agent starts on Chill, active (docs/agent-creation.md).
-    exec('INSERT INTO agent_state (agent_id, updated_at) VALUES (?, ?)', agentId, now);
-    row = { ferocity: 0, state: 'active', last_scheduled_at: null, fail_streak: 0, backoff_until: null, spend_cap_usd: null };
+    // A new agent starts on Steady, the default, active (docs/agent-creation.md).
+    exec('INSERT INTO agent_state (agent_id, ferocity, updated_at) VALUES (?, ?, ?)', agentId, DEFAULT_LEVEL, now);
+    row = { ferocity: DEFAULT_LEVEL, state: 'active', last_scheduled_at: null, fail_streak: 0, backoff_until: null, spend_cap_usd: null };
   }
   const agency = agencyState();
   if (agency === 'stopped') return { ...row, state: 'stopped' };
@@ -376,7 +376,8 @@ export function nowLine(at: number): string {
 export async function runAgent(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, signal?: AbortSignal, resumeFrom: string | null = null, person: string | null = null): Promise<RunResult> {
   const id = newRunId();
   const startedAt = deps.now();
-  const level = stateOf(agent.id, startedAt).ferocity;
+  // A built-in has no level of its own: it works as Steady, the default, on its own schedule.
+  const level = BUILT_IN_IDS.includes(agent.id) ? DEFAULT_LEVEL : stateOf(agent.id, startedAt).ferocity;
   // A run answering a person is never pushed past its answer (WAR).
   // A target is for an agent's own work (its schedule, Apocalyptic, a run it booked, Run now):
   // a task handed to it, a person's message or a decision coming back is done when

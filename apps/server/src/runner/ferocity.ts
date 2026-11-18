@@ -13,6 +13,17 @@ export const APOCALYPTIC = 4;
 
 export const MAX_NUDGES = 4;
 
+// Levels as of 18 Nov 2026 (Max: "make Steady the default everywhere"; "Chill ... basically not run
+// unless told to"): Steady is what Chill used to be - the default, a sensible schedule, stop when
+// the job is done. Chill has no schedule at all: it runs only when given work (a task, a request
+// answered, another agent's hand-off, a person's message, an event), does that work fully - booking
+// follow-ups to finish it - and starts nothing new of its own. The old Steady is gone. The built-in
+// agents have no level of their own and keep their schedules.
+// every_hours keeps four slots, one per level up to Relentless: slot 0 is the job's sensible pace,
+// which Steady runs at (Chill has none); slot 1, the old Steady's, is no longer used.
+export const DEFAULT_LEVEL = STEADY;
+const PACE_SLOT = [null, 0, 2, 3] as const; // Chill, Steady, Driven, Relentless
+
 // Parallel runs (Max, 18 Nov 2026: "agents should be able to spin up concurrent sessions and do it
 // viciously on relentless and apocalyptic"; "on every level it should be able to but at that level
 // its instructed to use it more"). An agent with several independent pieces of work (five launch
@@ -24,18 +35,20 @@ export const MAX_NUDGES = 4;
 export const PARALLEL_RUNS = 7;
 export const parallelSlots = (_level: number) => PARALLEL_RUNS;
 const HOW_PARALLEL = `Start one with ops.start_parallel_run for each piece - up to ${PARALLEL_RUNS} at once beside this run. They're you: same tools, files, cost and output. Give each one piece and its own folder or record, never two runs on the same thing.`;
+const GENTLE_PARALLEL = `You can work on several things at once: when a big job splits into independent pieces that would otherwise wait their turn, run them side by side. ${HOW_PARALLEL}`;
 const PARALLEL = [
-  `You can work on several things at once: when a big job splits into independent pieces that would otherwise wait their turn, run them side by side. ${HOW_PARALLEL}`,
-  `You can work on several things at once: when you have several independent pieces of work, run them side by side rather than one after another. ${HOW_PARALLEL}`,
+  GENTLE_PARALLEL,
+  GENTLE_PARALLEL,
   `Work on several things at once: whenever you have two or more independent pieces of work (one per business, account or batch), run them side by side. ${HOW_PARALLEL}`,
   `Split your work: when you have several independent pieces (one film, account or lead batch per business, say), never do them one after another - run them all at once. ${HOW_PARALLEL} Then carry on with what's left here.`,
   `Split everything you can: every independent piece of work (one film, account or lead batch per business, say) gets its own parallel run, all at once, as many as you have pieces. ${HOW_PARALLEL} Then carry on with what's left here.`,
 ];
 
 // How readily it asks for things (docs/requests.md, "Ferocity and requests").
+const MAKE_DO = 'Make do with the tools you have. Only file a request when you are genuinely blocked and cannot do the work at all any other way.';
 const REQUEST_STANCE = [
-  'Make do with the tools you have. Only file a request when you are genuinely blocked and cannot do the work at all any other way.',
-  'File a request when a tool or resource would make you clearly more effective at your core job, not just when you are blocked.',
+  MAKE_DO,
+  MAKE_DO,
   'Actively look for tools, access and data that would increase your output, and request the ones with a clear payoff.',
   'Treat every limit on your output as something to remove. Request any tool, channel or access that would let you do more or go faster.',
   'Maximise output by any means available. Think of every possible way to get more of your work done and request whatever it takes - new channels, new tools, more access. You can only ask: everything you request still needs a human or the Agency Engineer to grant it.',
@@ -72,20 +85,21 @@ export function ferocityInstructions(agent: AgentDef, level: number, callable?: 
   const counted = plan.counts.join(', ');
   const f = floorFor(agent, level, callable);
   const lines = [`## How hard you work: ${LEVELS[level]}`];
-  if (level > CHILL && plan.counts.length && !canCount(agent, callable))
+  if (level > STEADY && plan.counts.length && !canCount(agent, callable))
     lines.push(
       `None of the tools your output is counted by (${counted}) is connected yet, so this run has no target. Do the useful work you can with what you have, then stop - don't make work (documents, notes, reports) to fill the run.`,
     );
   switch (level) {
     case CHILL:
       lines.push(
-        'Do your job properly and stop when it is done. Your next scheduled run is coming, so leave anything that can wait for it.',
-        'You may book an extra run (ops.book_next_run) only when real work is left that cannot wait. Once your work is done, do not book one.',
+        "You have no schedule: you run only when you're given work - a task, an answered request, another agent's hand-off, a person's message, something you watch for. Do that work fully and properly.",
+        "If what you were given isn't finished by the end of this run, book your next run (ops.book_next_run) naming what's left, and keep going until it's done. Once it is, stop: don't start new work of your own or book runs for it - you'll be woken when there's more.",
       );
       break;
     case STEADY:
       lines.push(
-        'Do your job properly. If anything you could usefully do is still open at the end of this run, book your next run (ops.book_next_run) naming it, rather than leaving it for the schedule.',
+        'Do your job properly and stop when it is done. Your next scheduled run is coming, so leave anything that can wait for it.',
+        'You may book an extra run (ops.book_next_run) only when real work is left that cannot wait. Once your work is done, do not book one.',
       );
       break;
     case DRIVEN:
@@ -114,7 +128,7 @@ export function ferocityInstructions(agent: AgentDef, level: number, callable?: 
       break;
   }
   lines.push(PARALLEL[level]);
-  if (level > CHILL) lines.push(`What extra effort means for your job: ${plan.extra_effort}`);
+  if (level > STEADY) lines.push(`What extra effort means for your job: ${plan.extra_effort}`);
   lines.push(`Requests: ${REQUEST_STANCE[level]}`);
   return lines.filter(Boolean).join('\n\n');
 }
@@ -135,10 +149,18 @@ export function nudgeText(agent: AgentDef, acts: number, floor: number, n: numbe
 export const HOUR = 3_600_000;
 export const APOCALYPTIC_GAP_MS = 20_000; // a breath between back-to-back runs
 
-// When its schedule next wants a run (null: no schedule, i.e. Apocalyptic).
-export function scheduledDue(agent: AgentDef, level: number, lastScheduledAt: number | null, now: number): number | null {
+// When its schedule next wants a run (null: no schedule - Chill, which runs only when given
+// work, and Apocalyptic, which runs back to back). builtIn: the built-in agents have no level
+// and always keep their own schedule.
+export const paceHours = (agent: AgentDef, level: number): number | null => {
+  const slot = PACE_SLOT[level as 0 | 1 | 2 | 3];
+  return slot == null ? null : agent.ferocity.every_hours[slot];
+};
+export function scheduledDue(agent: AgentDef, level: number, lastScheduledAt: number | null, now: number, builtIn = false): number | null {
   if (level === APOCALYPTIC) return null;
-  const every = agent.ferocity.every_hours[level] * HOUR;
+  const hours = builtIn ? agent.ferocity.every_hours[0] : paceHours(agent, level);
+  if (hours == null) return null;
+  const every = hours * HOUR;
   // Never run on its schedule yet: start now.
   return lastScheduledAt == null ? now : lastScheduledAt + every;
 }

@@ -7,8 +7,8 @@ scheduled agent and an event-driven one: every agent can have both, and
 events are added to agents the way tools are.
 
 Ferocity still applies to a run an event starts: its floor, its nudges, the
-runs it books itself. A reactive agent is usually left on Chill or Steady, its
-schedule a slow sweep for anything missed; on Apocalyptic it keeps going after
+runs it books itself. A reactive agent is usually left on Steady, its
+schedule a slow sweep for anything missed, or on Chill, woken by its events alone; on Apocalyptic it keeps going after
 the event like any other run.
 
 ## Defining them (`integrations/schema.ts`)

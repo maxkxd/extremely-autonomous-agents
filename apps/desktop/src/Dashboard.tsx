@@ -243,7 +243,7 @@ function Tuning({
           value={level}
           disabled={disabled || !!why}
           onChange={e => setLevel(Number(e.target.value))}
-          title={why ?? 'How hard it works: Chill is the slowest, Apocalyptic runs back to back'}
+          title={why ?? 'How hard it works: Chill runs only when given work, Steady is the default, Apocalyptic runs back to back'}
           aria-label="Ferocity"
           aria-valuetext={FEROCITY[level].name}
           style={{ '--fill': `${(level / (FEROCITY.length - 1)) * 100}%` } as React.CSSProperties}

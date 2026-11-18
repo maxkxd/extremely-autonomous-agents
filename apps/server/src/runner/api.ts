@@ -217,7 +217,9 @@ export const runnerRoutes: Record<string, Route> = {
         id,
       )?.ms;
       const backToBack = Math.min(1000, 86_400_000 / ((avg ?? 120_000) + APOCALYPTIC_GAP_MS));
-      const runsPerDay = agent ? [...agent.ferocity.every_hours.map(h => 24 / h), backToBack] : [1, 1.5, 2, 4, 100];
+      // Chill has no schedule: it runs only when given work.
+      const e = agent?.ferocity.every_hours;
+      const runsPerDay = e ? [0, 24 / e[0], 24 / e[2], 24 / e[3], backToBack] : [0, 1, 2, 4, 100];
       // Nothing it's counted by is connected yet (the card says so); it runs at its level all the same.
       const waitingOnTools = !!agent && !BUILT_IN_IDS.includes(id) && blockedOnConnections(agent);
       // Output per run from its busier runs - the busiest half of its last 20 - so quiet
@@ -233,7 +235,7 @@ export const runnerRoutes: Record<string, Route> = {
       // so the card shows a number to aim at - replaced by its real rate once it runs.
       const f = agent?.ferocity;
       const soft = Math.max(1, f?.soft_floor || 3);
-      const perRunGuess = [Math.max(1, Math.round(soft / 2)), Math.max(1, Math.round(soft * 0.75)), soft, Math.max(soft, f?.floor || 10), Math.max(soft, f?.apocalyptic_floor || 30)];
+      const perRunGuess = [Math.max(1, Math.round(soft / 2)), Math.max(1, Math.round(soft / 2)), soft, Math.max(soft, f?.floor || 10), Math.max(soft, f?.apocalyptic_floor || 30)];
       const last = one<{ started_at: number; ended_at: number | null; status: string }>(
         'SELECT started_at, ended_at, status FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1',
         id,

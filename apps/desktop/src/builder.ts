@@ -155,7 +155,7 @@ function toBuilt(out: ServerAgent): Built {
   return {
     files: out.files,
     setup: out.setup,
-    // A brand-new card: no runs, nothing spent, and always starting on Chill.
+    // A brand-new card: no runs, nothing spent, and always starting on Steady, the default.
     agent: {
       id: out.agent.id,
       name: out.agent.name,
@@ -166,7 +166,7 @@ function toBuilt(out: ServerAgent): Built {
       runs: 0,
       lastRun: null,
       decisions: { approved: 0, rejected: 0, expired: 0 },
-      ferocity: 0,
+      ferocity: 1,
       settingUp: !!out.setup,
       pack: out.setup ? { id: out.setup.packId, member: out.setup.member ?? out.agent.name } : null,
     },

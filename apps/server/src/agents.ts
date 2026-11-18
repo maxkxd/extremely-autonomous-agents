@@ -38,7 +38,7 @@ export async function createAgent(a: { person: string; org: string | null; files
   // A new agent starts stopped, in setup: its connectors are built and connected
   // first (the card's setup list); the person's first resume ends setup.
   exec(
-    "INSERT INTO agent_state (agent_id, state, setup, updated_at) VALUES (?, 'stopped', 1, ?) ON CONFLICT(agent_id) DO UPDATE SET state = 'stopped', setup = 1, updated_at = excluded.updated_at",
+    "INSERT INTO agent_state (agent_id, ferocity, state, setup, updated_at) VALUES (?, 1, 'stopped', 1, ?) ON CONFLICT(agent_id) DO UPDATE SET state = 'stopped', setup = 1, updated_at = excluded.updated_at",
     files.id,
     Date.now(),
   );

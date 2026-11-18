@@ -51,10 +51,10 @@ How agents work with people, which every agent must respect:
 - API keys and passwords are added later in settings. Never ask for them and tell the person not to paste them into the chat.
 
 Ferocity, which you set for each job (the person picks the level on the agent's card):
-- Chill, "the default: will get the job done". What a sensible person would schedule.
-- Steady, "needle mover: will go above expectations".
+- Chill, "on call: works when given work". No schedule: it runs only when given a task, an answered request, another agent's hand-off, a person's message or an event it watches for, finishes that, and starts nothing of its own. You set nothing for it.
+- Steady, "the default: will get the job done". What a sensible person would schedule. Every agent starts here.
 - Driven, "intensely overworked: will never leave output on the table".
-- Relentless, "inhuman: will never rest". Very high effort - a high floor, chaining its own runs, digging deep, asking for more tools - not constant runs for their own sake. Its pace comes from the job, not from Chill. A job hunting an open-ended supply of work (lead research, prospecting, content ideas) runs every 10-30 minutes - even when its main action has a daily cap, the runs between refresh existing records, research deeper and widen its sources (its hint and extra_effort say how). A job driven by events (bug triage on a Sentry alert, incidents, tickets) is woken by them; its schedule is only an idle sweep every 6-8 hours, and when woken it follows the event to the bottom and books follow-up runs. A job with a fixed rhythm (a weekly report) keeps it.
+- Relentless, "inhuman: will never rest". Very high effort - a high floor, chaining its own runs, digging deep, asking for more tools - not constant runs for their own sake. Its pace comes from the job, not from Steady. A job hunting an open-ended supply of work (lead research, prospecting, content ideas) runs every 10-30 minutes - even when its main action has a daily cap, the runs between refresh existing records, research deeper and widen its sources (its hint and extra_effort say how). A job driven by events (bug triage on a Sentry alert, incidents, tickets) is woken by them; its schedule is only an idle sweep every 6-8 hours, and when woken it follows the event to the bottom and books follow-up runs. A job with a fixed rhythm (a weekly report) keeps it.
 - Apocalyptic, "the paperclip maximizer": runs back to back.
 max_runs_per_day sits above the Relentless pace (a 10-minute pace is 144 a day).
 
@@ -434,15 +434,14 @@ export const BuildSchema = z.object({
   max_runs_per_day: z.number().describe('Runaway backstop, not the cadence: comfortably above what the job needs'),
   ferocity: z
     .object({
-      chill_every_hours: z
+      steady_every_hours: z
         .number()
-        .describe('Chill ("the default: gets the job done"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168)'),
-      steady_every_hours: z.number().describe('Steady ("needle mover: goes above expectations"): somewhat more often than Chill where more runs find more work; the same where they would not'),
+        .describe('Steady ("the default: gets the job done"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168). Chill has no schedule, so nothing is set for it.'),
       driven_every_hours: z.number().describe('Driven ("never leaves output on the table"): as often as there is usually new work to find'),
       relentless_every_hours: z
         .number()
         .describe(
-          'Relentless ("inhuman, never rests" - very high effort, not constant runs), in hours: as often as this job can turn up new real outcomes, which depends on the job, not on Chill. A stream of fresh work to find (lead research, outreach, content ideas): minutes - 0.17 (10 min) to 0.5. Work that arrives as events (bug triage on a Sentry alert, incidents, tickets): its events wake it, so this schedule is only an idle sweep, e.g. 6-8 hours - its intensity is each run digging to the bottom and booking follow-up runs, a high floor, and asking for more tools. Never more often than new work can appear (a weekly report stays weekly).',
+          'Relentless ("inhuman, never rests" - very high effort, not constant runs), in hours: as often as this job can turn up new real outcomes, which depends on the job, not on Steady. A stream of fresh work to find (lead research, outreach, content ideas): minutes - 0.17 (10 min) to 0.5. Work that arrives as events (bug triage on a Sentry alert, incidents, tickets): its events wake it, so this schedule is only an idle sweep, e.g. 6-8 hours - its intensity is each run digging to the bottom and booking follow-up runs, a high floor, and asking for more tools. Never more often than new work can appear (a weekly report stays weekly).',
         ),
       driven_soft_floor: z.number().describe('Driven: output actions a good run makes; a run ending below it gets one gentle nudge. Modest.'),
       relentless_floor: z
@@ -458,7 +457,7 @@ export const BuildSchema = z.object({
       extra_effort: z
         .string()
         .describe(
-          'What more effort means for this job above Chill, where doing the main action more would be useless or harmful: wider and better real work (more sources searched, harder cases taken on), never files written to reach a number - e.g. a wallpaper agent finds better candidates and asks what the person likes, rather than changing the wallpaper again',
+          'What more effort means for this job above Steady, where doing the main action more would be useless or harmful: wider and better real work (more sources searched, harder cases taken on), never files written to reach a number - e.g. a wallpaper agent finds better candidates and asks what the person likes, rather than changing the wallpaper again',
         ),
     })
     .describe('How hard it works at each ferocity level, set for this job. The person picks the level on the card.'),
