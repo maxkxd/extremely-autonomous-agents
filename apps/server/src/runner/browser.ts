@@ -13,7 +13,7 @@ import { fileRequest, inWorkspace, onApprovalSettled, onRunEnd, registerTools, t
 import { readable } from './web.js';
 import { all, one, run as exec } from './db.js';
 import { setKeptPageCheck } from './kept-pages.js';
-import { ACCOUNTS_PER_SITE, listPasswords, passwordRow, profileFor, readPassword, siteOf } from './passwords.js';
+import { ACCOUNTS_PER_SITE, accountsIn, listPasswords, passwordRow, profileFor, readPassword, siteOf } from './passwords.js';
 import {
   accountLine,
   accountRow,
@@ -2924,12 +2924,14 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
     {
       id: 'signed_in_browser.start_sign_up',
       tier: 'T1',
-      description: `Start signing up for one of the accounts you owe (signed_in_browser.accounts): makes a strong password, kept hidden until the account is seen working - you never see it - and says which browser to sign up in (a browser holds up to ${ACCOUNTS_PER_SITE} accounts on one site). Then fill the site's form and type the password with type_password. If an earlier try already put a password into the site, the account may exist: it says so, and you sign in with that one first. new_password true: you saw the site say there is no such account (or the password is wrong) - the old one is thrown away and a new one made.`,
+      description: `Start signing up for one of the accounts you owe (signed_in_browser.accounts): makes a strong password, kept hidden until the account is seen working - you never see it - and says which browser to sign up in (a browser holds up to ${ACCOUNTS_PER_SITE} accounts on one site). Then fill the site's form and type the password with type_password. If an earlier try already put a password into the site, the account may exist: it says so, and you sign in with that one first. new_password true: you saw the site say there is no such account (or the password is wrong) - the old one is thrown away and a new one made. You choose where: browser names one (a person's own browser too, for access only it has), new_profile true makes a fresh agents' profile; left out, the first browser with room.`,
       schema: obj(
         {
           account_id: { type: 'string', description: 'The account, from signed_in_browser.accounts' },
           username: { type: 'string', description: 'The username or email address the account will use' },
           new_password: { type: 'boolean', description: "True only after the site said the earlier try's account doesn't exist" },
+          browser: { type: 'string', description: "Sign up in this browser: its number or name - a person's own one too, when the account needs something only it has (their sign-in, their access). Leave it out and the app picks the first with room." },
+          new_profile: { type: 'boolean', description: "True: make a new agents' profile, with nobody's accounts in it, and sign up there." },
         },
         ['account_id', 'username'],
       ),
@@ -2937,22 +2939,48 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
         const row = ownAccount(ctx, a.account_id);
         const username = String(a.username ?? '').trim();
         if (!username) throw new Error('Give the username or email address the account will use.');
-        const paired = pairedBrowsers().map(b => b.n);
-        // No browser yet: the agents' first profile holds it.
-        if (!paired.length && profilesAvailable().ok) paired.push(createProfile());
-        let { profile: n, isNew } = profileFor(row.site, paired.length ? paired : [1]);
-        if (isNew) {
-          // Every browser has its fill of this site: a new agents' profile takes the next.
+        if (a.new_profile === true && a.browser != null && String(a.browser).trim() !== '') throw new Error('Give browser or new_profile, not both.');
+        const browsers = pairedBrowsers();
+        const paired = browsers.map(b => b.n);
+        let n: number;
+        if (a.new_profile === true) {
+          // The agent's choice: a clean agents' profile with nobody's accounts in it.
           const can = profilesAvailable();
-          if (!can.ok)
-            throw new Error(`Every browser already holds ${ACCOUNTS_PER_SITE} ${row.site} accounts, so another one there needs another browser, and the app can't make one here (${can.why}). Ask the person to connect one more Chrome or Edge profile (Settings > Connectors > Browser, Connect another profile), then start the sign-up again.`);
+          if (!can.ok) throw new Error(`The app can't make a new agents' profile here (${can.why}). Sign up in one of the browsers there are (${browsers.map(b => `${b.n} ${b.name}`).join(', ') || 'none yet'}), or ask the person to connect another Chrome or Edge profile.`);
           n = createProfile();
+        } else if (a.browser != null && String(a.browser).trim() !== '') {
+          // The agent's choice of browser, a person's own included (for an access only it has).
+          const text = String(a.browser).trim();
+          const low = text.toLowerCase();
+          const found = /^\d+$/.test(text) ? browsers.find(b => b.n === Number(text)) : (browsers.find(b => b.name.toLowerCase() === low) ?? browsers.find(b => b.name.toLowerCase().includes(low)));
+          if (!found) throw new Error(`There's no browser ${text}. The browsers are ${browsers.map(b => `${b.n} (${b.name})`).join(', ') || 'none yet'}; new_profile true makes a new agents' profile.`);
+          if (accountsIn(row.site, found.n, row.id) >= ACCOUNTS_PER_SITE) throw new Error(`Browser ${found.n} already holds ${ACCOUNTS_PER_SITE} ${row.site} accounts, the most one browser takes. Pick another, or new_profile true for a new agents' profile.`);
+          n = found.n;
+        } else {
+          // No browser yet: the agents' first profile holds it.
+          if (!paired.length && profilesAvailable().ok) paired.push(createProfile());
+          const picked = profileFor(row.site, paired.length ? paired : [1]);
+          n = picked.profile;
+          if (picked.isNew) {
+            // Every browser has its fill of this site: a new agents' profile takes the next.
+            const can = profilesAvailable();
+            if (!can.ok)
+              throw new Error(`Every browser already holds ${ACCOUNTS_PER_SITE} ${row.site} accounts, so another one there needs another browser, and the app can't make one here (${can.why}). Ask the person to connect one more Chrome or Edge profile (Settings > Connectors > Browser, Connect another profile), then start the sign-up again.`);
+            n = createProfile();
+          }
         }
+        // A person's own browser has their accounts signed in: the agent hears so, and can choose.
+        const personal = (b: number) => {
+          const lb = pairedBrowsers().find(x => x.n === b);
+          return lb && !lb.managed
+            ? `\n\nNote: ${label(b)} is a person's own browser, with their own accounts signed in - a new account made there sits beside theirs (the site may link the two). Fine when this account needs something only that browser has. If not, call start_sign_up again with new_profile true for a clean agents' profile, before typing anything.`
+            : '';
+        };
         const t = await startAttempt(row.id, { username, browser: n, runId: ctx.runId, fresh: a.new_password === true, now: ctx.now() });
         const b = t.row.browser ?? n;
         if (t.reuse)
           return `${row.id}: an earlier try already typed a password into ${row.site} as ${username}, so the account may exist. Don't sign up again yet: in ${label(b)} (pass browser ${b}), open ${row.site}'s sign-in page and sign in as ${username}, typing the password with signed_in_browser.type_password, password_id "${t.passwordId}". Signed in: finish anything it still asks, open the profile or settings page, and signed_in_browser.check_account. The site says there's no such account, or the password is wrong: call start_sign_up again with new_password true, and sign up afresh.`;
-        return `${row.id}: password #${t.passwordId} made for ${username} at ${row.site}. It is NOT in the password store yet - it joins it only when the app has seen the account working. Sign up in ${label(b)}: pass browser ${b} to the signed_in_browser tools, fill the form, and type the password with signed_in_browser.type_password, password_id "${t.passwordId}" (in both boxes if it asks twice). Then submit. Signed in: open the account's profile or settings page and call signed_in_browser.check_account with "${row.id}". Stopped by something only a person can do: signed_in_browser.show_person with account_id "${row.id}", then straight on to your next account.`;
+        return `${row.id}: password #${t.passwordId} made for ${username} at ${row.site}. It is NOT in the password store yet - it joins it only when the app has seen the account working. Sign up in ${label(b)}: pass browser ${b} to the signed_in_browser tools, fill the form, and type the password with signed_in_browser.type_password, password_id "${t.passwordId}" (in both boxes if it asks twice). Then submit. Signed in: open the account's profile or settings page and call signed_in_browser.check_account with "${row.id}". Stopped by something only a person can do: signed_in_browser.show_person with account_id "${row.id}", then straight on to your next account.${personal(b)}`;
       },
     },
     {

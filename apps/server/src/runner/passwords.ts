@@ -52,12 +52,13 @@ export function makePassword(length = 20): string {
   return chars.join('');
 }
 
+// How many accounts on this site a browser holds (not counting one account's own, being remade).
+export const accountsIn = (site: string, profile: number, except?: string | null) =>
+  one<{ n: number }>('SELECT COUNT(*) AS n FROM passwords WHERE site = ? AND profile = ? AND (account_id IS NULL OR account_id IS NOT ?)', site, profile, except ?? null)?.n ?? 0;
+
 // The browser a new account on this site goes in: the first with room, or (isNew) one more.
 export function profileFor(site: string, profiles: number[]): { profile: number; isNew: boolean } {
-  for (const p of profiles) {
-    const n = one<{ n: number }>('SELECT COUNT(*) AS n FROM passwords WHERE site = ? AND profile = ?', site, p)?.n ?? 0;
-    if (n < ACCOUNTS_PER_SITE) return { profile: p, isNew: false };
-  }
+  for (const p of profiles) if (accountsIn(site, p) < ACCOUNTS_PER_SITE) return { profile: p, isNew: false };
   return { profile: Math.max(0, ...profiles) + 1, isNew: true };
 }
 
