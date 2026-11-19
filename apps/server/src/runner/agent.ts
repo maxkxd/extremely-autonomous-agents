@@ -39,7 +39,7 @@ export type AgentDef = {
   // The events that wake it (docs/events.md), and ones its builder invented that nothing provides yet.
   events: string[];
   newEvents: { id: string; description: string; how: string }[];
-  output: { action: string; label: string }[]; // KPI
+  output: { action: string; label: string; per_day?: number }[]; // KPI; per_day: the builder's goal for that label (goals.ts)
   maxRunsPerDay: number;
   ferocity: FerocityPlan;
   limits: NaturalLimit[];
@@ -113,7 +113,7 @@ export async function loadAgent(id: string): Promise<AgentDef | null> {
       ['CHARTER.md', 'TOOLS.yaml', 'KPI.yaml'].map(f => readFile(join(dir, f), 'utf8')),
     );
     const tools = (parse(toolsText) ?? {}) as ToolsYaml;
-    const kpi = (parse(kpiText) ?? {}) as { output?: { action: string; label: string }[] };
+    const kpi = (parse(kpiText) ?? {}) as { output?: { action: string; label: string; per_day?: number }[] };
     const output = kpi.output ?? [];
     const approvalHours: Record<string, number> = {};
     for (const [tool, w] of Object.entries(tools.approval_windows ?? {})) approvalHours[tool] = (w.window_seconds ?? 86400) / 3600;

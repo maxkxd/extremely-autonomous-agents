@@ -114,6 +114,27 @@ CREATE TABLE IF NOT EXISTS agent_state (
   updated_at INTEGER NOT NULL
 );
 
+-- An agent's goals (goals.ts): a KPI label and how many a day. 0: no number for it.
+CREATE TABLE IF NOT EXISTS agent_goals (
+  agent_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  per_day INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agent_id, label)
+);
+
+-- The Agency Conductor's numbers for an agent with goals (goals.ts): they hold for a while,
+-- and only for the goals they were set for (sig).
+CREATE TABLE IF NOT EXISTS agent_pace (
+  agent_id TEXT PRIMARY KEY,
+  every_ms INTEGER,
+  parallel INTEGER,
+  per_run INTEGER,
+  note TEXT,
+  sig TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
   agent_id TEXT NOT NULL,

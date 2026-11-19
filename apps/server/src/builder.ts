@@ -41,7 +41,7 @@ Every agent is defined by three files the person never sees:
   T1 - runs, and posts a notice to the agent's own channel (reversible internal writes: records, drafts, labels, notes).
   T2 - waits for a person's approval and expires if nobody decides (anything visible outside the organization or hard to undo: sending, posting, publishing, paying, deleting, inviting).
   A tool that isn't listed can't be called, so there is no "never" tier.
-- KPI.yaml: which successful actions count as its output.
+- KPI.yaml: which successful actions count as its output, and for each a goal per day. The agency paces the agent to its goals by itself - more runs, more of them at once - so the goal is the output the person wants, never a cap.
 
 People's pronouns: everything you write (Charter, tool notes, KPI labels, profile and person notes, your replies) refers to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name, and don't copy a pronoun from an existing note that only guessed one.
 
@@ -438,8 +438,8 @@ export const BuildSchema = z.object({
       "New website accounts the agency signs up for before this agent first runs: ones the job can't start without, on sites nothing here connects to (an X profile for the brand, a Reddit account, a Product Hunt maker account). They're made during its setup - the Agency Engineer signs up, the person only does a CAPTCHA or a phone code, all of them in one go - and each shows on the agent's card. Not the person's own existing accounts (they sign in to those themselves), and nothing a connected service covers. For an agent whose job is to keep making accounts as it goes (one per brand it launches): only the ones it starts with - the Charter says it makes the rest itself, writing down every one it needs first. Empty when it needs none.",
   ),
   kpi: z
-    .array(z.object({ id: z.string().describe('A tool id from tools'), label: z.string().describe('Plural, lowercase, e.g. "invoices chased"') }))
-    .describe('1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing.'),
+    .array(z.object({ id: z.string().describe('A tool id from tools'), label: z.string().describe('Plural, lowercase, e.g. "invoices chased"'), per_day: z.number().optional().describe("Its goal for this output: how many a day is a good day's work for this job at an ordinary pace (20 leads, 5 posts). 0 when a number makes no sense for it. The person changes it on the agent's card.") }))
+    .describe('1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing. Each label is a goal the person can put a number on, so name it as they would say it.'),
   max_runs_per_day: z.number().describe('Runaway backstop, not the cadence: comfortably above what the job needs'),
   ferocity: z.preprocess(
     legacyPace,

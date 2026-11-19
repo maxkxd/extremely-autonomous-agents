@@ -677,6 +677,10 @@
               "label": {
                 "type": "string",
                 "description": "Plural, lowercase, e.g. \"invoices chased\""
+              },
+              "per_day": {
+                "description": "Its goal for this output: how many a day is a good day's work for this job at an ordinary pace (20 leads, 5 posts). 0 when a number makes no sense for it. The person changes it on the agent's card.",
+                "type": "number"
               }
             },
             "required": [
@@ -685,7 +689,7 @@
             ],
             "additionalProperties": false
           },
-          "description": "1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing."
+          "description": "1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing. Each label is a goal the person can put a number on, so name it as they would say it."
         },
         "max_runs_per_day": {
           "type": "number",
@@ -1063,6 +1067,10 @@
               "label": {
                 "type": "string",
                 "description": "Plural, lowercase, e.g. \"invoices chased\""
+              },
+              "per_day": {
+                "description": "Its goal for this output: how many a day is a good day's work for this job at an ordinary pace (20 leads, 5 posts). 0 when a number makes no sense for it. The person changes it on the agent's card.",
+                "type": "number"
               }
             },
             "required": [
@@ -1071,7 +1079,7 @@
             ],
             "additionalProperties": false
           },
-          "description": "1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing."
+          "description": "1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing. Each label is a goal the person can put a number on, so name it as they would say it."
         },
         "max_runs_per_day": {
           "type": "number",

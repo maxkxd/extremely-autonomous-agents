@@ -2,6 +2,7 @@ import { readMeta } from '../files.js';
 import { getSetting, run, setSetting } from './db.js';
 import { hostZone } from './clock.js';
 import { LEVELS } from './ferocity.js';
+import { setGoal } from './goals.js';
 import type { ToolDef } from './tools.js';
 
 // What a person can change on an agent's card, changed by the agent when they ask
@@ -56,6 +57,22 @@ export const clearResume = (agentId: string) => {
 };
 
 export const SELF_SETTINGS: ToolDef[] = [
+  {
+    id: 'ops.set_my_goal',
+    tier: 'T1',
+    description:
+      'Change a goal of yours when your person asks ("make it 500 emails a day", "no target for follow-ups"): the goal as it is named under "Your goal today" or in your KPI, and how many a day (0: no number). Same as the number on your card. A kind of goal you do not have yet is not yours to add: file a request for it (requests.request_resource) and the Agency Engineer adds it.',
+    schema: obj({ goal: { type: 'string', description: 'The name of the goal, e.g. "emails sent"' }, per_day: { type: 'number' } }, ['goal', 'per_day']),
+    impl: async (a, ctx) => {
+      await notBuiltIn(ctx.agent.id);
+      const want = String(a.goal ?? '').trim().toLowerCase();
+      const label = ctx.agent.output.find(o => o.label.toLowerCase() === want)?.label;
+      if (!label) throw new Error(`Your goals are: ${[...new Set(ctx.agent.output.map(o => o.label))].join(', ') || 'none yet'}. A new kind needs a request to the Agency Engineer.`);
+      const perDay = Math.max(0, Math.floor(Number(a.per_day) || 0));
+      setGoal(ctx.agent.id, label, perDay, ctx.now());
+      return perDay ? `Your goal is ${perDay} ${label} a day now.` : `"${label}" has no number now.`;
+    },
+  },
   {
     id: 'ops.set_my_ferocity',
     tier: 'T1',

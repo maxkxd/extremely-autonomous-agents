@@ -18,6 +18,8 @@ import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals, recoverInterruptedActions, runDueActions, setQueueWake } from './approvals.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC, apocalypticWait, backstop, parallelSlots, scheduledDue, SHORT_RUNS_TO_RELENTLESS } from './ferocity.js';
+import { bookGoalRuns, GOAL_BATCH, goalDue, paceFor } from './goals.js';
+import { conductPace } from './conductor.js';
 
 import { resumeDue, runsToday as runsOnDay } from './selfsettings.js';
 import { bookWake, dropWakeParts, formatWake, isDebounced, parseWake, requestOf, triggerFor, WAKE_WINDOWS, type Part } from './wakes.js';
@@ -169,6 +171,8 @@ export async function tick(deps: RunDeps = liveDeps) {
     void pollEvents(book).catch(e => console.error('Polling events failed:', (e as Error).message));
     // Memory nearly full (pressure.ts): runs already going carry on, but no new one
     // starts until it drops. What's booked or due waits; nothing is dropped.
+    // The Agency Conductor looks over every agent's goals now and then (conductor.ts).
+    void conductPace(now).catch(e => console.error('Pacing agents to their goals failed:', (e as Error).message));
     const braked = memoryBrake.update(await memoryFraction());
     for (const id of await listIds()) {
       const engineer = id === FLEET_ENGINEER;
@@ -184,11 +188,16 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (st.state === 'stopped') continue;
       const agent = await loadAgent(id);
       if (!agent) continue;
+      // Its goals' pace (goals.ts): behind enough to need several runs at once, the others
+      // are booked here; at its goal or with none, any still waiting are dropped.
+      const pace = engineer || BUILT_IN_IDS.includes(id) ? null : paceFor(agent, now);
+      if (pace && pace.parallel > 1 && st.state === 'active') bookGoalRuns(agent, pace, now);
+      else if (!engineer) exec("DELETE FROM bookings WHERE agent_id = ? AND trigger = 'parallel' AND task LIKE ?", id, `${GOAL_BATCH}%`);
       // An agent already running: only its own parallel runs (ops.start_parallel_run, any level)
       // start beside it, up to its level's slots - and its main run, if what's
       // going are only parallel ones. Everything else waits for its run to end, as before.
       if (!engineer && others.length) {
-        const room = others.filter(r => r.parallel).length < parallelSlots(st.ferocity);
+        const room = others.filter(r => r.parallel).length < Math.max(parallelSlots(st.ferocity), (pace?.parallel ?? 1) - 1);
         const mainGoing = others.some(r => !r.parallel);
         const next = nextRun(agent, st, now, b => (b.trigger === 'parallel' ? room : !mainGoing));
         if (!next || (next.trigger === 'parallel' ? !next.bookingId : mainGoing)) continue;
@@ -361,7 +370,9 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   if (st.backoff_until && st.backoff_until > now) return null;
   // The runaway backstop - never the pace. Built-ins have none: their work comes
   // from requests, and failure backoff still stops one that keeps failing.
-  if (!BUILT_IN_IDS.includes(agent.id) && runsToday(agent.id, now) >= backstop(st.ferocity)) return null;
+  // With goals, the pace they call for stands in for its level (goals.ts).
+  const pace = BUILT_IN_IDS.includes(agent.id) ? null : paceFor(agent, now);
+  if (!BUILT_IN_IDS.includes(agent.id) && runsToday(agent.id, now) >= backstop(pace?.level ?? st.ferocity)) return null;
   if (due.length) return { trigger: due[0].trigger, task: due[0].task, bookingId: due[0].id };
   // Its person said which days it works ("only on weekdays"): none of its own on the others.
   if (!runsOnDay(agent.id, now)) return null;
@@ -375,6 +386,7 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   // Only its own finished runs of the last day count: a failed run has its own
   // backoff, one a person stopped was cut short on purpose, and a bad week long ago
   // says nothing about now - it slows down only when something is really wrong.
+  if (pace) return goalDue(pace, st.last_scheduled_at ?? last?.ended_at ?? null, last?.ended_at ?? null, now) ? { trigger: 'scheduled', task: null } : null;
   if (st.ferocity === APOCALYPTIC) {
     const recent = all<{ ended_at: number | null; acts: number | null; floor: number | null }>(
       "SELECT ended_at, acts, floor FROM runs WHERE agent_id = ? AND trigger = 'apocalyptic' AND status = 'succeeded' AND started_at >= ? ORDER BY started_at DESC LIMIT ?",

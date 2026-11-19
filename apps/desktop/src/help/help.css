@@ -203,8 +203,8 @@
 .hd-side { zoom: 1.1; flex-shrink: 0; counter-reset: part; }
 .hd-side .card-main, .hd-side .drag-grip { display: none; }
 .hd-side .agent-card { overflow: visible; width: auto; }
-.hd-side .stat, .hd-side .controls, .hd-side .ferocity, .hd-side .model-row { position: relative; counter-increment: part; }
-.hd-side .stat::before, .hd-side .controls::before, .hd-side .ferocity::before, .hd-side .model-row::before {
+.hd-side .stat, .hd-side .controls, .hd-side .goal, .hd-side .model-row { position: relative; counter-increment: part; }
+.hd-side .stat::before, .hd-side .controls::before, .hd-side .goal::before, .hd-side .model-row::before {
   content: counter(part); position: absolute; left: -34px; top: 1px;
   width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
   font-size: 11px; font-weight: 700; color: #fff; background: var(--attention);

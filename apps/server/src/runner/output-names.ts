@@ -39,7 +39,7 @@ export function sameAction(a: string, b: string): boolean {
   return long === `${short}s` || long === `${short}es`;
 }
 
-type Row = { action: string; label: string };
+type Row = { action: string; label: string; per_day?: number };
 
 // Which real tools do the job of each name the agent is counted on but doesn't hold.
 export function movesFor(orphans: string[], candidates: string[]): OutputMove[] {
@@ -72,7 +72,7 @@ function apply(output: Row[], counts: string[], moves: OutputMove[]): { output: 
     const m = byFrom.get(row.action);
     if (!m) return [row];
     const label = m.label?.trim() || row.label;
-    return m.to.map(action => ({ action, label }));
+    return m.to.map(action => ({ ...row, action, label }));
   });
   const seen = new Set<string>();
   const rows = nextOutput.filter(r => (seen.has(r.action) ? false : (seen.add(r.action), true)));
@@ -112,6 +112,28 @@ export async function applyOutputMoves(agentId: string, moves: OutputMove[]): Pr
   await writeFile(join(dir, 'TOOLS.yaml'), toolsDoc.toString());
   const meta = await readMeta(agentId);
   if (meta) await writeMeta(agentId, { ...meta, output: [...new Set(next.output.map(o => o.label))] });
+}
+
+// A new output for an agent, so it can be given a goal (engineer.set_goal): the label as
+// its person says it, and the tools it holds whose calls are that output. A label it
+// already has gains any tools named that it lacked.
+export async function addOutput(agentId: string, label: string, actions: string[]): Promise<void> {
+  const dir = join(DATA, slug(agentId));
+  const { output, counts, held } = await readCounted(agentId);
+  for (const id of actions) {
+    if (!countsAsOutput(id)) throw new Error(`${id} isn't output. Workspace files, memory and plumbing don't count.`);
+    if (!held.has(id) && !servedHere(id)) throw new Error(`${id} isn't a tool ${agentId} holds. Give it the tool first (engineer.give_tools).`);
+  }
+  const fresh = actions.filter(id => !output.some(o => o.action === id));
+  if (!fresh.length) return;
+  const kpiDoc = parseDocument(await readFile(join(dir, 'KPI.yaml'), 'utf8'));
+  kpiDoc.set('output', [...output, ...fresh.map(action => ({ action, label }))]);
+  await writeFile(join(dir, 'KPI.yaml'), kpiDoc.toString());
+  const toolsDoc = parseDocument(await readFile(join(dir, 'TOOLS.yaml'), 'utf8'));
+  if (toolsDoc.get('ferocity')) toolsDoc.setIn(['ferocity', 'counts'], [...new Set([...counts, ...fresh])]);
+  await writeFile(join(dir, 'TOOLS.yaml'), toolsDoc.toString());
+  const meta = await readMeta(agentId);
+  if (meta) await writeMeta(agentId, { ...meta, output: [...new Set([...output.map(o => o.label), label])] });
 }
 
 // After a connection's real tools are given and its stand-in names dropped:

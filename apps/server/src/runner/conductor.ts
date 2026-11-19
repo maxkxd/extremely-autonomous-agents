@@ -1,7 +1,8 @@
 import { listIds, readMeta } from '../files.js';
 import { integrationToolIds } from '../integrations/index.js';
 import { FLEET_ENGINEER, loadAgent } from './agent.js';
-import { one, run as exec } from './db.js';
+import { getSetting, one, run as exec, setSetting } from './db.js';
+import { paceFacts, storePace } from './goals.js';
 import { postToRequest } from './engineer.js';
 import { CONDUCTOR } from './helpers.js';
 import { stateOf } from './run.js';
@@ -89,3 +90,74 @@ export async function conduct(requestId: number, wake: Wake): Promise<void> {
 }
 
 setRequestRouter(conduct);
+
+// --- Keeping agents on their goals (goals.ts) ------------------------------------
+//
+// The pace an agent's goals call for is plain arithmetic, worked out fresh whenever it is
+// needed. Every half hour the Conductor looks over all of them in one cheap call and may
+// change an agent's numbers where judgement helps, or leave it a line of advice. Its
+// numbers are kept within sensible bounds and hold for a while (goals.ts); if the call
+// fails, or it leaves an agent out, the arithmetic stands.
+
+const PACE_EVERY_MS = 30 * 60_000;
+const PACED_AT = 'goals_paced_at';
+
+const PACE_SYSTEM = `You keep the agents of an AI agency on their daily goals. Each line below is one agent that is not at its goal yet: its goals (done/goal today), the hours left, what one of its runs usually makes and how long it takes, and the pace simple arithmetic has worked out for it.
+Change an agent's numbers only where judgement helps:
+- more per run when its runs are short and productive; fewer runs, each asked for more, is cheaper than many small ones
+- more runs at once (up to 20) only when it cannot get there one after another
+- spread over the day, not one burst, unless it is far behind
+- an agent whose runs make nothing needs a hint about what to check, not more runs
+Leave an agent out to keep the arithmetic. Refer to people by name or as "they".
+Answer with JSON only: {"agents":{"<id>":{"every_min":<minutes between its runs>,"parallel":<runs at once>,"per_run":<what one run is asked for>,"note":"<one short sentence to that agent, or empty>"}}}`;
+
+type PaceAnswer = { agents?: Record<string, { every_min?: number; parallel?: number; per_run?: number; note?: string }> };
+
+let pacing = false;
+export async function conductPace(now: number): Promise<number> {
+  if (pacing || now - getSetting<number>(PACED_AT, 0) < PACE_EVERY_MS) return 0;
+  pacing = true;
+  try {
+    setSetting(PACED_AT, now);
+    const facts = new Map<string, { sig: string; line: string }>();
+    for (const id of await listIds()) {
+      const meta = await readMeta(id);
+      if (!meta || meta.status !== 'ready' || meta.service || meta.builtIn || stateOf(id).state !== 'active') continue;
+      const agent = await loadAgent(id);
+      const f = agent ? paceFacts(agent, now) : null;
+      if (f) facts.set(agent!.id, f);
+    }
+    if (!facts.size) return 0;
+    let paced = 0;
+    const apply = (text: string) => {
+      const answer = jsonIn<PaceAnswer>(text).agents ?? {};
+      paced = 0;
+      for (const [id, p] of Object.entries(answer)) {
+        const f = facts.get(id);
+        if (!f || !p || typeof p !== 'object') continue;
+        storePace(id, f.sig, p, now);
+        paced++;
+      }
+      return paced;
+    };
+    await ask(CONDUCTOR, {
+      trigger: 'scheduled',
+      task: `Pacing ${facts.size} agent${facts.size === 1 ? '' : 's'} to their goals`,
+      system: PACE_SYSTEM,
+      prompt: [...facts.values()].map(f => f.line).join('\n'),
+      maxTokens: 1500,
+      want: 'cheap',
+      summary: t => {
+        const n = apply(t);
+        return `Looked over ${facts.size} agent${facts.size === 1 ? '' : 's'} with goals: ${n ? `changed the pace of ${n}` : 'the worked-out pace stands for all of them'}.`;
+      },
+    });
+    return paced;
+  } catch (e) {
+    // Stopped, or no model answered: the arithmetic stands.
+    if (!(e instanceof HelperStopped)) console.error("The Agency Conductor couldn't pace the agents:", (e as Error).message);
+    return 0;
+  } finally {
+    pacing = false;
+  }
+}

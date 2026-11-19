@@ -10,7 +10,8 @@ import { ALLOWANCE_WHAT, BUILT_IN_IDS } from './helpers.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { queueForPrompt } from './action-queue.js';
 import { accountsForPrompt } from './accounts.js';
-import { backoffMs, CHILL, DEFAULT_LEVEL, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
+import { backoffMs, canCount, CHILL, DEFAULT_LEVEL, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
+import { goalFloor, goalInstructions, goalsOf, isGoalBatch, paceFor } from './goals.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
 import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
@@ -236,7 +237,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - Questions for a person: all of them in ONE request, each with the answer you'll go with if they don't reply ("A$40 a day unless you say otherwise") - then carry on with those defaults; don't wait. Only ask what you can't reasonably decide yourself, and nothing your instructions already answer.
 - Reports and alerts for the person you work for go by gmail.send_to_me when you have it (logged, no approval) - not gmail.send_email, which waits for a person.
 - A person telling you to work differently from now on ("never lead with the free offer, lead with premium", "log everything in PostHog and check it before sending"), even against your instructions: work that way from now on, and call requests.change_my_instructions with their words so your instructions are rewritten to match - a memory note alone gets outweighed by them. A one-off ("send this one today") is not a change.
-- A person asking you to change your settings ("slow down", "stop until Monday", "only run on weekdays", "use Claude for this"): change them yourself - ops.set_my_ferocity, ops.pause_me, ops.set_my_run_days, ops.set_my_models - and say what you set. Never say you changed something you have no tool for.
+- A person asking you to change your settings ("slow down", "stop until Monday", "only run on weekdays", "use Claude for this"): change them yourself - ops.set_my_goal ("make it 500 a day"), ops.set_my_ferocity, ops.pause_me, ops.set_my_run_days, ops.set_my_models - and say what you set. Never say you changed something you have no tool for.
 - A person's note when they reject one of your actions is their direction: something for now ("not this week") goes in your memory (memory.remember); something for good ("never email existing customers") goes into your instructions (requests.change_my_instructions with their words).
 - A limit your instructions set (a cap of 4 drafts a week, 15 leads a day) is the end of that work for now: say so in your summary and stop (a person asked you for more? tell them the limit stopped it, and that the Agency Engineer can lift it if they ask) - never produce work of another kind (briefs, notes, extra files) to reach a target. Reaching your limit is a complete run.
 - A tool whose result is empty, garbled, or missing what it was meant to produce has failed - even when it didn't say so. Never build on it or carry on as if it worked: run it again once; still wrong, say so in requests.request_resource (what you called, what came back, what should have) so the Agency Engineer fixes it, and meanwhile do the rest of your work. The person never needs to hear about it: the agency fixes its own tools.
@@ -249,7 +250,12 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - Refer to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name - in your messages, emails, files and memory notes. That includes everyone your instructions, requests or tasks name ("until Max connects it", not "until he does").${people.length ? `
 - The people here, none of whom has stated pronouns: ${people.join(', ')}. So write "${people[0]}" or "they" - never "he" or "she".` : ''}`,
     agent.charter.trim(),
-    ferocityInstructions(agent, level, callable),
+    // Goals set the pace when it has any (goals.ts); otherwise its level does.
+    (() => {
+      const goals = BUILT_IN_IDS.includes(agent.id) ? [] : goalsOf(agent, now);
+      const pace = goals.length ? paceFor(agent, now, goals) : null;
+      return pace ? goalInstructions(agent, goals, pace) : ferocityInstructions(agent, level, callable);
+    })(),
     `## Your tools right now
 ${working.join('\n')}${notReady.length ? `\n\nIn your toolkit but not connected yet - don't try them or ask for them, a request to connect them is already with a person or the Agency Engineer: ${notReady.join(', ')}` : ''}`,
     `## The agency
@@ -382,14 +388,17 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   const id = newRunId();
   const startedAt = deps.now();
   // A built-in has no level of its own: it works as Steady, the default, on its own schedule.
-  const level = BUILT_IN_IDS.includes(agent.id) ? DEFAULT_LEVEL : stateOf(agent.id, startedAt).ferocity;
+  // With goals, the pace they call for decides the level it works like (goals.ts).
+  const pace = BUILT_IN_IDS.includes(agent.id) ? null : paceFor(agent, startedAt);
+  const level = BUILT_IN_IDS.includes(agent.id) ? DEFAULT_LEVEL : (pace?.level ?? stateOf(agent.id, startedAt).ferocity);
   // A run answering a person is never pushed past its answer (WAR).
   // A target is for an agent's own work (its schedule, Apocalyptic, a run it booked, Run now):
   // a task handed to it, a person's message or a decision coming back is done when
   // it's done - padding one out to a target was busywork (a one-line answer became
   // 21 files).
   const callableNow = new Set(toolsFor(agent).ids.values());
-  const floor = ['scheduled', 'apocalyptic', 'self-booked', 'request done', 'run now'].includes(trigger) ? floorFor(agent, level, callableNow) : null;
+  const ownWork = ['scheduled', 'apocalyptic', 'self-booked', 'request done', 'run now'].includes(trigger) || (trigger === 'parallel' && isGoalBatch(task));
+  const floor = !ownWork ? null : pace ? (canCount(agent, callableNow) ? goalFloor(pace) : null) : floorFor(agent, level, callableNow);
   exec(
     'INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at, floor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     id,

@@ -133,6 +133,17 @@ export function ferocityInstructions(agent: AgentDef, level: number, callable?: 
   return lines.filter(Boolean).join('\n\n');
 }
 
+// The parts of a level's instructions that hold whatever sets the pace (goals.ts): working
+// in parallel, what extra effort means for this job, and how readily it asks for things.
+// managed: the agency is already starting its parallel runs for it (a goal that needs them).
+export function stanceLines(agent: AgentDef, level: number, managed = false): string[] {
+  return [
+    managed ? 'The agency is starting your parallel runs for you while you are behind: do not start more yourself (ops.start_parallel_run) - take your own slice of the work and leave the rest to them.' : PARALLEL[level],
+    level > STEADY ? `What extra effort means for your job: ${agent.ferocity.extra_effort}` : '',
+    `Requests: ${REQUEST_STANCE[level]}`,
+  ].filter(Boolean);
+}
+
 // The message sent when a run would end below its floor (WAR's output floor).
 export function nudgeText(agent: AgentDef, acts: number, floor: number, n: number, of: number, soft: boolean): string {
   if (soft)

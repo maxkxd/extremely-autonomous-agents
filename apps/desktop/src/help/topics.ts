@@ -80,9 +80,9 @@ export const HELP_TOPICS = {
         caption: 'Output is the value the agent is giving you, and cost is what it spent doing it. Hover over a slice to see more detail.',
       },
       {
-        heading: 'Ferocity',
+        heading: 'Goals',
         diagram: 'ferocity',
-        caption: 'How hard an agent maximizes its output, use this to balance output, cost and frequency of [resource requests](requests).',
+        caption: 'Give an agent a number to reach each day. The agency speeds it up or eases it off to get there; the harder it has to push, the hotter its card.',
       },
       {
         heading: 'The right-hand column',
@@ -91,7 +91,7 @@ export const HELP_TOPICS = {
       {
         heading: 'Choosing models',
         diagram: 'models',
-        caption: 'Pick up to three AI models, in order. Number 1 is the default; if it fails, 2 takes over, then 3. If all three stop working, Auto-switch moves the agent to ones that do - turn it off on the card to keep its own.',
+        caption: 'Pick up to three AI models, in order. Number 1 is the default; if it fails, 2 takes over, then 3. If all three stop working, Auto-switch moves the agent to ones that do - turn it off in the picker to keep its own.',
       },
     ],
   },

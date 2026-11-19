@@ -247,8 +247,8 @@ const SIDE_PARTS = [
   ['Runs', 'How many times it has run in the time range.'],
   ['Last run', 'When it last ran, and how that went.'],
   ['Standby and Stop', 'Standby lets the run in progress finish, then starts nothing new on its own. Stop cuts it off now.'],
-  ['Ferocity', 'How hard it works. Est. Output is what that should get done in the time range.'],
   ['Model', 'The AI it runs on. Click to choose.'],
+  ['Goal', 'What it has to get done each day, and how far today has got. Click to see every goal.'],
 ];
 function CardSide() {
   return (

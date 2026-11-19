@@ -25,7 +25,9 @@ export type Agent = {
   lastRun: { minutesAgo: number; outcome: 'succeeded' | 'failed' | 'running' | 'stopped' } | null; // null = never run
   // Approval outcomes per month (scaled to the time frame like the other stats).
   decisions: Decisions;
-  ferocity: number; // index into FEROCITY
+  ferocity: number; // index into FEROCITY: how hard it's being pushed (from its goals' pace, for a real agent)
+  goals?: { label: string; perDay: number; done: number; waiting: number }[]; // a real agent's goals today
+  pace?: { status: string; parallel: number } | null;
   // A real agent run by the runner: its numbers are live, for the selected
   // time frame already (not placeholder monthly figures to scale).
   live?: boolean;

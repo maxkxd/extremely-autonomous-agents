@@ -7,6 +7,7 @@ import { all, getSetting, one, run } from './db.js';
 import { readMeta } from '../files.js';
 import { loadPerson } from '../org.js';
 import { APOCALYPTIC, parallelSlots } from './ferocity.js';
+import { paceFor } from './goals.js';
 import { remember } from './memory.js';
 import { SELF_SETTINGS } from './selfsettings.js';
 import type { Call, ToolImage, ToolSpec } from './providers.js';
@@ -579,6 +580,9 @@ const BUILTIN: ToolDef[] = [
     schema: obj({ piece: str('The one piece of work it does, in full: what, which business/folder/record, and what done looks like') }, ['piece']),
     impl: (a, ctx) => {
       const slots = parallelSlots(ctx.level);
+      // Behind on a goal: the agency starts its parallel runs itself (goals.ts).
+      const managed = paceFor(ctx.agent, ctx.now())?.parallel ?? 1;
+      if (managed > 1 && !ctx.parallel) return `The agency is already running ${managed} of you at once to reach today's goal, and starts each one itself. Take your own slice of the work.`;
       if (ctx.parallel) return 'You are a parallel run yourself: do your own piece. Only your main run starts parallel runs.';
       const piece = String(a.piece ?? '').trim().slice(0, 4000);
       if (!piece) return 'Name the piece of work it is for.';
@@ -894,7 +898,8 @@ const failuresLastHour = (id: string, now: number) => {
 
 export async function execute(ctx: RunCtx, call: Call, ids: Map<string, string>): Promise<CallOutcome> {
   const id = ids.get(call.name) ?? call.name.replace('__', '.');
-  const counts = ctx.agent.ferocity.counts.includes(id);
+  // Counted: what its plan counts, and every action under a KPI label (its goals: goals.ts).
+  const counts = ctx.agent.ferocity.counts.includes(id) || ctx.agent.output.some(o => o.action === id);
   const tier = tierOf(ctx.agent, id);
   const record = (o: Omit<CallOutcome, 'id'>) => {
     run(

@@ -92,6 +92,27 @@ export function ModelRow({
   );
 }
 
+function AutoSwitch({ on, onChange, why }: { on: boolean; onChange: (on: boolean) => void; why: string | null }) {
+  const [value, setValue] = useState(on);
+  useEffect(() => setValue(on), [on]);
+  return (
+    <div className="auto-models" title={why ?? 'If none of its models works, move it to ones that do'}>
+      <span className="stat-label">Auto-switch</span>
+      <button
+        className={`switch sm${value ? ' on' : ''}`}
+        role="switch"
+        aria-checked={value}
+        aria-label="Auto-switch models"
+        disabled={!!why}
+        onClick={() => {
+          setValue(!value);
+          onChange(!value);
+        }}
+      />
+    </div>
+  );
+}
+
 // The picker: three slots, the active slot's effort, then every connected
 // provider as a group that opens with its arrow, and a search over them all.
 export function ModelPanel({
@@ -101,12 +122,16 @@ export function ModelPanel({
   checks = {},
   onCheck,
   startSlot,
+  auto,
 }: {
   choices: ModelChoice[];
   available: AvailableModels[];
   onChange: (next: ModelChoice[]) => void;
   checks?: Checks;
   onCheck?: (connection: string, model: string) => void; // a model was just picked: test it
+  // Auto-switch: when none of its models works (a key revoked, a plan signed out), it's
+  // moved to ones that do (runner/helpers.ts) - on unless turned off here.
+  auto?: { on: boolean; onChange: (on: boolean) => void; why: string | null };
   startSlot?: number; // which slot opens selected (default: the first empty one; the help's demo picks the first)
 }) {
   const [slot, setSlot] = useState(startSlot ?? Math.min(choices.length, SLOTS - 1));
@@ -229,6 +254,8 @@ export function ModelPanel({
           </span>
         )}
       </div>
+
+      {auto && <AutoSwitch {...auto} />}
 
       <label className="model-search">
         <Search size={14} />

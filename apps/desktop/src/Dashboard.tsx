@@ -2,11 +2,12 @@ import { ResumeSetupDialog, SetupBar, SetupList } from './AgentSetup';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CircleCheckBig, Ellipsis, GripVertical, Pause, Play, Plus, Square, Trash2, User, Wrench } from 'lucide-react';
 import { DeleteAgentDialog } from './DeleteAgentDialog';
+import { GoalBlock, GoalPanel, GoalSkeleton, type AgentGoal } from './Goals';
 import { ModelPanel, ModelRow, useModelChecks, useModelSlide, type Checks } from './ModelPicker';
 import { getAgentModels, getAvailableModels, getLiveAgents, getSetups, runNow, setAgentModels, setAgentRunner, type AgencyState, type AgentSetup, type AvailableModels, type LiveAgent, type ModelChoice } from './builder';
 import { useDismiss } from './useDismiss';
 import { FlashCount } from './FlashCount';
-import { ACCOUNT, AGENTS, FEROCITY, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
+import { ACCOUNT, AGENTS, rangeDays, rangeLabel, scaleTo, type Decisions, type Agent, type Slice, type TimeRange } from './data';
 import { DEPARTMENT_ICON, type View } from './Sidebar';
 import { currentOrg, isAdmin, myAccountId, scoped } from './account';
 import { Skel } from './Skeleton';
@@ -193,90 +194,9 @@ const count = (n: number) => n.toLocaleString();
 const dollars = (n: number) =>
   n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n).toLocaleString()}`;
 
-// Ferocity picks a FEROCITY level (schedule + self-booking). The estimate is
-// this agent's output per run times that level's expected runs over the
-// dashboard's selected time frame, matching the rest of the card - and half as
-// much again: it's meant to come out high (the server's numbers lean high too).
-const OVERESTIMATE = 1.5;
-// Before an agent has any output (or any plan to say): per run at each level, as the
-// server guesses for a plan with no floors (runner/api.ts perRunGuess).
-const START_GUESS = [2, 2, 3, 10, 30];
-function Tuning({
-  agent,
-  range,
-  level,
-  setLevel,
-  disabled = false,
-  why,
-  stopped = false,
-}: {
-  agent: Agent;
-  range: TimeRange;
-  level: number;
-  setLevel: (l: number) => void;
-  disabled?: boolean; // someone else's agent: shown, not changed
-  why?: string | null; // greyed out for a reason (the host is offline): said on hover
-  stopped?: boolean; // it, or the whole agency, is stopped: no runs coming
-}) {
-  // A real agent: its recent output per run times the runs its own plan gives
-  // this level. Placeholder agents use the placeholder schedules.
-  // Before any output, a starting guess from the level (the server's), until real runs replace it.
-  const done = agent.output.reduce((n, s) => n + s.value, 0);
-  const guess = agent.perRunGuess?.[level] ?? START_GUESS[level];
-  const perRun = agent.live ? (agent.perRun ?? guess) : agent.runs > 0 && done > 0 ? done / agent.runs : guess;
-  const perDay = agent.live && agent.runsPerDay ? agent.runsPerDay[level] : FEROCITY[level].runsPerDay;
-  const estimate = Math.round(perRun * perDay * rangeDays(range) * OVERESTIMATE);
-
-  return (
-    <div className="tuning" title={why ?? undefined}>
-      <div className="ferocity">
-        <div className="ferocity-head">
-          <span className="stat-label">Ferocity</span>
-          <span className={`ferocity-name level-${level}`}>{FEROCITY[level].name}</span>
-        </div>
-        <input
-          className={`ferocity-slider level-${level}`}
-          type="range"
-          min={0}
-          max={FEROCITY.length - 1}
-          step={1}
-          value={level}
-          disabled={disabled || !!why}
-          onChange={e => setLevel(Number(e.target.value))}
-          title={why ?? 'How hard it works: Chill runs only when given work, Steady is the default, Apocalyptic runs back to back'}
-          aria-label="Ferocity"
-          aria-valuetext={FEROCITY[level].name}
-          style={{ '--fill': `${(level / (FEROCITY.length - 1)) * 100}%` } as React.CSSProperties}
-        />
-        <div className="ferocity-est">
-          <span className="stat-label">Est. Output:</span>
-          {/* Always a number: before it's produced anything, from its level's starting guess.
-              Stopped, it isn't going to run at all. */}
-          <span className="est-value">{stopped ? 'None while stopped' : count(estimate)}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// The ferocity block's shape while its level isn't known yet.
-function TuningSkeleton() {
-  return (
-    <div className="tuning">
-      <div className="ferocity">
-        <div className="ferocity-head">
-          <span className="stat-label">Ferocity</span>
-          <Skel w={56} h={14} />
-        </div>
-        <span className="skel skel-slider" />
-        <div className="ferocity-est">
-          <span className="stat-label">Est. Output:</span>
-          <Skel w={24} h={12} />
-        </div>
-      </div>
-    </div>
-  );
-}
+// How hard a goal looks on a placeholder card (a real agent's comes from the runner,
+// worked out from how far it is from its goals: runner/goals.ts).
+const heatOf = (perDay: number) => (perDay <= 0 ? 0 : perDay <= 150 ? 1 : perDay <= 1000 ? 2 : perDay <= 4000 ? 3 : 4);
 
 export function AgentCard({
   agent,
@@ -296,7 +216,7 @@ export function AgentCard({
   onModels,
   checks,
   onCheck,
-  onLevel,
+  onGoal,
   onAutoModels,
   onRunNow,
   agencyHeld = false,
@@ -333,7 +253,7 @@ export function AgentCard({
   onModels?: (next: ModelChoice[]) => void;
   checks?: Checks; // whether each model really works on this account
   onCheck?: (connection: string, model: string) => void;
-  onLevel?: (level: number) => void; // a real agent: save its ferocity
+  onGoal?: (label: string, perDay: number) => void; // a real agent: save a goal's number
   onAutoModels?: (on: boolean) => void; // a real agent: its model section's switch
   onRunNow?: () => void; // a real agent: start a run now
   agencyHeld?: boolean; // the whole agency is on standby or stopped: its own controls wait
@@ -346,15 +266,18 @@ export function AgentCard({
 }) {
   // The model picker: the right column slides over the pies to make room.
   const cardRef = useRef<HTMLElement>(null);
-  const [modelsOpen, setModelsOpen] = useState(false);
-  const closeModels = useCallback(() => setModelsOpen(false), []);
+  // The goals slide out the same way; one of the two at a time.
+  const [panel, setPanel] = useState<'models' | 'goals' | null>(null);
+  const modelsOpen = panel !== null;
+  const closeModels = useCallback(() => setPanel(null), []);
   const slide = useModelSlide(cardRef, modelsOpen, closeModels);
   // The host is offline: it's shown as last seen, nothing on it changes.
   const offline = useOffline();
   const off = preview ? null : offline;
   const DeptIcon = DEPARTMENT_ICON[agent.department];
-  // Ferocity lives on the card because each level restyles the whole card
-  // (fero-0..4 in styles.css). How a change looks depends on its direction:
+  // How hard it is being pushed restyles the whole card (fero-0..4 in styles.css).
+  // Nobody sets it: it follows the pace its goals call for (runner/goals.ts).
+  // How a change looks depends on its direction:
   //   up into Steady/Driven  - effects fade in gently
   //   up into Relentless     - abrupt, with a small side-to-side shake
   //   up into Apocalyptic    - abrupt, with a hard shake
@@ -371,15 +294,29 @@ export function AgentCard({
     setTx(!up ? '1.6s' : next >= 3 ? '0s' : '0.9s');
     setKick(up && next >= 3 ? (next === 4 ? 'hard' : 'soft') : null);
     setLevelState(next);
-    userSetAt.current = Date.now();
-    onLevel?.(next);
   };
-  // A real agent's level comes from the runner; follow it when it changes
-  // there (but not over a change you just made that hasn't come back yet).
-  const userSetAt = useRef(0);
+  // Its goals. A real agent's come from the runner; a placeholder's are its output
+  // labels, with numbers kept here. A number just typed shows until the runner's catches up.
+  const [typedGoals, setTypedGoals] = useState<Record<string, number>>({});
+  const goalSetAt = useRef(0);
+  const [goalShown, setGoalShown] = useState<string | null>(null);
+  const goals: AgentGoal[] = (agent.goals ?? agent.output.map(s => ({ label: s.label.toLowerCase(), perDay: 0, done: Math.round(s.value / 30), waiting: 0 }))).map(g =>
+    g.label in typedGoals ? { ...g, perDay: typedGoals[g.label] } : g,
+  );
+  const shownGoal = goals.find(g => g.label === goalShown) ?? goals.find(g => g.perDay > 0) ?? goals[0];
+  const setGoal = (label: string, perDay: number) => {
+    goalSetAt.current = Date.now();
+    setTypedGoals(t => ({ ...t, [label]: perDay }));
+    onGoal?.(label, perDay);
+  };
   useEffect(() => {
-    if (agent.live && agent.ferocity !== level && Date.now() - userSetAt.current > 6000) setLevelState(agent.ferocity);
-  }, [agent.live, agent.ferocity]);
+    if (agent.live && Object.keys(typedGoals).length && Date.now() - goalSetAt.current > 6000) setTypedGoals({});
+  }, [agent.live, agent.goals]);
+  // A real agent's level comes from the runner; a placeholder's from its goal's size.
+  const wanted = agent.live ? agent.ferocity : shownGoal ? heatOf(shownGoal.done >= shownGoal.perDay && shownGoal.perDay > 0 ? 1 : shownGoal.perDay) || agent.ferocity : agent.ferocity;
+  useEffect(() => {
+    if (wanted !== level) setLevel(wanted);
+  }, [wanted]);
   useEffect(() => {
     if (!kick) return;
     const t = setTimeout(() => setKick(null), 500);
@@ -578,15 +515,48 @@ export function AgentCard({
           </button>
         </div>}
 
-        {/* Built-ins work when there's work: no schedule to set. */}
-        {!agent.builtIn && (loading ? <TuningSkeleton /> : <Tuning agent={agent} range={range} level={level} setLevel={setLevel} disabled={viewOnly} why={off} stopped={!preview && (state === 'stopped' || agencyStopped)} />)}
         {models && modelsLoading && <span className="skel skel-model" />}
         {models && !modelsLoading && (
-          <ModelRow choices={models} available={available} checks={checks} open={modelsOpen} readOnly={preview || viewOnly} lockedWhy={off} onOpen={() => setModelsOpen(o => !o)} />
+          <ModelRow choices={models} available={available} checks={checks} open={panel === 'models'} readOnly={preview || viewOnly} lockedWhy={off} onOpen={() => setPanel(p => (p === 'models' ? null : 'models'))} />
         )}
-        {models && !modelsLoading && onAutoModels && !preview && <AutoModels on={agent.autoModels !== false} onChange={onAutoModels} why={off ?? (viewOnly ? `Only ${agent.builtIn ? 'the owner' : agent.owner || 'its owner'} or an admin can change this agent` : null)} />}
+        {/* Built-ins work when there's work: no goal to set. */}
+        {!agent.builtIn &&
+          (loading ? (
+            <GoalSkeleton />
+          ) : (
+            <GoalBlock
+              goals={goals}
+              pace={agent.pace}
+              selected={shownGoal?.label ?? null}
+              open={panel === 'goals'}
+              onOpen={() => setPanel(p => (p === 'goals' ? null : 'goals'))}
+              onSet={setGoal}
+              disabled={viewOnly}
+              why={off}
+              stopped={!preview && (state === 'stopped' || agencyStopped)}
+            />
+          ))}
       </aside>
-      {modelsOpen && models && onModels && <ModelPanel choices={models} available={available} onChange={onModels} checks={checks} onCheck={onCheck} />}
+      {panel === 'models' && models && onModels && (
+        <ModelPanel
+          choices={models}
+          available={available}
+          onChange={onModels}
+          checks={checks}
+          onCheck={onCheck}
+          auto={onAutoModels && !preview ? { on: agent.autoModels !== false, onChange: onAutoModels, why: off ?? (viewOnly ? `Only ${agent.builtIn ? 'the owner' : agent.owner || 'its owner'} or an admin can change this agent` : null) } : undefined}
+        />
+      )}
+      {panel === 'goals' && (
+        <GoalPanel
+          goals={goals}
+          selected={shownGoal?.label ?? null}
+          onPick={setGoalShown}
+          onSet={setGoal}
+          locked={viewOnly || !!off}
+          onNew={preview || viewOnly || off ? undefined : () => onNavigate('agent:fleet')}
+        />
+      )}
     </article>
   );
 }
@@ -621,29 +591,6 @@ function RunNowButton({ running, queued, why, onRun }: { running: boolean; queue
       {busy ? <Spinner size={12} /> : <Play size={12} strokeWidth={2} />}
       {running ? 'Running' : queued ? 'Queued' : 'Run now'}
     </button>
-  );
-}
-
-// The model section's switch: when none of its models works (a key revoked, a plan
-// signed out), it's moved to ones that do (runner/helpers.ts) - on unless turned off.
-function AutoModels({ on, onChange, why }: { on: boolean; onChange: (on: boolean) => void; why: string | null }) {
-  const [value, setValue] = useState(on);
-  useEffect(() => setValue(on), [on]);
-  return (
-    <div className="auto-models" title={why ?? 'If none of its models works, move it to ones that do'}>
-      <span className="stat-label">Auto-switch</span>
-      <button
-        className={`switch sm${value ? ' on' : ''}`}
-        role="switch"
-        aria-checked={value}
-        aria-label="Auto-switch models"
-        disabled={!!why}
-        onClick={() => {
-          setValue(!value);
-          onChange(!value);
-        }}
-      />
-    </div>
   );
 }
 
@@ -841,6 +788,8 @@ export function Dashboard({
       perRunGuess: l.perRunGuess,
       waitingOnTools: l.waitingOnTools,
       autoModels: l.autoModels,
+      goals: l.goals,
+      pace: l.pace,
       queued: l.queued,
     };
   };
@@ -1069,7 +1018,7 @@ export function Dashboard({
               onModels={next => changeModels(a.id, next)}
               checks={checks}
               onCheck={check}
-              onLevel={l ? level => setAgentRunner(a.id, { ferocity: level }).catch(() => {}) : undefined}
+              onGoal={l ? (label, perDay) => setAgentRunner(a.id, { goal: { label, perDay } }).catch(() => {}) : undefined}
               onAutoModels={l ? on => setAgentRunner(a.id, { autoModels: on }).catch(() => {}) : undefined}
               onRunNow={l ? () => runNow(a.id).catch(() => {}) : undefined}
               setup={setups[a.id]}

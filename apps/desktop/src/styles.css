@@ -2391,3 +2391,93 @@ body.after-onboarding .app { animation: ob-reveal 0.55s ease-out both; }
 .smcp-said p { margin: 0; flex: 1 1 260px; }
 .smcp-address { display: flex; gap: 8px; align-items: center; }
 .smcp-address input { flex: 1; min-width: 0; font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; }
+
+/* --- An agent's goals on its card (Goals.tsx) ------------------------------- */
+
+/* The Model row sits under Standby/Stop now, with the goal below it. */
+.card-side > .model-row { margin-top: 0; }
+.model-panel .auto-models { margin-top: 0; padding: 6px 10px; border: 1px solid var(--border); border-radius: 9px; }
+
+.goal { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid var(--hairline); }
+.goal-head { display: flex; align-items: baseline; justify-content: space-between; }
+/* The pace in a word: it takes the level name's glow, and its red at the top. */
+.goal-status { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 700; transition: color var(--tx), text-shadow var(--tx), letter-spacing var(--tx); }
+.goal-status svg { animation: goal-pop 0.4s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+.agent-card.fero-2 .goal-status, .agent-card.fero-3 .goal-status { text-shadow: 0 0 10px rgba(var(--fx-rgb), 0.9), 0 0 2px rgba(var(--fx-rgb), 0.6); }
+.agent-card.fero-4 .goal-status { color: var(--fx); text-transform: uppercase; letter-spacing: 0.06em; text-shadow: 0 0 12px rgba(var(--fx-rgb), 0.9); }
+.agent-card.is-paused .goal-status { color: var(--muted); text-shadow: none; }
+
+.goal-line { display: flex; align-items: flex-end; gap: 8px; }
+.goal-num {
+  min-width: 0; max-width: 150px; box-sizing: content-box; padding: 0 0 2px; background: transparent; border: 0; border-bottom: 1px dashed var(--border-strong); border-radius: 0; outline: none;
+  font: inherit; font-size: 28px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; transition: border-color 0.2s;
+}
+.goal-num::placeholder { color: #555; }
+.goal-num:hover:not(:disabled) { border-bottom-color: var(--muted); }
+.goal-num:focus { border-bottom: 1px solid var(--fx); }
+.goal-num:disabled { border-bottom-color: transparent; }
+.goal-num.bump-a { animation: goal-bump-a 0.3s cubic-bezier(0.2, 1.6, 0.4, 1); }
+.goal-num.bump-b { animation: goal-bump-b 0.3s cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes goal-bump-a { from { transform: translateY(5px) scale(0.94); opacity: 0.5; } }
+@keyframes goal-bump-b { from { transform: translateY(5px) scale(0.94); opacity: 0.5; } }
+.goal-pick {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 6px; height: 34px; padding: 0 10px;
+  border: 1px solid var(--hairline); border-radius: 8px; font-size: 13px; font-weight: 600; text-align: left; transition: background-color 0.15s, border-color 0.15s;
+}
+.goal-pick:hover:not(:disabled), .goal-pick.open { background: var(--surface-hover); border-color: var(--border); }
+.goal-pick:disabled { cursor: default; color: var(--muted); }
+.goal-pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-pick svg { flex-shrink: 0; color: var(--muted); transition: transform 0.3s; }
+.goal-pick.open svg { transform: rotate(180deg); }
+
+.goal-bar { position: relative; height: 6px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
+.goal-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--fx); transition: width 0.5s cubic-bezier(0.22, 0.9, 0.25, 1), background-color var(--tx); }
+.agent-card.is-paused .goal-bar i { background: #6a6a6a; }
+/* A light runs along the bar while it's being pushed, and twice when the goal is hit. */
+.goal-bar i::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent); transform: translateX(-100%); }
+.agent-card.fero-2 .goal > .goal-bar i::after, .agent-card.fero-3 .goal > .goal-bar i::after, .agent-card.fero-4 .goal > .goal-bar i::after { animation: goal-sweep var(--pulse) linear infinite; }
+.agent-card .goal.hit > .goal-bar i::after { animation: goal-sweep 0.9s ease-out 2; }
+.agent-card.is-paused .goal-bar i::after { animation: none !important; }
+@keyframes goal-sweep { to { transform: translateX(100%); } }
+
+.goal-foot { display: flex; align-items: center; justify-content: space-between; min-height: 16px; font-size: 12.5px; color: #a3a3a3; font-variant-numeric: tabular-nums; }
+.goal-foot b { color: var(--text); font-weight: 600; }
+/* One dot for each run of it going at once. */
+.goal-dots { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px; max-width: 120px; }
+.goal-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--fx); transition: background-color var(--tx); animation: goal-pop 0.35s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+@keyframes goal-pop { from { transform: scale(0); opacity: 0; } }
+
+/* The slide-out: it opens in the model picker's place, with the same motion. */
+.goal-panel { gap: 8px; padding: 16px 18px; }
+.goal-panel-title { font-size: 13px; font-weight: 600; color: var(--muted); }
+.goal-rows { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; overscroll-behavior: contain; }
+.goal-row {
+  display: flex; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+  animation: goal-row-in 0.4s cubic-bezier(0.22, 0.9, 0.25, 1) both; transition: border-color 0.2s, box-shadow 0.2s;
+}
+.goal-row.active { border-color: var(--fx); box-shadow: 0 0 0 1px var(--fx) inset; }
+@keyframes goal-row-in { from { opacity: 0; transform: translateY(8px); } }
+.goal-row-name { width: 170px; flex-shrink: 0; font-size: 14px; font-weight: 600; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-row-name:hover { color: #fff; }
+.goal-row .goal-bar { flex: 1; min-width: 40px; }
+.goal-row-done { width: 110px; flex-shrink: 0; text-align: right; font-size: 12.5px; color: #a3a3a3; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.goal-row-num {
+  width: 78px; flex-shrink: 0; padding: 4px 8px; background: var(--sidebar); border: 1px solid var(--border); border-radius: 7px; outline: none;
+  font: inherit; font-size: 14px; font-weight: 700; color: var(--text); text-align: right; font-variant-numeric: tabular-nums;
+}
+.goal-row-num:focus { border-color: var(--fx); }
+.goal-row-per { flex-shrink: 0; font-size: 12.5px; color: var(--muted); }
+.goal-new {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: 10px;
+  font-size: 13.5px; font-weight: 600; color: #a3a3a3; text-align: left; animation: goal-row-in 0.4s cubic-bezier(0.22, 0.9, 0.25, 1) both;
+}
+.goal-new:hover { color: var(--text); border-color: var(--muted); }
+.goal-new em { margin-left: auto; font-style: normal; font-weight: 500; font-size: 12.5px; color: var(--muted); }
+/* A narrow card: the bar and the count give way to the name and the number. */
+@container (max-width: 720px) {
+  .goal-row .goal-bar, .goal-row-done { display: none; }
+  .goal-row-name { flex: 1; width: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .goal-num, .goal-dots i, .goal-row, .goal-new, .goal-status svg, .goal-bar i::after { animation: none !important; }
+}

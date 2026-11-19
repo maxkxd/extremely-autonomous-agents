@@ -34,6 +34,7 @@ import { deletePassword, listPasswords, passwordRow, profileFor, readPassword, s
 import { hasPassword, signInOf, signInWords } from './signin.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
+import { goalsOf, paceFor, setGoal } from './goals.js';
 import { BUILT_IN_IDS, HELPER_IDS } from './helpers.js';
 import { clearResume } from './selfsettings.js';
 import { spentToday } from './pricing.js';
@@ -257,9 +258,15 @@ export const runnerRoutes: Record<string, Route> = {
         id,
         since,
       );
+      // Its goals for today and the pace they call for (goals.ts). With a goal, the card's
+      // look follows that pace instead of a level someone set.
+      const goals = agent && !BUILT_IN_IDS.includes(id) ? goalsOf(agent) : [];
+      const pace = agent && goals.length ? paceFor(agent, Date.now(), goals) : null;
       out[id] = {
-        ferocity: st.ferocity,
-        level: LEVELS[st.ferocity],
+        ferocity: pace?.level ?? st.ferocity,
+        level: LEVELS[pace?.level ?? st.ferocity],
+        goals: goals.map(g => ({ label: g.label, perDay: g.perDay, done: g.done, waiting: g.waiting })),
+        pace: pace ? { status: pace.status, parallel: pace.parallel } : null,
         state: st.state,
         running: isRunning(id),
         // Run now pressed, waiting for one of the runs going now to finish (scheduler.ts MAX_PARALLEL).
@@ -299,11 +306,11 @@ export const runnerRoutes: Record<string, Route> = {
 
   // Ferocity, Drain/Stop, a per-agent spend cap.
   'POST /api/runner/agent': async (_req, _q, body) => {
-    const b = await body<{ id: string; ferocity?: number; state?: 'active' | 'draining' | 'stopped'; spendCapUsd?: number | null; autoModels?: boolean }>();
+    const b = await body<{ id: string; ferocity?: number; state?: 'active' | 'draining' | 'stopped'; spendCapUsd?: number | null; autoModels?: boolean; goal?: { label: string; perDay: number } }>();
     if (!isId(b.id)) throw new Error('Unknown agent.');
     // In an organization, only the agent's maker or an admin controls it (access.ts).
-    if (b.ferocity !== undefined || b.state !== undefined || b.autoModels !== undefined)
-      await requireMakerOrAdmin(b.id, null, currentActor(), b.state === 'stopped' ? 'stop it' : b.state === 'draining' ? 'put it on standby' : b.state === 'active' ? 'resume it' : b.autoModels !== undefined ? 'change how its models are picked' : 'change its ferocity');
+    if (b.ferocity !== undefined || b.state !== undefined || b.autoModels !== undefined || b.goal !== undefined)
+      await requireMakerOrAdmin(b.id, null, currentActor(), b.goal !== undefined ? 'change its goals' : b.state === 'stopped' ? 'stop it' : b.state === 'draining' ? 'put it on standby' : b.state === 'active' ? 'resume it' : b.autoModels !== undefined ? 'change how its models are picked' : 'change its ferocity');
     if (b.spendCapUsd !== undefined) requireAdmin(currentActor(), 'A spend limit');
     if (b.spendCapUsd !== undefined && BUILT_IN_IDS.includes(b.id)) throw new Error("A built-in agent has no limit of its own: the organization's limit covers it.");
     const cap = b.spendCapUsd !== undefined ? capUsd(b.spendCapUsd) : undefined;
@@ -324,6 +331,13 @@ export const runnerRoutes: Record<string, Route> = {
       if (state !== 'stopped') exec('UPDATE agent_state SET setup = NULL WHERE agent_id = ?', b.id);
     }
     if (cap !== undefined) exec('UPDATE agent_state SET spend_cap_usd = ? WHERE agent_id = ?', cap, b.id);
+    // A goal: one of its KPI's labels and how many a day (0: no number for it).
+    if (b.goal !== undefined) {
+      const agent = (await readMeta(b.id))?.builtIn ? null : await loadAgent(b.id);
+      const label = String(b.goal?.label ?? '');
+      if (!agent || !agent.output.some(o => o.label === label)) throw new Error("That isn't one of this agent's outputs. Ask the Agency Engineer to add a new goal.");
+      setGoal(b.id, label, b.goal.perDay, now);
+    }
     if (typeof b.autoModels === 'boolean') exec('UPDATE agent_state SET auto_models = ? WHERE agent_id = ?', b.autoModels ? 1 : 0, b.id);
     return { ok: true, state: stateOf(b.id) };
   },

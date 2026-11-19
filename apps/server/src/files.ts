@@ -99,7 +99,7 @@ export function compose(
   };
   const kpi = {
     agent_id: id,
-    output: b.kpi.filter(k => tiers[k.id]).map(k => ({ action: k.id, label: k.label })),
+    output: b.kpi.filter(k => tiers[k.id]).map(k => ({ action: k.id, label: k.label, ...(k.per_day && k.per_day > 0 ? { per_day: Math.floor(k.per_day) } : {}) })),
   };
   const why = picked.map(t => `#   ${t.id} [${t.tier}] - ${t.why}`).join('\n');
   return {

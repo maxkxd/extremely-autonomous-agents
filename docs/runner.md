@@ -34,6 +34,33 @@ Everything the builder sets lives in the agent's TOOLS.yaml under `ferocity:`
 threshold), so changing an agent's level on its card changes its behaviour
 straight away, without a rebuild.
 
+## Goals set the pace (the `goals` branch)
+
+On this branch nobody drags a level. Each agent has goals: an output in plain words and how
+many a day ("emails sent: 100"). A goal is one of its KPI labels, so what counts toward it is
+exactly the actions under that label (`runner/goals.ts`).
+
+- **Setting one.** On the card: the number beside the goal, or the slide-out that lists
+  every goal. The builder gives each KPI row a starting `per_day`. An agent changes its own
+  when its person asks (`ops.set_my_goal`). A new kind of goal ("build backlinks too") is
+  the Agency Engineer's (`engineer.set_goal`): the label, and the tools whose calls count.
+- **What counts.** An action as soon as it is done or drafted (queued for approval). A
+  draft a person rejects comes off again, so an agent at its goal can drop back under it.
+- **The pace.** Worked out fresh from how far it is from its goals, what one of its runs
+  usually makes and how long one takes: how often it runs, how many runs of it go at once
+  (up to 20; the scheduler starts them, each told to take a different slice) and what each
+  run is asked for. Behind, it speeds up; at its goal it eases off to its ordinary schedule.
+  It is never stopped for reaching it.
+- **The Agency Conductor.** Every half hour it looks over every agent with a goal in one
+  cheap call and may change an agent's numbers or leave it a line of advice. Its numbers
+  are kept in bounds and hold for 45 minutes; if the call fails the arithmetic stands.
+- **What the agent is told.** Its goals, today's count, that it runs many times a day, and
+  what this run owes - in place of the level's instructions below.
+- **Runs that make nothing** are not multiplied: after five in a row it drops to one run an
+  hour and is told to find what is in the way.
+- **The card's look** (glow, twitch, red) follows the pace instead of a level someone set.
+- An agent with no goal keeps its level and schedule, as described in the rest of this page.
+
 ## When more of the main action isn't better
 
 Some jobs have a natural limit: an agent that changes the desktop wallpaper
