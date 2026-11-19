@@ -44,15 +44,21 @@ Cursor, VS Code and Claude Desktop (`mcpServers` in their MCP settings):
 
 ## What it can do
 
-Everything your role allows in the app, about 30 tools:
+Everything your role allows in the app, 36 tools:
 
 | | |
 |---|---|
 | What happened | `agency_today`, `agent_activity`, `latest_report`, `list_agents`, `read_agent` |
-| Waiting on you | `list_approvals`, `decide_approval`, `list_requests`, `reply_to_request`, `answer_request` |
+| What it cost | `usage` (by agent, day, model, connection or trigger, with each spend limit) |
+| Waiting on you | `list_approvals`, `decide_approval`, `decide_approvals`, `list_requests`, `reply_to_request`, `answer_request` |
+| Sending pace | `list_queue`, `set_pace`, `schedule_queue` |
 | Put agents to work | `give_task`, `run_agent`, `set_agent` |
-| Build | `create_agent`, `write_agent_file`, `set_agent_models`, integrations (owners and admins) |
+| Build | `create_agent`, `edit_agent_file`, `write_agent_file`, `set_agent_models`, integrations (owners and admins) |
 | Organizations | `list_agencies`; then `agency: "<name>"` on any tool |
+
+Big things come a part at a time: `read_agent` starts with an overview and
+reads one section or Charter heading on request, lists take filters and
+`offset`/`limit`, and no answer is over 20,000 characters.
 
 Your AI app decides which tools it may call without asking you. Tools that are
 hard to undo (deciding an approval, deleting an agent, publishing an

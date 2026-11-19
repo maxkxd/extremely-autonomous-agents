@@ -55,7 +55,6 @@ export type QueuedRow = {
 
 // Its agent's standing choices for one tool on one account (account '*': every
 // account of the tool): a pace (every_ms, until), and a hold after a failure.
-type Pace = { agent_id: string; tool: string; account: string; every_ms: number | null; until: number | null; held_since: number | null; held_error: string | null; why: string | null };
 const paceOf = (agentId: string, tool: string, account: string) =>
   one<Pace>('SELECT * FROM action_pace WHERE agent_id = ? AND tool = ? AND account = ?', agentId, tool, account) ??
   one<Pace>("SELECT * FROM action_pace WHERE agent_id = ? AND tool = ? AND account = '*'", agentId, tool);
@@ -63,8 +62,9 @@ const heldFor = (agentId: string, tool: string, account: string) =>
   !!one<{ held_since: number | null }>('SELECT held_since FROM action_pace WHERE agent_id = ? AND tool = ? AND account = ? AND held_since IS NOT NULL', agentId, tool, account) ||
   !!one("SELECT 1 FROM approvals WHERE agent_id = ? AND tool = ? AND account = ? AND exec_state = 'paused'", agentId, tool, account);
 
+export type Pace = { agent_id: string; tool: string; account: string; every_ms: number | null; until: number | null; held_since: number | null; held_error: string | null; why: string | null };
 export const clock = (t: number) => new Date(t).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-const mins = (ms: number) => (ms >= 2 * 3_600_000 ? `${Math.round(ms / 360_000) / 10} hours` : `${Math.max(1, Math.round(ms / 60_000))} minute${Math.round(ms / 60_000) > 1 ? 's' : ''}`);
+export const mins = (ms: number) => (ms >= 2 * 3_600_000 ? `${Math.round(ms / 360_000) / 10} hours` : `${Math.max(1, Math.round(ms / 60_000))} minute${Math.round(ms / 60_000) > 1 ? 's' : ''}`);
 
 // When a just-approved action runs: now, unless its agent paced the tool on that
 // account, or a failure is holding it.
@@ -114,8 +114,11 @@ const on = (account: string) => (account ? ` on ${account}` : '');
 
 const MAX_DELAY_MIN = 7 * 24 * 60;
 
-// approvals.schedule_mine: when its approved-but-not-run actions go.
-export function scheduleMine(agentId: string, a: Record<string, unknown>, now: number): string {
+// approvals.schedule_mine: when its approved-but-not-run actions go. by: a person's
+// name when a person schedules them (the agency MCP's schedule_queue), shown on the
+// card in place of "Its agent".
+export function scheduleMine(agentId: string, a: Record<string, unknown>, now: number, by?: string): string {
+  const who = by ? by : 'Its agent';
   const how = String(a.run ?? '');
   if (!['now', 'later', 'spread', 'cancel'].includes(how)) throw new Error('run is one of: now, later, spread, cancel.');
   const why = String(a.why ?? '').trim().slice(0, 300);
@@ -136,14 +139,14 @@ export function scheduleMine(agentId: string, a: Record<string, unknown>, now: n
   for (const [, group] of keys) {
     group.forEach((r, i) => {
       if (how === 'cancel') {
-        exec("UPDATE approvals SET exec_state = 'cancelled', result = ?, plan = ? WHERE id = ? AND exec_state IN ('queued', 'paused')", `Cancelled by its agent: ${why}`, why, r.id);
+        exec("UPDATE approvals SET exec_state = 'cancelled', result = ?, plan = ? WHERE id = ? AND exec_state IN ('queued', 'paused')", `Cancelled by ${by ?? 'its agent'}: ${why}`, why, r.id);
         exec("UPDATE actions SET outcome = 'refused' WHERE approval_id = ? AND outcome = 'queued'", r.id);
         return;
       }
       // Spread per account: each account's own over the time, the first right away
       // (or after the delay), the last at the end.
       const due = now + delay + (how === 'spread' && group.length > 1 ? Math.round((over * i) / (group.length - 1)) : 0);
-      const plan = how === 'now' ? null : how === 'later' ? `Its agent set it for ${clock(due)}: ${why}` : `Its agent spread these over ${mins(over)}: ${why}`;
+      const plan = how === 'now' ? null : how === 'later' ? `${who} set it for ${clock(due)}: ${why}` : `${who} spread these over ${mins(over)}: ${why}`;
       exec("UPDATE approvals SET exec_state = 'queued', due_at = ?, deferred = 1, plan = ? WHERE id = ? AND exec_state IN ('queued', 'paused')", due, plan, r.id);
     });
     // The agent has decided: new approvals for it run (or follow its pace) again.

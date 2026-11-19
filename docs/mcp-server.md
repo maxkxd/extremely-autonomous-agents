@@ -168,9 +168,15 @@ apps use to decide what to auto-allow (`HINTS` in `runner/agency-mcp.ts`).
 | `agency_today` | Silent | Per agent since a time (default: today, host clock): runs, output actions (KPI), what's waiting on you, requests filed | new: `runs`, `actions`, `approvals`, `requests` |
 | `agent_activity` | Silent | One agent: its DM channel posts (each run's write-up and tools used) and the jobs given to it, since a time ("what did my sales agent do today?") | new: `dm`, `tasks` |
 | `latest_report` | Silent | Its last report: summary, and where it went (file or link, per `reports.ts` destinations) | new |
-| `list_agents`, `read_agent` | Silent | as today | exists |
-| `list_approvals` | Silent | Pending, only the ones that are yours to decide | exists |
+| `list_agents` | Silent | Each agent with its spend this month, its own limit, last run, whether it's running, approvals and open jobs. Filter by state or department | exists; cost added 2026-11-19 |
+| `read_agent` | Silent | An overview by default (no file bodies: state, models, spend, file sizes, the Charter's headings, last runs with cost). Then one `section` (charter, tools, kpi, runs, memory), one Charter `heading`, or a character window (`offset`/`limit`) | exists; sections added 2026-11-19 |
+| `list_approvals` | Silent | Pending, only the ones that are yours to decide, one line each (to, subject, why, sender, queue account), counts per account; `detail: true` for every argument; filters and `offset`/`limit` | exists; compact 2026-11-19 |
 | `decide_approval` | Logged (destructive) | Approve or reject one, with a note. The person who decided is recorded as on the Approvals screen | new: wraps `decideApproval`, same `requireMakerOrAdmin` check as `POST /api/runner/approvals/decide` |
+| `decide_approvals` | Logged (destructive) | Many at once, by ids or agent / tool / account. `every_minutes` sets a pace on each account first, so approving a pile of emails doesn't send them at once | new 2026-11-19 |
+| `usage` | Silent | Cost between two times (default: this month), grouped by agent, day, model, connection or trigger, with each limit and what's left | new 2026-11-19 (see below) |
+| `list_queue` | Silent | Approved, not run yet: when each runs and why; paces, holds after a failure, and how many ran per account lately | new 2026-11-19: `scheduledRows`, `action_pace` |
+| `set_pace` | Logged | A person's pace for one agent's tool (per account), as the agent's own `approvals.pace_mine` | new 2026-11-19: `paceMine` |
+| `schedule_queue` | Logged (destructive) | Run now, later, spread or cancel approved actions; lets go of a hold | new 2026-11-19: `scheduleMine`, labelled with the person's name |
 | `list_requests` | Silent | as today | exists |
 | `reply_to_request` | Logged | Write in a request's thread with the Agency Engineer (it wakes) | new: the app's own `personWrites` (api.ts) |
 | `answer_request` | Logged | Close as done or rejected | exists |
@@ -178,15 +184,49 @@ apps use to decide what to auto-allow (`HINTS` in `runner/agency-mcp.ts`).
 | `run_agent` | Logged | Run now, or message it | exists |
 | `set_agent` | Logged | Ferocity, pause, stop or resume | exists |
 
-### The builder set (exists, unchanged)
+### The builder set
 
 `write_agent_file`, `list_models`, `set_agent_models`, `builder_guide`,
 `check_build`, `create_agent` and the integration tools are **Logged**.
 `delete_agent` and `discard_integration` are Logged and marked destructive.
 Integration-building stays owner and admin only, as now.
 
-That makes about 30 tools, under the point (around 40) where Cursor starts
-warning.
+`edit_agent_file` (2026-11-19, Logged, destructive) changes part of a file:
+exact `{old, new}` replacements that must each match once, or a Charter
+`heading` with `mode` replace / append / insert_after / delete. It checks the
+file the same way `write_agent_file` does (YAML parses, the agent still loads,
+otherwise the old file goes back), and answers with a one-line diff.
+
+That makes 36 tools, under the point (around 40) where Cursor starts warning.
+
+### Size (2026-11-19)
+
+No answer is longer than 20,000 characters (`MAX_RESULT_CHARS` in
+`runner/agency-mcp-views.ts`). A longer one is cut and ends with the exact call
+that gets the rest. `builder_guide` and `read_integration` are exempt, because
+they're read whole. This was added after `read_agent` returned 80,000
+characters for one agent and overflowed the AI app.
+
+### Where cost comes from
+
+| Question | Where |
+|---|---|
+| What one run cost | `runs.cost_usd`, `input_tokens`, `output_tokens`, `model`, `connection` |
+| Price per model | `runner/pricing.ts`. A null `cost_usd` means no known price: missing, not zero (`unpriced_runs`) |
+| Plan runs | Priced as the same model on its API, and counted toward the limits. Ollama is $0 |
+| This month, per agent | `SUM(runs.cost_usd)` from `startOfMonth` (the host's clock), as `GET /api/usage` |
+| Today | `spentToday()` |
+| Limits | `agent_state.spend_cap_usd`, setting `spend_cap_org_usd` (monthly) |
+
+### Accounts and pacing
+
+A pace and the queue go per agent, tool and **account**, and the account is
+what `accountOf()` finds in the action's top-level arguments. A sender nested
+deeper, like Zoho's `body.fromAddress`, counts as the tool's one account, so
+all of that tool's sends share one queue. That's right for a rate limit,
+because those mailboxes are aliases of one sending account. `list_approvals`
+and `list_queue` show both the queue account and the sender. Their `account`
+filters accept either.
 
 ## Protocol
 

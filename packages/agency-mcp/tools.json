@@ -118,10 +118,24 @@
   {
     "name": "list_agents",
     "title": "List agents",
-    "description": "Every agent: id, name, department, owner, state (active / draining = standby / stopped), ferocity level, models, and whether it is built in.",
+    "description": "Every agent: id, name, department, owner, state (active / draining = standby / stopped), ferocity level, models, whether it is built in, its spend this month against its own limit, when it last ran (and whether it is running now), and how many approvals and open jobs it has. Filter by state or department.",
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "active",
+            "draining",
+            "stopped"
+          ],
+          "description": "Optional: only these"
+        },
+        "department": {
+          "type": "string",
+          "description": "Optional: only this department"
+        }
+      },
       "required": []
     },
     "annotations": {
@@ -135,13 +149,41 @@
   {
     "name": "read_agent",
     "title": "Read an agent",
-    "description": "An agent's files (CHARTER.md, TOOLS.yaml, KPI.yaml), its models and state, its last runs and its memory notes.",
+    "description": "One agent, a part at a time. section: overview (the default: state, models, spend this month against its limit, file sizes, the Charter's headings, its last runs with cost, and counts of memory, open jobs, approvals and queued actions) | charter | tools | kpi (a file; long ones come in windows - offset for the next) | runs (newest first, with cost) | memory (newest first; query filters). heading: with charter, just that section of it.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "agent_id": {
           "type": "string",
           "description": "The agent id"
+        },
+        "section": {
+          "type": "string",
+          "enum": [
+            "overview",
+            "charter",
+            "tools",
+            "kpi",
+            "runs",
+            "memory"
+          ],
+          "description": "What to read (default overview)"
+        },
+        "heading": {
+          "type": "string",
+          "description": "Optional, with charter: one heading's section (the overview lists them)"
+        },
+        "query": {
+          "type": "string",
+          "description": "Optional, with memory: only notes containing this"
+        },
+        "offset": {
+          "type": "number",
+          "description": "Optional: charter/tools/kpi - the character to start at; runs/memory - how many to skip"
+        },
+        "limit": {
+          "type": "number",
+          "description": "Optional: charter/tools/kpi - characters (default 15000); runs/memory - how many (default 10 / 20)"
         }
       },
       "required": [
@@ -159,7 +201,7 @@
   {
     "name": "write_agent_file",
     "title": "Replace an agent's file",
-    "description": "Replace one of an agent's files: CHARTER.md (its job), TOOLS.yaml (tools, tiers, approval windows, ferocity plan) or KPI.yaml (which actions count as output). read_agent first. Its next run uses it.",
+    "description": "Replace one of an agent's files whole: CHARTER.md (its job), TOOLS.yaml (tools, tiers, approval windows, ferocity plan) or KPI.yaml (which actions count as output). To change part of one, edit_agent_file. Its next run uses it.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -191,6 +233,77 @@
       "readOnlyHint": false,
       "destructiveHint": true,
       "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "edit_agent_file",
+    "title": "Edit part of an agent's file",
+    "description": "Change part of an agent's file without sending it all. Either edits: [{old, new}] - each old must match the file exactly once - or, for CHARTER.md, heading + mode: replace (that section's body; its heading stays) | append (to the end of that section) | insert_after (a new section after it: content starts with its own heading) | delete (the section). append with no heading adds to the end of the file. Checked as write_agent_file is: nothing is saved if the agent wouldn't load.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id"
+        },
+        "file": {
+          "type": "string",
+          "enum": [
+            "CHARTER.md",
+            "TOOLS.yaml",
+            "KPI.yaml"
+          ]
+        },
+        "edits": {
+          "type": "array",
+          "description": "Exact replacements, applied in order",
+          "items": {
+            "type": "object",
+            "properties": {
+              "old": {
+                "type": "string",
+                "description": "Text that appears exactly once"
+              },
+              "new": {
+                "type": "string",
+                "description": "What replaces it"
+              }
+            },
+            "required": [
+              "old",
+              "new"
+            ]
+          }
+        },
+        "heading": {
+          "type": "string",
+          "description": "CHARTER.md: the heading whose section to change (read_agent lists them)"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "replace",
+            "append",
+            "insert_after",
+            "delete"
+          ]
+        },
+        "content": {
+          "type": "string",
+          "description": "With heading/mode: the text"
+        }
+      },
+      "required": [
+        "agent_id",
+        "file"
+      ]
+    },
+    "annotations": {
+      "title": "Edit part of an agent's file",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
       "openWorldHint": false
     }
   },
@@ -1151,10 +1264,35 @@
   {
     "name": "list_approvals",
     "title": "List approvals",
-    "description": "Agents' actions waiting on a person in the app (sending, posting, going live...): only the ones that are yours to decide. decide_approval approves or rejects one.",
+    "description": "Agents' actions waiting on a person in the app (sending, posting, going live...): only the ones that are yours to decide, one short line each (who it goes to, the subject, why, which account sends it), with how many each account would send. detail: true for the whole action. Filter by agent_id, tool or account (the sending mailbox). decide_approval decides one; decide_approvals many, spaced apart if you like.",
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "Optional: only this agent"
+        },
+        "tool": {
+          "type": "string",
+          "description": "Optional: only this tool (e.g. zoho-mail-outreach.zohomail_send_mail)"
+        },
+        "account": {
+          "type": "string",
+          "description": "Optional: only actions sent from this account or mailbox"
+        },
+        "detail": {
+          "type": "boolean",
+          "description": "The whole action (every argument), not one line"
+        },
+        "offset": {
+          "type": "number",
+          "description": "Optional: skip this many"
+        },
+        "limit": {
+          "type": "number",
+          "description": "Optional: at most this many (default 25)"
+        }
+      },
       "required": []
     },
     "annotations": {
@@ -1163,6 +1301,60 @@
       "destructiveHint": false,
       "idempotentHint": true,
       "openWorldHint": false
+    }
+  },
+  {
+    "name": "decide_approvals",
+    "title": "Approve or reject many actions",
+    "description": "Approve or reject many at once: by approval_ids, or every one matching agent_id / tool / account. every_minutes (when approving): space them that far apart per sending account, so a pile of emails doesn't go out at once and trip the mailbox's sending limit - it sets that pace on the account before approving (list_queue shows when each runs). Without it, each runs as soon as it's approved unless its agent already paced the tool.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "approval_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional: these (from list_approvals)"
+        },
+        "agent_id": {
+          "type": "string",
+          "description": "Optional: every one of this agent"
+        },
+        "tool": {
+          "type": "string",
+          "description": "Optional: every one for this tool"
+        },
+        "account": {
+          "type": "string",
+          "description": "Optional: every one sent from this account"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "approved",
+            "rejected"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional: why, for the agent"
+        },
+        "every_minutes": {
+          "type": "number",
+          "description": "Optional, approving: at least this many minutes apart per account"
+        }
+      },
+      "required": [
+        "decision"
+      ]
+    },
+    "annotations": {
+      "title": "Approve or reject many actions",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
     }
   },
   {
@@ -1204,7 +1396,7 @@
   {
     "name": "agency_today",
     "title": "What the agency did today",
-    "description": "What the whole agency did since a time (default: the start of today, the agency's own clock): per agent its runs, output actions and last summary, plus what's waiting on a person (approvals, open requests).",
+    "description": "What the whole agency did since a time (default: the start of today, the agency's own clock): per agent its runs, output actions, cost and last summary; the total cost against the monthly limits; what's waiting on a person (approvals, open requests); and any tool held after a failure (e.g. a mailbox that hit its sending limit). usage breaks cost down further.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1226,7 +1418,7 @@
   {
     "name": "agent_activity",
     "title": "What an agent did",
-    "description": "What one agent did since a time (default: the start of today): its DM channel posts (each run's write-up and the tools it used), the people's messages to it, and the jobs given to it.",
+    "description": "What one agent did between two times (default: since the start of today): its DM channel posts (each run's write-up, the tools it used, and the run's model and cost), the people's messages to it, and the jobs given to it. Newest kept when there are more than limit; for older ones, pass until (the oldest post's time, as older_until gives it). kinds narrows it to runs, messages or tasks.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1238,9 +1430,29 @@
           "type": "string",
           "description": "Optional: an ISO date or time"
         },
+        "until": {
+          "type": "string",
+          "description": "Optional: only before this time (for older pages)"
+        },
         "limit": {
           "type": "number",
           "description": "Optional: at most this many posts, newest kept (default 30)"
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "runs",
+              "messages",
+              "tasks"
+            ]
+          },
+          "description": "Optional: only these (default all)"
+        },
+        "include_tools": {
+          "type": "boolean",
+          "description": "Each run’s list of tools used (default true)"
         }
       },
       "required": [
@@ -1277,6 +1489,184 @@
       "destructiveHint": false,
       "idempotentHint": true,
       "openWorldHint": false
+    }
+  },
+  {
+    "name": "usage",
+    "title": "What the agency cost",
+    "description": "What the agency's runs cost, between two times (default: this calendar month so far), grouped by agent, day, model, connection or trigger - with each agent's monthly limit and what's left of it, and the organization's. The same numbers as Settings > Usage. Costs are what each run recorded (runs.cost_usd). A run on a Claude, ChatGPT or Copilot plan is priced as the same model on its API, and counts toward the limits; Ollama is $0. unpriced_runs are runs whose model has no known price: their cost is missing, not zero. Limits are monthly, from the 1st on the agency's clock.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "since": {
+          "type": "string",
+          "description": "Optional: an ISO date or time (default: the 1st of this month)"
+        },
+        "until": {
+          "type": "string",
+          "description": "Optional: up to this time (default: now)"
+        },
+        "group_by": {
+          "type": "string",
+          "enum": [
+            "agent",
+            "day",
+            "model",
+            "connection",
+            "trigger"
+          ],
+          "description": "Default agent"
+        },
+        "agent_id": {
+          "type": "string",
+          "description": "Optional: only this agent"
+        }
+      },
+      "required": []
+    },
+    "annotations": {
+      "title": "What the agency cost",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "list_queue",
+    "title": "Approved actions waiting to run",
+    "description": "Approved actions that haven't run yet: when each runs, and why it waits (a pace, a schedule, or held after a failure - with the error). Also every pace set on a tool, every hold, and how many ran per account in the last hour and day. Filter by agent_id, tool or account.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "Optional: only this agent"
+        },
+        "tool": {
+          "type": "string",
+          "description": "Optional: only this tool"
+        },
+        "account": {
+          "type": "string",
+          "description": "Optional: only this account or sender"
+        }
+      },
+      "required": []
+    },
+    "annotations": {
+      "title": "Approved actions waiting to run",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "set_pace",
+    "title": "Space an agent's approved actions",
+    "description": "Space one agent's approved actions for a tool: at least every_minutes apart per account, for the next hours - approvals that come in meanwhile wait their turn instead of running at once (use it before approving a pile of emails from one mailbox). account: one account, or leave it out for each of the tool's accounts. every_minutes 0 removes the pace. Ones already approved keep their times (schedule_queue moves those).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent id"
+        },
+        "tool": {
+          "type": "string",
+          "description": "The tool id, e.g. zoho-mail-outreach.zohomail_send_mail (list_approvals and list_queue show them)"
+        },
+        "account": {
+          "type": "string",
+          "description": "Optional: one account (list_queue shows them); default each account"
+        },
+        "every_minutes": {
+          "type": "number",
+          "description": "At least this many minutes apart (0 removes the pace)"
+        },
+        "hours": {
+          "type": "number",
+          "description": "For how long (default 24, at most 168)"
+        },
+        "why": {
+          "type": "string",
+          "description": "Optional: shown on each action it delays"
+        }
+      },
+      "required": [
+        "agent_id",
+        "tool",
+        "every_minutes"
+      ]
+    },
+    "annotations": {
+      "title": "Space an agent's approved actions",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "schedule_queue",
+    "title": "Run, move or cancel approved actions",
+    "description": "Move approved actions that haven't run yet (list_queue): run them now, later (after delay_minutes), spread over over_minutes per account, or cancel them - by approval_ids, or every one of an agent, optionally only one tool or account. It also lets go of a hold after a failure, so use it once the cause is fixed (e.g. the mailbox is unblocked). The agent is told how they went once they've run.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The agent whose actions these are"
+        },
+        "run": {
+          "type": "string",
+          "enum": [
+            "now",
+            "later",
+            "spread",
+            "cancel"
+          ]
+        },
+        "approval_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional: only these"
+        },
+        "tool": {
+          "type": "string",
+          "description": "Optional: only this tool"
+        },
+        "account": {
+          "type": "string",
+          "description": "Optional: only this account (as list_queue shows it)"
+        },
+        "delay_minutes": {
+          "type": "number",
+          "description": "later / spread: start after this many minutes"
+        },
+        "over_minutes": {
+          "type": "number",
+          "description": "spread: over this many minutes"
+        },
+        "why": {
+          "type": "string",
+          "description": "Optional: shown on each one"
+        }
+      },
+      "required": [
+        "agent_id",
+        "run"
+      ]
+    },
+    "annotations": {
+      "title": "Run, move or cancel approved actions",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
     }
   },
   {

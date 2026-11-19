@@ -127,3 +127,89 @@ test('the directory: your own agency, then each organization the app said you’
   assert.equal(d.agencies[0].id, 'personal');
   assert.equal(d.agencies[0].url, mcpUrlFor(owner));
 });
+
+test('read_agent: an overview first, then one Charter heading; edit_agent_file changes only that part', async () => {
+  const dir = join(DATA, 'sales');
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(join(dir, 'CHARTER.md'), '# Sales Agent\n\nSells.\n\n## Sending\n\nSend when approved.\n\n## Follow-ups\n\nAfter 5 days.\n');
+  await writeFile(join(dir, 'TOOLS.yaml'), 'agent_id: sales\nservers: [tasks]\ntools_allowed: [tasks.list_my_tasks]\ntool_tiers:\n  tasks.list_my_tasks: T0\n');
+  await writeFile(join(dir, 'KPI.yaml'), 'kpis: []\n');
+  const overview = (await call(owner, 'read_agent', { agent_id: 'sales' })).text;
+  assert.match(overview, /## Charter headings[\s\S]*## Sending \(\d+ chars\)/);
+  assert.doesNotMatch(overview, /Send when approved/, 'no file bodies in the overview');
+  assert.match(overview, /Spend this month: \$/);
+  const part = (await call(owner, 'read_agent', { agent_id: 'sales', section: 'charter', heading: 'sending' })).text;
+  assert.equal(part, '## Sending\n\nSend when approved.\n\n');
+  const edited = await call(owner, 'edit_agent_file', { agent_id: 'sales', file: 'CHARTER.md', heading: 'Sending', mode: 'append', content: 'Pace sends 3 minutes apart per mailbox.' });
+  assert.equal(edited.error, false, edited.text);
+  assert.match(edited.text, /CHARTER\.md saved for Sales Agent\. Changed from line/);
+  const charter = await readFile(join(dir, 'CHARTER.md'), 'utf8');
+  assert.match(charter, /Send when approved\.\n\nPace sends 3 minutes apart per mailbox\.\n\n## Follow-ups\n\nAfter 5 days\.\n$/);
+  const twice = await call(owner, 'edit_agent_file', { agent_id: 'sales', file: 'CHARTER.md', edits: [{ old: 'a', new: 'b' }] });
+  assert.equal(twice.error, true);
+  assert.match(twice.text, /matches \d+ places/);
+  assert.equal(await readFile(join(dir, 'CHARTER.md'), 'utf8'), charter, 'nothing saved');
+  assert.equal((await call(priya, 'edit_agent_file', { agent_id: 'sales', file: 'CHARTER.md', mode: 'append', content: 'x' })).error, true, 'not hers to change');
+});
+
+test('usage: cost by agent and by model, unpriced runs counted apart; agency_today and agent_activity carry cost', async () => {
+  const now = Date.now();
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, model, cost_usd, input_tokens, output_tokens) VALUES ('c1', 'sales', 'scheduled', 1, 'succeeded', ?, 'claude-x', 0.5, 1000, 200)", now);
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, model, cost_usd) VALUES ('c2', 'sales', 'scheduled', 1, 'succeeded', ?, 'mystery', NULL)", now);
+  exec("INSERT INTO dm (agent_id, kind, run_id, body, at) VALUES ('sales', 'run', 'c1', ?, ?)", JSON.stringify({ kind: 'run', text: 'Cost run.', trigger: 'scheduled', outcome: 'ok', tools: [] }), now + 1);
+  const u = JSON.parse((await call(owner, 'usage')).text);
+  const sales = u.groups.find((g: { key: string }) => g.key === 'sales');
+  assert.equal(sales.cost_usd, 0.5);
+  assert.ok(sales.unpriced_runs >= 1, "the unpriced run is counted apart");
+  assert.match(u.where_from, /missing, not zero/);
+  const byModel = JSON.parse((await call(owner, 'usage', { group_by: 'model' })).text);
+  assert.deepEqual(byModel.groups.map((g: { key: string }) => g.key).filter((k: string) => ['claude-x', 'mystery'].includes(k)).sort(), ['claude-x', 'mystery']);
+  const today = JSON.parse((await call(owner, 'agency_today')).text);
+  assert.ok(today.cost.today_usd >= 0.5);
+  assert.equal(today.agents.find((a: { agent: string }) => a.agent.startsWith('Sales')).cost_usd, 0.5);
+  const act = JSON.parse((await call(owner, 'agent_activity', { agent_id: 'sales', kinds: ['runs'], include_tools: false })).text);
+  const post = act.posts.find((p: { run_id?: string }) => p.run_id === 'c1');
+  assert.deepEqual([post.cost_usd, post.model, post.tools], [0.5, 'claude-x', undefined]);
+  assert.equal(act.tasks, undefined);
+});
+
+test('decide_approvals with every_minutes: a pile of sends from one account is paced, not sent at once; list_queue and schedule_queue', async () => {
+  // One already scheduled for later on the same account, so nothing here is due now
+  // (nothing actually sends in a test): each new one goes 5 minutes after the last.
+  const later = Date.now() + 3_600_000;
+  exec(
+    "INSERT INTO approvals (id, agent_id, run_id, tool, args, status, account, exec_state, due_at, created_at, expires_at) VALUES ('p0', 'sales', 'r1', 'gmail.send', ?, 'approved', 'sam@shop.test', 'queued', ?, ?, ?)",
+    JSON.stringify({ from: 'sam@shop.test', to: 'lead0@x.test' }),
+    Date.now() + 600_000,
+    Date.now(),
+    later,
+  );
+  for (const n of [1, 2, 3])
+    exec(
+      "INSERT INTO approvals (id, agent_id, run_id, tool, args, created_at, expires_at) VALUES (?, 'sales', 'r1', 'gmail.send', ?, ?, ?)",
+      `p${n}`,
+      JSON.stringify({ from: 'sam@shop.test', to: `lead${n}@x.test`, subject: `Hi ${n}`, _why: 'A lead' }),
+      Date.now() + n,
+      later,
+    );
+  const listed = JSON.parse((await call(owner, 'list_approvals', { account: 'sam@shop.test' })).text);
+  assert.equal(listed.total, 3);
+  assert.equal(listed.by_account['gmail.send on sam@shop.test'], 3);
+  assert.deepEqual([listed.items[0].to, listed.items[0].what, listed.items[0].why], ['lead1@x.test', 'Hi 1', 'A lead']);
+  assert.equal(listed.items[0].args, undefined, 'one line each unless detail');
+  const r = JSON.parse((await call(owner, 'decide_approvals', { tool: 'gmail.send', decision: 'approved', every_minutes: 5 })).text);
+  assert.match(r.summary, /^Approved 3: .*Paced 5 min apart per account/, JSON.stringify(r.results));
+  const pace = one<{ every_ms: number; account: string }>("SELECT every_ms, account FROM action_pace WHERE agent_id = 'sales' AND tool = 'gmail.send'")!;
+  assert.deepEqual([pace.every_ms, pace.account], [300_000, 'sam@shop.test']);
+  const due = all<{ due_at: number }>("SELECT due_at FROM approvals WHERE id IN ('p0', 'p1', 'p2', 'p3') ORDER BY due_at").map(x => x.due_at);
+  assert.deepEqual(due.slice(1).map((t, i) => t - due[i]), [300_000, 300_000, 300_000], 'spaced 5 min apart after the one already waiting');
+  const q = JSON.parse((await call(owner, 'list_queue', { agent_id: 'sales' })).text);
+  assert.equal(q.waiting, 4);
+  assert.match(q.paces[0].pace, /^5 minutes apart until/);
+  const moved = await call(owner, 'schedule_queue', { agent_id: 'sales', run: 'cancel', approval_ids: ['p3'] });
+  assert.match(moved.text, /^Cancelled 1 of Sales Agent/);
+  assert.match(one<{ result: string }>("SELECT result FROM approvals WHERE id = 'p3'")!.result, /^Cancelled by The host: The host cancelled them$/);
+  assert.equal((await call(priya, 'set_pace', { agent_id: 'sales', tool: 'gmail.send', every_minutes: 1 })).error, true, 'not hers');
+  await call(owner, 'schedule_queue', { agent_id: 'sales', run: 'cancel' });
+  assert.equal(JSON.parse((await call(owner, 'list_queue', { agent_id: 'sales' })).text).waiting, 0);
+});

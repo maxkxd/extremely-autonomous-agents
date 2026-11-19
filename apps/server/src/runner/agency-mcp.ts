@@ -44,6 +44,32 @@ import { accessConfig, asActor, currentActor, localActor, personFor, recordActio
 import { registeredToolIds } from './tools.js';
 import { stateOf } from './run.js';
 import { abortRun, book } from './scheduler.js';
+import { clock, mins, paceMine, scheduledRows, scheduleMine, type Pace, type QueuedRow } from './action-queue.js';
+import {
+  applyEdits,
+  approvalAccount,
+  approvalLine,
+  capResult,
+  COST_NOTE,
+  matchesAccount,
+  senderOf,
+  diffLine,
+  editSection,
+  findHeading,
+  GROUPS,
+  monthSpendByAgent,
+  outlineOf,
+  roundUsd,
+  spendBy,
+  spendRows,
+  windowOf,
+  type Edit,
+  type Group,
+  type PendingRow,
+  type SectionMode,
+} from './agency-mcp-views.js';
+import { startOfMonth } from './clock.js';
+import { spentToday } from './pricing.js';
 
 // The agency as an MCP server, for the person's own AI IDE (Claude Code,
 // Cursor, Codex...): everything the Agency Engineer and the agent builder can
@@ -111,6 +137,64 @@ async function agentOrThrow(id: unknown) {
 }
 
 const FILES = { 'CHARTER.md': 'charter', 'TOOLS.yaml': 'tools', 'KPI.yaml': 'kpi' } as const;
+const SECTION_FILE = { charter: 'CHARTER.md', tools: 'TOOLS.yaml', kpi: 'KPI.yaml' } as const;
+const agentFile = (agentId: string, file: string) => readFile(join(DATA, slug(agentId), file), 'utf8').catch(() => '');
+const usd = (n: number | null | undefined) => (n == null ? 'unpriced' : `$${roundUsd(n)}`);
+
+// Saves one of an agent's files the way write_agent_file always has: YAML must
+// parse, the agent must still load with it (else the old one goes back).
+async function saveAgentFile(agentId: string, file: keyof typeof FILES, content: string) {
+  const meta = (await readMeta(agentId))!;
+  if (!content.trim()) throw new Error('The file would be empty.');
+  if (file !== 'CHARTER.md')
+    try {
+      parse(content);
+    } catch (e) {
+      throw new Error(`That isn't valid YAML: ${(e as Error).message.slice(0, 300)}`);
+    }
+  const path = join(DATA, slug(agentId), file);
+  const before = await readFile(path, 'utf8');
+  await writeFile(path, content);
+  if (!(await loadAgent(agentId))) {
+    await writeFile(path, before);
+    throw new Error("The agent couldn't load with that file, so it wasn't saved. Check it against the old one (read_agent).");
+  }
+  if (file === 'KPI.yaml') await writeMeta(agentId, { ...meta, output: kpiLabels(content) });
+  return before;
+}
+
+// Who may change an agent's files, and which.
+async function editableFile(a: Record<string, unknown>) {
+  const { agentId, meta } = await agentOrThrow(a.agent_id);
+  if (meta.builtIn) throw new Error(`${meta.name} is built in: its files are rewritten every time the app starts.`);
+  await requireMakerOrAdmin(agentId, null, currentActor(), 'change its files');
+  const file = String(a.file) as keyof typeof FILES;
+  if (!(file in FILES)) throw new Error('file is CHARTER.md, TOOLS.yaml or KPI.yaml.');
+  return { agentId, meta, file };
+}
+
+// Approvals waiting on a person that are this person's to decide (as in the app).
+async function decidable(): Promise<PendingRow[]> {
+  const rows = all<PendingRow>("SELECT id, agent_id, tool, args, expires_at FROM approvals WHERE status = 'pending' AND expires_at > ? ORDER BY created_at", Date.now());
+  const out: PendingRow[] = [];
+  // Whose each is, as the app decides it (runner/api.ts approvals/decide): an Engineer
+  // card by the request it's for, a Doctor card by the agent it's about.
+  for (const r of rows) {
+    const args = JSON.parse(r.args) as { request_id?: number; agent_id?: string };
+    const mine = await requireMakerOrAdmin(r.agent_id, args.request_id == null ? null : Number(args.request_id), currentActor(), 'decide this', r.agent_id === DOCTOR ? (args.agent_id ?? null) : null).then(
+      () => true,
+      () => false,
+    );
+    if (mine) out.push(r);
+  }
+  return out;
+}
+const nameOf = async (id: string, cache = new Map<string, string>()) => {
+  if (!cache.has(id)) cache.set(id, (await readMeta(id))?.name ?? id);
+  return cache.get(id)!;
+};
+const lc = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : null);
+const page = (a: Record<string, unknown>, dflt = 25) => ({ offset: Math.max(0, Math.floor(Number(a.offset) || 0)), limit: Math.max(1, Math.min(200, Math.floor(Number(a.limit) || dflt))) });
 
 const TOOLS: Tool[] = [
   // --- Requests ---
@@ -190,72 +274,165 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'list_agents',
-    description: 'Every agent: id, name, department, owner, state (active / draining = standby / stopped), ferocity level, models, and whether it is built in.',
-    schema: obj({}),
-    run: async () => {
+    description:
+      'Every agent: id, name, department, owner, state (active / draining = standby / stopped), ferocity level, models, whether it is built in, its spend this month against its own limit, when it last ran (and whether it is running now), and how many approvals and open jobs it has. Filter by state or department.',
+    schema: obj({ state: { type: 'string', enum: ['active', 'draining', 'stopped'], description: 'Optional: only these' }, department: str('Optional: only this department') }),
+    run: async a => {
       const choices = await allChoices();
+      const month = monthSpendByAgent(Date.now());
+      const dept = lc(a.department);
       const out = [];
       for (const id of await listIds()) {
         const m = await readMeta(id);
         if (!m) continue;
         const st = stateOf(id);
-        out.push({ id, name: m.name, department: m.department, owner: m.builtIn ? 'built in' : m.owner, status: m.status, state: st.state, ferocity: LEVELS[st.ferocity], models: choices[id] ?? [], builtIn: !!m.builtIn });
+        if (a.state && st.state !== a.state) continue;
+        if (dept && String(m.department ?? '').toLowerCase() !== dept) continue;
+        const last = one<{ started_at: number; status: string; id: string }>('SELECT id, started_at, status FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1', id);
+        const running = one<{ id: string }>("SELECT id FROM runs WHERE agent_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1", id);
+        out.push({
+          id,
+          name: m.name,
+          department: m.department,
+          owner: m.builtIn ? 'built in' : m.owner,
+          status: m.status,
+          state: st.state,
+          ferocity: LEVELS[st.ferocity],
+          models: choices[id] ?? [],
+          builtIn: !!m.builtIn,
+          month_cost_usd: month.get(id)?.cost_usd ?? 0,
+          month_unpriced_runs: month.get(id)?.unpriced_runs ?? 0,
+          cap_usd: m.builtIn ? null : st.spend_cap_usd,
+          last_run_at: last ? new Date(last.started_at).toISOString() : null,
+          running_now: running?.id ?? null,
+          pending_approvals: one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE agent_id = ? AND status = 'pending' AND expires_at > ?", id, Date.now())?.n ?? 0,
+          open_tasks: one<{ n: number }>("SELECT COUNT(*) AS n FROM tasks WHERE agent_id = ? AND status = 'open'", id)?.n ?? 0,
+        });
       }
       return json(out);
     },
   },
   {
     name: 'read_agent',
-    description: "An agent's files (CHARTER.md, TOOLS.yaml, KPI.yaml), its models and state, its last runs and its memory notes.",
-    schema: obj({ agent_id: str('The agent id') }, ['agent_id']),
+    description:
+      "One agent, a part at a time. section: overview (the default: state, models, spend this month against its limit, file sizes, the Charter's headings, its last runs with cost, and counts of memory, open jobs, approvals and queued actions) | charter | tools | kpi (a file; long ones come in windows - offset for the next) | runs (newest first, with cost) | memory (newest first; query filters). heading: with charter, just that section of it.",
+    schema: obj(
+      {
+        agent_id: str('The agent id'),
+        section: { type: 'string', enum: ['overview', 'charter', 'tools', 'kpi', 'runs', 'memory'], description: 'What to read (default overview)' },
+        heading: str("Optional, with charter: one heading's section (the overview lists them)"),
+        query: str('Optional, with memory: only notes containing this'),
+        offset: num('Optional: charter/tools/kpi - the character to start at; runs/memory - how many to skip'),
+        limit: num('Optional: charter/tools/kpi - characters (default 15000); runs/memory - how many (default 10 / 20)'),
+      },
+      ['agent_id'],
+    ),
     run: async a => {
       const { agentId, meta } = await agentOrThrow(a.agent_id);
-      const dir = join(DATA, slug(agentId));
-      const read = (f: string) => readFile(join(dir, f), 'utf8').catch(() => '');
-      const runs = all<{ trigger: string; status: string; started_at: number; summary: string | null; error: string | null }>(
-        'SELECT trigger, status, started_at, summary, error FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 5',
+      const section = String(a.section ?? 'overview');
+      if (section in SECTION_FILE) {
+        const file = SECTION_FILE[section as keyof typeof SECTION_FILE];
+        const text = await agentFile(agentId, file);
+        if (!text) return `${meta.name} has no ${file}.`;
+        if (a.heading) {
+          if (file !== 'CHARTER.md') throw new Error('heading is for the Charter (section: charter).');
+          const h = findHeading(text, String(a.heading));
+          return windowOf(text.slice(h.start, h.end), a.offset, a.limit, `"${h.text}"`);
+        }
+        return windowOf(text, a.offset, a.limit, file);
+      }
+      if (section === 'runs') {
+        const { offset, limit } = page(a, 10);
+        const total = one<{ n: number }>('SELECT COUNT(*) AS n FROM runs WHERE agent_id = ?', agentId)?.n ?? 0;
+        const runs = all<{ id: string; trigger: string; status: string; started_at: number; ended_at: number | null; model: string | null; cost_usd: number | null; acts: number; summary: string | null; error: string | null }>(
+          'SELECT id, trigger, status, started_at, ended_at, model, cost_usd, acts, summary, error FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?',
+          agentId,
+          limit,
+          offset,
+        );
+        return json({
+          agent: `${meta.name} (${agentId})`,
+          total,
+          next_offset: offset + runs.length < total ? offset + runs.length : null,
+          runs: runs.map(r => ({ id: r.id, at: new Date(r.started_at).toISOString(), trigger: r.trigger, status: r.status, minutes: r.ended_at ? Math.round((r.ended_at - r.started_at) / 6000) / 10 : null, model: r.model, cost_usd: r.cost_usd, acts: r.acts, summary: (r.summary ?? r.error ?? '').slice(0, 600) })),
+        });
+      }
+      if (section === 'memory') {
+        const { offset, limit } = page(a, 20);
+        const q = String(a.query ?? '').trim();
+        const where = `agent_id = ?${q ? " AND text LIKE ? ESCAPE '\\'" : ''}`;
+        const params: string[] = q ? [agentId, `%${q.replace(/[\\%_]/g, m => `\\${m}`)}%`] : [agentId];
+        const total = one<{ n: number }>(`SELECT COUNT(*) AS n FROM memories WHERE ${where}`, ...params)?.n ?? 0;
+        const notes = all<{ id: number; text: string; created_at: number }>(`SELECT id, text, created_at FROM memories WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`, ...params, limit, offset);
+        return json({ agent: `${meta.name} (${agentId})`, total, next_offset: offset + notes.length < total ? offset + notes.length : null, notes: notes.map(n => ({ id: n.id, at: new Date(n.created_at).toISOString(), text: n.text })) });
+      }
+      if (section !== 'overview') throw new Error('section is overview, charter, tools, kpi, runs or memory.');
+      const st = stateOf(agentId);
+      const month = monthSpendByAgent(Date.now()).get(agentId);
+      const charter = await agentFile(agentId, 'CHARTER.md');
+      const sizes = await Promise.all(Object.keys(FILES).map(async f => `${f} ${(await agentFile(agentId, f)).length.toLocaleString('en')} chars`));
+      const runs = all<{ trigger: string; status: string; started_at: number; cost_usd: number | null; acts: number; summary: string | null; error: string | null }>(
+        'SELECT trigger, status, started_at, cost_usd, acts, summary, error FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT 5',
         agentId,
       );
-      const memory = all<{ text: string }>('SELECT text FROM memories WHERE agent_id = ? ORDER BY created_at DESC LIMIT 20', agentId);
+      const count = (sql: string) => one<{ n: number }>(sql, agentId)?.n ?? 0;
+      const outline = outlineOf(charter);
       return [
         `# ${meta.name} (${agentId})${meta.builtIn ? ' - built in' : ''}`,
-        `Models: ${json((await allChoices())[agentId] ?? [])}`,
-        `State: ${stateOf(agentId).state}, ferocity ${LEVELS[stateOf(agentId).ferocity]}`,
-        `\n## CHARTER.md\n${await read('CHARTER.md')}`,
-        `\n## TOOLS.yaml\n${await read('TOOLS.yaml')}`,
-        `\n## KPI.yaml\n${await read('KPI.yaml')}`,
-        `\n## Last runs\n${runs.map(r => `- ${new Date(r.started_at).toISOString()} ${r.trigger} ${r.status}: ${(r.summary ?? r.error ?? '').slice(0, 400)}`).join('\n') || 'None yet.'}`,
-        `\n## Memory (newest first)\n${memory.map(m => `- ${m.text}`).join('\n') || 'Empty.'}`,
+        `Department: ${meta.department ?? '-'}; owner: ${meta.builtIn ? 'built in' : meta.owner}`,
+        `State: ${st.state}, ferocity ${LEVELS[st.ferocity]}`,
+        `Models: ${((await allChoices())[agentId] ?? []).map(m => `${m.connection}/${m.model} (${m.effort})`).join(', ') || 'none'}`,
+        `Spend this month: ${usd(month?.cost_usd ?? 0)} over ${month?.runs ?? 0} runs${month?.unpriced_runs ? ` (${month.unpriced_runs} unpriced)` : ''}; limit ${st.spend_cap_usd == null ? 'none of its own' : `$${st.spend_cap_usd}`} (usage has more)`,
+        `Files: ${sizes.join(', ')}`,
+        `Memory notes: ${count('SELECT COUNT(*) AS n FROM memories WHERE agent_id = ?')}; open jobs: ${count("SELECT COUNT(*) AS n FROM tasks WHERE agent_id = ? AND status = 'open'")}; approvals waiting: ${count("SELECT COUNT(*) AS n FROM approvals WHERE agent_id = ? AND status = 'pending'")}; approved, not run yet: ${count("SELECT COUNT(*) AS n FROM approvals WHERE agent_id = ? AND status = 'approved' AND exec_state IN ('queued', 'paused', 'running')")} (list_queue)`,
+        `\n## Charter headings (read one: section charter, heading "...")\n${outline.join('\n') || '(no headings: read it with section: charter)'}`,
+        `\n## Last runs (section: runs for more)\n${runs.map(r => `- ${new Date(r.started_at).toISOString()} ${r.trigger} ${r.status}, ${usd(r.cost_usd)}, ${r.acts} acts: ${(r.summary ?? r.error ?? '').replace(/\s+/g, ' ').slice(0, 240)}`).join('\n') || 'None yet.'}`,
       ].join('\n');
     },
   },
   {
     name: 'write_agent_file',
-    description: "Replace one of an agent's files: CHARTER.md (its job), TOOLS.yaml (tools, tiers, approval windows, ferocity plan) or KPI.yaml (which actions count as output). read_agent first. Its next run uses it.",
+    description: "Replace one of an agent's files whole: CHARTER.md (its job), TOOLS.yaml (tools, tiers, approval windows, ferocity plan) or KPI.yaml (which actions count as output). To change part of one, edit_agent_file. Its next run uses it.",
     schema: obj({ agent_id: str('The agent id'), file: { type: 'string', enum: Object.keys(FILES) }, content: str('The whole new file') }, ['agent_id', 'file', 'content']),
     run: async a => {
-      const { agentId, meta } = await agentOrThrow(a.agent_id);
-      if (meta.builtIn) throw new Error(`${meta.name} is built in: its files are rewritten every time the app starts.`);
-      await requireMakerOrAdmin(agentId, null, currentActor(), 'change its files');
-      const file = String(a.file) as keyof typeof FILES;
-      if (!(file in FILES)) throw new Error('file is CHARTER.md, TOOLS.yaml or KPI.yaml.');
+      const { agentId, meta, file } = await editableFile(a);
       const content = String(a.content ?? '');
-      if (!content.trim()) throw new Error('The file would be empty.');
-      if (file !== 'CHARTER.md')
-        try {
-          parse(content);
-        } catch (e) {
-          throw new Error(`That isn't valid YAML: ${(e as Error).message.slice(0, 300)}`);
-        }
-      const path = join(DATA, slug(agentId), file);
-      const before = await readFile(path, 'utf8');
-      await writeFile(path, content);
-      if (!(await loadAgent(agentId))) {
-        await writeFile(path, before);
-        throw new Error("The agent couldn't load with that file, so it wasn't saved. Check it against the old one (read_agent).");
-      }
-      if (file === 'KPI.yaml') await writeMeta(agentId, { ...meta, output: kpiLabels(content) });
-      return `${file} saved for ${meta.name}.`;
+      const before = await saveAgentFile(agentId, file, content);
+      return `${file} saved for ${meta.name}. ${diffLine(before, content)}`;
+    },
+  },
+  {
+    name: 'edit_agent_file',
+    description:
+      "Change part of an agent's file without sending it all. Either edits: [{old, new}] - each old must match the file exactly once - or, for CHARTER.md, heading + mode: replace (that section's body; its heading stays) | append (to the end of that section) | insert_after (a new section after it: content starts with its own heading) | delete (the section). append with no heading adds to the end of the file. Checked as write_agent_file is: nothing is saved if the agent wouldn't load.",
+    schema: obj(
+      {
+        agent_id: str('The agent id'),
+        file: { type: 'string', enum: Object.keys(FILES) },
+        edits: { type: 'array', description: 'Exact replacements, applied in order', items: obj({ old: str('Text that appears exactly once'), new: str('What replaces it') }, ['old', 'new']) },
+        heading: str('CHARTER.md: the heading whose section to change (read_agent lists them)'),
+        mode: { type: 'string', enum: ['replace', 'append', 'insert_after', 'delete'] },
+        content: str('With heading/mode: the text'),
+      },
+      ['agent_id', 'file'],
+    ),
+    run: async a => {
+      const { agentId, meta, file } = await editableFile(a);
+      const before = await agentFile(agentId, file);
+      if (!before) throw new Error(`${meta.name} has no ${file} yet: write_agent_file makes it.`);
+      let after: string;
+      if (Array.isArray(a.edits) && a.edits.length) {
+        if (a.mode || a.heading) throw new Error('Give edits, or heading + mode - not both.');
+        after = applyEdits(before, a.edits as Edit[]);
+      } else if (a.mode) {
+        if (file !== 'CHARTER.md' && a.heading) throw new Error('heading is for CHARTER.md; for YAML files use edits.');
+        const mode = String(a.mode) as SectionMode;
+        if (mode !== 'delete' && !String(a.content ?? '').trim()) throw new Error(`mode ${mode} needs content.`);
+        after = editSection(before, a.heading ? String(a.heading) : null, String(a.content ?? ''), mode);
+      } else throw new Error('Give edits: [{old, new}], or heading + mode + content.');
+      if (after === before) return 'No change.';
+      await saveAgentFile(agentId, file, after);
+      return `${file} saved for ${meta.name}. ${diffLine(before, after)}`;
     },
   },
   {
@@ -416,23 +593,95 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
   },
   {
     name: 'list_approvals',
-    description: "Agents' actions waiting on a person in the app (sending, posting, going live...): only the ones that are yours to decide. decide_approval approves or rejects one.",
-    schema: obj({}),
-    run: async () => {
-      const all_ = all<{ id: string; agent_id: string; tool: string; args: string; expires_at: number }>("SELECT id, agent_id, tool, args, expires_at FROM approvals WHERE status = 'pending' AND expires_at > ? ORDER BY created_at", Date.now());
-      // A member sees only what's theirs to decide, as in the app.
-      const rows = [];
-      // Whose each is, as the app decides it (runner/api.ts approvals/decide): an Engineer
-      // card by the request it's for, a Doctor card by the agent it's about.
-      for (const r of all_) {
-        const args = JSON.parse(r.args) as { request_id?: number; agent_id?: string };
-        const mine = await requireMakerOrAdmin(r.agent_id, args.request_id == null ? null : Number(args.request_id), currentActor(), 'decide this', r.agent_id === 'doctor' ? (args.agent_id ?? null) : null).then(
-          () => true,
-          () => false,
-        );
-        if (mine) rows.push(r);
+    description:
+      "Agents' actions waiting on a person in the app (sending, posting, going live...): only the ones that are yours to decide, one short line each (who it goes to, the subject, why, which account sends it), with how many each account would send. detail: true for the whole action. Filter by agent_id, tool or account (the sending mailbox). decide_approval decides one; decide_approvals many, spaced apart if you like.",
+    schema: obj({
+      agent_id: str('Optional: only this agent'),
+      tool: str('Optional: only this tool (e.g. zoho-mail-outreach.zohomail_send_mail)'),
+      account: str('Optional: only actions sent from this account or mailbox'),
+      detail: { type: 'boolean', description: 'The whole action (every argument), not one line' },
+      offset: num('Optional: skip this many'),
+      limit: num('Optional: at most this many (default 25)'),
+    }),
+    run: async a => {
+      const account = lc(a.account);
+      const rows = (await decidable()).filter(r => (!a.agent_id || r.agent_id === a.agent_id) && (!a.tool || r.tool === a.tool) && matchesAccount(JSON.parse(r.args), account));
+      if (!rows.length) return 'Nothing waiting.';
+      const { offset, limit } = page(a);
+      const names = new Map<string, string>();
+      // How many would go out per queue (what a pace spaces) and per sender.
+      const by_account: Record<string, number> = {};
+      const by_sender: Record<string, number> = {};
+      for (const r of rows) {
+        const args = JSON.parse(r.args) as Record<string, unknown>;
+        const k = `${r.tool} on ${approvalAccount(args) || '(its one account)'}`;
+        by_account[k] = (by_account[k] ?? 0) + 1;
+        const s = senderOf(args);
+        if (s) by_sender[s] = (by_sender[s] ?? 0) + 1;
       }
-      return rows.length ? json(rows.map(r => ({ ...r, args: JSON.parse(r.args), expires: new Date(r.expires_at).toISOString() }))) : 'Nothing waiting.';
+      const shown = rows.slice(offset, offset + limit);
+      const items = [];
+      for (const r of shown)
+        items.push(a.detail ? { id: r.id, agent: `${await nameOf(r.agent_id, names)} (${r.agent_id})`, tool: r.tool, args: JSON.parse(r.args), expires: new Date(r.expires_at).toISOString() } : approvalLine(r, await nameOf(r.agent_id, names)));
+      return json({ total: rows.length, next_offset: offset + shown.length < rows.length ? offset + shown.length : null, by_account, by_sender: Object.keys(by_sender).length ? by_sender : undefined, items });
+    },
+  },
+  {
+    name: 'decide_approvals',
+    description:
+      "Approve or reject many at once: by approval_ids, or every one matching agent_id / tool / account. every_minutes (when approving): space them that far apart per sending account, so a pile of emails doesn't go out at once and trip the mailbox's sending limit - it sets that pace on the account before approving (list_queue shows when each runs). Without it, each runs as soon as it's approved unless its agent already paced the tool.",
+    schema: obj(
+      {
+        approval_ids: { type: 'array', items: { type: 'string' }, description: 'Optional: these (from list_approvals)' },
+        agent_id: str('Optional: every one of this agent'),
+        tool: str('Optional: every one for this tool'),
+        account: str('Optional: every one sent from this account'),
+        decision: { type: 'string', enum: ['approved', 'rejected'] },
+        note: str('Optional: why, for the agent'),
+        every_minutes: num('Optional, approving: at least this many minutes apart per account'),
+      },
+      ['decision'],
+    ),
+    run: async a => {
+      const decision = a.decision === 'approved' || a.decision === 'rejected' ? a.decision : null;
+      if (!decision) throw new Error('decision is approved or rejected.');
+      const ids = Array.isArray(a.approval_ids) ? new Set(a.approval_ids.map(String)) : null;
+      if (!ids?.size && !a.agent_id && !a.tool && !a.account) throw new Error('Say which: approval_ids, or agent_id / tool / account.');
+      const account = lc(a.account);
+      const rows = (await decidable()).filter(r => (!ids?.size || ids.has(r.id)) && (!a.agent_id || r.agent_id === a.agent_id) && (!a.tool || r.tool === a.tool) && matchesAccount(JSON.parse(r.args), account));
+      if (!rows.length) throw new Error('None waiting match that (list_approvals shows them).');
+      const missing = ids ? [...ids].filter(id => !rows.some(r => r.id === id)) : [];
+      const by = currentActor();
+      const note = a.note ? scrub(String(a.note)).trim() || null : null;
+      const every = Math.max(0, Math.min(24 * 60, Number(a.every_minutes) || 0));
+      const now = Date.now();
+      // The pace first, per agent, tool and account, long enough for all of them.
+      if (decision === 'approved' && every) {
+        const groups = new Map<string, { agent: string; tool: string; account: string; n: number }>();
+        for (const r of rows) {
+          const acc = approvalAccount(JSON.parse(r.args));
+          const k = `${r.agent_id}|${r.tool}|${acc}`;
+          groups.set(k, { agent: r.agent_id, tool: r.tool, account: acc, n: (groups.get(k)?.n ?? 0) + 1 });
+        }
+        for (const g of groups.values())
+          paceMine(g.agent, { tool: g.tool, account: g.account || undefined, every_minutes: every, for_hours: Math.min(7 * 24, Math.ceil((g.n * every) / 60) + 1), why: `${by.name || 'A person'} approved ${g.n} at once and asked for them ${every} min apart` }, now);
+      }
+      const results: { id: string; outcome: string }[] = [];
+      for (const r of rows) {
+        await requireMakerOrAdmin(r.agent_id, null, by, 'decide this', r.agent_id === DOCTOR ? ((JSON.parse(r.args) as { agent_id?: string }).agent_id ?? null) : null);
+        try {
+          const out = await decideApproval(r.id, decision, note, book, undefined, undefined, by);
+          results.push({ id: r.id, outcome: decision === 'rejected' ? 'rejected' : !out.ran ? String(out.result ?? 'queued') : out.ok ? 'done' : `failed: ${String(out.result ?? '').slice(0, 300)}` });
+        } catch (e) {
+          results.push({ id: r.id, outcome: `not decided: ${(e as Error).message}` });
+        }
+      }
+      const count = (re: RegExp) => results.filter(x => re.test(x.outcome)).length;
+      const head =
+        decision === 'rejected'
+          ? `Rejected ${count(/^rejected/)}; their agents are told.`
+          : `Approved ${results.length - count(/^not decided/)}: ${count(/^done/)} ran, ${count(/^Approved\./)} queued or held, ${count(/^failed/)} failed.${every ? ` Paced ${every} min apart per account (list_queue shows when each runs).` : ''}`;
+      return json({ summary: head, not_found: missing.length ? missing : undefined, results });
     },
   },
 
@@ -463,62 +712,125 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
   // --- What the agency did ---
   {
     name: 'agency_today',
-    description: "What the whole agency did since a time (default: the start of today, the agency's own clock): per agent its runs, output actions and last summary, plus what's waiting on a person (approvals, open requests).",
+    description:
+      "What the whole agency did since a time (default: the start of today, the agency's own clock): per agent its runs, output actions, cost and last summary; the total cost against the monthly limits; what's waiting on a person (approvals, open requests); and any tool held after a failure (e.g. a mailbox that hit its sending limit). usage breaks cost down further.",
     schema: obj({ since: str('Optional: an ISO date or time, e.g. 2026-11-05 or 2026-11-05T09:00') }),
     run: async a => {
       const since = sinceOf(a.since);
+      const now = Date.now();
+      const month = monthSpendByAgent(now);
       const out = [];
+      let total = 0;
+      let unpriced = 0;
       for (const id of await listIds()) {
         const m = await readMeta(id);
         if (!m) continue;
-        const runs = all<{ status: string; summary: string | null; acts: number; started_at: number }>('SELECT status, summary, acts, started_at FROM runs WHERE agent_id = ? AND started_at >= ? ORDER BY started_at DESC', id, since);
+        const runs = all<{ status: string; summary: string | null; acts: number; started_at: number; cost_usd: number | null }>('SELECT status, summary, acts, started_at, cost_usd FROM runs WHERE agent_id = ? AND started_at >= ? ORDER BY started_at DESC', id, since);
         if (!runs.length) continue;
+        const cost = runs.reduce((n, r) => n + (r.cost_usd ?? 0), 0);
+        const un = runs.filter(r => r.cost_usd == null).length;
+        total += cost;
+        unpriced += un;
+        const cap = m.builtIn ? null : stateOf(id).spend_cap_usd;
         out.push({
           agent: `${m.name} (${id})`,
           runs: runs.length,
           failed: runs.filter(r => r.status === 'failed').length,
           output_actions: runs.reduce((n, r) => n + r.acts, 0),
+          cost_usd: roundUsd(cost),
+          unpriced_runs: un || undefined,
+          month_cost_usd: month.get(id)?.cost_usd ?? 0,
+          cap_usd: cap ?? undefined,
+          near_cap: cap ? (month.get(id)?.cost_usd ?? 0) >= cap * 0.8 : undefined,
           last_summary: (runs.find(r => r.summary)?.summary ?? '').slice(0, 800) || null,
         });
       }
-      const approvals = one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE status = 'pending' AND expires_at > ?", Date.now())?.n ?? 0;
+      const approvals = one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE status = 'pending' AND expires_at > ?", now)?.n ?? 0;
       const requests = one<{ n: number }>("SELECT COUNT(*) AS n FROM requests WHERE status = 'open'")?.n ?? 0;
-      return json({ since: new Date(since).toISOString(), agents: out, waiting_on_people: { approvals, open_requests: requests }, quiet: out.length ? undefined : 'No agent ran in that time.' });
+      const queued = one<{ n: number }>("SELECT COUNT(*) AS n FROM approvals WHERE status = 'approved' AND exec_state IN ('queued', 'paused', 'running')")?.n ?? 0;
+      const held = all<Pace>('SELECT * FROM action_pace WHERE held_since IS NOT NULL').map(p => ({ agent: p.agent_id, tool: p.tool, account: p.account || '(its one account)', since: new Date(p.held_since!).toISOString(), error: (p.held_error ?? '').slice(0, 300) }));
+      const orgCap = getSetting<number | null>('spend_cap_org_usd', null);
+      const monthTotal = [...month.values()].reduce((n, t) => n + t.cost_usd, 0);
+      return json({
+        since: new Date(since).toISOString(),
+        cost: { since_usd: roundUsd(total), unpriced_runs: unpriced || undefined, today_usd: roundUsd(spentToday(now)), month_usd: roundUsd(monthTotal), org_cap_usd: orgCap, note: 'usage has the breakdown and where these numbers come from.' },
+        agents: out,
+        waiting_on_people: { approvals, open_requests: requests },
+        approved_not_run: queued || undefined,
+        held_tools: held.length ? held : undefined,
+        quiet: out.length ? undefined : 'No agent ran in that time.',
+      });
     },
   },
   {
     name: 'agent_activity',
-    description: "What one agent did since a time (default: the start of today): its DM channel posts (each run's write-up and the tools it used), the people's messages to it, and the jobs given to it.",
-    schema: obj({ agent_id: str('The agent id (list_agents)'), since: str('Optional: an ISO date or time'), limit: num('Optional: at most this many posts, newest kept (default 30)') }, ['agent_id']),
+    description:
+      "What one agent did between two times (default: since the start of today): its DM channel posts (each run's write-up, the tools it used, and the run's model and cost), the people's messages to it, and the jobs given to it. Newest kept when there are more than limit; for older ones, pass until (the oldest post's time, as older_until gives it). kinds narrows it to runs, messages or tasks.",
+    schema: obj(
+      {
+        agent_id: str('The agent id (list_agents)'),
+        since: str('Optional: an ISO date or time'),
+        until: str('Optional: only before this time (for older pages)'),
+        limit: num('Optional: at most this many posts, newest kept (default 30)'),
+        kinds: { type: 'array', items: { type: 'string', enum: ['runs', 'messages', 'tasks'] }, description: 'Optional: only these (default all)' },
+        include_tools: { type: 'boolean', description: 'Each run’s list of tools used (default true)' },
+      },
+      ['agent_id'],
+    ),
     run: async a => {
       const { agentId, meta } = await agentOrThrow(a.agent_id);
       const since = sinceOf(a.since);
+      const until = a.until ? sinceOf(a.until) : Number.MAX_SAFE_INTEGER;
       const limit = Math.max(1, Math.min(200, Number(a.limit) || 30));
+      const kinds = new Set(Array.isArray(a.kinds) && a.kinds.length ? a.kinds.map(String) : ['runs', 'messages', 'tasks']);
+      const withTools = a.include_tools !== false;
       // The Agency Engineer keeps one chat per person, as in the app.
       const me = agentId === FLEET_ENGINEER ? currentActor().id : null;
-      const posts = all<{ kind: string; body: string; at: number }>(
-        'SELECT kind, body, at FROM dm WHERE agent_id = ? AND at >= ? AND (? IS NULL OR person_id IS NULL OR person_id = ?) ORDER BY at DESC, id DESC LIMIT ?',
-        agentId,
-        since,
-        me,
-        me,
-        limit,
-      )
+      const wantKinds = [kinds.has('runs') ? 'run' : null, kinds.has('messages') ? 'you' : null].filter((k): k is string => !!k);
+      const rows = wantKinds.length
+        ? all<{ kind: string; body: string; at: number; run_id: string | null }>(
+            `SELECT kind, body, at, run_id FROM dm WHERE agent_id = ? AND at >= ? AND at < ? AND kind IN (${wantKinds.map(() => '?').join(', ')}) AND (? IS NULL OR person_id IS NULL OR person_id = ?) ORDER BY at DESC, id DESC LIMIT ?`,
+            agentId,
+            since,
+            until,
+            ...wantKinds,
+            me,
+            me,
+            limit + 1,
+          )
+        : [];
+      const more = rows.length > limit;
+      const posts = rows
+        .slice(0, limit)
         .reverse()
         .map(p => {
           const b = JSON.parse(p.body) as { text?: string; by?: string; outcome?: string; trigger?: string; tools?: { server: string; tool: string; status: string }[] };
           const at = new Date(p.at).toISOString();
           if (p.kind === 'you') return { at, from: b.by ?? 'A person', text: b.text ?? '' };
-          return { at, from: meta.name, trigger: b.trigger, outcome: b.outcome, text: b.text ?? '', tools: (b.tools ?? []).map(t => `${t.server}.${t.tool}${t.status === 'ok' ? '' : ' (failed)'}`) };
+          const run = p.run_id ? one<{ model: string | null; cost_usd: number | null; acts: number }>('SELECT model, cost_usd, acts FROM runs WHERE id = ?', p.run_id) : undefined;
+          return {
+            at,
+            from: meta.name,
+            run_id: p.run_id ?? undefined,
+            trigger: b.trigger,
+            outcome: b.outcome,
+            model: run?.model ?? undefined,
+            cost_usd: run ? run.cost_usd : undefined,
+            acts: run?.acts,
+            text: b.text ?? '',
+            tools: withTools ? (b.tools ?? []).map(t => `${t.server}.${t.tool}${t.status === 'ok' ? '' : ' (failed)'}`) : undefined,
+          };
         });
-      const tasks = all<{ id: number; task: string; status: string; result: string | null; from_agent: string | null }>(
-        'SELECT id, task, status, result, from_agent FROM tasks WHERE agent_id = ? AND (status = ? OR created_at >= ? OR done_at >= ?) ORDER BY id',
-        agentId,
-        'open',
-        since,
-        since,
-      ).map(t => ({ id: t.id, from: t.from_agent ?? 'a person', task: t.task, status: t.status, result: t.result }));
-      return json({ agent: `${meta.name} (${agentId})`, since: new Date(since).toISOString(), posts, tasks });
+      const tasks = kinds.has('tasks')
+        ? all<{ id: number; task: string; status: string; result: string | null; from_agent: string | null }>(
+            'SELECT id, task, status, result, from_agent FROM tasks WHERE agent_id = ? AND (status = ? OR created_at >= ? OR done_at >= ?) ORDER BY id',
+            agentId,
+            'open',
+            since,
+            since,
+          ).map(t => ({ id: t.id, from: t.from_agent ?? 'a person', task: t.task, status: t.status, result: t.result }))
+        : undefined;
+      return json({ agent: `${meta.name} (${agentId})`, since: new Date(since).toISOString(), posts, older_until: more && posts.length ? posts[0].at : undefined, tasks });
     },
   },
   {
@@ -539,6 +851,158 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
         last ? `Run of ${new Date(last.started_at).toISOString()} (${last.trigger}, ${last.status})\n\n${text}` : 'No report yet: it has not finished a run with a write-up.',
         `\nWhere its reports go: ${where ? `${where.where} (via ${where.tool})` : "not chosen yet - its instructions say, or it asks the first time it has one."}`,
       ].join('\n');
+    },
+  },
+
+  // --- Cost ---
+  {
+    name: 'usage',
+    description: `What the agency's runs cost, between two times (default: this calendar month so far), grouped by agent, day, model, connection or trigger - with each agent's monthly limit and what's left of it, and the organization's. The same numbers as Settings > Usage. ${COST_NOTE}`,
+    schema: obj({
+      since: str('Optional: an ISO date or time (default: the 1st of this month)'),
+      until: str('Optional: up to this time (default: now)'),
+      group_by: { type: 'string', enum: [...GROUPS], description: 'Default agent' },
+      agent_id: str('Optional: only this agent'),
+    }),
+    run: async a => {
+      const now = Date.now();
+      const since = a.since ? sinceOf(a.since) : startOfMonth(now);
+      const until = a.until ? sinceOf(a.until) : now + 1;
+      const group = (String(a.group_by ?? 'agent') as Group);
+      if (!GROUPS.includes(group)) throw new Error(`group_by is one of ${GROUPS.join(', ')}.`);
+      if (a.agent_id) await agentOrThrow(a.agent_id);
+      const { total, groups } = spendBy(spendRows(since, until, a.agent_id ? String(a.agent_id) : null), group);
+      const month = monthSpendByAgent(now);
+      const names = new Map<string, string>();
+      const rows = [];
+      for (const g of groups) {
+        if (group !== 'agent') {
+          rows.push(g);
+          continue;
+        }
+        const m = await readMeta(g.key);
+        const cap = m?.builtIn ? null : (stateOf(g.key).spend_cap_usd ?? null);
+        const spent = month.get(g.key)?.cost_usd ?? 0;
+        rows.push({ ...g, agent: `${await nameOf(g.key, names)} (${g.key})`, month_cost_usd: spent, cap_usd: cap, left_usd: cap == null ? null : roundUsd(Math.max(0, cap - spent)) });
+      }
+      const orgCap = getSetting<number | null>('spend_cap_org_usd', null);
+      const monthTotal = roundUsd([...month.values()].reduce((n, t) => n + t.cost_usd, 0));
+      return json({
+        from: new Date(since).toISOString(),
+        to: new Date(Math.min(until, now)).toISOString(),
+        group_by: group,
+        total,
+        groups: rows,
+        limits: { org_cap_usd: orgCap, month_usd: monthTotal, org_left_usd: orgCap == null ? null : roundUsd(Math.max(0, orgCap - monthTotal)), today_usd: roundUsd(spentToday(now)) },
+        where_from: COST_NOTE,
+      });
+    },
+  },
+
+  // --- Approved actions waiting to run, and their pace ---
+  {
+    name: 'list_queue',
+    description:
+      "Approved actions that haven't run yet: when each runs, and why it waits (a pace, a schedule, or held after a failure - with the error). Also every pace set on a tool, every hold, and how many ran per account in the last hour and day. Filter by agent_id, tool or account.",
+    schema: obj({ agent_id: str('Optional: only this agent'), tool: str('Optional: only this tool'), account: str('Optional: only this account or sender') }),
+    run: async a => {
+      const now = Date.now();
+      const account = lc(a.account);
+      const names = new Map<string, string>();
+      const keep = (r: { agent_id: string; tool: string }) => (!a.agent_id || r.agent_id === a.agent_id) && (!a.tool || r.tool === a.tool);
+      const waiting = scheduledRows().filter(r => keep(r) && (!account || r.account === account || senderOf(JSON.parse(r.args)) === account));
+      const items = [];
+      for (const r of waiting.slice(0, 100)) {
+        const args = JSON.parse(r.args) as Record<string, unknown>;
+        const line = approvalLine({ id: r.id, agent_id: r.agent_id, tool: r.tool, args: r.args, expires_at: r.due_at ?? now }, await nameOf(r.agent_id, names));
+        items.push({
+          id: r.id,
+          agent: line.agent,
+          tool: r.tool,
+          account: r.account || '(its one account)',
+          from: senderOf(args),
+          to: line.to,
+          what: line.what,
+          state: r.exec_state === 'paused' ? 'held after a failure' : r.exec_state === 'running' ? 'running now' : (r.due_at ?? 0) <= now ? 'runs now' : `runs ${new Date(r.due_at!).toISOString()} (${clock(r.due_at!)})`,
+          why: r.plan,
+        });
+      }
+      const paces = all<Pace>('SELECT * FROM action_pace WHERE (every_ms IS NOT NULL AND until > ?) OR held_since IS NOT NULL ORDER BY agent_id, tool', now)
+        .filter(p => keep(p) && (!account || p.account === account || p.account === '*'))
+        .map(p => ({
+          agent: p.agent_id,
+          tool: p.tool,
+          account: p.account === '*' ? 'each account' : p.account || '(its one account)',
+          pace: p.every_ms && p.until && p.until > now ? `${mins(p.every_ms)} apart until ${new Date(p.until).toISOString()}` : undefined,
+          why: p.why ?? undefined,
+          held: p.held_since ? { since: new Date(p.held_since).toISOString(), error: (p.held_error ?? '').slice(0, 300) } : undefined,
+        }));
+      const ran = all<{ agent_id: string; tool: string; account: string; hour: number; day: number; failed: number }>(
+        "SELECT agent_id, tool, account, SUM(ran_at > ?) AS hour, COUNT(*) AS day, SUM(exec_state IN ('failed', 'interrupted')) AS failed FROM approvals WHERE ran_at > ? AND exec_state IN ('done', 'failed', 'interrupted') GROUP BY agent_id, tool, account ORDER BY day DESC",
+        now - 3_600_000,
+        now - 86_400_000,
+      )
+        .filter(s => keep(s) && (!account || s.account === account))
+        .map(s => ({ agent: s.agent_id, tool: s.tool, account: s.account || '(its one account)', last_hour: s.hour, last_day: s.day, failed: s.failed || undefined }));
+      return json({ waiting: waiting.length, items, more: waiting.length > 100 ? waiting.length - 100 : undefined, paces, ran_lately: ran });
+    },
+  },
+  {
+    name: 'set_pace',
+    description:
+      "Space one agent's approved actions for a tool: at least every_minutes apart per account, for the next hours - approvals that come in meanwhile wait their turn instead of running at once (use it before approving a pile of emails from one mailbox). account: one account, or leave it out for each of the tool's accounts. every_minutes 0 removes the pace. Ones already approved keep their times (schedule_queue moves those).",
+    schema: obj(
+      {
+        agent_id: str('The agent id'),
+        tool: str('The tool id, e.g. zoho-mail-outreach.zohomail_send_mail (list_approvals and list_queue show them)'),
+        account: str('Optional: one account (list_queue shows them); default each account'),
+        every_minutes: num('At least this many minutes apart (0 removes the pace)'),
+        hours: num('For how long (default 24, at most 168)'),
+        why: str('Optional: shown on each action it delays'),
+      },
+      ['agent_id', 'tool', 'every_minutes'],
+    ),
+    run: async a => {
+      const { agentId, meta } = await agentOrThrow(a.agent_id);
+      await requireMakerOrAdmin(agentId, null, currentActor(), 'pace its actions');
+      const by = currentActor();
+      const every = Math.max(0, Number(a.every_minutes) || 0);
+      paceMine(agentId, { tool: a.tool, account: a.account, every_minutes: every, for_hours: a.hours ?? 24, why: String(a.why ?? '').trim() || `Set by ${by.name || 'a person'}` }, Date.now());
+      const acc = typeof a.account === 'string' && a.account.trim() ? ` on ${a.account.trim().toLowerCase()}` : ', on each account';
+      return every
+        ? `${meta.name}'s ${a.tool}${acc}: at least ${every} min apart for the next ${Math.min(168, Number(a.hours) || 24)} hours. Its agent sees the pace (approvals.queue_mine) and can change it.`
+        : `${meta.name}'s ${a.tool}${acc}: no pace; approved ones run as soon as they're approved.`;
+    },
+  },
+  {
+    name: 'schedule_queue',
+    description:
+      "Move approved actions that haven't run yet (list_queue): run them now, later (after delay_minutes), spread over over_minutes per account, or cancel them - by approval_ids, or every one of an agent, optionally only one tool or account. It also lets go of a hold after a failure, so use it once the cause is fixed (e.g. the mailbox is unblocked). The agent is told how they went once they've run.",
+    schema: obj(
+      {
+        agent_id: str('The agent whose actions these are'),
+        run: { type: 'string', enum: ['now', 'later', 'spread', 'cancel'] },
+        approval_ids: { type: 'array', items: { type: 'string' }, description: 'Optional: only these' },
+        tool: str('Optional: only this tool'),
+        account: str('Optional: only this account (as list_queue shows it)'),
+        delay_minutes: num('later / spread: start after this many minutes'),
+        over_minutes: num('spread: over this many minutes'),
+        why: str('Optional: shown on each one'),
+      },
+      ['agent_id', 'run'],
+    ),
+    run: async a => {
+      const { agentId, meta } = await agentOrThrow(a.agent_id);
+      await requireMakerOrAdmin(agentId, null, currentActor(), 'schedule its actions');
+      const by = currentActor();
+      const name = by.name || 'A person';
+      const before = scheduledRows().filter(r => r.agent_id === agentId).length;
+      scheduleMine(agentId, { ...a, why: String(a.why ?? '').trim() || `${name} ${a.run === 'cancel' ? 'cancelled' : 'rescheduled'} them` }, Date.now(), name);
+      const left = (scheduledRows() as QueuedRow[]).filter(r => r.agent_id === agentId);
+      const next = left.filter(r => r.exec_state === 'queued' && r.due_at).sort((x, y) => x.due_at! - y.due_at!)[0];
+      return a.run === 'cancel'
+        ? `Cancelled ${before - left.length} of ${meta.name}'s approved actions; they won't run (each says who cancelled it and why).`
+        : `${meta.name}: ${left.length} waiting to run${next ? `, next ${clock(next.due_at!)}` : ''}. Any hold on them is let go; one failing holds the rest of its account again. list_queue shows each.`;
     },
   },
 
@@ -700,6 +1164,12 @@ export const HINTS: Record<string, Hint> = {
   list_agents: { title: 'List agents', read: true },
   read_agent: { title: 'Read an agent', read: true },
   write_agent_file: { title: "Replace an agent's file", destructive: true, idempotent: true },
+  edit_agent_file: { title: "Edit part of an agent's file", destructive: true },
+  decide_approvals: { title: 'Approve or reject many actions', destructive: true, world: true },
+  usage: { title: 'What the agency cost', read: true },
+  list_queue: { title: 'Approved actions waiting to run', read: true },
+  set_pace: { title: "Space an agent's approved actions", idempotent: true },
+  schedule_queue: { title: 'Run, move or cancel approved actions', destructive: true, world: true },
   list_models: { title: 'List AI models', read: true },
   set_agent_models: { title: "Set an agent's models", idempotent: true },
   set_agent: { title: "Set an agent's ferocity or state", idempotent: true },
@@ -748,7 +1218,7 @@ async function runAs(actor: Actor, c: { name: string; args?: Record<string, unkn
   // Who did what (person_actions), as for the app's own changes; reads aren't changes.
   if (!HINTS[tool.name]?.read) recordAction(actor, 'MCP', tool.name, c.args ?? {});
   try {
-    return { content: await asActor(actor, () => tool.run(c.args ?? {})), error: false };
+    return { content: capResult(tool.name, await asActor(actor, () => tool.run(c.args ?? {}))), error: false };
   } catch (e) {
     return { content: (e as Error).message, error: true };
   }
