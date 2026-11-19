@@ -30,7 +30,8 @@ import { isAccountAsk } from './accounts.js';
 import { listBrowsers, openConnectPage, pairCode, removeBrowser, renameBrowser, storeLinks } from './browser-link.js';
 import { createProfile, openProfile, profilesAvailable } from './agent-profiles.js';
 import { control, frame, input, liveState, openForPerson } from './live-view.js';
-import { deletePassword, listPasswords, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
+import { deletePassword, listPasswords, passwordRow, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
+import { hasPassword, signInOf, signInWords } from './signin.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
 import { BUILT_IN_IDS, HELPER_IDS } from './helpers.js';
@@ -797,6 +798,9 @@ export const runnerRoutes: Record<string, Route> = {
   'GET /api/passwords': async () => ({ passwords: listPasswords(), profiles: listBrowsers().map(b => b.n) }),
   'POST /api/passwords/reveal': async (_req, _q, body) => {
     const { id } = await body<{ id: string }>();
+    // An account with no password (an emailed code, Google, a company sign-in) says how it signs in instead.
+    const row = passwordRow(id);
+    if (row && !hasPassword(row)) return { password: `No password - signs in with ${signInWords(signInOf(row))}` };
     return { password: await readPassword(id) };
   },
   // An account a person already has, for agents to use: in the first profile with room on that site.

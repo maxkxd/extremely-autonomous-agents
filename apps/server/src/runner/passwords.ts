@@ -1,6 +1,7 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import { deleteSecret, getSecret, setSecret } from '../vault.js';
 import { all, one, run as exec } from './db.js';
+import { hasPassword, signInOf, signInWords, type SignIn } from './signin.js';
 
 // The agents' password store: accounts agents sign up for (and ones a person adds),
 // for the signed-in browser. The password is sealed in the vault; agents never see
@@ -22,7 +23,11 @@ export const ACCOUNTS_PER_SITE = 10;
 // account_id: the account a sign-up's password is for (accounts.ts). Until that account
 // is seen working the password is hidden from every list here - it isn't an account
 // yet, and may never be: the store only shows accounts that exist.
-export type PasswordRow = { id: string; site: string; username: string; profile: number; agent_id: string | null; note: string | null; created_at: number; confirmed_at: number | null; account_id: string | null };
+//
+// method/provider: how the account signs in (signin.ts). Only a password account has
+// a password in the vault; the others are here as "signs in with X" so a run knows
+// how to get back in.
+export type PasswordRow = { id: string; site: string; username: string; profile: number; agent_id: string | null; note: string | null; created_at: number; confirmed_at: number | null; account_id: string | null; method: string | null; provider: string | null };
 const SHOWN = '(account_id IS NULL OR confirmed_at IS NOT NULL)';
 
 // "https://www.LinkedIn.com/login" -> "linkedin.com"; "YouTube" -> "youtube.com" is
@@ -69,11 +74,17 @@ export function moveProfilePasswords(from: number, to: number, before: number): 
   return Number(exec('UPDATE passwords SET profile = ? WHERE profile = ? AND created_at < ?', to, from, before).changes);
 }
 
-export async function savePassword(p: { site: string; username: string; password: string; profile: number; agentId: string | null; note?: string | null; confirmed?: boolean; accountId?: string | null }) {
+// signIn: an account with no password (an emailed code, Google, a company's sign-in):
+// saved without one, and nothing goes in the vault.
+export async function savePassword(p: { site: string; username: string; password?: string | null; signIn?: SignIn; profile: number; agentId: string | null; note?: string | null; confirmed?: boolean; accountId?: string | null }) {
   const id = randomBytes(6).toString('hex');
-  await setSecret(`pw:${id}`, p.password);
+  const how = p.signIn ?? { method: 'password', provider: null };
+  if (how.method === 'password') {
+    if (!p.password) throw new Error('A password account needs its password.');
+    await setSecret(`pw:${id}`, p.password);
+  }
   exec(
-    'INSERT INTO passwords (id, site, username, profile, agent_id, note, created_at, confirmed_at, account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO passwords (id, site, username, profile, agent_id, note, created_at, confirmed_at, account_id, method, provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     id,
     siteOf(p.site),
     p.username.trim(),
@@ -83,6 +94,8 @@ export async function savePassword(p: { site: string; username: string; password
     Date.now(),
     p.confirmed ? Date.now() : null,
     p.accountId ?? null,
+    how.method === 'password' ? null : how.method,
+    how.provider,
   );
   return id;
 }
@@ -102,8 +115,12 @@ export const listPasswords = (site?: string | null) =>
 
 export const passwordRow = (id: string) => one<PasswordRow>('SELECT * FROM passwords WHERE id = ?', String(id ?? '').replace(/^#/, ''));
 
+// What the account signs in with, for one that has no password to type or show.
+export const noPasswordWords = (row: PasswordRow) => `#${row.id} (${row.username} at ${row.site}) has no password: it signs in with ${signInWords(signInOf(row))}.`;
+
 export async function readPassword(id: string): Promise<string> {
   const row = passwordRow(id);
+  if (row && !hasPassword(row)) throw new Error(`${noPasswordWords(row)} Don't type a password for it.`);
   const pw = row ? await getSecret<string>(`pw:${row.id}`) : null;
   if (!row || !pw) throw new Error(`No password #${id}. signed_in_browser.passwords lists them.`);
   return pw;

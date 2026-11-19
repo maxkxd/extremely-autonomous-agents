@@ -53,12 +53,33 @@ Rules the app enforces, whatever the agent says:
 - **Only a person ends one.** Turning its request down cancels the accounts in
   it. The Agency Engineer can cancel one too, with the person's own words.
 
+## How an account signs in
+
+Not every site has a password box. The agent says how each one signs in, when it
+writes the account down or at `start_sign_up` (`sign_in`, plus `provider`):
+
+| `sign_in` | The site | What's different |
+|---|---|---|
+| `password` (default) | Has a password box | Everything above |
+| `email_code` | Emails a code or a sign-in link | No password is made. The agent reads the code from the inbox, or asks the person |
+| `sso` | "Continue with Google / GitHub / Microsoft / Apple / Meta..." | No password. The provider's account must be signed in in that browser |
+| `company_sso` | Sends a work account to the company's own sign-in (Entra ID, Okta, Google Workspace, SAML) | No password. Agents can't make the identity: it's a person's work account or one their IT made. Their password or MFA goes through `show_person`, never typed by the agent |
+
+Accounts with no password are checked the same way: `check_account` reads the page.
+The only thing skipped is "the password went in as typed". A page still on the
+provider's own sign-in (accounts.google.com, login.microsoftonline.com, an Okta
+domain) is named as such and isn't `working`. Once `working`, the account goes
+into the password store as "signs in with X". `type_password` on it fails and says
+how to sign in instead. Switching a try from a password to no password throws the
+earlier password away. How each sign-in is named and recognised is in
+`apps/server/src/runner/signin.ts`.
+
 ## The tools
 
 | Tool | What it does |
 |---|---|
 | `signed_in_browser.accounts` | Lists what's owed and what works. `need` writes down every account, all at once |
-| `signed_in_browser.start_sign_up` | Makes the hidden password and says which browser to use |
+| `signed_in_browser.start_sign_up` | Says which browser to use and, for a password account, makes the hidden password. `sign_in` says how the site signs in |
 | `signed_in_browser.type_password` | Types it, and records whether the field kept it |
 | `signed_in_browser.check_account` | The app reads the page. The only way an account becomes `working` |
 | `signed_in_browser.show_person` | With `account_id`: keeps the page for the person, without asking yet |

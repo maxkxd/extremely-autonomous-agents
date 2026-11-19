@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { FLEET_ENGINEER } from './agent.js';
 import { all, one, run as exec } from './db.js';
 import { deletePassword, passwordRow, savePassword, siteOf, makePassword } from './passwords.js';
+import { providerName, providerPage, signInOf, signInWords, type SignIn } from './signin.js';
 
 // The accounts agents owe (docs/accounts.md): every website account an agent has to
 // have - one it was built to need, or one it said it needs - is written down here
@@ -21,6 +22,10 @@ import { deletePassword, passwordRow, savePassword, siteOf, makePassword } from 
 //     account (it was typed into the site): the next try signs in with it first. The
 //     site says there's no such account: it's deleted and a new one made.
 //   - Only a person ends it: turning the request down cancels the accounts in it.
+//   - Not every account has a password (signin.ts): one that signs in by an emailed
+//     code, with Google/GitHub/Microsoft..., or through a company's own sign-in is
+//     checked the same way - the app reads the signed-in page - only without the
+//     "the password went in as typed" part. It joins the store as "signs in with X".
 //
 // States:
 //   needed    nobody is on it (never started, or the last try failed)
@@ -42,6 +47,8 @@ export type AccountRow = {
   password_id: string | null; // this try's password (hidden from the store until working)
   typed_ok: number | null; // the password was read back as typed, this try
   typed_host: string | null; // where it was typed (a sign-up often lives on another host)
+  method: string | null; // how it signs in (signin.ts); null: password
+  provider: string | null; // sso / company_sso: whose sign-in
   attempts: number; // tries that failed
   last_error: string | null;
   run_id: string | null; // the run signing up now (started)
@@ -86,7 +93,7 @@ export const canWork = (row: AccountRow, agentId: string) => agentId === FLEET_E
 
 // Written down as needed: once per site and purpose for an agent (asked for again, it's
 // the same account - a cancelled one is owed again only when asked for anew).
-export function needAccounts(agentId: string, list: { site: string; purpose: string }[], now: number, setupRequest: number | null = null): AccountRow[] {
+export function needAccounts(agentId: string, list: { site: string; purpose: string; signIn?: SignIn }[], now: number, setupRequest: number | null = null): AccountRow[] {
   const out: AccountRow[] = [];
   for (const a of list) {
     const site = siteOf(a.site);
@@ -94,12 +101,13 @@ export function needAccounts(agentId: string, list: { site: string; purpose: str
     const had = one<AccountRow>("SELECT * FROM accounts WHERE agent_id = ? AND site = ? AND LOWER(purpose) = LOWER(?) AND state != 'cancelled'", agentId, site, purpose);
     if (had) {
       if (setupRequest != null && had.setup_request == null) exec('UPDATE accounts SET setup_request = ? WHERE id = ?', setupRequest, had.id);
+      if (a.signIn && had.state !== 'working') exec('UPDATE accounts SET method = ?, provider = ? WHERE id = ?', a.signIn.method === 'password' ? null : a.signIn.method, a.signIn.provider, had.id);
       out.push(accountRow(had.id)!);
       continue;
     }
     const id = newId();
     exec(
-      "INSERT INTO accounts (id, agent_id, site, purpose, state, attempts, setup_request, next_try_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'needed', 0, ?, ?, ?, ?)",
+      "INSERT INTO accounts (id, agent_id, site, purpose, state, attempts, setup_request, next_try_at, created_at, updated_at, method, provider) VALUES (?, ?, ?, ?, 'needed', 0, ?, ?, ?, ?, ?, ?)",
       id,
       agentId,
       site,
@@ -108,6 +116,8 @@ export function needAccounts(agentId: string, list: { site: string; purpose: str
       now,
       now,
       now,
+      a.signIn && a.signIn.method !== 'password' ? a.signIn.method : null,
+      a.signIn?.provider ?? null,
     );
     out.push(accountRow(id)!);
   }
@@ -132,20 +142,32 @@ export const retryIn = (attempts: number) => RETRY_MS[Math.min(Math.max(0, attem
 // account without anyone seeing it: that password is kept and the agent signs in with
 // it first (reuse). Otherwise - nothing typed, or the agent saw the site say there's no
 // such account (fresh) - the old one is deleted and a new one made.
-export async function startAttempt(id: string, p: { username: string; browser: number; runId: string; fresh?: boolean; now: number }): Promise<{ row: AccountRow; passwordId: string; reuse: boolean }> {
+//
+// signIn: how it signs in (left out: as it was written down, else a password). An
+// account with no password still gets its store entry now - hidden, with nothing in
+// the vault - so it counts toward its browser's accounts on that site like any other.
+// Changing how it signs in throws away the earlier try's password (dropped: the site
+// was seen to have none).
+export async function startAttempt(id: string, p: { username: string; browser: number; runId: string; fresh?: boolean; signIn?: SignIn; now: number }): Promise<{ row: AccountRow; passwordId: string; reuse: boolean; dropped: boolean }> {
   const row = accountRow(id);
   if (!row) throw new Error(`No account ${id}. signed_in_browser.accounts lists yours.`);
   if (row.state === 'working') throw new Error(`${row.id} (${row.username} at ${row.site}) is already working: sign in with it (signed_in_browser.passwords has its password number).`);
   if (row.state === 'cancelled') throw new Error(`${row.id} was cancelled by a person. Don't make it.`);
   const username = p.username.trim();
   if (!username) throw new Error('Give the username or email address the account will use.');
+  const was = signInOf(row);
+  const how = p.signIn ?? was;
+  const withPassword = how.method === 'password';
   const old = row.password_id ? passwordRow(row.password_id) : undefined;
-  const reuse = !!old && !!row.typed_ok && !p.fresh && (row.username ?? '').toLowerCase() === username.toLowerCase();
+  const sameWay = how.method === was.method && how.provider === was.provider;
+  const reuse = withPassword && sameWay && !!old && !!row.typed_ok && !p.fresh && (row.username ?? '').toLowerCase() === username.toLowerCase();
+  const dropped = !sameWay && was.method === 'password' && !!old && !!row.typed_ok;
   let passwordId = old?.id ?? '';
   if (!reuse) {
     if (old) await deletePassword(old.id);
-    passwordId = await savePassword({ site: row.site, username, password: makePassword(), profile: p.browser, agentId: row.agent_id, note: row.purpose, accountId: row.id });
+    passwordId = await savePassword({ site: row.site, username, password: withPassword ? makePassword() : null, signIn: how, profile: p.browser, agentId: row.agent_id, note: row.purpose, accountId: row.id });
   }
+  exec('UPDATE accounts SET method = ?, provider = ? WHERE id = ?', withPassword ? null : how.method, how.provider, row.id);
   exec(
     "UPDATE accounts SET state = 'started', username = ?, browser = ?, password_id = ?, typed_ok = ?, typed_host = ?, run_id = ?, request_id = NULL, updated_at = ? WHERE id = ?",
     username,
@@ -157,7 +179,7 @@ export async function startAttempt(id: string, p: { username: string; browser: n
     p.now,
     row.id,
   );
-  return { row: accountRow(row.id)!, passwordId, reuse };
+  return { row: accountRow(row.id)!, passwordId, reuse, dropped };
 }
 
 // A store password was typed into a page: whether the field kept it, and on which host.
@@ -237,14 +259,22 @@ const SIGN_OUT = /\b(log|sign)[\s-]?out\b|logout|signout|sign_out|log_out/i;
 // Whether the page shows this account signed in and working: every reason it doesn't,
 // in the agent's words. Empty means it does. Deliberately strict, and never the
 // agent's own claim: a wrong "working" is an account that doesn't exist in the store.
-export function judgeAccountPage(row: Pick<AccountRow, 'site' | 'username' | 'typed_ok' | 'typed_host' | 'password_id'>, page: PageFacts): string[] {
+export function judgeAccountPage(row: Pick<AccountRow, 'site' | 'username' | 'typed_ok' | 'typed_host' | 'password_id'> & Partial<Pick<AccountRow, 'method' | 'provider'>>, page: PageFacts): string[] {
   const problems: string[] = [];
   if (!row.password_id || !row.username) return ["No sign-up has been started for it: signed_in_browser.start_sign_up first."];
-  if (!row.typed_ok)
+  const how = signInOf(row);
+  // Only a password account has a password to have gone in: the rest are judged by the page alone.
+  if (how.method === 'password' && !row.typed_ok)
     problems.push("Its password never went into the site as typed (signed_in_browser.type_password hasn't put it in a password field that kept it), so whatever account the site may have made doesn't have the store's password. Type it with type_password on the sign-up form (both boxes, if it asks twice) and submit again - or start_sign_up again with new_password true.");
   const host = hostOf(page.url);
   const sites = new Set([baseDomain(row.site), row.typed_host ? baseDomain(row.typed_host) : ''].filter(Boolean));
-  if (!host || !sites.has(baseDomain(host))) problems.push(`This page (${host || 'no address'}) isn't on ${row.site}. Open the account's own page there - its profile, settings or home page - and check again.`);
+  const idp = host ? providerPage(host, baseDomain(row.site)) : null;
+  if (!host || !sites.has(baseDomain(host)))
+    problems.push(
+      idp
+        ? `This page is ${idp}'s sign-in (${host}), not ${row.site}: the sign-in isn't finished. Finish it there (pick the account, allow access - or show_person with the account_id if it needs a password, an authenticator or a phone you don't have); it sends you back to ${row.site}. Then open the account's profile or settings page there and check again.`
+        : `This page (${host || 'no address'}) isn't on ${row.site}. Open the account's own page there - its profile, settings or home page - and check again.`,
+    );
   if (page.passwordFields > 0) problems.push('This page still shows a password box, so it is a sign-up or sign-in form, not the account signed in. If the form is still waiting to be sent, finish it; otherwise open the account\'s profile or settings page and check again.');
   let path = '';
   try {
@@ -252,7 +282,8 @@ export function judgeAccountPage(row: Pick<AccountRow, 'site' | 'username' | 'ty
   } catch {
     // no address: said above
   }
-  if (STILL_SIGNING.test(path)) problems.push(`This address (${path.slice(0, 80)}) is still part of signing up, signing in or a verification step. Finish that step (a code from the inbox, a link to press), then open the account's profile or settings page and check again.`);
+  const step = how.method === 'email_code' ? `the code or link emailed to ${row.username}` : how.method === 'password' ? 'a code from the inbox, a link to press' : `the ${providerName(how.provider)} sign-in, then anything ${row.site} still asks`;
+  if (STILL_SIGNING.test(path)) problems.push(`This address (${path.slice(0, 80)}) is still part of signing up, signing in or a verification step. Finish that step (${step}), then open the account's profile or settings page and check again.`);
   // The email address in full, or a username as a word of its own ("@northside", not
   // the "sales" in "salesforce"): the start of an email address is too often a plain word.
   const name = row.username.toLowerCase();
@@ -285,7 +316,7 @@ function settleSetupRequest(request: number | null, now: number) {
   if (!made.length) return;
   exec(
     "UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ? AND status = 'open'",
-    `Made and seen working: ${made.map(r => `${r.username} at ${r.site}`).join(', ')}. ${made.length === 1 ? 'Its password is' : 'Their passwords are'} in the password store (signed_in_browser.passwords).`,
+    `Made and seen working: ${made.map(r => `${r.username} at ${r.site}${r.method ? ` (signs in with ${signInWords(signInOf(r))})` : ''}`).join(', ')}. ${made.length === 1 ? 'It is' : 'They are'} in the password store (signed_in_browser.passwords).`,
     now,
     request,
   );
@@ -304,7 +335,9 @@ const STATE_WORDS: Record<AccountState, string> = {
 export function accountLine(r: AccountRow, withAgent = false): string {
   const tried = r.attempts ? ` - ${r.attempts} ${r.attempts === 1 ? 'try' : 'tries'} failed, last: ${r.last_error ?? 'no reason recorded'}` : '';
   const had = r.state === 'needed' && r.password_id ? ` An earlier try may have made it as ${r.username}: start_sign_up with that username signs in with it first.` : '';
-  return `- ${r.id} ${r.site}${withAgent ? ` for ${r.agent_id}` : ''}: ${r.purpose}${r.username ? ` (${r.username})` : ''} - ${STATE_WORDS[r.state]}${tried}.${had}`;
+  const how = r.method ? `signs in with ${signInWords(signInOf(r))}` : '';
+  const who = [r.username, how].filter(Boolean).join(', ');
+  return `- ${r.id} ${r.site}${withAgent ? ` for ${r.agent_id}` : ''}: ${r.purpose}${who ? ` (${who})` : ''} - ${STATE_WORDS[r.state]}${tried}.${had}`;
 }
 
 // The accounts section of a run's instructions: the app's own record, so an agent can
@@ -316,7 +349,7 @@ export function accountsForPrompt(workerId: string): string {
   return `## Accounts you owe
 The app's own record - it, not your memory or an earlier summary, says what exists. Each stays here until the app has seen it working (signed_in_browser.check_account) or a person cancels it. An account not marked working does not exist: never say it does.
 ${owed.map(r => accountLine(r, forOthers)).join('\n')}
-Work through all of them in one go: start_sign_up, fill the form, type_password, submit; at a check only a person can do, show_person with its account_id and go straight on to the next account. When every one is working or waiting on the person, call signed_in_browser.wait_for_person once: it hands the person all the waiting pages in ONE request and waits for them.`;
+Work through all of them in one go: start_sign_up (with sign_in: how the site signs in - a password, a code emailed to it, "Sign in with Google/GitHub/Microsoft...", or a company's own sign-in), fill the form, type_password if it has one, submit; at a check only a person can do, show_person with its account_id and go straight on to the next account. When every one is working or waiting on the person, call signed_in_browser.wait_for_person once: it hands the person all the waiting pages in ONE request and waits for them.`;
 }
 
 // --- Keeping at it (scheduler.ts) ---------------------------------------------------------

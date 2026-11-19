@@ -71,6 +71,13 @@ export function openDb(path = FILE): DatabaseSync {
     'ALTER TABLE passwords ADD COLUMN confirmed_at INTEGER',
     // The account a sign-up's password is for (accounts.ts): hidden from the store until it works.
     'ALTER TABLE passwords ADD COLUMN account_id TEXT',
+    // How an account signs in (signin.ts): password (NULL too), email_code, sso or
+    // company_sso, and for SSO whose sign-in it is (google, github, microsoft, okta...).
+    // Only a password account has a secret in the vault.
+    'ALTER TABLE passwords ADD COLUMN method TEXT',
+    'ALTER TABLE passwords ADD COLUMN provider TEXT',
+    'ALTER TABLE accounts ADD COLUMN method TEXT',
+    'ALTER TABLE accounts ADD COLUMN provider TEXT',
     // A person added those themselves: they work.
     'UPDATE passwords SET confirmed_at = created_at WHERE agent_id IS NULL AND confirmed_at IS NULL',
     // Messages to the Engineer from before: whoever wrote them.
@@ -322,7 +329,9 @@ CREATE TABLE IF NOT EXISTS passwords (
   profile INTEGER NOT NULL,         -- the browser profile it's signed in to
   agent_id TEXT,                    -- who made it; NULL: a person added it
   note TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  method TEXT,                      -- how it signs in (signin.ts); NULL: password
+  provider TEXT
 );
 
 -- The accounts agents owe (runner/accounts.ts): each website account an agent has to
@@ -339,6 +348,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   password_id TEXT,                 -- this try's password (passwords.id), hidden until working
   typed_ok INTEGER,                 -- that password was read back as typed, this try
   typed_host TEXT,                  -- the host it was typed on
+  method TEXT,                      -- how it signs in (signin.ts); NULL: password
+  provider TEXT,                    -- sso / company_sso: whose sign-in (google, okta...)
   attempts INTEGER NOT NULL DEFAULT 0, -- tries that failed
   last_error TEXT,
   run_id TEXT,                      -- the run signing up now

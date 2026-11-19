@@ -13,7 +13,8 @@ import { fileRequest, inWorkspace, onApprovalSettled, onRunEnd, registerTools, t
 import { readable } from './web.js';
 import { all, one, run as exec } from './db.js';
 import { setKeptPageCheck } from './kept-pages.js';
-import { ACCOUNTS_PER_SITE, accountsIn, listPasswords, passwordRow, profileFor, readPassword, siteOf } from './passwords.js';
+import { ACCOUNTS_PER_SITE, accountsIn, listPasswords, noPasswordWords, passwordRow, profileFor, readPassword, siteOf } from './passwords.js';
+import { hasPassword, howToSignIn, parseSignIn, signInOf, signInWords } from './signin.js';
 import {
   accountLine,
   accountRow,
@@ -1144,6 +1145,18 @@ export async function openPersonTab(raw: unknown, url: string) {
     sh.opening--;
   }
 }
+
+// How an account signs in (signin.ts), for accounts and start_sign_up.
+const SIGN_IN_ARG = {
+  type: 'string',
+  enum: ['password', 'email_code', 'sso', 'company_sso'],
+  description:
+    'How the site signs in: password (a password box - the default); email_code (no password box, a code or sign-in link is emailed); sso ("Continue with Google/GitHub/Microsoft/Apple/Meta..."; give provider); company_sso (a work site that sends you to the company\'s own sign-in - Entra ID, Okta...; give provider)',
+};
+const PROVIDER_ARG = {
+  type: 'string',
+  description: 'With sso: google, github, microsoft, apple, meta, linkedin, x, discord, gitlab, slack... With company_sso: entra (Microsoft Entra ID / Azure AD / Office 365), okta, google_workspace, onelogin, or the name its page shows',
+};
 
 const UNCONFIRMED = "Not confirmed: saved before the app checked sign-ups itself, so the account may not exist. Before you use one, or ask a person to: sign in with it, open its profile or settings page, and call signed_in_browser.check_account with its password_id - the app confirms it, or says why not. If the site says there's no such account, it was never made.";
 
@@ -2879,7 +2892,16 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
           need: {
             type: 'array',
             description: 'Accounts to write down as needed, all of them at once',
-            items: { type: 'object', properties: { site: { type: 'string', description: 'The site, e.g. x.com' }, purpose: { type: 'string', description: 'What this one is for, so two on one site are told apart: "Northside Bikes brand account", "outreach account 3"' } }, required: ['site', 'purpose'] },
+            items: {
+              type: 'object',
+              properties: {
+                site: { type: 'string', description: 'The site, e.g. x.com' },
+                purpose: { type: 'string', description: 'What this one is for, so two on one site are told apart: "Northside Bikes brand account", "outreach account 3"' },
+                sign_in: SIGN_IN_ARG,
+                provider: PROVIDER_ARG,
+              },
+              required: ['site', 'purpose'],
+            },
           },
           for_agent: { type: 'string', description: "Agency Engineer only: the agent whose accounts these are (a new agent's, made during its setup)" },
           cancel: { type: 'array', items: { type: 'string' }, description: 'Agency Engineer only: account ids a person said they no longer want' },
@@ -2900,10 +2922,11 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
           if (!String(a.person_said ?? '').trim()) throw new Error("Give person_said: the person's own words saying they don't want it. Without them it stays owed.");
           for (const id of cancel) said.push((await cancelAccount(id, `A person said: ${String(a.person_said).trim()}`, now)) ? `${id} is cancelled.` : `${id} wasn't cancelled (no such account, or it already works or is cancelled).`);
         }
-        const need = (Array.isArray(a.need) ? a.need : []).filter((x): x is { site: string; purpose: string } => !!x && typeof x === 'object' && typeof (x as { site?: unknown }).site === 'string');
+        const need = (Array.isArray(a.need) ? a.need : []).filter((x): x is { site: string; purpose: string; sign_in?: unknown; provider?: unknown } => !!x && typeof x === 'object' && typeof (x as { site?: unknown }).site === 'string');
         if (need.length > 60) throw new Error('Up to 60 at a time.');
         if (need.length) {
-          const rows = needAccounts(owner, need.map(x => ({ site: String(x.site), purpose: String(x.purpose ?? '') })), now);
+          const list = need.map(x => ({ site: String(x.site), purpose: String(x.purpose ?? ''), signIn: x.sign_in != null && String(x.sign_in).trim() ? parseSignIn(x.sign_in, x.provider) : undefined }));
+          const rows = needAccounts(owner, list, now);
           said.push(`Written down: ${rows.length} account${rows.length === 1 ? '' : 's'}${owner !== ctx.agent.id ? ` for ${owner}` : ''}.`);
         }
         const mine = owner !== ctx.agent.id ? accountsOf(owner).filter(r => r.state !== 'working' && r.state !== 'cancelled') : accountsOwed(ctx.agent.id);
@@ -2912,9 +2935,11 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
         return [
           ...said,
           mine.length ? `Owed (${mine.length}):\n${mine.map(r => accountLine(r, others)).join('\n')}` : 'Nothing owed.',
-          working.length ? `Working (${working.length}):\n${working.map(r => `- ${r.id} ${r.site}: ${r.username} (password #${r.password_id}, browser ${r.browser ?? '?'}) - ${r.purpose}`).join('\n')}` : '',
+          working.length
+            ? `Working (${working.length}):\n${working.map(r => `- ${r.id} ${r.site}: ${r.username} (${hasPassword(r) ? `password #${r.password_id}` : `signs in with ${signInWords(signInOf(r))}, store #${r.password_id}`}, browser ${r.browser ?? '?'}) - ${r.purpose}`).join('\n')}`
+            : '',
           mine.some(r => r.state === 'needed' || r.state === 'returned')
-            ? 'Do them all in one go: for each, start_sign_up, fill the form, type_password, submit, and check_account once it is signed in. At a check only a person can do: show_person with its account_id, and on to the next. When every one is working or kept for the person, wait_for_person - once.'
+            ? 'Do them all in one go: for each, start_sign_up (sign_in: how the site signs in), fill the form, type_password if it has a password, submit, and check_account once it is signed in. At a check only a person can do: show_person with its account_id, and on to the next. When every one is working or kept for the person, wait_for_person - once.'
             : '',
         ]
           .filter(Boolean)
@@ -2924,12 +2949,14 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
     {
       id: 'signed_in_browser.start_sign_up',
       tier: 'T1',
-      description: `Start signing up for one of the accounts you owe (signed_in_browser.accounts): makes a strong password, kept hidden until the account is seen working - you never see it - and says which browser to sign up in (a browser holds up to ${ACCOUNTS_PER_SITE} accounts on one site). Then fill the site's form and type the password with type_password. If an earlier try already put a password into the site, the account may exist: it says so, and you sign in with that one first. new_password true: you saw the site say there is no such account (or the password is wrong) - the old one is thrown away and a new one made. You choose where: browser names one (a person's own browser too, for access only it has), new_profile true makes a fresh agents' profile; left out, the first browser with room.`,
+      description: `Start signing up for one of the accounts you owe (signed_in_browser.accounts): says which browser to sign up in (a browser holds up to ${ACCOUNTS_PER_SITE} accounts on one site) and, for a password account, makes a strong password, kept hidden until the account is seen working - you never see it. Then fill the site's form and type the password with type_password. sign_in says how the site signs in - look at its sign-up and sign-in pages first: "password" (the default), "email_code" (no password box: a code or link is emailed), "sso" with provider (only "Continue with Google/GitHub/Microsoft/Apple/Meta..." - or you choose that button over a password), "company_sso" with provider (a work site that sends you to the company's own sign-in: Microsoft Entra ID, Okta, Google Workspace...). The ones with no password are checked the same way, by the page. If an earlier try already put a password into the site, the account may exist: it says so, and you sign in with that one first. new_password true: you saw the site say there is no such account (or the password is wrong) - the old one is thrown away and a new one made. You choose where: browser names one (a person's own browser too, for access only it has), new_profile true makes a fresh agents' profile; left out, the first browser with room.`,
       schema: obj(
         {
           account_id: { type: 'string', description: 'The account, from signed_in_browser.accounts' },
           username: { type: 'string', description: 'The username or email address the account will use' },
           new_password: { type: 'boolean', description: "True only after the site said the earlier try's account doesn't exist" },
+          sign_in: SIGN_IN_ARG,
+          provider: PROVIDER_ARG,
           browser: { type: 'string', description: "Sign up in this browser: its number or name - a person's own one too, when the account needs something only it has (their sign-in, their access). Leave it out and the app picks the first with room." },
           new_profile: { type: 'boolean', description: "True: make a new agents' profile, with nobody's accounts in it, and sign up there." },
         },
@@ -2939,6 +2966,7 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
         const row = ownAccount(ctx, a.account_id);
         const username = String(a.username ?? '').trim();
         if (!username) throw new Error('Give the username or email address the account will use.');
+        const signIn = a.sign_in != null && String(a.sign_in).trim() ? parseSignIn(a.sign_in, a.provider) : a.provider != null && String(a.provider).trim() ? parseSignIn('sso', a.provider) : undefined;
         if (a.new_profile === true && a.browser != null && String(a.browser).trim() !== '') throw new Error('Give browser or new_profile, not both.');
         const browsers = pairedBrowsers();
         const paired = browsers.map(b => b.n);
@@ -2976,8 +3004,13 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
             ? `\n\nNote: ${label(b)} is a person's own browser, with their own accounts signed in - a new account made there sits beside theirs (the site may link the two). Fine when this account needs something only that browser has. If not, call start_sign_up again with new_profile true for a clean agents' profile, before typing anything.`
             : '';
         };
-        const t = await startAttempt(row.id, { username, browser: n, runId: ctx.runId, fresh: a.new_password === true, now: ctx.now() });
+        const t = await startAttempt(row.id, { username, browser: n, runId: ctx.runId, fresh: a.new_password === true, signIn, now: ctx.now() });
         const b = t.row.browser ?? n;
+        const how = signInOf(t.row);
+        if (how.method !== 'password') {
+          const dropped = t.dropped ? ' The earlier try\'s password is thrown away: this account has none.' : '';
+          return `${row.id}: started for ${username} at ${row.site}, signing in with ${signInWords(how)} - nothing to type with type_password.${dropped} Work in ${label(b)}: pass browser ${b} to the signed_in_browser tools. ${howToSignIn(how, username, row.site)} Signed in: open the account's profile or settings page on ${row.site} and call signed_in_browser.check_account with "${row.id}" - only that makes it working.${personal(b)}`;
+        }
         if (t.reuse)
           return `${row.id}: an earlier try already typed a password into ${row.site} as ${username}, so the account may exist. Don't sign up again yet: in ${label(b)} (pass browser ${b}), open ${row.site}'s sign-in page and sign in as ${username}, typing the password with signed_in_browser.type_password, password_id "${t.passwordId}". Signed in: finish anything it still asks, open the profile or settings page, and signed_in_browser.check_account. The site says there's no such account, or the password is wrong: call start_sign_up again with new_password true, and sign up afresh.`;
         return `${row.id}: password #${t.passwordId} made for ${username} at ${row.site}. It is NOT in the password store yet - it joins it only when the app has seen the account working. Sign up in ${label(b)}: pass browser ${b} to the signed_in_browser tools, fill the form, and type the password with signed_in_browser.type_password, password_id "${t.passwordId}" (in both boxes if it asks twice). Then submit. Signed in: open the account's profile or settings page and call signed_in_browser.check_account with "${row.id}". Stopped by something only a person can do: signed_in_browser.show_person with account_id "${row.id}", then straight on to your next account.${personal(b)}`;
@@ -2990,6 +3023,7 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       schema: obj({ ref: { type: 'number' }, password_id: { type: 'string', description: 'The password number from start_sign_up or passwords' }, submit: { type: 'boolean' }, browser: BROWSER_ARG }, ['ref', 'password_id']),
       impl: async (a, ctx) => {
         const row = passwordRow(String(a.password_id ?? ''));
+        if (row && !hasPassword(row)) throw new Error(`${noPasswordWords(row)} ${howToSignIn(signInOf(row), row.username, row.site)}`);
         const s = await session(ctx, whichBrowser(ctx, browserArg(a) ?? row?.profile));
         await stopIfWindowClosed(s);
         const typed = await s.page.fill(Number(a.ref), await readPassword(String(a.password_id ?? '')));
@@ -3009,7 +3043,7 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       impl: async a => {
         const rows = listPasswords(a.site ? String(a.site) : null);
         if (!rows.length) return 'No accounts in the store yet.';
-        const list = rows.map(r => `#${r.id} ${r.site} - ${r.username} (browser ${r.profile})${r.confirmed_at ? '' : ' - NOT CONFIRMED'}${r.note ? ` - ${r.note}` : ''}`).join('\n');
+        const list = rows.map(r => `#${r.id} ${r.site} - ${r.username} (browser ${r.profile})${hasPassword(r) ? '' : ` - no password, signs in with ${signInWords(signInOf(r))}`}${r.confirmed_at ? '' : ' - NOT CONFIRMED'}${r.note ? ` - ${r.note}` : ''}`).join('\n');
         return rows.some(r => !r.confirmed_at) ? `${list}\n\n${UNCONFIRMED}` : list;
       },
     },
@@ -3017,7 +3051,7 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
       id: 'signed_in_browser.check_account',
       tier: 'T1',
       description:
-        "Have the app check that an account you signed up for really works - the only way one becomes working and its password joins the store. Call it on a page of that site where the account shows signed in (its profile, account settings, or home page). The app reads the page itself: it must be on that site, show no sign-up or sign-in form, show the account signed in, and the password must have gone in as typed. It says working, or exactly what's missing - then fix that and check again. Your own word that a sign-up worked counts for nothing: unchecked, the account does not exist. password_id instead: an old NOT CONFIRMED store account, after signing in with it.",
+        "Have the app check that an account you signed up for really works - the only way one becomes working and its password joins the store. Call it on a page of that site where the account shows signed in (its profile, account settings, or home page). The app reads the page itself: it must be on that site (not Google's or the company's sign-in page), show no sign-up or sign-in form, show the account signed in, and - for a password account - the password must have gone in as typed. It says working, or exactly what's missing - then fix that and check again. Your own word that a sign-up worked counts for nothing: unchecked, the account does not exist. password_id instead: an old NOT CONFIRMED store account, after signing in with it.",
       schema: obj({ account_id: { type: 'string', description: 'The account, from signed_in_browser.accounts' }, password_id: { type: 'string', description: 'Or, for an old store account marked NOT CONFIRMED: its password number' }, browser: BROWSER_ARG }, []),
       impl: async (a, ctx) => {
         const now = ctx.now();
@@ -3053,7 +3087,8 @@ function signedInOnly(where: string, click: ToolDef['impl']): ToolDef[] {
         }
         const done = markWorking(row.id, now);
         const left = accountsOwed(ctx.agent.id).filter(x => x.state === 'needed' || x.state === 'started' || x.state === 'returned');
-        return `Working: ${done.id} - ${done.username} at ${done.site} is signed in, and its password (#${done.password_id}) is in the password store now, in browser ${done.browser ?? n}.${left.length ? ` Still to do: ${left.map(x => `${x.id} ${x.site}`).join(', ')}.` : ''}`;
+        const stored = hasPassword(done) ? `its password (#${done.password_id}) is in the password store now` : `it is in the password store now as #${done.password_id}, signing in with ${signInWords(signInOf(done))}`;
+        return `Working: ${done.id} - ${done.username} at ${done.site} is signed in, and ${stored}, in browser ${done.browser ?? n}.${left.length ? ` Still to do: ${left.map(x => `${x.id} ${x.site}`).join(', ')}.` : ''}`;
       },
     },
     {

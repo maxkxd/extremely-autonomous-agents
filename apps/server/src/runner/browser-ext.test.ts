@@ -714,3 +714,70 @@ test("a sign-up whose run ended without it being checked is a failed try, whatev
   assert.deepEqual(listPasswords('mastodon.test'), []);
   await __setBrowserConnForTest(41, null);
 });
+
+// --- Accounts with no password, through the tools (signin.ts) ---------------------------
+
+const nopw = agent('zz-nopw', 'Directory Submitter');
+test('no password box: the agent says how the site signs in, is never handed a password, and the app checks the page alone', async () => {
+  const b = new FakeBrowser();
+  await __setBrowserConnForTest(42, b, 'Chrome - Agents');
+  const c = ctx('r-nopw-1', nopw);
+  // Written down knowing how two of them sign in; one told at start_sign_up instead.
+  const listed = await call(
+    'accounts',
+    {
+      need: [
+        { site: 'glama.ai', purpose: 'Directory listing', sign_in: 'sso', provider: 'GitHub' },
+        { site: 'toolradar.test', purpose: 'Directory listing', sign_in: 'email_code' },
+        { site: 'notion.test', purpose: 'Client workspace', sign_in: 'company_sso', provider: 'Azure AD' },
+        { site: 'bestofai.test', purpose: 'Directory listing' },
+      ],
+    },
+    c,
+  );
+  assert.match(listed, /glama\.ai: Directory listing \(signs in with a GitHub account\)/);
+  assert.match(listed, /toolradar\.test: Directory listing \(signs in with a code or link emailed to it\)/);
+  assert.match(listed, /notion\.test: Client workspace \(signs in with the company's Microsoft Entra ID sign-in\)/);
+  const id = (site: string) => one<{ id: string }>("SELECT id FROM accounts WHERE site = ? AND agent_id = 'zz-nopw'", site)!.id;
+  await assert.rejects(call('accounts', { need: [{ site: 'z.test', purpose: 'p', sign_in: 'sso' }] }, c), /needs provider/);
+
+  // GitHub: no password, nothing to type - and type_password says so, with how to get in.
+  const gh = await call('start_sign_up', { account_id: id('glama.ai'), username: 'me@bikes.test', browser: 42 }, c);
+  assert.match(gh, /signing in with a GitHub account - nothing to type with type_password/);
+  assert.match(gh, /Continue with GitHub[\s\S]*check_account/);
+  assert.doesNotMatch(gh, /password #/);
+  const ghStore = accountRow(id('glama.ai'))!.password_id!;
+  await assert.rejects(call('type_password', { ref: 1, password_id: ghStore, browser: 42 }, c), /has no password: it signs in with a GitHub account[\s\S]*Continue with GitHub/);
+  // Mid-way, on GitHub's own authorize page: not working.
+  await call('open', { url: 'https://github.com/login/oauth/authorize?client_id=1', browser: 42 }, c);
+  b.tabs.get([...b.tabs.keys()].at(-1)!)!.facts = { url: 'https://github.com/login/oauth/authorize?client_id=1', passwordFields: 0, text: 'Authorize Glama', controls: 'Authorize' };
+  assert.match(await call('check_account', { account_id: id('glama.ai'), browser: 42 }, c), /NOT working yet[\s\S]*This page is GitHub's sign-in/);
+  // Back on Glama, signed in.
+  await call('open', { url: 'https://glama.ai/settings', browser: 42 }, c);
+  b.tabs.get([...b.tabs.keys()].at(-1)!)!.facts = { url: 'https://glama.ai/settings', passwordFields: 0, text: 'Settings\nme@bikes.test', controls: 'Sign out' };
+  const ok = await call('check_account', { account_id: id('glama.ai'), browser: 42 }, c);
+  assert.match(ok, /^Working: .*me@bikes\.test at glama\.ai is signed in, and it is in the password store now as #\w+, signing in with a GitHub account/);
+  const store = await call('passwords', { site: 'glama.ai' }, c);
+  assert.match(store, /me@bikes\.test \(browser 42\) - no password, signs in with a GitHub account/);
+  assert.doesNotMatch(store, /NOT CONFIRMED/);
+
+  // An emailed code: the instructions point at the inbox.
+  const code = await call('start_sign_up', { account_id: id('toolradar.test'), username: 'me@bikes.test', browser: 42 }, c);
+  assert.match(code, /signing in with a code or link emailed to it[\s\S]*read the code or link from that inbox/);
+
+  // Told at start_sign_up, by provider alone: sso is meant.
+  const g = await call('start_sign_up', { account_id: id('bestofai.test'), username: 'me@bikes.test', provider: 'google', browser: 42 }, c);
+  assert.match(g, /signing in with a Google account/);
+  assert.deepEqual([accountRow(id('bestofai.test'))!.method, accountRow(id('bestofai.test'))!.provider], ['sso', 'google']);
+
+  // A company's sign-in: the person for what only they have, never their work password.
+  const co = await call('start_sign_up', { account_id: id('notion.test'), username: 'max@acme.test', browser: 42 }, c);
+  assert.match(co, /company's Microsoft Entra ID sign-in[\s\S]*you can't make one[\s\S]*show_person[\s\S]*never guess or type a person's work password/);
+  await assert.rejects(call('start_sign_up', { account_id: id('notion.test'), username: 'max@acme.test', sign_in: 'fingerprint', browser: 42 }, c), /isn't one the app knows/);
+
+  // A password account still works as it did, beside them.
+  await call('accounts', { need: [{ site: 'x.test', purpose: 'Brand' }] }, c);
+  assert.match(await call('start_sign_up', { account_id: id('x.test'), username: 'me@bikes.test', browser: 42 }, c), /password #\w+ made for me@bikes\.test[\s\S]*type_password/);
+  await runEnded('r-nopw-1');
+  await __setBrowserConnForTest(42, null);
+});
