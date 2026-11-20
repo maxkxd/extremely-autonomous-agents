@@ -38,6 +38,7 @@ import { giveEvents, giveTools } from './engineer.js';
 import { checkEvent } from './events.js';
 import { hooksBase } from './hooks.js';
 import { LEVELS } from './ferocity.js';
+import { goalsOf, paceFor, setGoal, type Goal } from './goals.js';
 import { openBridge, rpc, type Rpc } from './mcp.js';
 import { selfMember, SELF_HOSTED } from '../selfhost.js';
 import { accessConfig, asActor, currentActor, localActor, personFor, recordAction, requireMakerOrAdmin, type Actor, type Role } from '../access.js';
@@ -196,6 +197,22 @@ const nameOf = async (id: string, cache = new Map<string, string>()) => {
 const lc = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : null);
 const page = (a: Record<string, unknown>, dflt = 25) => ({ offset: Math.max(0, Math.floor(Number(a.offset) || 0)), limit: Math.max(1, Math.min(200, Math.floor(Number(a.limit) || dflt))) });
 
+// An agent's goals today and the pace they call for (goals.ts), as the app's card has them.
+async function goalsNow(agentId: string, builtIn: boolean): Promise<{ goals: Goal[]; pace: ReturnType<typeof paceFor> }> {
+  const agent = builtIn ? null : await loadAgent(agentId);
+  const goals = agent ? goalsOf(agent) : [];
+  return { goals, pace: agent && goals.length ? paceFor(agent, Date.now(), goals) : null };
+}
+async function goalFacts(agentId: string, builtIn: boolean) {
+  const { goals, pace } = await goalsNow(agentId, builtIn);
+  return { goals: goals.map(g => ({ goal: g.label, per_day: g.perDay, done_today: g.done, waiting_for_approval: g.waiting })), pace: pace ? { status: pace.status, runs_at_once: pace.parallel } : null };
+}
+async function goalLine(agentId: string, builtIn: boolean): Promise<string> {
+  const { goals, pace } = await goalsNow(agentId, builtIn);
+  if (!goals.length) return '';
+  return `Goals today: ${goals.map(g => (g.perDay ? `${g.label} ${g.done}/${g.perDay}` : `${g.label} ${g.done} (no number)`)).join(', ')}${pace ? ` - ${pace.status}${pace.parallel > 1 ? `, ${pace.parallel} runs at once` : ''}` : ''}`;
+}
+
 const TOOLS: Tool[] = [
   // --- Requests ---
   {
@@ -275,7 +292,7 @@ const TOOLS: Tool[] = [
   {
     name: 'list_agents',
     description:
-      'Every agent: id, name, department, owner, state (active / draining = standby / stopped), ferocity level, models, whether it is built in, its spend this month against its own limit, when it last ran (and whether it is running now), and how many approvals and open jobs it has. Filter by state or department.',
+      'Every agent: id, name, department, owner, state (active / draining = standby / stopped), its goals (each with the count so far today against its number a day) and how hard they have it pushed, ferocity level, models, whether it is built in, its spend this month against its own limit, when it last ran (and whether it is running now), and how many approvals and open jobs it has. Filter by state or department.',
     schema: obj({ state: { type: 'string', enum: ['active', 'draining', 'stopped'], description: 'Optional: only these' }, department: str('Optional: only this department') }),
     run: async a => {
       const choices = await allChoices();
@@ -297,6 +314,7 @@ const TOOLS: Tool[] = [
           owner: m.builtIn ? 'built in' : m.owner,
           status: m.status,
           state: st.state,
+          ...(await goalFacts(id, !!m.builtIn)),
           ferocity: LEVELS[st.ferocity],
           models: choices[id] ?? [],
           builtIn: !!m.builtIn,
@@ -381,6 +399,7 @@ const TOOLS: Tool[] = [
         `# ${meta.name} (${agentId})${meta.builtIn ? ' - built in' : ''}`,
         `Department: ${meta.department ?? '-'}; owner: ${meta.builtIn ? 'built in' : meta.owner}`,
         `State: ${st.state}, ferocity ${LEVELS[st.ferocity]}`,
+        await goalLine(agentId, !!meta.builtIn),
         `Models: ${((await allChoices())[agentId] ?? []).map(m => `${m.connection}/${m.model} (${m.effort})`).join(', ') || 'none'}`,
         `Spend this month: ${usd(month?.cost_usd ?? 0)} over ${month?.runs ?? 0} runs${month?.unpriced_runs ? ` (${month.unpriced_runs} unpriced)` : ''}; limit ${st.spend_cap_usd == null ? 'none of its own' : `$${st.spend_cap_usd}`} (usage has more)`,
         `Files: ${sizes.join(', ')}`,
@@ -461,14 +480,22 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'set_agent',
-    description: `An agent's ferocity (how hard it works: ${LEVELS.join(', ')}; Steady is the default, on a schedule; Chill has none and runs only when given work - a task, a message, an event) or state (active, draining = standby: starts nothing itself, stopped: runs nothing). Built-in agents have neither.`,
-    schema: obj({ agent_id: str('The agent id'), ferocity: { type: 'string', enum: [...LEVELS] }, state: { type: 'string', enum: ['active', 'draining', 'stopped'] } }, ['agent_id']),
+    description: `An agent's goal, ferocity or state. A goal is one of its outputs and how many a day (goal: the output's name as list_agents gives it, per_day: the number; 0 takes the number off): the agency paces the agent to reach it - more runs, more at once - and eases it off once there. A new kind of goal is the Agency Engineer's to add (reply_to_request or run_agent on the engineer). Ferocity applies only while it has no goal (how hard it works: ${LEVELS.join(', ')}; Steady is the default, on a schedule; Chill has none and runs only when given work - a task, a message, an event) or state (active, draining = standby: starts nothing itself, stopped: runs nothing). Built-in agents have neither.`,
+    schema: obj({ agent_id: str('The agent id'), goal: str('One of its outputs, e.g. "emails sent"'), per_day: { type: 'number', description: 'How many a day; with goal' }, ferocity: { type: 'string', enum: [...LEVELS] }, state: { type: 'string', enum: ['active', 'draining', 'stopped'] } }, ['agent_id']),
     run: async a => {
       const { agentId, meta } = await agentOrThrow(a.agent_id);
       if (meta.builtIn) throw new Error(`${meta.name} is built in: it has no ferocity or state of its own.`);
       await requireMakerOrAdmin(agentId, null, currentActor(), 'change it');
       stateOf(agentId);
       const now = Date.now();
+      if (a.goal !== undefined) {
+        const agent = await loadAgent(agentId);
+        const want = String(a.goal).trim().toLowerCase();
+        const label = agent?.output.find(o => o.label.toLowerCase() === want)?.label;
+        if (!label) throw new Error(`${meta.name}'s outputs are: ${[...new Set(agent?.output.map(o => o.label) ?? [])].join(', ') || 'none'}. A new kind of goal is the Agency Engineer's to add.`);
+        if (typeof a.per_day !== 'number' || !Number.isFinite(a.per_day) || a.per_day < 0) throw new Error('per_day is how many a day (0: no number).');
+        setGoal(agentId, label, a.per_day, now);
+      }
       if (a.ferocity !== undefined) {
         const level = LEVELS.indexOf(String(a.ferocity) as (typeof LEVELS)[number]);
         if (level < 0) throw new Error(`ferocity is one of ${LEVELS.join(', ')}.`);
@@ -485,7 +512,8 @@ const TOOLS: Tool[] = [
         if (state !== 'stopped') exec('UPDATE agent_state SET setup = NULL WHERE agent_id = ?', agentId);
       }
       const st = stateOf(agentId);
-      return `${meta.name}: ${st.state}, ${LEVELS[st.ferocity]}.`;
+      const goals = await goalLine(agentId, false);
+      return `${meta.name}: ${st.state}, ${LEVELS[st.ferocity]}.${goals ? ` ${goals}` : ''}`;
     },
   },
   {
@@ -1172,7 +1200,7 @@ export const HINTS: Record<string, Hint> = {
   schedule_queue: { title: 'Run, move or cancel approved actions', destructive: true, world: true },
   list_models: { title: 'List AI models', read: true },
   set_agent_models: { title: "Set an agent's models", idempotent: true },
-  set_agent: { title: "Set an agent's ferocity or state", idempotent: true },
+  set_agent: { title: "Set an agent's goal, ferocity or state", idempotent: true },
   builder_guide: { title: 'Agent builder guide', read: true },
   check_build: { title: 'Check an agent build', read: true },
   create_agent: { title: 'Create an agent' },

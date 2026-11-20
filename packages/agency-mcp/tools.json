@@ -118,7 +118,7 @@
   {
     "name": "list_agents",
     "title": "List agents",
-    "description": "Every agent: id, name, department, owner, state (active / draining = standby / stopped), ferocity level, models, whether it is built in, its spend this month against its own limit, when it last ran (and whether it is running now), and how many approvals and open jobs it has. Filter by state or department.",
+    "description": "Every agent: id, name, department, owner, state (active / draining = standby / stopped), its goals (each with the count so far today against its number a day) and how hard they have it pushed, ferocity level, models, whether it is built in, its spend this month against its own limit, when it last ran (and whether it is running now), and how many approvals and open jobs it has. Filter by state or department.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -380,14 +380,22 @@
   },
   {
     "name": "set_agent",
-    "title": "Set an agent's ferocity or state",
-    "description": "An agent's ferocity (how hard it works: Chill, Steady, Driven, Relentless, Apocalyptic; Steady is the default, on a schedule; Chill has none and runs only when given work - a task, a message, an event) or state (active, draining = standby: starts nothing itself, stopped: runs nothing). Built-in agents have neither.",
+    "title": "Set an agent's goal, ferocity or state",
+    "description": "An agent's goal, ferocity or state. A goal is one of its outputs and how many a day (goal: the output's name as list_agents gives it, per_day: the number; 0 takes the number off): the agency paces the agent to reach it - more runs, more at once - and eases it off once there. A new kind of goal is the Agency Engineer's to add (reply_to_request or run_agent on the engineer). Ferocity applies only while it has no goal (how hard it works: Chill, Steady, Driven, Relentless, Apocalyptic; Steady is the default, on a schedule; Chill has none and runs only when given work - a task, a message, an event) or state (active, draining = standby: starts nothing itself, stopped: runs nothing). Built-in agents have neither.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "agent_id": {
           "type": "string",
           "description": "The agent id"
+        },
+        "goal": {
+          "type": "string",
+          "description": "One of its outputs, e.g. \"emails sent\""
+        },
+        "per_day": {
+          "type": "number",
+          "description": "How many a day; with goal"
         },
         "ferocity": {
           "type": "string",
@@ -413,7 +421,7 @@
       ]
     },
     "annotations": {
-      "title": "Set an agent's ferocity or state",
+      "title": "Set an agent's goal, ferocity or state",
       "readOnlyHint": false,
       "destructiveHint": false,
       "idempotentHint": true,
