@@ -248,15 +248,16 @@ export type LiveAgent = {
   decisions: { approved: number; rejected: number; expired: number };
   spendCapUsd: number | null;
   autoModels: boolean; // moved to working models when none of its own work (the model picker's switch)
-  goals: { label: string; perDay: number; done: number; waiting: number }[]; // today, per KPI label (runner/goals.ts)
-  pace: { status: string; parallel: number } | null; // how hard its goals have it pushed (null: no goal)
+  goals: { label: string; amount: number; period: 'hour' | 'day' | 'week' | 'month' | 'year'; done: number; waiting: number }[]; // this period, per KPI label (runner/goals.ts)
+  pace: { status: string; parallel: number; runsPerDay?: number } | null; // how hard its goals have it pushed (null: no goal)
+  noGoal: boolean; // an ordinary agent with no goal: it doesn't run until it has one
   runsPerDay: number[]; // expected at each ferocity level
   waitingOnTools: boolean; // none of what it's counted by is connected yet (it runs at its level all the same)
   perRun: number | null; // output actions per run, recently
   perRunGuess: number[]; // before it has any: a starting guess at each level
 };
 export const getLiveAgents = (days: number) => request<Record<string, LiveAgent>>(`/api/runner/agents?days=${days}`);
-export const setAgentRunner = (id: string, patch: { ferocity?: number; state?: RunState; spendCapUsd?: number | null; autoModels?: boolean; goal?: { label: string; perDay: number } }) =>
+export const setAgentRunner = (id: string, patch: { ferocity?: number; state?: RunState; spendCapUsd?: number | null; autoModels?: boolean; goal?: { label: string; amount: number; period: string } }) =>
   post<{ ok: boolean }>('/api/runner/agent', { id, ...patch });
 // The host's time zone: whose midnight the agency's days start at.
 export const getHostZone = () => request<{ zone: string; set: boolean }>('/api/settings/host-timezone');

@@ -36,30 +36,49 @@ straight away, without a rebuild.
 
 ## Goals set the pace (the `goals` branch)
 
-On this branch nobody drags a level. Each agent has goals: an output in plain words and how
-many a day ("emails sent: 100"). A goal is one of its KPI labels, so what counts toward it is
-exactly the actions under that label (`runner/goals.ts`).
+On this branch nobody chooses a level, anywhere: not on the card, not the agent in its chat,
+not through the MCP server. Each agent has goals: an output in plain words, an amount and a
+period - an hour, a day, a week, a month or a year ("emails sent: 100 a day", "posts
+published: 5 a week"). A goal is one of its KPI labels, so what counts toward it is exactly
+the actions under that label (`runner/goals.ts`). The levels above remain only as the
+built-in agents' Steady and as the tone an agent is told in.
 
-- **Setting one.** On the card: the number beside the goal, or the slide-out that lists
-  every goal. The builder gives each KPI row a starting `per_day`. An agent changes its own
-  when its person asks (`ops.set_my_goal`). A new kind of goal ("build backlinks too") is
-  the Agency Engineer's (`engineer.set_goal`): the label, and the tools whose calls count.
-- **What counts.** An action as soon as it is done or drafted (queued for approval). A
-  draft a person rejects comes off again, so an agent at its goal can drop back under it.
-- **The pace.** Worked out fresh from how far it is from its goals, what one of its runs
-  usually makes and how long one takes: how often it runs, how many runs of it go at once
-  (up to 20; the scheduler starts them, each told to take a different slice) and what each
-  run is asked for. Behind, it speeds up; at its goal it eases off to its ordinary schedule.
-  It is never stopped for reaching it.
+- **A goal is mandatory.** An ordinary agent with no goal (no output with a number) does
+  not run: no schedule, no bookings started, no Run now. Only a person's message is still
+  answered. The builder gives every new agent at least one KPI row with an `amount` of 1 or
+  more and its `period` - a sensible basic number, asked of the person only when it really
+  matters to them - and a build without one is refused. Nothing may take the last number
+  away: setting the only goal to 0, or renaming or dropping the output that holds it, is
+  refused (a renamed label takes its goal along).
+- **Agents from before** with no goal wait: the scheduler files one request to the Agency
+  Engineer for each, which reads its Charter and KPI and sets a basic number
+  (`engineer.set_goal`). The request closes by itself once the agent has a goal.
+- **Setting one.** On the card: the amount and period beside the goal. An agent changes its
+  own when its person asks (`ops.set_my_goal`). A new kind of goal ("build backlinks too")
+  is the Agency Engineer's (`engineer.set_goal`): the label, and the tools whose calls
+  count. KPI rows written before periods carry `per_day`, read as an amount a day.
+- **What counts.** An action as soon as it is done or drafted (queued for approval), within
+  the goal's current period on the host's clock (the hour, the day, the week from Monday,
+  the month, the year). A draft a person rejects comes off again, so an agent at its goal
+  can drop back under it.
+- **The pace.** Worked out fresh, goal by goal: the runs each still needs (from what one of
+  its runs usually makes) over what is left of its own period, aiming to finish a little
+  early. Those rates are added together and give how often it runs, how many runs of it go
+  at once (up to 20; the scheduler starts them, each told to take a different slice) and
+  what each run is asked for. Never faster than a run's length plus a breath, never slower
+  than its ordinary schedule. Behind, it speeds up; at its goal it eases off to its ordinary
+  schedule. It is never stopped for reaching it.
 - **The Agency Conductor.** Every half hour it looks over every agent with a goal in one
   cheap call and may change an agent's numbers or leave it a line of advice. Its numbers
   are kept in bounds and hold for 45 minutes; if the call fails the arithmetic stands.
-- **What the agent is told.** Its goals, today's count, that it runs many times a day, and
-  what this run owes - in place of the level's instructions below.
+- **The effect level** (0-4: the card's glow, twitch and red, and the tone of what the
+  agent is told) comes from the estimated runs a day at its pace: up to 2 is 0, up to 12 is
+  1, up to 48 is 2, up to 200 is 3, more is 4. It moves by itself whenever the pace does,
+  the Conductor's changes included.
+- **What the agent is told.** Its goals, the count so far in each one's period ("70 of 100
+  today", "64 of 150 this week"), that it runs many times, and what this run owes.
 - **Runs that make nothing** are not multiplied: after five in a row it drops to one run an
   hour and is told to find what is in the way.
-- **The card's look** (glow, twitch, red) follows the pace instead of a level someone set.
-- An agent with no goal keeps its level and schedule, as described in the rest of this page.
 
 ## When more of the main action isn't better
 
@@ -190,7 +209,7 @@ success, decides the tool is broken and complains again. Telling the model
    the whole Charter, however long.
 6. **A person can change an agent's settings from its chat.** "Slow down", "stop
    until Monday", "only on weekdays", "use Claude for this": the agent sets them
-   itself (`runner/selfsettings.ts`: `ops.set_my_ferocity`, `ops.pause_me` with an
+   itself (`runner/selfsettings.ts`: `ops.set_my_goal`, `ops.pause_me` with an
    optional time it comes back on by itself, `ops.set_my_run_days`,
    `ops.set_my_models`). A person resuming or stopping it on the card overrides a
    pause it set. A note on a rejected action goes into its memory if it's for now,

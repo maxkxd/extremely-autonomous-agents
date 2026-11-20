@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { DEFAULT_PLAN, planFrom, realName, type AgentDef } from './agent.js';
 import { all, one, resetDbForTests, run as exec, setSetting } from './db.js';
-import { APOCALYPTIC, apocalypticWait, APOCALYPTIC_GAP_MS, backoffMs, CHILL, STEADY, DRIVEN, HOUR, RELENTLESS } from './ferocity.js';
+import { APOCALYPTIC, backoffMs, CHILL, STEADY, DRIVEN, HOUR } from './ferocity.js';
+import { setGoal } from './goals.js';
 import { compactIfNeeded, isToolFailureNote, memoryForPrompt, remember } from './memory.js';
 import { ModelError, type Adapter, type Call } from './providers.js';
 import { LOOPING, loopGuard, OVER_LIMIT, postRun, runAgent, SAME_CALL_LIMIT, stateOf, type RunDeps } from './run.js';
@@ -68,10 +69,16 @@ const deps = (adapter: Adapter, over: Partial<RunDeps> = {}): RunDeps => ({
   ...over,
 });
 
-const setLevel = (level: number) => {
+// Every agent needs a goal to run (goals.ts). 1 a day is the least there is: a first run
+// is due at once, and its runs are asked for 1. A bigger one asks each run for more
+// (10: what one run of this agent makes, its plan's floor).
+const goal = (n = 1) => {
   stateOf(ID);
-  exec('UPDATE agent_state SET ferocity = ? WHERE agent_id = ?', level, ID);
+  setGoal(ID, 'ideas written', n, 'day');
 };
+// Its output so far today, to put it at (or over) its goal.
+const made = (n: number) =>
+  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES ('r_made', ?, 'files.write_file', '[]', 'T1', 'ok', ?, ?)", ID, n, Date.now());
 
 beforeEach(() => {
   resetDbForTests();
@@ -80,8 +87,8 @@ after(async () => {
   await rm(join(WORKSPACES, ID), { recursive: true, force: true });
 });
 
-test('Relentless: nudged until it reaches its floor, then it ends', async () => {
-  setLevel(RELENTLESS);
+test('behind its goal: nudged until it reaches what the run was asked for, then it ends', async () => {
+  goal(10);
   const r = await runAgent(agent(), 'scheduled', null, deps(fake(2)));
   assert.equal(r.status, 'succeeded');
   assert.equal(r.acts, 10); // 2 + 4 nudges x 2
@@ -89,7 +96,7 @@ test('Relentless: nudged until it reaches its floor, then it ends', async () => 
 });
 
 test('a monthly limit crossed mid-run ends the run there, with its spend so far recorded', async () => {
-  setLevel(RELENTLESS);
+  goal(10);
   setSetting('spend_cap_org_usd', 0.05);
   const r = await runAgent(agent(), 'scheduled', null, deps(fake(2), { cost: async () => 0.03 }));
   assert.equal(r.status, 'failed');
@@ -99,23 +106,23 @@ test('a monthly limit crossed mid-run ends the run there, with its spend so far 
   setSetting('spend_cap_org_usd', null);
 });
 
-test('Relentless: after 4 nudges below the floor the run just ends with what it made', async () => {
-  setLevel(RELENTLESS);
+test('behind its goal: after 4 nudges below what it was asked for the run just ends with what it made', async () => {
+  goal(50);
   const r = await runAgent(agent({ ferocity: { ...agent().ferocity, floor: 50 } }), 'scheduled', null, deps(fake(2)));
   assert.equal(r.status, 'succeeded');
   assert.equal(r.nudges, 4);
   assert.equal(r.acts, 10);
 });
 
-test("Relentless: no target when nothing it's counted by is connected - it isn't pushed into padding", async () => {
-  setLevel(RELENTLESS);
+test("behind its goal: no target when nothing it's counted by is connected - it isn't pushed into padding", async () => {
+  goal(10);
   const r = await runAgent(agent({ ferocity: { ...agent().ferocity, counts: ['xero.create_invoice_draft'] } }), 'scheduled', null, deps(fake(2)));
   assert.equal(r.status, 'succeeded');
   assert.equal(r.nudges, 0);
 });
 
 test('the nudge says where it stands and where else to look', async () => {
-  setLevel(RELENTLESS);
+  goal(10);
   const prompts: string[] = [];
   const spy: Adapter = async req => {
     const last = req.messages[req.messages.length - 1];
@@ -128,27 +135,14 @@ test('the nudge says where it stands and where else to look', async () => {
   assert.match(prompts[1], new RegExp(DEFAULT_PLAN.hint));
 });
 
-test('Driven: one gentle nudge at most', async () => {
-  setLevel(DRIVEN);
-  const r = await runAgent(agent(), 'scheduled', null, deps(fake(1)));
-  assert.equal(r.nudges, 1);
-  assert.equal(r.acts, 2);
-});
-
-test('Steady: never nudged', async () => {
-  setLevel(STEADY);
-  const r = await runAgent(agent(), 'scheduled', null, deps(fake(1)));
-  assert.equal(r.nudges, 0);
-});
-
 test('a run answering your message is never pushed past its answer', async () => {
-  setLevel(APOCALYPTIC);
+  goal(10);
   const r = await runAgent(agent(), 'your message', 'What are you working on?', deps(fake(1)));
   assert.equal(r.nudges, 0);
 });
 
 test('a natural limit refuses the call, and refused calls never count', async () => {
-  setLevel(RELENTLESS);
+  goal(10);
   const limited = agent({ limits: [{ tool: 'files.write_file', max: 3, per_hours: 24, why: 'once a morning' }] });
   const r = await runAgent(limited, 'scheduled', null, deps(fake(2)));
   assert.equal(r.acts, 3); // 3 allowed, every later call refused and not counted
@@ -171,7 +165,7 @@ test('a save the person turned down leaves the weekly limit for the corrected on
 });
 
 test('T2 actions are queued for approval, never run, the run carries on, and they count', async () => {
-  setLevel(RELENTLESS);
+  goal(3);
   let sent = 0;
   registerTools([
     {
@@ -185,7 +179,7 @@ test('T2 actions are queued for approval, never run, the run carries on, and the
       },
     },
   ]);
-  const pitcher = agent({ tiers: { 'zztest.send_pitch': 'T2' }, ferocity: { ...agent().ferocity, counts: ['zztest.send_pitch'], floor: 3 } });
+  const pitcher = agent({ tiers: { 'zztest.send_pitch': 'T2' }, output: [{ action: 'zztest.send_pitch', label: 'ideas written' }], ferocity: { ...agent().ferocity, counts: ['zztest.send_pitch'], floor: 3 } });
   let n = 0;
   const model: Adapter = async req => {
     const last = req.messages[req.messages.length - 1];
@@ -194,13 +188,13 @@ test('T2 actions are queued for approval, never run, the run carries on, and the
   };
   const r = await runAgent(pitcher, 'scheduled', null, deps(model));
   assert.equal(r.status, 'succeeded');
-  assert.equal(r.acts, 3); // each queued pitch counted toward the floor of 3
+  assert.equal(r.acts, 3); // each queued pitch counted toward the 3 its goal asked of the run
   assert.equal(sent, 0); // nothing ran without a person's decision
   assert.equal(all("SELECT id FROM approvals WHERE status = 'pending'").length, 3);
 });
 
 test("an action waiting for a person carries the agent's reason to the card, never to the tool", async () => {
-  setLevel(STEADY);
+  stateOf(ID);
   let got: Record<string, unknown> | null = null;
   registerTools([
     {
@@ -251,7 +245,7 @@ test('closing a handed-over task wakes whoever handed it, once for results that 
 });
 
 test('a registered tool the agent does not hold is refused', async () => {
-  setLevel(STEADY);
+  stateOf(ID);
   registerTools([{ id: 'zztest.other', tier: 'T0', description: 'x', schema: { type: 'object' }, impl: () => 'ran' }]);
   const model: Adapter = async req =>
     req.messages.length > 1
@@ -262,7 +256,7 @@ test('a registered tool the agent does not hold is refused', async () => {
 });
 
 test('a run making the same failing call hundreds of times in a row is ended; output never is', async () => {
-  setLevel(STEADY);
+  stateOf(ID);
   let turns = 0;
   const stuck: Adapter = async () => {
     turns++;
@@ -289,7 +283,7 @@ test('the loop count only grows on the exact same call with nothing to show; out
 });
 
 test('a model that fails mid-run hands over to the next one, and no action is repeated', async () => {
-  setLevel(STEADY);
+  stateOf(ID);
   let calls = 0;
   const a: Adapter = async req => {
     calls++;
@@ -306,7 +300,7 @@ test('a model that fails mid-run hands over to the next one, and no action is re
 });
 
 test("a plan's run is priced as its API would charge: the plan's own figure, else its tokens", async () => {
-  setLevel(STEADY);
+  stateOf(ID);
   const plan = (usd?: number | null) => async () => ({ text: 'Done on the plan.', usage: { input: 1000, output: 100 }, ...(usd === undefined ? {} : { usd }) });
   const cost = async (_c: string, _m: string, input: number, output: number) => (input + output) / 1e6;
   const costOf = async (usd?: number | null) => {
@@ -321,7 +315,7 @@ test("a plan's run is priced as its API would charge: the plan's own figure, els
 });
 
 test('every model failing fails the run, posts why, and backs the agent off', async () => {
-  setLevel(STEADY);
+  stateOf(ID);
   const down: Adapter = async () => {
     throw new ModelError('down', 'server', 500);
   };
@@ -334,7 +328,7 @@ test('every model failing fails the run, posts why, and backs the agent off', as
 });
 
 test('an AI out of its allowance asks the person once, and closes when runs work again', async () => {
-  setLevel(STEADY);
+  stateOf(ID);
   const spent: Adapter = async () => {
     throw new ModelError('You have exceeded your monthly quota (Request ID: X1)', 'rate', 429);
   };
@@ -357,7 +351,7 @@ test('an AI out of its allowance asks the person once, and closes when runs work
 });
 
 test("a key's spending limit is out of allowance, not signed out", async () => {
-  setLevel(STEADY);
+  stateOf(ID);
   exec("UPDATE requests SET status = 'done' WHERE status = 'open'");
   const capped: Adapter = async () => {
     throw new ModelError('Key limit exceeded (monthly limit). $10.26 of $10.00 used; resets 2026-12-01', 'rate', 403);
@@ -383,7 +377,7 @@ test('disconnecting an AI yourself closes what was asked about it', async () => 
 });
 
 test("a person's reply no AI could answer is booked again; a scheduled run isn't", async () => {
-  setLevel(STEADY);
+  stateOf(ID);
   exec('DELETE FROM bookings');
   const down: Adapter = async () => {
     throw new ModelError('Key limit exceeded (monthly limit)', 'rate', 403);
@@ -400,7 +394,7 @@ test("a person's reply no AI could answer is booked again; a scheduled run isn't
 });
 
 test('the run posts to its DM channel with argument names only', async () => {
-  setLevel(STEADY);
+  stateOf(ID);
   await runAgent(agent(), 'scheduled', null, deps(fake(1)));
   const post = JSON.parse(one<{ body: string }>("SELECT body FROM dm WHERE kind = 'run'")!.body);
   assert.equal(post.kind, 'run');
@@ -432,58 +426,32 @@ test('memory compacts its oldest notes past the cap', async () => {
   assert.match(memoryForPrompt(ID, 5000), /Earlier, .* Summary of the early notes\./);
 });
 
-test('schedule: Steady runs on its schedule; Apocalyptic straight after the last run', () => {
+test('schedule: an agent runs at the pace its goal calls for, and on its ordinary schedule once it is there', () => {
   const now = Date.now();
   const a = agent();
-  setLevel(STEADY);
+  goal(1000);
   assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'scheduled'); // never run yet: now
   exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now - 2 * HOUR, ID);
-  assert.equal(nextRun(a, stateOf(ID), now), null); // every 24 h
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'scheduled'); // 100 runs short: one every few minutes
+  made(1000);
+  assert.equal(nextRun(a, stateOf(ID), now), null); // at its goal: every 24 h, its ordinary schedule
   exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now - 25 * HOUR, ID);
-  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'scheduled');
-
-  setLevel(APOCALYPTIC);
-  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, ended_at) VALUES ('r1', ?, 'apocalyptic', 4, 'succeeded', ?, ?)", ID, now - 60_000, now - 5_000);
-  assert.equal(nextRun(a, stateOf(ID), now), null); // a breath between runs
-  assert.equal(nextRun(a, stateOf(ID), now + 30_000)?.trigger, 'apocalyptic');
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'scheduled'); // never stopped for reaching it
 });
 
-test('schedule: an agent runs at its level before its tools are connected', () => {
+test("schedule: an agent runs at its goal's pace before its tools are connected", () => {
   const now = Date.now();
-  // Counted by a Gmail tool it doesn't have: it used to run as Steady until connected.
+  // Counted by a Gmail tool it doesn't have: it used to wait on its ordinary schedule until connected.
   const a = agent({ ferocity: { ...DEFAULT_PLAN, counts: ['gmail.send_email'], floor: 10, soft_floor: 3, apocalyptic_floor: 30 } });
-  setLevel(RELENTLESS);
-  exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now - 7 * HOUR, ID); // Relentless: every 6 h
+  goal(1000);
+  exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now - 2 * HOUR, ID);
   assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'scheduled');
-  setLevel(APOCALYPTIC);
-  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'apocalyptic');
-});
-
-test('schedule: Apocalyptic waits longer after each short run, to Relentless pace after about 20', () => {
-  const now = Date.now();
-  const a = agent();
-  const relentless = a.ferocity.every_hours[RELENTLESS] * HOUR;
-  assert.equal(apocalypticWait(a, 0), APOCALYPTIC_GAP_MS);
-  assert.ok(apocalypticWait(a, 1) > APOCALYPTIC_GAP_MS && apocalypticWait(a, 10) < relentless);
-  assert.equal(Math.round(apocalypticWait(a, 20)), relentless);
-  assert.equal(apocalypticWait(a, 25), relentless);
-  setLevel(APOCALYPTIC);
-  // Six short runs in a row (5 of a 30 target), the last ending a minute ago.
-  for (let i = 0; i < 6; i++)
-    exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, ended_at, acts, floor) VALUES (?, ?, 'apocalyptic', 4, 'succeeded', ?, ?, 5, 30)", `s${i}`, ID, now - (i + 2) * 60_000, now - (i + 1) * 60_000);
-  const wait = apocalypticWait(a, 6);
-  assert.ok(wait > 60_000);
-  assert.equal(nextRun(a, stateOf(ID), now), null);
-  assert.equal(nextRun(a, stateOf(ID), now - 60_000 + wait + 1)?.trigger, 'apocalyptic');
-  // One that reaches its target: back to back again.
-  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, ended_at, acts, floor) VALUES ('hit', ?, 'apocalyptic', 4, 'succeeded', ?, ?, 40, 30)", ID, now - 50_000, now - 30_000);
-  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'apocalyptic');
 });
 
 test('schedule: stopped runs nothing at all; backoff and the backstop hold everything else', () => {
   const now = Date.now();
   const a = agent();
-  stateOf(ID);
+  goal();
   exec("UPDATE agent_state SET state = 'stopped' WHERE agent_id = ?", ID);
   assert.equal(nextRun(a, stateOf(ID), now), null);
   exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'your message', 'hi', ?, ?)", ID, now, now);
@@ -492,17 +460,18 @@ test('schedule: stopped runs nothing at all; backoff and the backstop hold every
   assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'your message'); // answered once it's back on
 
   resetDbForTests();
-  stateOf(ID);
+  goal();
   exec('UPDATE agent_state SET backoff_until = ? WHERE agent_id = ?', now + 60_000, ID);
   assert.equal(nextRun(a, stateOf(ID), now), null);
 
   resetDbForTests();
-  setLevel(STEADY);
+  goal();
+  made(1); // at its goal: an easy pace
   for (let i = 0; i < 1000; i++) exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at) VALUES (?, ?, 'scheduled', 0, 'succeeded', ?)", `r${i}`, ID, now - i);
-  assert.equal(nextRun(a, stateOf(ID), now), null); // past the backstop for today (1,000 up to Driven)
-  setLevel(RELENTLESS);
-  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'scheduled'); // none at Relentless and Apocalyptic
-  setLevel(STEADY);
+  assert.equal(nextRun(a, stateOf(ID), now), null); // past the backstop for today (1,000 at an easy pace)
+  goal(1_000_000);
+  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'scheduled'); // none when its goal has it going all out
+  goal();
   // ...but a person's Run now isn't held back by either.
   exec('UPDATE agent_state SET backoff_until = ? WHERE agent_id = ?', now + 60_000, ID);
   exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'run now', NULL, ?, ?)", ID, now, now);
@@ -514,7 +483,7 @@ test('schedule: stopped runs nothing at all; backoff and the backstop hold every
 test('schedule: draining starts nothing itself, but runs what a person sets off', () => {
   const now = Date.now();
   const a = agent();
-  stateOf(ID);
+  goal();
   exec("UPDATE agent_state SET state = 'draining' WHERE agent_id = ?", ID);
   assert.equal(nextRun(a, stateOf(ID), now), null); // its schedule is due (never run), but no
   const booking = (trigger: string) => exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, ?, ?, ?, ?)', ID, trigger, 't', now, now);
@@ -528,10 +497,10 @@ test('schedule: draining starts nothing itself, but runs what a person sets off'
   assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'approval'); // hearing how its approval went
   booking('your message');
   assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'your message'); // a person's message first
-  setLevel(APOCALYPTIC);
+  goal(1_000_000);
   exec("UPDATE agent_state SET state = 'draining' WHERE agent_id = ?", ID);
   exec("DELETE FROM bookings WHERE agent_id = ?", ID);
-  assert.equal(nextRun(a, stateOf(ID), now), null); // Apocalyptic doesn't chain either
+  assert.equal(nextRun(a, stateOf(ID), now), null); // however far behind its goal, it starts nothing either
 });
 
 test('a run a person stops is "stopped", not failed, and brings no backoff', async () => {
@@ -682,7 +651,7 @@ test("a request shows people its reasons, not the tool ids for the Agency Engine
 test('the agency on standby: nothing starts by itself, a person is still answered, and an agent stopped on its own stays stopped', () => {
   const now = Date.now();
   const a = agent();
-  setLevel(STEADY);
+  goal();
   setSetting('agency_state', 'standby');
   assert.equal(stateOf(ID).state, 'draining');
   assert.equal(nextRun(a, stateOf(ID), now), null); // its schedule waits
@@ -1233,13 +1202,11 @@ test("a job limit the person wants lifted: the Engineer changes it, and a refusa
   await rm(dir, { recursive: true, force: true });
 });
 
-test('asked in its chat, an agent changes its own ferocity, pauses itself until a time, and keeps to its run days', async () => {
+test('asked in its chat, an agent pauses itself until a time, and keeps to its run days', async () => {
   const { resumeDue, weekday } = await import('./selfsettings.js');
   stateOf(ID);
   const ctx = { agent: agent(), runId: 'r_self', level: 0, now: () => Date.now(), fleet: async () => [], wake: () => {} };
   const call = (name: string, args: Record<string, unknown>) => execute(ctx, { id: name, name, args }, new Map());
-  assert.ok(!(await call('ops__set_my_ferocity', { level: 'Steady' })).error);
-  assert.equal(stateOf(ID).ferocity, 1);
   const until = new Date(Date.now() + 3_600_000).toISOString();
   const paused = await call('ops__pause_me', { how: 'standby', until });
   assert.ok(!paused.error, paused.content);
@@ -1250,7 +1217,7 @@ test('asked in its chat, an agent changes its own ferocity, pauses itself until 
   const today = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][weekday(Date.now())];
   const other = today === 'mon' ? 'tue' : 'mon';
   assert.ok(!(await call('ops__set_my_run_days', { days: [other] })).error);
-  exec('UPDATE agent_state SET ferocity = ? WHERE agent_id = ?', RELENTLESS, ID);
+  goal(1000);
   assert.equal(nextRun(agent(), stateOf(ID), Date.now()), null, 'no scheduled run on a day it was told not to work');
   book(ID, 'your message', 'hi');
   // (A message settles a few seconds first, in case more follow: wakes.ts.)
@@ -1327,7 +1294,7 @@ test("Google's quota answers (403s) pause a service's tools like any rate limit,
 
 test('watchdog: a hung model call is caught as idle, the run fails with why, and the agent is booked straight back in', async () => {
   const { sweep, IDLE_MS } = await import('./watchdog.js');
-  setLevel(STEADY);
+  stateOf(ID);
   const controller = new AbortController();
   const woken: [string, string, string][] = [];
   // A model call that never answers until it's aborted.
@@ -1403,19 +1370,18 @@ test("the Doctor sees output counted on a tool the agent never uses while its re
   assert.equal(unusedCounted(ID, ['launch.publish'], tiers, now), null);
 });
 
-test('agents at every level start parallel runs of themselves; a parallel run cannot', async () => {
+test('agents at every pace start parallel runs of themselves; a parallel run cannot', async () => {
   const ids = new Map([['ops__start_parallel_run', 'ops.start_parallel_run']]);
   const call = (piece: string) => ({ id: piece, name: 'ops__start_parallel_run', args: { piece } });
   const ctx = (level: number, parallel = false) => ({ agent: agent(), runId: 'r_par', level, parallel, now: () => Date.now(), fleet: async () => [], wake: () => {} });
-  setLevel(STEADY);
+  goal();
   await execute(ctx(STEADY), call('Cvazo film'), ids);
-  setLevel(APOCALYPTIC);
   for (const p of ['Kwotzo film', 'Fifteo film']) await execute(ctx(APOCALYPTIC), call(p), ids);
   const inner = await execute(ctx(APOCALYPTIC, true), call('another'), ids);
   assert.match(JSON.stringify(inner), /parallel run yourself/);
   const booked = all<{ task: string }>("SELECT task FROM bookings WHERE agent_id = ? AND trigger = 'parallel' ORDER BY id", ID).map(b => b.task);
   assert.deepEqual(booked, ['Cvazo film', 'Kwotzo film', 'Fifteo film']);
-  // Every level is told it can; the higher the level, the harder.
+  // At every pace it is told it can; the further behind, the harder.
   const { ferocityInstructions } = await import('./ferocity.js');
   assert.match(ferocityInstructions(agent(), STEADY), /ops\.start_parallel_run/);
   assert.match(ferocityInstructions(agent(), APOCALYPTIC), /Split everything you can/);
@@ -1427,7 +1393,7 @@ test('agents at every level start parallel runs of themselves; a parallel run ca
 });
 
 test('a parallel run is told its one piece, and its cost and output are the agent\'s own', async () => {
-  setLevel(APOCALYPTIC);
+  goal();
   const seen: string[] = [];
   const adapter: Adapter = async req => {
     seen.push((req.messages[0] as { text: string }).text);
@@ -1441,7 +1407,7 @@ test('a parallel run is told its one piece, and its cost and output are the agen
 });
 
 test('a run that starts while parallel runs are going is told to leave their pieces alone', async () => {
-  setLevel(APOCALYPTIC);
+  goal();
   exec("INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at) VALUES ('r_p1', ?, 'parallel', 'Kwotzo film only, project kwotzo-engine-2', 4, 'running', ?)", ID, Date.now());
   const seen: string[] = [];
   const adapter: Adapter = async req => {
@@ -1452,33 +1418,14 @@ test('a run that starts while parallel runs are going is told to leave their pie
   assert.match(seen[0], /leave these pieces to them[\s\S]*Kwotzo film only, project kwotzo-engine-2/);
 });
 
-test('Chill has no schedule: it runs only when given work, and still finishes what it was given', async () => {
-  const now = Date.now();
-  const a = agent();
-  setLevel(CHILL);
-  assert.equal(nextRun(a, stateOf(ID), now), null); // never run, still nothing of its own
-  exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now - 30 * 24 * HOUR, ID);
-  assert.equal(nextRun(a, stateOf(ID), now), null);
-  exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'handoff', 'Finish the Kwotzo film', ?, ?)", ID, now - 1000, now);
-  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'handoff');
-  exec('DELETE FROM bookings');
-  book(ID, 'self-booked', 'The rest of the Kwotzo film', now - 1000);
-  assert.equal(nextRun(a, stateOf(ID), now)?.trigger, 'self-booked'); // finishing its own work
-  const { ferocityInstructions } = await import('./ferocity.js');
-  assert.match(ferocityInstructions(a, CHILL), /no schedule/);
-  assert.match(ferocityInstructions(a, CHILL), /don't start new work of your own/);
-});
-
-test('Steady is the default and does what Chill used to; a built-in keeps its schedule', async () => {
-  const { DEFAULT_LEVEL, ferocityInstructions, paceHours } = await import('./ferocity.js');
+test('a built-in has no goal: it works steadily and keeps its schedule', async () => {
+  const { DEFAULT_LEVEL, ferocityInstructions } = await import('./ferocity.js');
   assert.equal(DEFAULT_LEVEL, STEADY);
   assert.equal(stateOf('zz-brand-new').ferocity, STEADY);
   const a = agent();
-  assert.equal(paceHours(a, STEADY), a.ferocity.every_hours[0]);
-  assert.equal(paceHours(a, CHILL), null);
   assert.match(ferocityInstructions(a, STEADY), /stop when it is done/);
   assert.doesNotMatch(ferocityInstructions(a, STEADY), /What extra effort means/);
-  // The Agency Doctor is on no level of its own: still a look on its schedule.
+  // The Agency Doctor has no goal and needs none: still a look on its schedule.
   const now = Date.now();
   exec("INSERT INTO agent_state (agent_id, ferocity, updated_at) VALUES ('doctor', 0, ?)", now);
   assert.equal(nextRun({ ...a, id: 'doctor' }, stateOf('doctor'), now)?.trigger, 'scheduled');

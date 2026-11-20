@@ -209,7 +209,7 @@ test("members control only the agents they made; anyone may write to the Agency 
     // Dan sees it but can't run, stop, retune or message Ben's agent.
     assert.equal(await why(call(dan, 'POST /api/runner/run-now', { id: files.id })), 'Only the person who made Parts Pull List, or an admin, can run it.');
     assert.equal(await why(call(dan, 'POST /api/runner/agent', { id: files.id, state: 'stopped' })), 'Only the person who made Parts Pull List, or an admin, can stop it.');
-    assert.equal(await why(call(dan, 'POST /api/runner/agent', { id: files.id, ferocity: 3 })), 'Only the person who made Parts Pull List, or an admin, can change its ferocity.');
+    assert.equal(await why(call(dan, 'POST /api/runner/agent', { id: files.id, goal: { label: 'pull lists written', amount: 5, period: 'day' } })), 'Only the person who made Parts Pull List, or an admin, can change its goals.');
     assert.equal(await why(call(dan, 'POST /api/dm', { id: files.id, text: 'hi' })), 'Only the person who made Parts Pull List, or an admin, can message it.');
     // The Agency Engineer is everyone's to write to, and each message says who wrote it.
     assert.equal(await why(call(dan, 'POST /api/dm', { id: FLEET_ENGINEER, text: 'Can you add Square?' })), 'ok');

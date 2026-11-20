@@ -78,6 +78,8 @@ export function openDb(path = FILE): DatabaseSync {
     'ALTER TABLE passwords ADD COLUMN provider TEXT',
     'ALTER TABLE accounts ADD COLUMN method TEXT',
     'ALTER TABLE accounts ADD COLUMN provider TEXT',
+    // A goal is an amount per period (goals.ts); goals from before were all a day.
+    "ALTER TABLE agent_goals ADD COLUMN period TEXT NOT NULL DEFAULT 'day'",
     // A person added those themselves: they work.
     'UPDATE passwords SET confirmed_at = created_at WHERE agent_id IS NULL AND confirmed_at IS NULL',
     // Messages to the Engineer from before: whoever wrote them.
@@ -105,7 +107,7 @@ export function resetDbForTests(path = ':memory:') {
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS agent_state (
   agent_id TEXT PRIMARY KEY,
-  ferocity INTEGER NOT NULL DEFAULT 1,          -- 0 Chill .. 4 Apocalyptic; 1 Steady is the default. Stores from before 18 Nov 2026 keep DEFAULT 0: always set it on insert (DEFAULT_LEVEL).
+  ferocity INTEGER NOT NULL DEFAULT 1,          -- the old level (0 Chill .. 4 Apocalyptic). Nobody sets it any more: goals set the pace (goals.ts). Stores from before 18 Nov 2026 keep DEFAULT 0: always set it on insert (DEFAULT_LEVEL).
   state TEXT NOT NULL DEFAULT 'active',         -- active | draining | stopped
   last_scheduled_at INTEGER,                    -- when its schedule last started a run (ms)
   fail_streak INTEGER NOT NULL DEFAULT 0,       -- runs failed in a row, for backoff
@@ -114,11 +116,13 @@ CREATE TABLE IF NOT EXISTS agent_state (
   updated_at INTEGER NOT NULL
 );
 
--- An agent's goals (goals.ts): a KPI label and how many a day. 0: no number for it.
+-- An agent's goals (goals.ts): a KPI label and how many per period (per_day holds the
+-- amount, whatever the period). 0: no number for it.
 CREATE TABLE IF NOT EXISTS agent_goals (
   agent_id TEXT NOT NULL,
   label TEXT NOT NULL,
   per_day INTEGER NOT NULL DEFAULT 0,
+  period TEXT NOT NULL DEFAULT 'day',           -- hour | day | week | month | year
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (agent_id, label)
 );

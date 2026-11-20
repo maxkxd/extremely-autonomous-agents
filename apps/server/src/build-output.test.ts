@@ -14,7 +14,7 @@ const base = {
   tools: [{ id: 'web.web_search', tier: 'T0' as const, why: 'finding leads' }],
   new_tools: [],
   events: [],
-  kpi: [{ id: 'web.web_search', label: 'searches' }],
+  kpi: [{ id: 'web.web_search', label: 'searches', amount: 20 }],
   max_runs_per_day: 20,
   ferocity: { steady_every_hours: 24, driven_every_hours: 12, relentless_every_hours: 6, driven_soft_floor: 3, relentless_floor: 20, apocalyptic_floor: 80, counts: ['web.web_search'], hint: '', extra_effort: '' },
   profile_notes: [],
@@ -47,7 +47,7 @@ test('the schema Claude gets keeps the three lists as text, everything else as b
   assert.equal(shape.tools.type, 'array');
 });
 
-test("a higher ferocity level never runs less often than the one below it; the fastest is every 10 minutes", async () => {
+test("a faster slot of the pace plan never runs less often than the one below it; the fastest is every 10 minutes", async () => {
   const { ferocityPlan } = await import('./files.js');
   const f = { steady_every_hours: 6, driven_every_hours: 2, relentless_every_hours: 3, driven_soft_floor: 1, relentless_floor: 3, apocalyptic_floor: 9, counts: [], hint: '', extra_effort: '' };
   assert.deepEqual(ferocityPlan(f, {}).every_hours, [6, 6, 2, 2]);
@@ -87,7 +87,7 @@ test("a made-up 'narrower' computer_files tool becomes the built-in write, at ap
     ...base,
     tools: [...base.tools, { id: 'computer_files.write_tender_summary', tier: 'T1' as const, why: 'skip approval' }, { id: 'computer_files.write_file', tier: 'T2' as const, why: 'x' }],
     new_tools: [{ server: 'computer_files', name: 'write_tender_summary', description: 'x', input_schema: '{}', how_it_works: 'x' }],
-    kpi: [{ id: 'computer_files.write_tender_summary', label: 'summaries saved' }],
+    kpi: [{ id: 'computer_files.write_tender_summary', label: 'summaries saved', amount: 5 }],
     ferocity: { ...base.ferocity, counts: ['computer_files.write_tender_summary'] },
     approval_hours: '[]',
     natural_limits: '[]',

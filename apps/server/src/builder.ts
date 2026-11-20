@@ -4,7 +4,7 @@ import * as z from 'zod/v4';
 import { BASELINE, CATALOG_INDEX, catalogForPrompt } from './catalog.js';
 import { integrationEventsForPrompt, integrationToolIds, integrationToolsForPrompt } from './integrations/index.js';
 import { registeredToolIds } from './runner/tools.js';
-import { hostZone } from './runner/clock.js';
+import { hostZone, PERIODS } from './runner/clock.js';
 import { reportDefault, reportDefaultForPrompt, setReportDefault } from './runner/reports.js';
 import { anthropicKey } from './models/connections.js';
 import { jsonFromAnyModel, NoModelError } from './models/anyModel.js';
@@ -41,22 +41,22 @@ Every agent is defined by three files the person never sees:
   T1 - runs, and posts a notice to the agent's own channel (reversible internal writes: records, drafts, labels, notes).
   T2 - waits for a person's approval and expires if nobody decides (anything visible outside the organization or hard to undo: sending, posting, publishing, paying, deleting, inviting).
   A tool that isn't listed can't be called, so there is no "never" tier.
-- KPI.yaml: which successful actions count as its output, and for each a goal per day. The agency paces the agent to its goals by itself - more runs, more of them at once - so the goal is the output the person wants, never a cap.
+- KPI.yaml: which successful actions count as its output, and for each a goal: an amount for a period (an hour, a day, a week, a month or a year). The agency paces the agent to its goals by itself - more runs, more of them at once - so the goal is the output the person wants, never a cap.
 
 People's pronouns: everything you write (Charter, tool notes, KPI labels, profile and person notes, your replies) refers to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name, and don't copy a pronoun from an existing note that only guessed one.
 
 How agents work with people, which every agent must respect:
 - Every agent has its own web browser (signed_in_browser.*) and the agency signs up for the accounts its job needs itself, keeping passwords in the agency's store; only a CAPTCHA or a phone code needs a person. New accounts the job can't start without go in accounts: they're made during the agent's setup, before it first runs, and the person does every check for them in one go. An agent asks a person for things through Requests (a key, spend, a decision) and Approvals (a T2 action). It never expects anyone to read its own channel.
-- How hard an agent works is set separately by the person (its ferocity), so don't ask about cadence beyond what the job itself needs (e.g. "within an hour of a ticket arriving" is a job requirement; "run more" isn't).
+- How hard an agent works follows from its goal (below), so don't ask about cadence beyond what the job itself needs (e.g. "within an hour of a ticket arriving" is a job requirement; "run more" isn't).
 - API keys and passwords are added later in settings. Never ask for them and tell the person not to paste them into the chat.
 
-Ferocity, which you set for each job (the person picks the level on the agent's card):
-- Chill, "on call: works when given work". No schedule: it runs only when given a task, an answered request, another agent's hand-off, a person's message or an event it watches for, finishes that, and starts nothing of its own. You set nothing for it.
-- Steady, "the default: will get the job done". What a sensible person would schedule. Every agent starts here.
-- Driven, "intensely overworked: will never leave output on the table".
-- Relentless, "inhuman: will never rest". Very high effort - a high floor, chaining its own runs, digging deep, asking for more tools - not constant runs for their own sake. Its pace comes from the job, not from Steady. A job hunting an open-ended supply of work (lead research, prospecting, content ideas) runs every 10-30 minutes - even when its main action has a daily cap, the runs between refresh existing records, research deeper and widen its sources (its hint and extra_effort say how). A job driven by events (bug triage on a Sentry alert, incidents, tickets) is woken by them; its schedule is only an idle sweep every 6-8 hours, and when woken it follows the event to the bottom and books follow-up runs. A job with a fixed rhythm (a weekly report) keeps it.
-- Apocalyptic, "the paperclip maximizer": runs back to back.
-max_runs_per_day sits above the Relentless pace (a 10-minute pace is 144 a day).
+Goals set the pace. Nobody picks how hard an agent works: the agency works out how often it runs, how many runs of it go at once and what each run is asked for from how far it is from its goal, and eases it off once it is there. An agent with no goal does not run at all, so every agent you build has one: at least one KPI row with an amount of 1 or more and its period. Guess a sensible basic number yourself - a good, ordinary pace for that job (20 leads a day, 5 posts a week, 1 report a week, 4 tickets an hour) - and say it in your reply; the person changes it on the agent's card. Ask them for the number only when it really matters to them (they spoke of a volume, a quota or a deadline). A build with no goal number is refused.
+The pace plan you also write for each job (the ferocity fields) is what the agency paces within:
+- steady_every_hours is the job's ordinary schedule - what a sensible person would schedule. The agent runs at it once its goal is reached, and never slower.
+- relentless_floor is what one good run of this job makes: the agency starts from it until the agent's own runs show what they make.
+- counts, hint and extra_effort say what counts as output, where else to look when a run is short of what it was asked for, and what more effort means for this job.
+- The other numbers (driven_every_hours, relentless_every_hours, the other floors) are kept for the plan's shape: fill them in sensibly, faster and higher in that order. A job hunting an open-ended supply of work (lead research, prospecting, content ideas) can turn up new work every 10-30 minutes; a job driven by events (bug triage on a Sentry alert, incidents, tickets) is woken by them, and its schedule is only an idle sweep; a job with a fixed rhythm (a weekly report) keeps it.
+max_runs_per_day sits well above anything the job does on purpose (a 10-minute pace is 144 a day).
 
 Writing for the organization: a Charter is written for one specific organization, the way a real employee's brief would be. Name the organization, what it sells and to whom, the voice it speaks in, and the actual people the agent reports to, asks, or writes as (by name and role, from the profile). Refer to the fleet's other agents by name when it hands work to them. Never invent facts about the organization: where the profile doesn't say, keep that part general.
 
@@ -357,7 +357,7 @@ export function builderGuide(ctx: Context): string {
     ABOUT,
     contextBlock(ctx),
     `Before you build, talk to the person (in your own chat with them) the way the builder interviews:\n${INTERVIEW}\n- Ask as many rounds as you need; when you have enough, say in a sentence what you'll build.`,
-    `Building it (create_agent): write every field for this organization. ${TIERING}\n\nIds must exist: tools from the fleet, the catalogue above, connected services, or your own new_tools (server.tool); events from those listed above, or your own new_events; models from the connected ones above. A KPI and a ferocity count must name one of the agent's tools.`,
+    `Building it (create_agent): write every field for this organization. ${TIERING}\n\nIds must exist: tools from the fleet, the catalogue above, connected services, or your own new_tools (server.tool); events from those listed above, or your own new_events; models from the connected ones above. A KPI and a ferocity count must name one of the agent's tools. At least one KPI row needs a goal: an amount of 1 or more, with its period.`,
   ].join('\n\n---\n\n');
 }
 
@@ -370,6 +370,18 @@ const ACCOUNTS = z.array(z.object({ site: z.string().describe('The site, e.g. x.
 // A client still on the tool list from before 18 Nov 2026 sends chill_every_hours (the job's
 // sensible pace, now Steady's) and steady_every_hours (the old, faster Steady, now gone): the
 // first is the pace.
+// A KPI row from before goals had periods (a pack's template, an older client): its
+// per_day is the amount, a day. No number at all is 0, which is no goal for that row.
+const legacyGoal = (k: unknown) => {
+  if (!k || typeof k !== 'object') return k;
+  const { per_day, ...rest } = k as Record<string, unknown>;
+  return { ...rest, amount: rest.amount ?? per_day ?? 0 };
+};
+// Every agent needs a goal (runner/goals.ts): a KPI row with a number.
+export const hasGoalNumber = (b: { kpi: { amount?: number }[] }) => b.kpi.some(k => Number.isFinite(k.amount) && Number(k.amount) >= 1);
+export const NEEDS_GOAL =
+  'It has no goal: give at least one KPI row an amount of 1 or more and its period (hour, day, week, month or year) - a sensible basic number for an ordinary pace of this job. An agent with no goal does not run.';
+
 const legacyPace = (f: unknown) => {
   if (!f || typeof f !== 'object' || !('chill_every_hours' in f)) return f;
   const { chill_every_hours, ...rest } = f as Record<string, unknown>;
@@ -438,8 +450,22 @@ export const BuildSchema = z.object({
       "New website accounts the agency signs up for before this agent first runs: ones the job can't start without, on sites nothing here connects to (an X profile for the brand, a Reddit account, a Product Hunt maker account). They're made during its setup - the Agency Engineer signs up, the person only does a CAPTCHA or a phone code, all of them in one go - and each shows on the agent's card. Not the person's own existing accounts (they sign in to those themselves), and nothing a connected service covers. For an agent whose job is to keep making accounts as it goes (one per brand it launches): only the ones it starts with - the Charter says it makes the rest itself, writing down every one it needs first. Empty when it needs none.",
   ),
   kpi: z
-    .array(z.object({ id: z.string().describe('A tool id from tools'), label: z.string().describe('Plural, lowercase, e.g. "invoices chased"'), per_day: z.number().optional().describe("Its goal for this output: how many a day is a good day's work for this job at an ordinary pace (20 leads, 5 posts). 0 when a number makes no sense for it. The person changes it on the agent's card.") }))
-    .describe('1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing. Each label is a goal the person can put a number on, so name it as they would say it.'),
+    .array(
+      z.preprocess(
+        legacyGoal,
+        z.object({
+          id: z.string().describe('A tool id from tools'),
+          label: z.string().describe('Plural, lowercase, e.g. "invoices chased"'),
+          amount: z
+            .number()
+            .describe(
+              "Its goal for this output: how many per period is good work for this job at an ordinary pace (20 leads a day, 5 posts a week). A whole number; at least one row must have 1 or more - guess a sensible basic number rather than asking, unless the number really matters to the person. 0 only on a row where a number makes no sense. The person changes it on the agent's card.",
+            ),
+          period: z.enum(PERIODS).optional().describe('What the amount is per: hour, day, week, month or year. Left out: day.'),
+        }),
+      ),
+    )
+    .describe('1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing. Each label is a goal the person can put a number on, so name it as they would say it. At least one needs a number: an agent with no goal does not run.'),
   max_runs_per_day: z.number().describe('Runaway backstop, not the cadence: comfortably above what the job needs'),
   ferocity: z.preprocess(
     legacyPace,
@@ -447,7 +473,7 @@ export const BuildSchema = z.object({
     .object({
       steady_every_hours: z
         .number()
-        .describe('Steady ("the default: gets the job done"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168). Chill has no schedule, so nothing is set for it.'),
+        .describe('Steady ("the default: gets the job done"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168). Its ordinary schedule: it runs at this once its goal is reached, and never slower.'),
       driven_every_hours: z.number().describe('Driven ("never leaves output on the table"): as often as there is usually new work to find'),
       relentless_every_hours: z
         .number()
@@ -471,11 +497,11 @@ export const BuildSchema = z.object({
           'What more effort means for this job above Steady, where doing the main action more would be useless or harmful: wider and better real work (more sources searched, harder cases taken on), never files written to reach a number - e.g. a wallpaper agent finds better candidates and asks what the person likes, rather than changing the wallpaper again',
         ),
     })
-    .describe('How hard it works at each ferocity level, set for this job. The person picks the level on the card.'),
+    .describe('The pace plan for this job. Nobody picks a level: its goals set the pace (kpi), within this plan.'),
   ),
   natural_limits: z
     .array(z.object({ tool: z.string(), max: z.number(), per_hours: z.number(), why: z.string() }))
-    .describe('Caps on an action at every ferocity - ONLY ones the person asked for in this conversation, in their own words ("at most one post a day"). Never add one because it seems sensible: the agency is here for as much good output as possible. The only other reason is a law, or a rule of the platform that would get the account banned (say which in why). Empty otherwise - and never write a cap into the Charter either.'),
+    .describe('Caps on an action whatever its pace - ONLY ones the person asked for in this conversation, in their own words ("at most one post a day"). Never add one because it seems sensible: the agency is here for as much good output as possible. The only other reason is a law, or a rule of the platform that would get the account banned (say which in why). Empty otherwise - and never write a cap into the Charter either.'),
   profile_notes: z
     .array(z.string())
     .describe(`New facts about the organization that every agent should know. ${DURABLE}`),
@@ -588,10 +614,13 @@ export async function build(ctx: Context, turns: Turn[]): Promise<Build> {
   // The agency's default place for reports was asked for once already: its tool isn't unasked.
   const reportTool = reportDefault(ctx.person.name)?.tool;
   const extra = unaskedTools(b, turns, new Set([...ctx.fleet.tools.map(t => t.id), ...integrationToolIds(), ...(reportTool ? [reportTool] : [])]));
-  if (!extra.length) return b;
-  return once(
-    `Build it, without ${extra.join(', ')}: the person didn't ask for that and it isn't connected. Its reports stay in its run's report for now, and the Charter says to ask them once, with a request, where they'd like them; what it keeps goes in its own files (files.*). Leave it out of the instructions too.`,
-  );
+  const ask = extra.length
+    ? `Build it, without ${extra.join(', ')}: the person didn't ask for that and it isn't connected. Its reports stay in its run's report for now, and the Charter says to ask them once, with a request, where they'd like them; what it keeps goes in its own files (files.*). Leave it out of the instructions too.`
+    : 'Build it.';
+  const built = extra.length ? await once(ask) : b;
+  // Every agent needs a goal: a build without a number is redone once. One that still has
+  // none waits, not running, for the Agency Engineer to set it (runner/scheduler.ts).
+  return hasGoalNumber(built) ? built : once(`${ask} ${NEEDS_GOAL}`);
 }
 
 // --- 4. Customize a pack agent for this organization ---
@@ -605,6 +634,7 @@ export async function customize(ctx: Context, template: Build, packName: string)
     `This agent was just added from the ready-made "${packName}" pack. Its files below were written for a generic small business. Rewrite them for this organization and this fleet:
 - Charter: keep its structure, rigour and safety rules, but make it theirs: the organization's name, what it sells and to whom, its voice, the real people it reports to or writes as (starting with the person you know), and its teammates in the fleet by name. Drop generic placeholders. Don't invent facts the profiles don't give - leave those parts general.
 - Tools: wherever a fleet tool does the same job, use the fleet tool's exact id instead (and drop the template's duplicate new tool). Keep the template's narrow, limited tools only when nothing in the fleet already does that. Keep tiers at least as strict as the template unless a narrow tool makes a case safe.
+- Goals: every agent needs one. Give at least one KPI row an amount of 1 or more and its period - a sensible basic number for an ordinary pace of this job at an organization this size.
 - Keep its name and department. ${TIERING}
 
 Template files (JSON):

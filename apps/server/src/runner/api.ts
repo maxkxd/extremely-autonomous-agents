@@ -33,8 +33,8 @@ import { control, frame, input, liveState, openForPerson } from './live-view.js'
 import { deletePassword, listPasswords, passwordRow, profileFor, readPassword, savePassword, siteOf } from './passwords.js';
 import { hasPassword, signInOf, signInWords } from './signin.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
-import { APOCALYPTIC_GAP_MS, LEVELS } from './ferocity.js';
-import { goalsOf, paceFor, setGoal } from './goals.js';
+import { APOCALYPTIC_GAP_MS, LEVELS, STEADY } from './ferocity.js';
+import { checkGoal, goalsOf, paceFor, setGoal } from './goals.js';
 import { BUILT_IN_IDS, HELPER_IDS } from './helpers.js';
 import { clearResume } from './selfsettings.js';
 import { spentToday } from './pricing.js';
@@ -258,15 +258,19 @@ export const runnerRoutes: Record<string, Route> = {
         id,
         since,
       );
-      // Its goals for today and the pace they call for (goals.ts). With a goal, the card's
-      // look follows that pace instead of a level someone set.
-      const goals = agent && !BUILT_IN_IDS.includes(id) ? goalsOf(agent) : [];
+      // Its goals, each for the period it is in, and the pace they call for (goals.ts). The
+      // card's effects follow that pace: nobody sets a level. An ordinary agent with no goal
+      // does not run (noGoal); a built-in has none and works steadily.
+      const ordinary = !BUILT_IN_IDS.includes(id) && !meta.builtIn && !meta.service;
+      const goals = agent && ordinary ? goalsOf(agent) : [];
       const pace = agent && goals.length ? paceFor(agent, Date.now(), goals) : null;
+      const effect = ordinary ? (pace?.level ?? 0) : STEADY;
       out[id] = {
-        ferocity: pace?.level ?? st.ferocity,
-        level: LEVELS[pace?.level ?? st.ferocity],
-        goals: goals.map(g => ({ label: g.label, perDay: g.perDay, done: g.done, waiting: g.waiting })),
-        pace: pace ? { status: pace.status, parallel: pace.parallel } : null,
+        ferocity: effect,
+        level: LEVELS[effect],
+        goals: goals.map(g => ({ label: g.label, amount: g.amount, period: g.period, done: g.done, waiting: g.waiting })),
+        pace: pace ? { status: pace.status, parallel: pace.parallel, runsPerDay: Math.round(pace.runsPerDay * 10) / 10 } : null,
+        noGoal: ordinary && !pace,
         state: st.state,
         running: isRunning(id),
         // Run now pressed, waiting for one of the runs going now to finish (scheduler.ts MAX_PARALLEL).
@@ -304,21 +308,19 @@ export const runnerRoutes: Record<string, Route> = {
     return { state: agencyState() };
   },
 
-  // Ferocity, Drain/Stop, a per-agent spend cap.
+  // Its goals, Drain/Stop, a per-agent spend cap. Nobody sets a level any more: a
+  // `ferocity` sent by an older app is ignored.
   'POST /api/runner/agent': async (_req, _q, body) => {
-    const b = await body<{ id: string; ferocity?: number; state?: 'active' | 'draining' | 'stopped'; spendCapUsd?: number | null; autoModels?: boolean; goal?: { label: string; perDay: number } }>();
+    const b = await body<{ id: string; state?: 'active' | 'draining' | 'stopped'; spendCapUsd?: number | null; autoModels?: boolean; goal?: { label: string; amount: number; period?: string } }>();
     if (!isId(b.id)) throw new Error('Unknown agent.');
     // In an organization, only the agent's maker or an admin controls it (access.ts).
-    if (b.ferocity !== undefined || b.state !== undefined || b.autoModels !== undefined || b.goal !== undefined)
-      await requireMakerOrAdmin(b.id, null, currentActor(), b.goal !== undefined ? 'change its goals' : b.state === 'stopped' ? 'stop it' : b.state === 'draining' ? 'put it on standby' : b.state === 'active' ? 'resume it' : b.autoModels !== undefined ? 'change how its models are picked' : 'change its ferocity');
+    if (b.state !== undefined || b.autoModels !== undefined || b.goal !== undefined)
+      await requireMakerOrAdmin(b.id, null, currentActor(), b.goal !== undefined ? 'change its goals' : b.state === 'stopped' ? 'stop it' : b.state === 'draining' ? 'put it on standby' : b.state === 'active' ? 'resume it' : 'change how its models are picked');
     if (b.spendCapUsd !== undefined) requireAdmin(currentActor(), 'A spend limit');
     if (b.spendCapUsd !== undefined && BUILT_IN_IDS.includes(b.id)) throw new Error("A built-in agent has no limit of its own: the organization's limit covers it.");
     const cap = b.spendCapUsd !== undefined ? capUsd(b.spendCapUsd) : undefined;
     stateOf(b.id);
     const now = Date.now();
-    // Built-ins keep theirs: they work when there's work, with a daily look otherwise.
-    if (typeof b.ferocity === 'number' && b.ferocity >= 0 && b.ferocity < LEVELS.length && !(await readMeta(b.id))?.builtIn)
-      exec('UPDATE agent_state SET ferocity = ?, updated_at = ? WHERE agent_id = ?', Math.floor(b.ferocity), now, b.id);
     // Built-ins have no Stop of their own: the agency's Stop covers them.
     if ((b.state === 'active' || b.state === 'draining' || b.state === 'stopped') && !(await readMeta(b.id))?.builtIn) {
       const state = b.state;
@@ -331,12 +333,15 @@ export const runnerRoutes: Record<string, Route> = {
       if (state !== 'stopped') exec('UPDATE agent_state SET setup = NULL WHERE agent_id = ?', b.id);
     }
     if (cap !== undefined) exec('UPDATE agent_state SET spend_cap_usd = ? WHERE agent_id = ?', cap, b.id);
-    // A goal: one of its KPI's labels and how many a day (0: no number for it).
+    // A goal: one of its KPI's labels, how many, and per what (hour, day, week, month,
+    // year). 0 takes the number off a label, but never off its only one: an agent always
+    // has a goal (checkGoal refuses).
     if (b.goal !== undefined) {
       const agent = (await readMeta(b.id))?.builtIn ? null : await loadAgent(b.id);
       const label = String(b.goal?.label ?? '');
       if (!agent || !agent.output.some(o => o.label === label)) throw new Error("That isn't one of this agent's outputs. Ask the Agency Engineer to add a new goal.");
-      setGoal(b.id, label, b.goal.perDay, now);
+      const g = checkGoal(agent, label, b.goal.amount, b.goal.period, now);
+      setGoal(b.id, label, g.amount, g.period, now);
     }
     if (typeof b.autoModels === 'boolean') exec('UPDATE agent_state SET auto_models = ? WHERE agent_id = ?', b.autoModels ? 1 : 0, b.id);
     return { ok: true, state: stateOf(b.id) };
@@ -351,6 +356,11 @@ export const runnerRoutes: Record<string, Route> = {
     await requireMakerOrAdmin(id, null, currentActor(), 'run it');
     if (stateOf(id).state === 'stopped') throw new Error("It's stopped - resume it first.");
     if ((await readMeta(id))?.status === 'setting-up') throw new Error("It's still being set up.");
+    // No goal, no runs (goals.ts): refused here, not left waiting as a booking.
+    if (!BUILT_IN_IDS.includes(id)) {
+      const agent = await loadAgent(id);
+      if (agent && !paceFor(agent)) throw new Error('It has no goal yet - give it one first: an agent with no goal does not run.');
+    }
     book(id, 'run now', null);
     return { ok: true };
   },

@@ -1,207 +1,235 @@
-import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, Plus } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ChevronDown, Plus } from 'lucide-react';
 import { Skel } from './Skeleton';
 
-// An agent's goals on its card (docs/runner.md, "Goals"): an output in plain words and
-// how many a day. Nobody sets how hard the agent works - the agency paces it to its
-// goals - so the card shows the goal, how far today has got, and how hard it is being
-// pushed. Clicking the goal slides the column over the pies, as the model picker
-// does, and lists every goal it has.
+// An agent's goal on its card (docs/runner.md, "Goals"): an output in plain words and
+// how many per hour, day, week, month or year. Every agent has one. Nobody sets how hard
+// the agent works - the agency paces it to its goals - so the card shows the goal and how
+// far this period has got. The row reads like the Model row; clicking it sends the rest of
+// the column up and out of the card, and the goal's settings rise in its place: the
+// number, the period, and a wheel of every goal the agent has.
 
-export type AgentGoal = { label: string; perDay: number; done: number; waiting: number };
-export type AgentPace = { status: string; parallel: number };
+export type Period = 'hour' | 'day' | 'week' | 'month' | 'year';
+export type AgentGoal = { label: string; amount: number; period: Period; done: number; waiting: number };
+export type AgentPace = { status: string; parallel: number; runsPerDay?: number };
 
+const PERIODS: { id: Period; short: string; now: string }[] = [
+  { id: 'hour', short: 'hr', now: 'this hour' },
+  { id: 'day', short: 'day', now: 'today' },
+  { id: 'week', short: 'wk', now: 'this week' },
+  { id: 'month', short: 'mo', now: 'this month' },
+  { id: 'year', short: 'yr', now: 'this year' },
+];
+const nowWord = (p: Period) => PERIODS.find(x => x.id === p)?.now ?? 'today';
 const count = (n: number) => n.toLocaleString();
 const MAX = 1_000_000;
 const digits = (text: string) => Math.min(MAX, parseInt(text.replace(/\D/g, ''), 10) || 0);
 const said = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-// A number someone is typing: theirs until the server's catches up, saved a moment
-// after they stop (a save per keystroke restarted the pace on "1", "10", "100").
-function useGoalNumber(value: number, save: (n: number) => void) {
+function statusOf(goal: AgentGoal | undefined, pace: AgentPace | null | undefined, stopped: boolean) {
+  if (!goal || !goal.amount) return 'No goal';
+  if (stopped) return 'Stopped';
+  if (goal.done >= goal.amount) return 'Goal hit';
+  // A number just raised past this period's count: the runner hasn't re-paced it yet.
+  return said(!pace || pace.status === 'goal hit' ? 'on pace' : pace.status);
+}
+
+// The collapsed row, and under it how far this period has got.
+export function GoalRow({
+  goal,
+  pace,
+  open,
+  onOpen,
+  why,
+  stopped = false,
+}: {
+  goal?: AgentGoal;
+  pace?: AgentPace | null;
+  open: boolean;
+  onOpen: () => void;
+  why?: string | null; // greyed out for a reason (the host is offline): said on hover
+  stopped?: boolean;
+}) {
+  const has = !!goal && goal.amount > 0;
+  const hit = has && goal.done >= goal.amount;
+  const parallel = !stopped && !hit && has ? (pace?.parallel ?? 1) : 1;
+  return (
+    <div className={`goal${hit ? ' hit' : ''}${has ? '' : ' none'}`}>
+      <button className={`goal-row${open ? ' open' : ''}`} onClick={onOpen} disabled={!!why || !goal} title={why ?? (has ? `${count(goal.amount)} ${goal.label} a ${goal.period} - change the goal` : 'This agent has no goal, so it does not run')}>
+        <span className="stat-label">Goal</span>
+        <span className="goal-row-value">
+          {has ? (
+            <>
+              <span className="goal-row-name">
+                {count(goal.amount)} {goal.label}
+              </span>
+              <span className="goal-row-per">/ {goal.period}</span>
+            </>
+          ) : (
+            <span className="goal-row-name">Set a goal</span>
+          )}
+          <ChevronDown size={14} className="goal-row-chev" />
+        </span>
+      </button>
+      {goal && (
+        <>
+          <div className="goal-bar">
+            <i style={{ width: `${has ? Math.min(100, (goal.done / goal.amount) * 100) : 0}%` }} />
+          </div>
+          <div className="goal-foot">
+            <span title={goal.waiting ? `${count(goal.waiting)} of them wait for approval. A rejected one comes off again` : undefined}>
+              <b>{count(goal.done)}</b>
+              {has ? ` of ${count(goal.amount)} ${nowWord(goal.period)}` : ` ${nowWord(goal.period)}`}
+            </span>
+            <span className="goal-status" title={parallel > 1 ? `${parallel} runs at once` : undefined}>
+              {statusOf(goal, pace, stopped)}
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// The row's shape while its numbers aren't known yet.
+export function GoalSkeleton() {
+  return (
+    <div className="goal">
+      <span className="skel skel-model" style={{ margin: 0 }} />
+      <span className="skel skel-slider" style={{ margin: '2px 0' }} />
+      <Skel w={96} h={12} />
+    </div>
+  );
+}
+
+// What rises in the column's place: the number, the period, and every goal on a wheel.
+export function GoalSettings({
+  goals,
+  selected,
+  open,
+  onPick,
+  onSet,
+  onDone,
+  onNew,
+  locked = false,
+}: {
+  goals: AgentGoal[];
+  selected: string | null;
+  open: boolean;
+  onPick: (label: string) => void;
+  onSet: (label: string, amount: number, period: Period) => void;
+  onDone: () => void;
+  onNew?: () => void; // ask the Agency Engineer for a goal it doesn't have yet
+  locked?: boolean; // someone else's agent: shown, not changed
+}) {
+  const goal = goals.find(g => g.label === selected) ?? goals[0];
+  // The number being typed is theirs until they stop; it is saved a moment later
+  // (a save per keystroke re-paced the agent on "1", "10", "100").
   const [text, setText] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => setText(null), [goal?.label]);
   useEffect(() => {
-    if (text !== null && digits(text) === value) setText(null);
-  }, [value]);
+    if (text !== null && goal && digits(text) === goal.amount) setText(null);
+  }, [goal?.amount]);
+  // A goal is never left blank: the last one with a number keeps it.
+  const mustKeep = !!goal && !goals.some(g => g.label !== goal.label && g.amount > 0);
+  const save = (n: number) => {
+    if (!goal) return;
+    if (n < 1 && mustKeep) return setText(null);
+    onSet(goal.label, n, goal.period);
+  };
   const type = (next: string) => {
     setText(next.replace(/\D/g, '').slice(0, 7));
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => save(digits(next)), 500);
+    const n = digits(next);
+    if (n >= 1) timer.current = setTimeout(() => save(n), 500);
   };
   const leave = () => {
     if (text === null) return;
     clearTimeout(timer.current);
     save(digits(text));
   };
-  return { shown: text ?? (value ? String(value) : ''), typed: text !== null ? digits(text) : value, type, leave };
-}
 
-// The pace in a word, and the runs going at once as dots.
-function statusOf(goal: AgentGoal | undefined, pace: AgentPace | null | undefined, stopped: boolean) {
-  if (stopped) return 'Stopped';
-  if (!goal || !goal.perDay) return 'No goal';
-  if (goal.done >= goal.perDay) return 'Goal hit';
-  // A number just raised past today's count: the runner hasn't re-paced it yet.
-  return said(!pace || pace.status === 'goal hit' ? 'on pace' : pace.status);
-}
+  // The wheel: the goal in the middle is the one chosen. It opens on the chosen one.
+  const wheel = useRef<HTMLDivElement>(null);
+  const settle = useRef<ReturnType<typeof setTimeout>>();
+  const centre = (label: string, smooth: boolean) => {
+    const w = wheel.current;
+    const el = w?.querySelector<HTMLElement>(`[data-goal="${CSS.escape(label)}"]`);
+    if (w && el) w.scrollTo({ top: el.offsetTop - w.clientHeight / 2 + el.offsetHeight / 2, behavior: smooth ? 'smooth' : 'auto' });
+  };
+  useLayoutEffect(() => {
+    if (open && goal) centre(goal.label, false);
+  }, [open]);
+  const onScroll = () => {
+    clearTimeout(settle.current);
+    // Once it comes to rest, whichever goal sits in the middle is chosen.
+    settle.current = setTimeout(() => {
+      const w = wheel.current;
+      if (!w) return;
+      const mid = w.scrollTop + w.clientHeight / 2;
+      let best: { label: string; d: number } | null = null;
+      for (const el of w.querySelectorAll<HTMLElement>('[data-goal]')) {
+        const d = Math.abs(el.offsetTop + el.offsetHeight / 2 - mid);
+        if (!best || d < best.d) best = { label: el.dataset.goal!, d };
+      }
+      if (best && best.label !== goal?.label) onPick(best.label);
+    }, 120);
+  };
+  useEffect(() => () => clearTimeout(settle.current), []);
 
-export function GoalBlock({
-  goals,
-  pace,
-  selected,
-  open,
-  onOpen,
-  onSet,
-  disabled = false,
-  why,
-  stopped = false,
-}: {
-  goals: AgentGoal[];
-  pace?: AgentPace | null;
-  selected: string | null;
-  open: boolean;
-  onOpen: () => void;
-  onSet: (label: string, perDay: number) => void;
-  disabled?: boolean; // someone else's agent: shown, not changed
-  why?: string | null; // greyed out for a reason (the host is offline): said on hover
-  stopped?: boolean;
-}) {
-  const goal = goals.find(g => g.label === selected) ?? goals[0];
-  const n = useGoalNumber(goal?.perDay ?? 0, v => goal && onSet(goal.label, v));
-  // Each change of the number gives it a small bump (two names, so it replays).
-  const [bump, setBump] = useState(0);
-  const locked = disabled || !!why || !goal;
-  const perDay = n.typed;
-  const hit = !!goal && perDay > 0 && goal.done >= perDay;
-  const pct = goal && perDay ? Math.min(100, (goal.done / perDay) * 100) : 0;
-  const parallel = !stopped && !hit && perDay ? (pace?.parallel ?? 1) : 1;
+  const at = Math.max(0, PERIODS.findIndex(p => p.id === goal?.period));
   return (
-    <div className={`goal${hit ? ' hit' : ''}`} title={why ?? undefined}>
-      <div className="goal-head">
+    <div className="goal-set" aria-hidden={!open} {...(open ? {} : { inert: '' })}>
+      <div className="goal-set-head">
         <span className="stat-label">Goal</span>
-        <span className="goal-status">
-          {hit && !stopped && <Check size={14} strokeWidth={3} />}
-          {statusOf(goal && { ...goal, perDay }, pace, stopped)}
-        </span>
-      </div>
-      <div className="goal-line">
-        <input
-          className={`goal-num${bump ? (bump % 2 ? ' bump-a' : ' bump-b') : ''}`}
-          value={n.shown}
-          placeholder="0"
-          inputMode="numeric"
-          disabled={locked}
-          // As wide as its digits, so the goal's name beside it keeps the room.
-          style={{ width: `${Math.max(2, n.shown.length) + 0.3}ch` }}
-          aria-label={goal ? `${goal.label} a day` : 'Goal a day'}
-          title={why ?? (disabled ? undefined : 'How many a day. The agency speeds the agent up or eases it off to reach it')}
-          onChange={e => {
-            n.type(e.target.value);
-            setBump(b => b + 1);
-          }}
-          onBlur={n.leave}
-          onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-        />
-        <button className={`goal-pick${open ? ' open' : ''}`} onClick={onOpen} disabled={!goal || !!why} title={why ?? (goal ? `${said(goal.label)} a day - see every goal` : 'No goals yet')}>
-          <span>{goal ? `${goal.label} / day` : 'No goals yet'}</span>
-          <ChevronRight size={14} />
+        <button className="goal-done" onClick={onDone}>
+          Done
         </button>
       </div>
-      <div className="goal-bar">
-        <i style={{ width: `${pct}%` }} />
-      </div>
-      <div className="goal-foot">
-        <span title={goal?.waiting ? `${count(goal.waiting)} of them wait for approval. A rejected one comes off again` : undefined}>
-          <b>{count(goal?.done ?? 0)}</b>
-          {perDay ? ` of ${count(perDay)} today` : ' today'}
-        </span>
-        {parallel > 1 && (
-          <span className="goal-dots" title={`${parallel} runs at once`}>
-            {Array.from({ length: Math.min(parallel, 20) }, (_, i) => (
-              <i key={i} style={{ animationDelay: `${i * 40}ms` }} />
-            ))}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// The goal block's shape while its numbers aren't known yet.
-export function GoalSkeleton() {
-  return (
-    <div className="goal">
-      <div className="goal-head">
-        <span className="stat-label">Goal</span>
-        <Skel w={56} h={14} />
-      </div>
-      <span className="skel skel-model" style={{ margin: 0, height: 34 }} />
-      <span className="skel skel-slider" />
-    </div>
-  );
-}
-
-function GoalRow({ goal, index, active, locked, onPick, onSet }: { goal: AgentGoal; index: number; active: boolean; locked: boolean; onPick: () => void; onSet: (perDay: number) => void }) {
-  const n = useGoalNumber(goal.perDay, onSet);
-  const perDay = n.typed;
-  return (
-    <div className={`goal-row${active ? ' active' : ''}`} style={{ animationDelay: `${index * 60}ms` }}>
-      <button className="goal-row-name" onClick={onPick} title="Show this goal on the card">
-        {said(goal.label)}
-      </button>
-      <div className="goal-bar">
-        <i style={{ width: `${perDay ? Math.min(100, (goal.done / perDay) * 100) : 0}%` }} />
-      </div>
-      <span className="goal-row-done">{perDay ? `${count(goal.done)} of ${count(perDay)}` : `${count(goal.done)} today`}</span>
       <input
-        className="goal-row-num"
-        value={n.shown}
+        className="goal-big"
+        value={text ?? (goal?.amount ? String(goal.amount) : '')}
         placeholder="0"
         inputMode="numeric"
-        disabled={locked}
-        aria-label={`${goal.label} a day`}
-        onChange={e => n.type(e.target.value)}
-        onBlur={n.leave}
+        disabled={locked || !goal}
+        aria-label={goal ? `${goal.label} a ${goal.period}` : 'Goal'}
+        onChange={e => type(e.target.value)}
+        onBlur={leave}
         onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
       />
-      <span className="goal-row-per">/ day</span>
-    </div>
-  );
-}
-
-// The slide-out: every goal with its own number, and the way to a new one.
-export function GoalPanel({
-  goals,
-  selected,
-  onPick,
-  onSet,
-  onNew,
-  locked = false,
-}: {
-  goals: AgentGoal[];
-  selected: string | null;
-  onPick: (label: string) => void;
-  onSet: (label: string, perDay: number) => void;
-  onNew?: () => void; // ask the Agency Engineer for a goal it doesn't have yet
-  locked?: boolean;
-}) {
-  const shown = goals.find(g => g.label === selected)?.label ?? goals[0]?.label;
-  return (
-    <div className="model-panel goal-panel" onPointerDown={e => e.stopPropagation()}>
-      <span className="goal-panel-title">Goals · per day</span>
-      <div className="goal-rows">
-        {goals.map((g, i) => (
-          <GoalRow key={g.label} goal={g} index={i} active={g.label === shown} locked={locked} onPick={() => onPick(g.label)} onSet={v => onSet(g.label, v)} />
-        ))}
-        {onNew && (
-          <button className="goal-new" style={{ animationDelay: `${goals.length * 60}ms` }} onClick={onNew}>
-            <Plus size={15} />
-            New goal
-            <em>Ask the Agency Engineer</em>
+      <div className="goal-sentence">{goal ? <><b>{said(goal.label)}</b> / {goal.period}</> : 'No goals yet'}</div>
+      <div className="goal-periods" role="radiogroup" aria-label="Per">
+        <i style={{ left: `calc(2px + ${at} * (100% - 4px) / ${PERIODS.length})` }} />
+        {PERIODS.map(p => (
+          <button key={p.id} role="radio" aria-checked={goal?.period === p.id} className={goal?.period === p.id ? 'on' : ''} disabled={locked || !goal} title={`Per ${p.id}`} onClick={() => goal && onSet(goal.label, text !== null && digits(text) >= 1 ? digits(text) : goal.amount, p.id)}>
+            {p.short}
           </button>
-        )}
+        ))}
+      </div>
+      <div className="goal-wheel-wrap">
+        <div className="goal-wheel" ref={wheel} onScroll={onScroll}>
+          {goals.map(g => (
+            <button
+              key={g.label}
+              data-goal={g.label}
+              className={g.label === goal?.label ? 'on' : ''}
+              onClick={() => {
+                onPick(g.label);
+                centre(g.label, true);
+              }}
+            >
+              {said(g.label)}
+            </button>
+          ))}
+          {onNew && (
+            <button className="new" onClick={onNew} title="Ask the Agency Engineer for a goal this agent doesn't have yet">
+              <Plus size={14} />
+              New goal
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

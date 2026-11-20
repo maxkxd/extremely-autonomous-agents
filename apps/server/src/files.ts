@@ -83,11 +83,11 @@ export function compose(
       how_it_works: t.how_it_works,
       status: 'built',
     })),
-    // The runaway backstop, NOT the cadence. Cadence is the agent's ferocity.
+    // The runaway backstop, NOT the cadence. Its goals set the pace (runner/goals.ts).
     limits: { max_runs_per_day: Math.max(1, Math.round(b.max_runs_per_day)) },
     kill_switch_scope_keys: ['fleet:*', `department:${b.department}`, `agent:${id}`],
-    // How hard it works at each ferocity level (docs/runner.md). Read by the
-    // runner; agents built without one use its defaults.
+    // Its pace plan (docs/runner.md): what its goals' pace is worked out within. Read by
+    // the runner; agents built without one use its defaults.
     ...(b.ferocity ? { ferocity: ferocityPlan(b.ferocity, tiers) } : {}),
     natural_limits: (b.natural_limits ?? [])
       .filter(l => tiers[l.tool] && l.max > 0 && l.per_hours > 0)
@@ -99,7 +99,10 @@ export function compose(
   };
   const kpi = {
     agent_id: id,
-    output: b.kpi.filter(k => tiers[k.id]).map(k => ({ action: k.id, label: k.label, ...(k.per_day && k.per_day > 0 ? { per_day: Math.floor(k.per_day) } : {}) })),
+    // A row's goal: its amount and what it is per (runner/goals.ts). A row with no number has none.
+    output: b.kpi
+      .filter(k => tiers[k.id])
+      .map(k => ({ action: k.id, label: k.label, ...(k.amount >= 1 ? { amount: Math.min(1_000_000, Math.floor(k.amount)), period: k.period ?? 'day' } : {}) })),
   };
   const why = picked.map(t => `#   ${t.id} [${t.tier}] - ${t.why}`).join('\n');
   return {

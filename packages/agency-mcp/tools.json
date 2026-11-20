@@ -118,7 +118,7 @@
   {
     "name": "list_agents",
     "title": "List agents",
-    "description": "Every agent: id, name, department, owner, state (active / draining = standby / stopped), its goals (each with the count so far today against its number a day) and how hard they have it pushed, ferocity level, models, whether it is built in, its spend this month against its own limit, when it last ran (and whether it is running now), and how many approvals and open jobs it has. Filter by state or department.",
+    "description": "Every agent: id, name, department, owner, state (active / draining = standby / stopped), its goals (each with the count so far in its period - hour, day, week, month or year - against its amount) and the pace they have it at (an agent with no goal does not run), models, whether it is built in, its spend this month against its own limit, when it last ran (and whether it is running now), and how many approvals and open jobs it has. Filter by state or department.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -201,7 +201,7 @@
   {
     "name": "write_agent_file",
     "title": "Replace an agent's file",
-    "description": "Replace one of an agent's files whole: CHARTER.md (its job), TOOLS.yaml (tools, tiers, approval windows, ferocity plan) or KPI.yaml (which actions count as output). To change part of one, edit_agent_file. Its next run uses it.",
+    "description": "Replace one of an agent's files whole: CHARTER.md (its job), TOOLS.yaml (tools, tiers, approval windows, pace plan) or KPI.yaml (which actions count as output, and each one's goal: amount and period). To change part of one, edit_agent_file. Its next run uses it.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -380,8 +380,8 @@
   },
   {
     "name": "set_agent",
-    "title": "Set an agent's goal, ferocity or state",
-    "description": "An agent's goal, ferocity or state. A goal is one of its outputs and how many a day (goal: the output's name as list_agents gives it, per_day: the number; 0 takes the number off): the agency paces the agent to reach it - more runs, more at once - and eases it off once there. A new kind of goal is the Agency Engineer's to add (reply_to_request or run_agent on the engineer). Ferocity applies only while it has no goal (how hard it works: Chill, Steady, Driven, Relentless, Apocalyptic; Steady is the default, on a schedule; Chill has none and runs only when given work - a task, a message, an event) or state (active, draining = standby: starts nothing itself, stopped: runs nothing). Built-in agents have neither.",
+    "title": "Set an agent's goal or state",
+    "description": "An agent's goal or state. A goal is one of its outputs, an amount and a period (goal: the output's name as list_agents gives it; amount: a whole number, 1 to 1,000,000; period: hour, day, week, month or year - left out, the period that goal has now, else day): the agency paces the agent to reach it - more runs, more at once - and eases it off once there. Nobody sets how hard an agent works; its goals do. Every agent needs a goal and one with none does not run, so amount 0 (no number for that output) is refused on its only goal with a number. A new kind of goal is the Agency Engineer's to add (reply_to_request or run_agent on the engineer). State: active, draining = standby: starts nothing itself, stopped: runs nothing. Built-in agents have neither.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -393,19 +393,20 @@
           "type": "string",
           "description": "One of its outputs, e.g. \"emails sent\""
         },
-        "per_day": {
+        "amount": {
           "type": "number",
-          "description": "How many a day; with goal"
+          "description": "How many per period; with goal"
         },
-        "ferocity": {
+        "period": {
           "type": "string",
           "enum": [
-            "Chill",
-            "Steady",
-            "Driven",
-            "Relentless",
-            "Apocalyptic"
-          ]
+            "hour",
+            "day",
+            "week",
+            "month",
+            "year"
+          ],
+          "description": "What the amount is per; with goal"
         },
         "state": {
           "type": "string",
@@ -421,7 +422,7 @@
       ]
     },
     "annotations": {
-      "title": "Set an agent's goal, ferocity or state",
+      "title": "Set an agent's goal or state",
       "readOnlyHint": false,
       "destructiveHint": false,
       "idempotentHint": true,
@@ -686,18 +687,30 @@
                 "type": "string",
                 "description": "Plural, lowercase, e.g. \"invoices chased\""
               },
-              "per_day": {
-                "description": "Its goal for this output: how many a day is a good day's work for this job at an ordinary pace (20 leads, 5 posts). 0 when a number makes no sense for it. The person changes it on the agent's card.",
-                "type": "number"
+              "amount": {
+                "type": "number",
+                "description": "Its goal for this output: how many per period is good work for this job at an ordinary pace (20 leads a day, 5 posts a week). A whole number; at least one row must have 1 or more - guess a sensible basic number rather than asking, unless the number really matters to the person. 0 only on a row where a number makes no sense. The person changes it on the agent's card."
+              },
+              "period": {
+                "description": "What the amount is per: hour, day, week, month or year. Left out: day.",
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week",
+                  "month",
+                  "year"
+                ]
               }
             },
             "required": [
               "id",
-              "label"
+              "label",
+              "amount"
             ],
             "additionalProperties": false
           },
-          "description": "1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing. Each label is a goal the person can put a number on, so name it as they would say it."
+          "description": "1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing. Each label is a goal the person can put a number on, so name it as they would say it. At least one needs a number: an agent with no goal does not run."
         },
         "max_runs_per_day": {
           "type": "number",
@@ -708,7 +721,7 @@
           "properties": {
             "steady_every_hours": {
               "type": "number",
-              "description": "Steady (\"the default: gets the job done\"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168). Chill has no schedule, so nothing is set for it."
+              "description": "Steady (\"the default: gets the job done\"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168). Its ordinary schedule: it runs at this once its goal is reached, and never slower."
             },
             "driven_every_hours": {
               "type": "number",
@@ -758,7 +771,7 @@
             "extra_effort"
           ],
           "additionalProperties": false,
-          "description": "How hard it works at each ferocity level, set for this job. The person picks the level on the card."
+          "description": "The pace plan for this job. Nobody picks a level: its goals set the pace (kpi), within this plan."
         },
         "natural_limits": {
           "type": "array",
@@ -786,7 +799,7 @@
             ],
             "additionalProperties": false
           },
-          "description": "Caps on an action at every ferocity - ONLY ones the person asked for in this conversation, in their own words (\"at most one post a day\"). Never add one because it seems sensible: the agency is here for as much good output as possible. The only other reason is a law, or a rule of the platform that would get the account banned (say which in why). Empty otherwise - and never write a cap into the Charter either."
+          "description": "Caps on an action whatever its pace - ONLY ones the person asked for in this conversation, in their own words (\"at most one post a day\"). Never add one because it seems sensible: the agency is here for as much good output as possible. The only other reason is a law, or a rule of the platform that would get the account banned (say which in why). Empty otherwise - and never write a cap into the Charter either."
         },
         "profile_notes": {
           "type": "array",
@@ -838,7 +851,7 @@
   {
     "name": "create_agent",
     "title": "Create an agent",
-    "description": "Add a new agent, as the app's agent builder would (read builder_guide first, and talk to the person the way it says): the full build - name, department, Charter, tools with tiers, events, KPIs, models, ferocity plan. Every id must exist (the guide lists them) or be one of its own new_tools / new_events, which go to the Agency Engineer as requests. Answers with what it made.",
+    "description": "Add a new agent, as the app's agent builder would (read builder_guide first, and talk to the person the way it says): the full build - name, department, Charter, tools with tiers, events, KPIs with a goal (at least one needs an amount of 1 or more), models, pace plan. Every id must exist (the guide lists them) or be one of its own new_tools / new_events, which go to the Agency Engineer as requests. Answers with what it made.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1076,18 +1089,30 @@
                 "type": "string",
                 "description": "Plural, lowercase, e.g. \"invoices chased\""
               },
-              "per_day": {
-                "description": "Its goal for this output: how many a day is a good day's work for this job at an ordinary pace (20 leads, 5 posts). 0 when a number makes no sense for it. The person changes it on the agent's card.",
-                "type": "number"
+              "amount": {
+                "type": "number",
+                "description": "Its goal for this output: how many per period is good work for this job at an ordinary pace (20 leads a day, 5 posts a week). A whole number; at least one row must have 1 or more - guess a sensible basic number rather than asking, unless the number really matters to the person. 0 only on a row where a number makes no sense. The person changes it on the agent's card."
+              },
+              "period": {
+                "description": "What the amount is per: hour, day, week, month or year. Left out: day.",
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week",
+                  "month",
+                  "year"
+                ]
               }
             },
             "required": [
               "id",
-              "label"
+              "label",
+              "amount"
             ],
             "additionalProperties": false
           },
-          "description": "1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing. Each label is a goal the person can put a number on, so name it as they would say it."
+          "description": "1-4 actions whose successful calls are the real output of this agent. Never reads or plumbing. Each label is a goal the person can put a number on, so name it as they would say it. At least one needs a number: an agent with no goal does not run."
         },
         "max_runs_per_day": {
           "type": "number",
@@ -1098,7 +1123,7 @@
           "properties": {
             "steady_every_hours": {
               "type": "number",
-              "description": "Steady (\"the default: gets the job done\"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168). Chill has no schedule, so nothing is set for it."
+              "description": "Steady (\"the default: gets the job done\"): how often a run gets this job done, in hours - what a sensible person would schedule (bug triage twice a day = 12, outreach daily = 24, a policy check weekly = 168). Its ordinary schedule: it runs at this once its goal is reached, and never slower."
             },
             "driven_every_hours": {
               "type": "number",
@@ -1148,7 +1173,7 @@
             "extra_effort"
           ],
           "additionalProperties": false,
-          "description": "How hard it works at each ferocity level, set for this job. The person picks the level on the card."
+          "description": "The pace plan for this job. Nobody picks a level: its goals set the pace (kpi), within this plan."
         },
         "natural_limits": {
           "type": "array",
@@ -1176,7 +1201,7 @@
             ],
             "additionalProperties": false
           },
-          "description": "Caps on an action at every ferocity - ONLY ones the person asked for in this conversation, in their own words (\"at most one post a day\"). Never add one because it seems sensible: the agency is here for as much good output as possible. The only other reason is a law, or a rule of the platform that would get the account banned (say which in why). Empty otherwise - and never write a cap into the Charter either."
+          "description": "Caps on an action whatever its pace - ONLY ones the person asked for in this conversation, in their own words (\"at most one post a day\"). Never add one because it seems sensible: the agency is here for as much good output as possible. The only other reason is a law, or a rule of the platform that would get the account banned (say which in why). Empty otherwise - and never write a cap into the Charter either."
         },
         "profile_notes": {
           "type": "array",

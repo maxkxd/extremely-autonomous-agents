@@ -10,8 +10,8 @@ import { ALLOWANCE_WHAT, BUILT_IN_IDS } from './helpers.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { queueForPrompt } from './action-queue.js';
 import { accountsForPrompt } from './accounts.js';
-import { backoffMs, canCount, CHILL, DEFAULT_LEVEL, ferocityInstructions, floorFor, nudgeText, LEVELS } from './ferocity.js';
-import { goalFloor, goalInstructions, goalsOf, isGoalBatch, paceFor } from './goals.js';
+import { backoffMs, canCount, DEFAULT_LEVEL, ferocityInstructions, nudgeText } from './ferocity.js';
+import { goalFloor, goalInstructions, goalsOf, isGoalBatch, noGoalInstructions, paceFor } from './goals.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
 import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
@@ -217,7 +217,7 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 
   return [
     `# You are ${agent.name}`,
-    `You are ${agent.name}, an AI agent in ${agent.org ? `${agent.org}'s` : agent.owner ? `${agent.owner}'s` : 'an'} agency. Your ferocity is ${LEVELS[level]}.`,
+    `You are ${agent.name}, an AI agent in ${agent.org ? `${agent.org}'s` : agent.owner ? `${agent.owner}'s` : 'an'} agency.`,
     `## How the agency works
 - You act only through your tools. T0 tools just run. T1 tools run and are logged. T2 tools need a person's decision: a call is queued in Approvals and you carry on.
 - Your final message in a run is posted to your DM channel as the record of the run. Nobody is expected to read that channel: never rely on a person seeing it. Anything that needs a person goes through a request (requests.request_resource) or a T2 action.
@@ -233,11 +233,11 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - Hand work that is another agent's job to them with tasks.delegate_task.
 - A request turned down is a no to that one way, not to your job: the Agency Engineer asks the person what they'd rather. Meanwhile carry on with what you have (your workspace files can stand in for a missing tool), say in your summary what you used instead, and don't file the same request again.
 - End every run with a short summary: what you did, what is waiting (approvals, requests, tasks), and what comes next. Write it for a person: name a file by its name and folder ("Event Scout - 2026-11-02 in Agent reports"), never its full path, its size in characters, or in code formatting.
-- A person is asked last, and in bulk - whatever your ferocity. Before anything goes to a person (a CAPTCHA, a code, a sign-in, a question), think ahead: what else does this job need from them, and what can you do first without them? Do all of that first. Then hand them everything in one go. One site's CAPTCHA never stops the rest of the batch. With 12 accounts to make, write down all 12 (signed_in_browser.accounts), start all 12 sign-ups and fill in each one up to its check, calling show_person with its account_id on each page as you reach it - it keeps that page and you go on to the next - then wait_for_person once: they get all 12 in one request, not one now and the rest over the next runs. The same goes for questions and access: gather them, then ask once. Stopping at the first thing that needs a person, while other work is still open to you, is a wasted run.
+- A person is asked last, and in bulk - however far you are from your goal. Before anything goes to a person (a CAPTCHA, a code, a sign-in, a question), think ahead: what else does this job need from them, and what can you do first without them? Do all of that first. Then hand them everything in one go. One site's CAPTCHA never stops the rest of the batch. With 12 accounts to make, write down all 12 (signed_in_browser.accounts), start all 12 sign-ups and fill in each one up to its check, calling show_person with its account_id on each page as you reach it - it keeps that page and you go on to the next - then wait_for_person once: they get all 12 in one request, not one now and the rest over the next runs. The same goes for questions and access: gather them, then ask once. Stopping at the first thing that needs a person, while other work is still open to you, is a wasted run.
 - Questions for a person: all of them in ONE request, each with the answer you'll go with if they don't reply ("A$40 a day unless you say otherwise") - then carry on with those defaults; don't wait. Only ask what you can't reasonably decide yourself, and nothing your instructions already answer.
 - Reports and alerts for the person you work for go by gmail.send_to_me when you have it (logged, no approval) - not gmail.send_email, which waits for a person.
 - A person telling you to work differently from now on ("never lead with the free offer, lead with premium", "log everything in PostHog and check it before sending"), even against your instructions: work that way from now on, and call requests.change_my_instructions with their words so your instructions are rewritten to match - a memory note alone gets outweighed by them. A one-off ("send this one today") is not a change.
-- A person asking you to change your settings ("slow down", "stop until Monday", "only run on weekdays", "use Claude for this"): change them yourself - ops.set_my_goal ("make it 500 a day"), ops.set_my_ferocity, ops.pause_me, ops.set_my_run_days, ops.set_my_models - and say what you set. Never say you changed something you have no tool for.
+- A person asking you to change your settings ("slow down", "stop until Monday", "only run on weekdays", "use Claude for this"): change them yourself - ops.set_my_goal ("make it 500 a day", "20 a week"), ops.pause_me, ops.set_my_run_days, ops.set_my_models - and say what you set. Never say you changed something you have no tool for.
 - A person's note when they reject one of your actions is their direction: something for now ("not this week") goes in your memory (memory.remember); something for good ("never email existing customers") goes into your instructions (requests.change_my_instructions with their words).
 - A limit your instructions set (a cap of 4 drafts a week, 15 leads a day) is the end of that work for now: say so in your summary and stop (a person asked you for more? tell them the limit stopped it, and that the Agency Engineer can lift it if they ask) - never produce work of another kind (briefs, notes, extra files) to reach a target. Reaching your limit is a complete run.
 - A tool whose result is empty, garbled, or missing what it was meant to produce has failed - even when it didn't say so. Never build on it or carry on as if it worked: run it again once; still wrong, say so in requests.request_resource (what you called, what came back, what should have) so the Agency Engineer fixes it, and meanwhile do the rest of your work. The person never needs to hear about it: the agency fixes its own tools.
@@ -250,11 +250,13 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
 - Refer to people by name, or as "they", unless their profile states their pronouns. Never guess pronouns from a name - in your messages, emails, files and memory notes. That includes everyone your instructions, requests or tasks name ("until Max connects it", not "until he does").${people.length ? `
 - The people here, none of whom has stated pronouns: ${people.join(', ')}. So write "${people[0]}" or "they" - never "he" or "she".` : ''}`,
     agent.charter.trim(),
-    // Goals set the pace when it has any (goals.ts); otherwise its level does.
+    // Its goals set the pace (goals.ts). A built-in has none: it works steadily on its own
+    // schedule. An ordinary agent with none is only here to answer a person.
     (() => {
-      const goals = BUILT_IN_IDS.includes(agent.id) ? [] : goalsOf(agent, now);
-      const pace = goals.length ? paceFor(agent, now, goals) : null;
-      return pace ? goalInstructions(agent, goals, pace) : ferocityInstructions(agent, level, callable);
+      if (BUILT_IN_IDS.includes(agent.id)) return ferocityInstructions(agent, level, callable);
+      const goals = goalsOf(agent, now);
+      const pace = paceFor(agent, now, goals);
+      return pace ? goalInstructions(agent, goals, pace) : noGoalInstructions();
     })(),
     `## Your tools right now
 ${working.join('\n')}${notReady.length ? `\n\nIn your toolkit but not connected yet - don't try them or ask for them, a request to connect them is already with a person or the Agency Engineer: ${notReady.join(', ')}` : ''}`,
@@ -283,26 +285,21 @@ async function fleetOf(exceptId: string) {
   return out;
 }
 
-// chill: the agent is on Chill (ferocity.ts) - it does what it was given, never "anything else its job needs".
-function opening(agent: AgentDef, trigger: Trigger, task: string | null, person: string | null = null, chill = false): string {
+function opening(agent: AgentDef, trigger: Trigger, task: string | null, person: string | null = null): string {
   // Several events gathered into one wake (wakes.ts): each told as it would be on its own.
   if (isMerged(task)) {
     const parts = parseWake(trigger, task);
-    const each = parts.map(p => `— ${wakeLabel(p)}:\n${p.trigger === 'more' ? p.text : opening(agent, p.trigger, p.text, person, chill)}`);
+    const each = parts.map(p => `— ${wakeLabel(p)}:\n${p.trigger === 'more' ? p.text : opening(agent, p.trigger, p.text, person)}`);
     return `${parts.filter(p => p.trigger !== 'more').length} things came in for you together, each below under its own heading. Deal with every one of them in this run.\n\n${each.join('\n\n')}`;
   }
   switch (trigger) {
     case 'scheduled':
       return 'Scheduled run. Start with what you owe (tasks.list_my_tasks), then do your job as your Charter says.';
     case 'self-booked':
-      return chill
-        ? `You booked this run: ${task ?? 'to carry on'}. Carry on with that and only that - you're on Chill, so once it's done, stop.`
-        : `You booked this run: ${task ?? 'to carry on'}. Carry on with that, then anything else your job needs.`;
+      return `You booked this run: ${task ?? 'to carry on'}. Carry on with that, then anything else your job needs.`;
     // A request it filed was answered or done (the Agency Engineer, or a person): woken to use it.
     case 'request done':
-      return chill
-        ? `${task ?? 'A request you filed is done.'} Use it for the work you were given; you're on Chill, so start nothing else of your own.`
-        : `${task ?? 'A request you filed is done.'} Then anything else your job needs.`;
+      return `${task ?? 'A request you filed is done.'} Then anything else your job needs.`;
     case 'apocalyptic':
       return 'Your next run, straight after the last one. Pick up where you left off and keep your output going: what you owe, then everything your Charter names.';
     case 'handoff':
@@ -387,18 +384,19 @@ export function nowLine(at: number): string {
 export async function runAgent(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, signal?: AbortSignal, resumeFrom: string | null = null, person: string | null = null): Promise<RunResult> {
   const id = newRunId();
   const startedAt = deps.now();
-  // A built-in has no level of its own: it works as Steady, the default, on its own schedule.
-  // With goals, the pace they call for decides the level it works like (goals.ts).
+  // Nobody sets a level: the pace its goals call for gives it one (goals.ts), for the tone of
+  // what it is told and its card. A built-in works steadily on its own schedule; so does an
+  // agent with no goal, for the one thing it still does - answering a person.
   const pace = BUILT_IN_IDS.includes(agent.id) ? null : paceFor(agent, startedAt);
-  const level = BUILT_IN_IDS.includes(agent.id) ? DEFAULT_LEVEL : (pace?.level ?? stateOf(agent.id, startedAt).ferocity);
+  const level = pace?.level ?? DEFAULT_LEVEL;
   // A run answering a person is never pushed past its answer (WAR).
-  // A target is for an agent's own work (its schedule, Apocalyptic, a run it booked, Run now):
+  // A target is for an agent's own work toward its goal (its schedule, a run it booked, Run now):
   // a task handed to it, a person's message or a decision coming back is done when
   // it's done - padding one out to a target was busywork (a one-line answer became
   // 21 files).
   const callableNow = new Set(toolsFor(agent).ids.values());
   const ownWork = ['scheduled', 'apocalyptic', 'self-booked', 'request done', 'run now'].includes(trigger) || (trigger === 'parallel' && isGoalBatch(task));
-  const floor = !ownWork ? null : pace ? (canCount(agent, callableNow) ? goalFloor(pace) : null) : floorFor(agent, level, callableNow);
+  const floor = ownWork && pace && canCount(agent, callableNow) ? goalFloor(pace) : null;
   exec(
     'INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at, floor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     id,
@@ -423,7 +421,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   const alongside = pieces.length
     ? `\n\nRunning now beside you, each in its own parallel run of you - leave these pieces to them, even if this run was booked for one of them (then do the rest of your job instead):\n${pieces.map(p => `- ${(p.task ?? '').split('\n')[0].slice(0, 300)}`).join('\n')}`
     : '';
-  const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task, person, level === CHILL)}${alongside}${resume}` }];
+  const messages: Msg[] = [{ role: 'user', text: `${nowLine(startedAt)}\n\n${opening(agent, trigger, task, person)}${alongside}${resume}` }];
   let acts = 0;
   let nudges = 0;
   // Output when it was last nudged: a nudge that brought nothing new (a limit reached,

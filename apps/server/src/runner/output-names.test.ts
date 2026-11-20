@@ -81,5 +81,12 @@ test('a connection going live points the count at the real tools and leaves one 
     /isn't output/,
   );
   await assert.rejects(applyOutputMoves(id, [{ from: 'no.such', to: ['acme-crm.acmecrm_createrecords'] }]), /isn't what/);
+  // A goal is kept by its label: renaming the label that holds it takes the number along.
+  const { goalNumbers, setGoal } = await import('./goals.js');
+  setGoal(id, 'leads added', 20, 'week');
+  await applyOutputMoves(id, [{ from: 'acme-crm.acmecrm_createrecords', to: ['acme-crm.acmecrm_createrecords'], label: 'leads created' }]);
+  const after = parse(await readFile(join(dir, 'KPI.yaml'), 'utf8')) as { output: { action: string; label: string }[] };
+  assert.deepEqual({ ...goalNumbers(id, after.output).get('leads created') }, { actions: ['acme-crm.acmecrm_createrecords'], amount: 20, period: 'week' });
+  assert.equal(goalNumbers(id, after.output).has('leads added'), false);
   await rm(dir, { recursive: true, force: true });
 });

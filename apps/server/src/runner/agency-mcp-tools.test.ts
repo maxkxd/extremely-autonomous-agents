@@ -213,3 +213,34 @@ test('decide_approvals with every_minutes: a pile of sends from one account is p
   await call(owner, 'schedule_queue', { agent_id: 'sales', run: 'cancel' });
   assert.equal(JSON.parse((await call(owner, 'list_queue', { agent_id: 'sales' })).text).waiting, 0);
 });
+
+test('a build with no goal number is refused: every agent needs a goal', async () => {
+  const build = (kpi: unknown[]) => ({
+    name: 'Lead Research',
+    department: 'sales',
+    charter: '# CHARTER - Lead Research',
+    models: [],
+    tools: [{ id: 'web.web_search', tier: 'T0', why: 'finding leads' }],
+    approval_hours: [],
+    new_tools: [],
+    events: [],
+    new_events: [],
+    kpi,
+    max_runs_per_day: 20,
+    ferocity: { steady_every_hours: 24, driven_every_hours: 12, relentless_every_hours: 6, driven_soft_floor: 3, relentless_floor: 20, apocalyptic_floor: 80, counts: ['web.web_search'], hint: 'x', extra_effort: 'x' },
+    natural_limits: [],
+    profile_notes: [],
+    person_notes: [],
+  });
+  const none = await call(owner, 'check_build', build([{ id: 'web.web_search', label: 'searches' }]));
+  assert.match(none.text, /It has no goal: give at least one KPI row an amount of 1 or more/);
+  assert.match((await call(owner, 'check_build', build([{ id: 'web.web_search', label: 'searches', amount: 0 }]))).text, /It has no goal/);
+  // A number on a tool it does not hold is no goal either.
+  assert.match((await call(owner, 'check_build', build([{ id: 'crm.nothing', label: 'leads', amount: 20 }]))).text, /It has no goal/);
+  const made = await call(owner, 'create_agent', build([{ id: 'web.web_search', label: 'searches' }]));
+  assert.equal(made.error, true);
+  assert.match(made.text, /Not created[\s\S]*It has no goal/);
+  // With a number - or a per_day from before goals had periods - that complaint is gone.
+  assert.doesNotMatch((await call(owner, 'check_build', build([{ id: 'web.web_search', label: 'searches', amount: 5, period: 'week' }]))).text, /It has no goal/);
+  assert.doesNotMatch((await call(owner, 'check_build', build([{ id: 'web.web_search', label: 'searches', per_day: 20 }]))).text, /It has no goal/);
+});

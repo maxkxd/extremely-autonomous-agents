@@ -2,7 +2,7 @@ import { ResumeSetupDialog, SetupBar, SetupList } from './AgentSetup';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CircleCheckBig, Ellipsis, GripVertical, Pause, Play, Plus, Square, Trash2, User, Wrench } from 'lucide-react';
 import { DeleteAgentDialog } from './DeleteAgentDialog';
-import { GoalBlock, GoalPanel, GoalSkeleton, type AgentGoal } from './Goals';
+import { GoalRow, GoalSettings, GoalSkeleton, type AgentGoal, type Period } from './Goals';
 import { ModelPanel, ModelRow, useModelChecks, useModelSlide, type Checks } from './ModelPicker';
 import { getAgentModels, getAvailableModels, getLiveAgents, getSetups, runNow, setAgentModels, setAgentRunner, type AgencyState, type AgentSetup, type AvailableModels, type LiveAgent, type ModelChoice } from './builder';
 import { useDismiss } from './useDismiss';
@@ -253,7 +253,7 @@ export function AgentCard({
   onModels?: (next: ModelChoice[]) => void;
   checks?: Checks; // whether each model really works on this account
   onCheck?: (connection: string, model: string) => void;
-  onGoal?: (label: string, perDay: number) => void; // a real agent: save a goal's number
+  onGoal?: (label: string, amount: number, period: Period) => void; // a real agent: save a goal
   onAutoModels?: (on: boolean) => void; // a real agent: its model section's switch
   onRunNow?: () => void; // a real agent: start a run now
   agencyHeld?: boolean; // the whole agency is on standby or stopped: its own controls wait
@@ -266,10 +266,23 @@ export function AgentCard({
 }) {
   // The model picker: the right column slides over the pies to make room.
   const cardRef = useRef<HTMLElement>(null);
-  // The goals slide out the same way; one of the two at a time.
+  // The goal's settings take over the column instead (Goals.tsx); one of the two at a time.
   const [panel, setPanel] = useState<'models' | 'goals' | null>(null);
-  const modelsOpen = panel !== null;
-  const closeModels = useCallback(() => setPanel(null), []);
+  const modelsOpen = panel === 'models';
+  const goalOpen = panel === 'goals';
+  const closeModels = useCallback(() => setPanel(p => (p === 'models' ? null : p)), []);
+  // A click anywhere outside the column, or Escape, puts the column back.
+  useEffect(() => {
+    if (!goalOpen) return;
+    const onDown = (e: PointerEvent) => !cardRef.current?.querySelector('.card-side')?.contains(e.target as Node) && setPanel(null);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setPanel(null);
+    window.addEventListener('pointerdown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [goalOpen]);
   const slide = useModelSlide(cardRef, modelsOpen, closeModels);
   // The host is offline: it's shown as last seen, nothing on it changes.
   const offline = useOffline();
@@ -296,24 +309,32 @@ export function AgentCard({
     setLevelState(next);
   };
   // Its goals. A real agent's come from the runner; a placeholder's are its output
-  // labels, with numbers kept here. A number just typed shows until the runner's catches up.
-  const [typedGoals, setTypedGoals] = useState<Record<string, number>>({});
+  // labels, with a number to start from. One just changed shows until the runner's catches up.
+  const [typedGoals, setTypedGoals] = useState<Record<string, { amount: number; period: Period }>>({});
   const goalSetAt = useRef(0);
   const [goalShown, setGoalShown] = useState<string | null>(null);
-  const goals: AgentGoal[] = (agent.goals ?? agent.output.map(s => ({ label: s.label.toLowerCase(), perDay: 0, done: Math.round(s.value / 30), waiting: 0 }))).map(g =>
-    g.label in typedGoals ? { ...g, perDay: typedGoals[g.label] } : g,
-  );
-  const shownGoal = goals.find(g => g.label === goalShown) ?? goals.find(g => g.perDay > 0) ?? goals[0];
-  const setGoal = (label: string, perDay: number) => {
+  const goals: AgentGoal[] = (
+    agent.goals ??
+    agent.output.map(s => {
+      const done = Math.round(s.value / 30);
+      return { label: s.label.toLowerCase(), amount: Math.max(1, Math.ceil(done * 1.4)), period: 'day' as Period, done, waiting: 0 };
+    })
+  ).map(g => (g.label in typedGoals ? { ...g, ...typedGoals[g.label] } : g));
+  const shownGoal = goals.find(g => g.label === goalShown) ?? goals.find(g => g.amount > 0) ?? goals[0];
+  const setGoal = (label: string, amount: number, period: Period) => {
     goalSetAt.current = Date.now();
-    setTypedGoals(t => ({ ...t, [label]: perDay }));
-    onGoal?.(label, perDay);
+    setTypedGoals(t => ({ ...t, [label]: { amount, period } }));
+    onGoal?.(label, amount, period);
   };
   useEffect(() => {
     if (agent.live && Object.keys(typedGoals).length && Date.now() - goalSetAt.current > 6000) setTypedGoals({});
   }, [agent.live, agent.goals]);
-  // A real agent's level comes from the runner; a placeholder's from its goal's size.
-  const wanted = agent.live ? agent.ferocity : shownGoal ? heatOf(shownGoal.done >= shownGoal.perDay && shownGoal.perDay > 0 ? 1 : shownGoal.perDay) || agent.ferocity : agent.ferocity;
+  // Every agent has a goal; one without (an old agent, until the Agency Engineer gives
+  // it one) doesn't run, and its card says so.
+  const noGoal = !!agent.noGoal && !agent.builtIn;
+  // A real agent's level comes from the runner (how many runs a day its goals have it
+  // doing); a placeholder's from its goal's size.
+  const wanted = agent.live ? agent.ferocity : shownGoal ? heatOf(shownGoal.done >= shownGoal.amount ? 1 : shownGoal.amount) || agent.ferocity : agent.ferocity;
   useEffect(() => {
     if (wanted !== level) setLevel(wanted);
   }, [wanted]);
@@ -338,7 +359,7 @@ export function AgentCard({
   return (
     <article
       ref={cardRef}
-      className={`agent-card${modelsOpen ? ` models-open${slide.stacked ? ' stacked' : ''}` : ''}${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} ${loading ? 'loading fero-0 is-active' : `fero-${level} is-${state}${state !== 'active' ? ' is-paused' : ''}`}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
+      className={`agent-card${modelsOpen ? ` models-open${slide.stacked ? ' stacked' : ''}` : ''}${preview ? ' preview' : ''}${agent.settingUp && !preview ? ' setting-up' : ''} ${loading ? 'loading fero-0 is-active' : `fero-${level} is-${state}${state !== 'active' || noGoal ? ' is-paused' : ''}${noGoal ? ' no-goal' : ''}`}${kick ? ` kick-${kick}` : ''}${dragging ? ' dragging' : ''}`}
       style={{ '--tx': tx, '--shift': `${slide.shift}px` } as React.CSSProperties}
     >
       {inSetup && <SetupBar progress={setup!.progress} />}
@@ -373,6 +394,10 @@ export function AgentCard({
                 neither: it's the agent as it'll be. */}
             {preview ? null : agencyStopped ? (
               <span className="state-pill stopped">Stopped</span>
+            ) : noGoal ? (
+              <span className="state-pill stopped" title="It has no goal, so it doesn't run. The Agency Engineer is giving it one - or set it yourself.">
+                No goal
+              </span>
             ) : (
               agent.settingUp && (
                 <span className="state-pill setting-up" title="Being tailored to your organization. It won't run until it's done.">
@@ -432,7 +457,9 @@ export function AgentCard({
         </div>
       </div>
 
-      <aside className="card-side">
+      <aside className={`card-side${goalOpen ? ' goal-open' : ''}`}>
+        {/* Everything but the goal's settings: it flies up and out while they're open. */}
+        <div className="side-main" {...(goalOpen ? { inert: '' } : {})}>
         <div className="stats">
           <div className="stat-row">
             <div className="stat">
@@ -454,6 +481,8 @@ export function AgentCard({
                         ? 'No AI model is connected - connect one in Settings > Connectors'
                         : agencyStopped
                       ? 'The agency is stopped'
+                      : noGoal
+                        ? 'It has no goal yet'
                       : state === 'stopped'
                         ? "It's stopped"
                         : agent.settingUp
@@ -524,18 +553,21 @@ export function AgentCard({
           (loading ? (
             <GoalSkeleton />
           ) : (
-            <GoalBlock
-              goals={goals}
-              pace={agent.pace}
-              selected={shownGoal?.label ?? null}
-              open={panel === 'goals'}
-              onOpen={() => setPanel(p => (p === 'goals' ? null : 'goals'))}
-              onSet={setGoal}
-              disabled={viewOnly}
-              why={off}
-              stopped={!preview && (state === 'stopped' || agencyStopped)}
-            />
+            <GoalRow goal={shownGoal} pace={agent.pace} open={goalOpen} onOpen={() => setPanel(p => (p === 'goals' ? null : 'goals'))} why={off} stopped={!preview && (state === 'stopped' || agencyStopped)} />
           ))}
+        </div>
+        {!agent.builtIn && !loading && (
+          <GoalSettings
+            goals={goals}
+            selected={shownGoal?.label ?? null}
+            open={goalOpen}
+            onPick={setGoalShown}
+            onSet={setGoal}
+            onDone={() => setPanel(null)}
+            locked={viewOnly || !!off}
+            onNew={preview || viewOnly || off ? undefined : () => onNavigate('agent:fleet')}
+          />
+        )}
       </aside>
       {panel === 'models' && models && onModels && (
         <ModelPanel
@@ -545,16 +577,6 @@ export function AgentCard({
           checks={checks}
           onCheck={onCheck}
           auto={onAutoModels && !preview ? { on: agent.autoModels !== false, onChange: onAutoModels, why: off ?? (viewOnly ? `Only ${agent.builtIn ? 'the owner' : agent.owner || 'its owner'} or an admin can change this agent` : null) } : undefined}
-        />
-      )}
-      {panel === 'goals' && (
-        <GoalPanel
-          goals={goals}
-          selected={shownGoal?.label ?? null}
-          onPick={setGoalShown}
-          onSet={setGoal}
-          locked={viewOnly || !!off}
-          onNew={preview || viewOnly || off ? undefined : () => onNavigate('agent:fleet')}
         />
       )}
     </article>
@@ -790,6 +812,7 @@ export function Dashboard({
       autoModels: l.autoModels,
       goals: l.goals,
       pace: l.pace,
+      noGoal: l.noGoal,
       queued: l.queued,
     };
   };
@@ -1018,7 +1041,7 @@ export function Dashboard({
               onModels={next => changeModels(a.id, next)}
               checks={checks}
               onCheck={check}
-              onGoal={l ? (label, perDay) => setAgentRunner(a.id, { goal: { label, perDay } }).catch(() => {}) : undefined}
+              onGoal={l ? (label, amount, period) => setAgentRunner(a.id, { goal: { label, amount, period } }).catch(() => {}) : undefined}
               onAutoModels={l ? on => setAgentRunner(a.id, { autoModels: on }).catch(() => {}) : undefined}
               onRunNow={l ? () => runNow(a.id).catch(() => {}) : undefined}
               setup={setups[a.id]}

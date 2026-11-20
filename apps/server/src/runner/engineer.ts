@@ -37,7 +37,8 @@ import { all, builtInLevels, getSetting, one, run as exec, setSetting } from './
 import { reportDefault, reportDefaultsForPrompt, setReportDefault } from './reports.js';
 import { appGapTool, fixedHereFor, resendUnsent } from './app-gaps.js';
 import { addOutput, applyOutputMoves, retargetOutput, type OutputMove } from './output-names.js';
-import { setGoal } from './goals.js';
+import { checkGoal, periodEach, setGoal } from './goals.js';
+import { PERIODS } from './clock.js';
 import { APPROVAL_ASK, fileRequest, heldTools, registerTools, servedHere, type ToolDef } from './tools.js';
 import './host.js';
 
@@ -137,7 +138,8 @@ It comes two ways: a request "Rewrite my instructions the way my person asked in
 4. engineer.rewrite_instructions with the whole new Charter and, for the agent, what it does differently - with the request_id when it came as a request (that closes it), or the agent_id when the person asked in your chat. Only the agent's maker or an owner or admin may change it from your chat: the tool says if they can't, and you tell them who can.
 5. The change needs a tool it doesn't have ("put all data in PostHog")? That's a missing tool too: handle it as one - in the same run - with the request's agent (engineer.give_tools, or build it), after the rewrite.
 6. A person wants a change undone ("put Price Watch back how it was"): read_agent lists its earlier Charters, newest first; engineer.restore_instructions with the one from before that change.
-8. Goals ("I want 500 emails a day", "have Marketing do backlinks too"): engineer.set_goal. A goal is the output the person wants a day; the agency paces the agent to reach it, so never turn one into a limit. A new kind of goal needs the tools for it (give or build them, as for any missing tool) and the work written into its Charter.
+8. Goals ("I want 500 emails a day", "20 posts a week", "have Marketing do backlinks too"): engineer.set_goal. A goal is the output the person wants in a period (an hour, a day, a week, a month or a year); the agency paces the agent to reach it, so never turn one into a limit. A new kind of goal needs the tools for it (give or build them, as for any missing tool) and the work written into its Charter.
+   Every agent needs a goal, and one with none does not run until it has one. A request to set a goal for an agent that has none: read its Charter and KPI (engineer.read_agent), set a sensible basic number for an ordinary pace of that job with engineer.set_goal straight away, and mark the request done. Ask the person only if the number really matters to them. Never leave an agent with no goal.
 7. Job limits ("at most 1 save a week"): an agent has one only because a person asked for it. A person asks to raise or remove one (often after an agent said a limit stopped something they asked for): engineer.set_limits, straight away. Never add or tighten a limit, cap or "at most N" - in TOOLS.yaml, a Charter, a plugin or the runner - unless a person told you to, even when you think it's a good idea (Max: "NEVER EVER ... unless for like legal or banning reasons"). The only exceptions are a law or a platform's own rule that would get the account banned (a site's posting limit), and then the Charter says which rule. A cap you find that no person asked for and no law or platform rule needs: remove it.
 
 ## Where agents' reports go
@@ -1376,15 +1378,16 @@ const TOOLS: ToolDef[] = [
     id: 'engineer.set_goal',
     tier: 'T1',
     description:
-      'Set an agent\'s goal for one of its outputs - how many a day - or give it a new kind of goal. Its goals are its KPI labels (engineer.read_agent lists them); the agency paces it to them by itself. For a goal it doesn\'t have yet ("I want Marketing to build backlinks too"): name the label as the person would say it (plural, lowercase: "backlinks built") and the tools it holds whose calls are that output - give it the tools first if it lacks them, and add the work to its Charter. per_day 0 keeps the label with no number.',
+      'Set an agent\'s goal for one of its outputs - an amount and its period (hour, day, week, month or year) - or give it a new kind of goal. Its goals are its KPI labels (engineer.read_agent lists them); the agency paces it to them by itself. For a goal it doesn\'t have yet ("I want Marketing to build backlinks too"): name the label as the person would say it (plural, lowercase: "backlinks built") and the tools it holds whose calls are that output - give it the tools first if it lacks them, and add the work to its Charter. Every agent needs a goal and one with none does not run: amount 0 keeps a label with no number, and is refused when that would leave the agent with no goal at all.',
     schema: obj(
       {
         agent_id: str('The agent'),
         label: str('The goal, as on its card: an existing KPI label, or a new one'),
-        per_day: { type: 'number', description: 'How many a day. 0: no number' },
+        amount: { type: 'number', description: 'How many per period: a whole number, 1 to 1,000,000. 0: no number for this label' },
+        period: { type: 'string', enum: [...PERIODS], description: 'What the amount is per. Left out: the period this goal has now, else day' },
         actions: { type: 'array', items: { type: 'string' }, description: 'For a new label: the tool ids it holds whose calls count toward it' },
       },
-      ['agent_id', 'label', 'per_day'],
+      ['agent_id', 'label', 'amount'],
     ),
     impl: async (a, ctx) => {
       const agentId = String(a.agent_id ?? '');
@@ -1392,13 +1395,17 @@ const TOOLS: ToolDef[] = [
       const label = String(a.label ?? '').trim();
       if (!label) throw new Error('Name the goal.');
       const actions = (Array.isArray(a.actions) ? a.actions : []).map(String).filter(Boolean);
-      const has = (await loadAgent(agentId))?.output.some(o => o.label === label);
+      const agent = await loadAgent(agentId);
+      if (!agent) throw new Error(`${meta.name}'s files could not be read.`);
+      const has = agent.output.some(o => o.label === label);
       if (!has && !actions.length) throw new Error(`${meta.name} has no output called "${label}". To add it, give actions: the tools it holds whose calls are that output.`);
+      // Checked before anything is written: a number that would leave it with no goal is refused.
+      const g = checkGoal(agent, label, a.amount, a.period, ctx.now());
       if (actions.length) await addOutput(agentId, label, actions);
-      const perDay = Math.max(0, Math.floor(Number(a.per_day) || 0));
-      setGoal(agentId, label, perDay, ctx.now());
-      ctx.wake(agentId, 'request done', perDay ? `Your goal is now ${perDay} ${label} a day.${has ? '' : ` It is a new goal: ${actions.join(', ')} count toward it.`}` : `"${label}" no longer has a number to reach.`);
-      return perDay ? `${meta.name}'s goal: ${perDay} ${label} a day.${has ? '' : ' Added as a new goal on its card.'}` : `${meta.name}: "${label}" has no number now.`;
+      setGoal(agentId, label, g.amount, g.period, ctx.now());
+      const said = `${g.amount} ${label} ${periodEach(g.period)}`;
+      ctx.wake(agentId, 'request done', g.amount ? `Your goal is now ${said}.${has ? '' : ` It is a new goal: ${actions.join(', ')} count toward it.`}` : `"${label}" no longer has a number to reach.`);
+      return g.amount ? `${meta.name}'s goal: ${said}.${has ? '' : ' Added as a new goal on its card.'}` : `${meta.name}: "${label}" has no number now.`;
     },
   },
   {

@@ -17,14 +17,13 @@ import type { ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals, recoverInterruptedActions, runDueActions, setQueueWake } from './approvals.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
-import { APOCALYPTIC, apocalypticWait, backstop, parallelSlots, scheduledDue, SHORT_RUNS_TO_RELENTLESS } from './ferocity.js';
+import { backstop, parallelSlots, scheduledDue, STEADY } from './ferocity.js';
 import { bookGoalRuns, GOAL_BATCH, goalDue, paceFor } from './goals.js';
 import { conductPace } from './conductor.js';
 
 import { resumeDue, runsToday as runsOnDay } from './selfsettings.js';
 import { bookWake, dropWakeParts, formatWake, isDebounced, parseWake, requestOf, triggerFor, WAKE_WINDOWS, type Part } from './wakes.js';
 
-const SHORT_RUNS_WINDOW_MS = 24 * 3_600_000; // Apocalyptic's slow-down looks back a day at most
 import { fileRequest, settleJoined, toolsFor } from './tools.js';
 import { costOf, isFree, spentThisMonth, startOfDay } from './pricing.js';
 import { harnessFor } from './harness.js';
@@ -33,12 +32,14 @@ import { eligibleModels, runAgent, stateOf, type RunDeps, type Trigger } from '.
 import { holdsBack, memoryBrake, memoryFraction } from './pressure.js';
 
 // Decides when each agent runs (docs/runner.md). Every tick, for each agent
-// that isn't running: a booking that's due (your messages first), else at
-// Apocalyptic the next run straight after the last, else its ferocity
-// schedule. One run per agent at a time (the Agency Engineer: a few, on
-// different requests); a few at once overall, and one local-model run at a time
-// (a laptop can't hold two). Failing agents back off; the backstop is only for
-// runaways.
+// that isn't running: a booking that's due (your messages first), else the next
+// run its goals' pace calls for (goals.ts; a built-in: its own schedule). An
+// agent with no goal does not run at all - only a person's message is answered -
+// and the Agency Engineer is asked, once, to give it one. One run per agent at a
+// time (the Agency Engineer: a few, on different requests; an agent behind on
+// its goal: as many as its pace says); a few at once overall, and one
+// local-model run at a time (a laptop can't hold two). Failing agents back off;
+// the backstop is only for runaways.
 
 const TICK_MS = 5_000;
 export const MAX_PARALLEL = 32;
@@ -190,14 +191,17 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (!agent) continue;
       // Its goals' pace (goals.ts): behind enough to need several runs at once, the others
       // are booked here; at its goal or with none, any still waiting are dropped.
-      const pace = engineer || BUILT_IN_IDS.includes(id) ? null : paceFor(agent, now);
+      const builtIn = engineer || BUILT_IN_IDS.includes(id);
+      const pace = builtIn ? null : paceFor(agent, now);
+      // No goal: it does not run, and the Agency Engineer is asked once to give it one.
+      if (!builtIn) noGoalRequest(agent, !!pace, now);
       if (pace && pace.parallel > 1 && st.state === 'active') bookGoalRuns(agent, pace, now);
       else if (!engineer) exec("DELETE FROM bookings WHERE agent_id = ? AND trigger = 'parallel' AND task LIKE ?", id, `${GOAL_BATCH}%`);
       // An agent already running: only its own parallel runs (ops.start_parallel_run, any level)
       // start beside it, up to its level's slots - and its main run, if what's
       // going are only parallel ones. Everything else waits for its run to end, as before.
       if (!engineer && others.length) {
-        const room = others.filter(r => r.parallel).length < Math.max(parallelSlots(st.ferocity), (pace?.parallel ?? 1) - 1);
+        const room = others.filter(r => r.parallel).length < Math.max(parallelSlots(pace?.level ?? STEADY), (pace?.parallel ?? 1) - 1);
         const mainGoing = others.some(r => !r.parallel);
         const next = nextRun(agent, st, now, b => (b.trigger === 'parallel' ? room : !mainGoing));
         if (!next || (next.trigger === 'parallel' ? !next.bookingId : mainGoing)) continue;
@@ -236,7 +240,7 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (next.rest?.length) exec('UPDATE bookings SET task = ?, trigger = ? WHERE id = ?', formatWake(next.rest), triggerFor(next.rest, next.trigger), next.bookingId!);
       else if (next.bookingId) exec('DELETE FROM bookings WHERE id = ?', next.bookingId);
       // A run it booked itself counts as its scheduled run: the schedule's clock
-      // restarts, so booking a run never adds one on top of the level's pace.
+      // restarts, so booking a run never adds one on top of its pace.
       if (next.trigger === 'scheduled' || next.trigger === 'self-booked' || next.trigger === 'request done' || next.trigger === 'run now')
         exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', now, id);
       start(agent, next.trigger, next.task, deps, eligible[0]?.connection ?? null, resumeFrom, booked?.p ?? null);
@@ -300,6 +304,39 @@ export function capRequest(connections: string[], now: number) {
   );
 }
 
+// An ordinary agent with no goal (none of its outputs has a number) does not run: no
+// schedule, no bookings, no Run now. Agents from before goals were mandatory are like
+// that, so the Agency Engineer is asked - once per agent - to give each a sensible
+// number. The request closes by itself once the agent has a goal, whoever set it.
+// Asked once: if the Engineer closes it without setting one, the card still says it has
+// no goal, and it is asked again only after it has had one and lost it.
+const NO_GOAL_ASKED = 'no_goal_asked'; // agent -> the request filed for it
+export const noGoalWhat = (name: string) => `Set a goal for ${name}: it has none, so it is not running`;
+export function noGoalRequest(agent: AgentDef, has: boolean, now: number) {
+  const asked = getSetting<Record<string, number>>(NO_GOAL_ASKED, {});
+  const id = asked[agent.id];
+  if (has) {
+    if (id == null) return;
+    exec("UPDATE requests SET status = 'done', answer = 'It has a goal now.', answered_at = ?, stage = NULL WHERE id = ? AND status = 'open'", now, id);
+    delete asked[agent.id];
+    setSetting(NO_GOAL_ASKED, asked);
+    return;
+  }
+  if (id != null) return;
+  asked[agent.id] = fileRequest(
+    agent.id,
+    null,
+    {
+      what: noGoalWhat(agent.name),
+      why: `Every agent needs a goal: a number of one of its outputs an hour, a day, a week, a month or a year. ${agent.name} has none, so it will not run until it has one - no schedule, no Run now; only a person's message is answered. Read its Charter and KPI (engineer.read_agent) and set a sensible basic number for an ordinary pace of that job with engineer.set_goal straight away. Ask the person only if the number really matters to them; otherwise they can change it on the agent's card later.`,
+    },
+    now,
+    (a, t, k) => book(a, t as Trigger, k),
+    true, // straight to the Agency Engineer: there is nothing here to route
+  );
+  setSetting(NO_GOAL_ASKED, asked);
+}
+
 // The tunnel's address changes each time it starts (a quick tunnel: no account), and every
 // service posting events was given the old one - so they all stop arriving, silently. Said
 // to the person once per change, with each new address and where it goes.
@@ -338,6 +375,8 @@ const PERSON_DRIVEN = new Set<Trigger>(['your message', 'run now', 'approval', '
 //   draining - finishes the run it's in; starts nothing itself, but still answers a
 //              person, runs Run now, and hears approval outcomes
 //   stopped  - nothing; the run it was in was cut short (bookings wait)
+//   no goal  - an ordinary agent with no goal starts nothing either: only a person's
+//              message is answered (bookings wait until it has one)
 export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: number, fits?: (b: { trigger: Trigger; task: string | null }) => boolean): Next | null {
   if (st.state === 'stopped') return null;
   const listed = all<{ id: number; trigger: Trigger; task: string | null }>(
@@ -351,6 +390,10 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   // A person's message is answered even when the agent is stopped or backing off.
   const message = due.find(b => b.trigger === 'your message');
   if (message) return { trigger: message.trigger, task: message.task, bookingId: message.id };
+  // No goal, no runs (goals.ts): what is booked waits, as it would for a stopped agent.
+  const builtIn = BUILT_IN_IDS.includes(agent.id);
+  const pace = builtIn ? null : paceFor(agent, now);
+  if (!builtIn && !pace) return null;
   if (st.state === 'draining') {
     // A wake that gathered several events (wakes.ts): only what a person set off runs
     // now; the rest stays booked for when it's active again.
@@ -370,37 +413,17 @@ export function nextRun(agent: AgentDef, st: ReturnType<typeof stateOf>, now: nu
   if (st.backoff_until && st.backoff_until > now) return null;
   // The runaway backstop - never the pace. Built-ins have none: their work comes
   // from requests, and failure backoff still stops one that keeps failing.
-  // With goals, the pace they call for stands in for its level (goals.ts).
-  const pace = BUILT_IN_IDS.includes(agent.id) ? null : paceFor(agent, now);
-  if (!BUILT_IN_IDS.includes(agent.id) && runsToday(agent.id, now) >= backstop(pace?.level ?? st.ferocity)) return null;
+  if (pace && runsToday(agent.id, now) >= backstop(pace.level)) return null;
   if (due.length) return { trigger: due[0].trigger, task: due[0].task, bookingId: due[0].id };
   // Its person said which days it works ("only on weekdays"): none of its own on the others.
   if (!runsOnDay(agent.id, now)) return null;
-  // Its level, whatever is or isn't connected yet: a new agent waits for its tools
-  // stopped (setup.ts), so one running without them was resumed on purpose.
+  // Whatever is or isn't connected yet: a new agent waits for its tools stopped
+  // (setup.ts), so one running without them was resumed on purpose.
   const last = one<{ ended_at: number | null }>("SELECT ended_at FROM runs WHERE agent_id = ? AND status != 'running' ORDER BY started_at DESC LIMIT 1", agent.id);
-  // Apocalyptic runs back to back. Runs that fall short of its target (a limit in its
-  // instructions, or little work left) make it wait a little longer each time, up to
-  // Relentless's pace (ferocity.ts) - rather than starting again every 20 seconds to
-  // say the same thing.
-  // Only its own finished runs of the last day count: a failed run has its own
-  // backoff, one a person stopped was cut short on purpose, and a bad week long ago
-  // says nothing about now - it slows down only when something is really wrong.
+  // Its goals' pace says when its next run is due.
   if (pace) return goalDue(pace, st.last_scheduled_at ?? last?.ended_at ?? null, last?.ended_at ?? null, now) ? { trigger: 'scheduled', task: null } : null;
-  if (st.ferocity === APOCALYPTIC) {
-    const recent = all<{ ended_at: number | null; acts: number | null; floor: number | null }>(
-      "SELECT ended_at, acts, floor FROM runs WHERE agent_id = ? AND trigger = 'apocalyptic' AND status = 'succeeded' AND started_at >= ? ORDER BY started_at DESC LIMIT ?",
-      agent.id,
-      now - SHORT_RUNS_WINDOW_MS,
-      SHORT_RUNS_TO_RELENTLESS,
-    );
-    const met = recent.findIndex(r => r.floor == null || (r.acts ?? 0) >= r.floor);
-    const short = met === -1 ? recent.length : met;
-    const after = Math.max(last?.ended_at ?? 0, recent[0]?.ended_at ?? 0);
-    if (after && now - after < apocalypticWait(agent, short)) return null;
-    return { trigger: 'apocalyptic', task: null };
-  }
-  const scheduled = scheduledDue(agent, st.ferocity, st.last_scheduled_at ?? last?.ended_at ?? null, now, BUILT_IN_IDS.includes(agent.id));
+  // A built-in keeps its own schedule.
+  const scheduled = scheduledDue(agent, STEADY, st.last_scheduled_at ?? last?.ended_at ?? null, now, true);
   return scheduled != null && scheduled <= now ? { trigger: 'scheduled', task: null } : null;
 }
 

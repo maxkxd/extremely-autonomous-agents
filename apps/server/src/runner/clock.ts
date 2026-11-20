@@ -36,8 +36,9 @@ function wall(t: number, zone: string) {
 }
 
 // The instant a wall-clock time happens in a zone (offsets checked twice, for DST days).
-function instant(y: number, m: number, d: number, zone: string): number {
-  const target = Date.UTC(y, m - 1, d);
+// Fields past their range roll over (day 32, month 13, hour 24), as Date.UTC has them.
+function instant(y: number, m: number, d: number, zone: string, h = 0): number {
+  const target = Date.UTC(y, m - 1, d, h);
   let t = target;
   for (let i = 0; i < 2; i++) {
     const w = wall(t, zone);
@@ -54,4 +55,45 @@ export function startOfDay(now: number, zone = hostZone()): number {
 export function startOfMonth(now: number, zone = hostZone()): number {
   const w = wall(now, zone);
   return instant(w.y, w.m, 1, zone);
+}
+
+// A goal's period (goals.ts): the stretch its number is for. Each starts on the host's
+// clock: the top of the hour, midnight, Monday, the 1st, 1 January.
+export const PERIODS = ['hour', 'day', 'week', 'month', 'year'] as const;
+export type Period = (typeof PERIODS)[number];
+
+// How many days back Monday is from a wall-clock date.
+const sinceMonday = (y: number, m: number, d: number) => (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+
+export function startOfHour(now: number, zone = hostZone()): number {
+  const w = wall(now, zone);
+  return instant(w.y, w.m, w.d, zone, w.h);
+}
+
+export function startOfWeek(now: number, zone = hostZone()): number {
+  const w = wall(now, zone);
+  return instant(w.y, w.m, w.d - sinceMonday(w.y, w.m, w.d), zone);
+}
+
+export function startOfYear(now: number, zone = hostZone()): number {
+  const w = wall(now, zone);
+  return instant(w.y, 1, 1, zone);
+}
+
+export function periodStart(period: Period, now: number, zone = hostZone()): number {
+  if (period === 'hour') return startOfHour(now, zone);
+  if (period === 'week') return startOfWeek(now, zone);
+  if (period === 'month') return startOfMonth(now, zone);
+  if (period === 'year') return startOfYear(now, zone);
+  return startOfDay(now, zone);
+}
+
+// When the period now is in ends: the start of the next one.
+export function periodEnd(period: Period, now: number, zone = hostZone()): number {
+  const w = wall(now, zone);
+  if (period === 'hour') return instant(w.y, w.m, w.d, zone, w.h + 1);
+  if (period === 'week') return instant(w.y, w.m, w.d - sinceMonday(w.y, w.m, w.d) + 7, zone);
+  if (period === 'month') return instant(w.y, w.m + 1, 1, zone);
+  if (period === 'year') return instant(w.y + 1, 1, 1, zone);
+  return instant(w.y, w.m, w.d + 1, zone);
 }

@@ -53,7 +53,8 @@ const agentFiles = (id: string, events: string[]) => ({
   department: 'engineering',
   charter: '# CHARTER\nTest.',
   tools: `agent_id: ${id}\ntool_tiers: {}\nevents: ${JSON.stringify(events)}\n`,
-  kpi: 'output: []\n',
+  // A goal: an agent with none does not run.
+  kpi: 'output:\n  - action: zz.made_thing\n    label: things made\n    amount: 1\n',
   models: [],
 });
 

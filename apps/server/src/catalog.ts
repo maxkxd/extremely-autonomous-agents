@@ -265,7 +265,7 @@ export const BASELINE: { server: string; tool: CatalogTool }[] = [
   ['approvals', t('queue_mine', 'T0', 'See its approved actions that have not run yet, recent sends per account and failures')],
   ['approvals', t('schedule_mine', 'T0', 'Decide when its approved actions run: now, later, spread out, or cancelled')],
   ['approvals', t('pace_mine', 'T0', 'Space out a batch of its actions on one account, before they are approved')],
-  ['ops', t('set_my_ferocity', 'T1', 'Change how hard it works, when a person asks in its chat')],
+  ['ops', t('set_my_goal', 'T1', 'Change a goal of its own, when a person asks in its chat')],
   ['ops', t('pause_me', 'T1', 'Go on standby or stop (until a time), when a person asks in its chat')],
   ['ops', t('set_my_run_days', 'T1', 'Set the days its schedule runs, when a person asks in its chat')],
   ['ops', t('set_my_models', 'T1', 'Change its AI models, when a person asks in its chat')],

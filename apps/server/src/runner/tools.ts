@@ -553,7 +553,7 @@ const BUILTIN: ToolDef[] = [
     description: 'Book your own next run, naming the work it is for. delay_minutes: how long from now (0 = as soon as this one ends), up to 10080 (7 days) - work for Monday is booked for Monday.',
     schema: obj({ reason: str('The work the run is for'), delay_minutes: { type: 'number', description: '0 to 10080' } }, ['reason']),
     impl: (a, ctx) => {
-      if (ctx.level === APOCALYPTIC) return "Not needed: at your level your next run starts as soon as this one ends.";
+      if (ctx.level === APOCALYPTIC) return "Not needed: at your pace your next run starts as soon as this one ends.";
       // Up to a week: capped at a day, "Monday's report" ran on Saturday and found nothing to do.
       const delay = Math.max(0, Math.min(10_080, Number(a.delay_minutes) || 0));
       // Merged only into its own booking still in the future - not a wake-up that's
@@ -582,7 +582,7 @@ const BUILTIN: ToolDef[] = [
       const slots = parallelSlots(ctx.level);
       // Behind on a goal: the agency starts its parallel runs itself (goals.ts).
       const managed = paceFor(ctx.agent, ctx.now())?.parallel ?? 1;
-      if (managed > 1 && !ctx.parallel) return `The agency is already running ${managed} of you at once to reach today's goal, and starts each one itself. Take your own slice of the work.`;
+      if (managed > 1 && !ctx.parallel) return `The agency is already running ${managed} of you at once to reach your goal, and starts each one itself. Take your own slice of the work.`;
       if (ctx.parallel) return 'You are a parallel run yourself: do your own piece. Only your main run starts parallel runs.';
       const piece = String(a.piece ?? '').trim().slice(0, 4000);
       if (!piece) return 'Name the piece of work it is for.';

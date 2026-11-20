@@ -24,7 +24,7 @@ const agent = (id = ID): AgentDef => ({
   newTools: [],
   events: [],
   newEvents: [],
-  output: [],
+  output: [{ action: 'zz.made_thing', label: 'things made', amount: 1 }], // a goal: an agent with none does not run
   maxRunsPerDay: 24,
   ferocity: { ...DEFAULT_PLAN, counts: [] },
   limits: [],

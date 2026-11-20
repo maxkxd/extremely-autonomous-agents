@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { parseDocument } from 'yaml';
 import { DATA, readMeta, slug, writeMeta } from '../files.js';
 import { countsAsOutput } from './agent.js';
+import { all, run as exec } from './db.js';
+import { hasGoal } from './goals.js';
 import { servedHere } from './tools.js';
 
 // A connection's own tools replace the names an agent was built with (a catalogue
@@ -39,7 +41,7 @@ export function sameAction(a: string, b: string): boolean {
   return long === `${short}s` || long === `${short}es`;
 }
 
-type Row = { action: string; label: string; per_day?: number };
+type Row = { action: string; label: string; per_day?: number; amount?: number; period?: string };
 
 // Which real tools do the job of each name the agent is counted on but doesn't hold.
 export function movesFor(orphans: string[], candidates: string[]): OutputMove[] {
@@ -104,6 +106,38 @@ export async function applyOutputMoves(agentId: string, moves: OutputMove[]): Pr
     }
   }
   const next = apply(output, counts, moves);
+  // A goal is kept by its label (goals.ts). A label these moves rename or fold into another
+  // takes its number along to where its rows went, so the agent is never left with no goal.
+  const gone = [...new Set(output.map(o => o.label))].filter(l => !next.output.some(o => o.label === l));
+  const carried: { from: string; to: string }[] = [];
+  for (const from of gone) {
+    const m = moves.find(x => output.some(o => o.label === from && o.action === x.from));
+    const to = m && next.output.find(o => m.to.includes(o.action))?.label;
+    if (to) carried.push({ from, to });
+  }
+  const set = all<{ label: string; per_day: number; period: string }>('SELECT label, per_day, period FROM agent_goals WHERE agent_id = ?', agentId);
+  const after = new Map(set.filter(r => !gone.includes(r.label)).map(r => [r.label, r] as const));
+  const moved: typeof set = [];
+  for (const c of carried) {
+    const was = set.find(r => r.label === c.from);
+    if (!was || was.per_day < 1 || (after.get(c.to)?.per_day ?? 0) > 0) continue;
+    after.set(c.to, { ...was, label: c.to });
+    moved.push({ ...was, label: c.to });
+  }
+  // What it would be left with: a label's number from its card, else from its KPI row.
+  const numbered = next.output.some(o => (after.get(o.label)?.per_day ?? Math.floor(Number(o.amount ?? o.per_day) || 0)) > 0);
+  if (hasGoal(agentId, output) && !numbered)
+    throw new Error(`Not moved: that would leave ${agentId} with no goal, and an agent with no goal does not run. Keep the label that holds its goal, or set a goal on another output first (engineer.set_goal).`);
+  for (const r of moved)
+    exec(
+      'INSERT INTO agent_goals (agent_id, label, per_day, period, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (agent_id, label) DO UPDATE SET per_day = excluded.per_day, period = excluded.period, updated_at = excluded.updated_at',
+      agentId,
+      r.label,
+      r.per_day,
+      r.period,
+      Date.now(),
+    );
+  for (const l of gone) exec('DELETE FROM agent_goals WHERE agent_id = ? AND label = ?', agentId, l);
   const kpiDoc = parseDocument(await readFile(join(dir, 'KPI.yaml'), 'utf8'));
   kpiDoc.set('output', next.output);
   await writeFile(join(dir, 'KPI.yaml'), kpiDoc.toString());

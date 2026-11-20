@@ -1,8 +1,10 @@
 import type { AgentDef } from './agent.js';
 
-// The five ferocity levels (docs/runner.md): what each one tells the agent,
-// its floor and nudges, and when its next run is due. Names are final; the
-// wording is the first draft to test against real agents.
+// The five levels (docs/runner.md). Nobody chooses one any more: an agent's goals set its
+// pace (goals.ts), and the level - 0 to 4 - is worked out from how many runs a day that
+// pace comes to. It decides the tone of what the agent is told (stanceLines) and its
+// card's effects. The built-in agents have no goal: they work as Steady on their own
+// schedule (ferocityInstructions, scheduledDue).
 
 export const LEVELS = ['Chill', 'Steady', 'Driven', 'Relentless', 'Apocalyptic'] as const;
 export const CHILL = 0;
@@ -177,21 +179,10 @@ export function scheduledDue(agent: AgentDef, level: number, lastScheduledAt: nu
 }
 
 // The runaway backstop: never the pace (docs/runner.md). 1,000 runs a day up to
-// Driven - far above anything those levels do on purpose - and none at Relentless
-// and Apocalyptic, which are meant to go as hard as the work allows.
+// level 2 - far above anything a pace that slow does on purpose - and none above,
+// where its goals have it going as hard as the work allows.
 export function backstop(level: number): number {
   return level >= RELENTLESS ? Infinity : 1000;
-}
-
-// Apocalyptic after runs that fell short of its target, in a row: it waits a little
-// longer each time - 20 seconds after one, growing - until, after about 20, it's
-// at Relentless's pace. One run that reaches its target and it's back to back again.
-export const SHORT_RUNS_TO_RELENTLESS = 20;
-export function apocalypticWait(agent: AgentDef, shortInARow: number): number {
-  const relentless = agent.ferocity.every_hours[RELENTLESS] * HOUR;
-  if (shortInARow <= 0) return APOCALYPTIC_GAP_MS;
-  const grow = (relentless / APOCALYPTIC_GAP_MS) ** (1 / SHORT_RUNS_TO_RELENTLESS);
-  return Math.min(relentless, APOCALYPTIC_GAP_MS * grow ** shortInARow);
 }
 
 // Failure backoff: 1, 2, 4... minutes, an hour at most.
