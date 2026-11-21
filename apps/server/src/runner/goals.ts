@@ -15,7 +15,8 @@ import { DRIVEN, HOUR, MAX_NUDGES, RELENTLESS, STEADY, stanceLines } from './fer
 // so nothing here may leave an agent without a number (checkGoal).
 //
 // What counts: an action as soon as it is done or drafted (queued for a person's approval),
-// and a draft a person rejects is taken off again - so an agent at its goal can drop under it.
+// and a draft a person rejects, withdraws or lets expire is taken off again - so an agent
+// at its goal can drop under it.
 
 export type Goal = { label: string; actions: string[]; amount: number; period: Period; done: number; waiting: number };
 
@@ -73,7 +74,7 @@ function countSince(agentId: string, actions: string[], since: number): { done: 
   if (!actions.length) return { done: 0, waiting: 0 };
   const marks = actions.map(() => '?').join(', ');
   const row = one<{ done: number | null; waiting: number | null }>(
-    `SELECT SUM(CASE WHEN p.status IN ('rejected', 'withdrawn') THEN 0 ELSE a.output END) AS done,
+    `SELECT SUM(CASE WHEN p.status IN ('rejected', 'withdrawn', 'expired') THEN 0 ELSE a.output END) AS done,
             SUM(CASE WHEN p.status = 'pending' THEN a.output ELSE 0 END) AS waiting
        FROM actions a LEFT JOIN approvals p ON p.id = a.approval_id
       WHERE a.agent_id = ? AND a.at >= ? AND a.outcome IN ('ok', 'queued') AND a.tool IN (${marks})`,

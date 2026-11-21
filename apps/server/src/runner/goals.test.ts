@@ -67,6 +67,21 @@ test('a draft counts as soon as it is queued, and comes off if a person rejects 
   assert.equal(g.waiting, 1);
 });
 
+test('a draft comes off if a person lets it expire, the same as if they rejected it', () => {
+  setGoal('outreach', 'Emails sent', 100, 'day', NOW);
+  did('gmail.send_email', 3);
+  approval('a1', 'expired');
+  did('gmail.send_email', 1, 'queued', 'a1');
+  approval('a2', 'pending');
+  did('gmail.send_email', 1, 'queued', 'a2');
+  const g = emails();
+  assert.equal(g.done, 4);
+  assert.equal(g.waiting, 1);
+  exec("UPDATE approvals SET status = 'expired' WHERE id = 'a2'");
+  assert.equal(emails().done, 3);
+  assert.equal(emails().waiting, 0);
+});
+
 test('a period starts on the clock of the host: the top of the hour, midnight, Monday, the 1st, 1 January', () => {
   const at = NOW + 30 * MIN; // Tuesday 12:30
   assert.equal(periodStart('hour', at), NOW);
