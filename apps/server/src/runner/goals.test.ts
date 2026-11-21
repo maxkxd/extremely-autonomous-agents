@@ -6,7 +6,7 @@ import { PERIOD_MS, rollingSince, setHostZone } from './clock.js';
 import { all, one, resetDbForTests, run as exec } from './db.js';
 import { bookGoalRuns, checkGoal, goalDue, goalFloor, goalInstructions, goalsOf, levelOf, MAX_GOAL_PARALLEL, noGoalInstructions, paceFor, setGoal, storePace } from './goals.js';
 import { stateOf } from './run.js';
-import { nextRun, noGoalRequest } from './scheduler.js';
+import { book, ensurePendingDue, nextRun, noGoalRequest, pendingMain, queueRunNow, RUN_NOW_IN_FLIGHT } from './scheduler.js';
 import { execute } from './tools.js';
 
 // Goals (goals.ts): what counts toward one, in which period, and the pace it calls for.
@@ -393,4 +393,73 @@ test('a no-goal request is re-filed after backoff if the Engineer closes it with
   assert.equal(asked()[4].status, 'open');
   tick(NOW + 31 * HOUR + 1);
   assert.equal(asked().length, 5, 'still only one open');
+});
+
+test("the pace interval is the goal's rate, not stretched to how long a run takes", () => {
+  setGoal('outreach', 'Emails sent', 90_000, 'day', NOW);
+  ran(10, 60); // hour-long runs
+  const p = paceFor(agent, NOW)!;
+  assert.equal(p.parallel, MAX_GOAL_PARALLEL);
+  // 20 lanes at 90,000 / 10 per run is a start every few minutes, not every hour.
+  assert.ok(p.everyMs < 5 * MIN, `every ${p.everyMs / MIN} min, not a 60-minute run`);
+});
+
+test('due ticks during a long run collapse into one pending start, not a backlog and not dropped', () => {
+  setGoal('outreach', 'Emails sent', 100, 'day', NOW);
+  ran(10);
+  const p = paceFor(agent, NOW)!;
+  assert.ok(p.everyMs < 3 * HOUR);
+  const started = NOW - 5 * HOUR;
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, ended_at, acts) VALUES ('live', 'outreach', 'scheduled', 1, 'running', ?, NULL, 0)", started);
+  const st = () => stateOf('outreach', NOW);
+  st(); // ensure the row exists
+  exec('UPDATE agent_state SET last_scheduled_at = ? WHERE agent_id = ?', started, 'outreach');
+  ensurePendingDue(agent, p, st(), NOW);
+  ensurePendingDue(agent, p, st(), NOW);
+  ensurePendingDue(agent, p, st(), NOW);
+  const pending = all<{ trigger: string }>("SELECT trigger FROM bookings WHERE agent_id = 'outreach'");
+  assert.equal(pending.length, 1, 'one pending, however many ticks came due');
+  assert.equal(pending[0].trigger, 'scheduled');
+  // The in-flight run is still going: the pending one waits for it.
+  assert.equal(pendingMain('outreach')?.trigger, 'scheduled');
+  // Once it finishes (and has had a breath), that one pending run is what starts.
+  exec("UPDATE runs SET status = 'succeeded', ended_at = ? WHERE id = 'live'", NOW - 30_000);
+  assert.equal(nextRun(agent, st(), NOW)?.trigger, 'scheduled');
+  assert.equal(nextRun(agent, st(), NOW)?.bookingId, pendingMain('outreach')?.id);
+});
+
+test('Run now behind an in-flight run leaves one pending start and says so; repeats do not pile up', () => {
+  setGoal('outreach', 'Emails sent', 20, 'day', NOW);
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, ended_at, acts) VALUES ('live', 'outreach', 'scheduled', 1, 'running', ?, NULL, 0)", NOW);
+  const first = queueRunNow('outreach', NOW);
+  const again = queueRunNow('outreach', NOW);
+  const third = queueRunNow('outreach', NOW);
+  assert.equal(first.message, RUN_NOW_IN_FLIGHT);
+  assert.equal(again.message, RUN_NOW_IN_FLIGHT);
+  assert.equal(third.queued, true);
+  assert.equal(all("SELECT id FROM bookings WHERE agent_id = 'outreach' AND trigger = 'run now'").length, 1);
+  // With no run in flight, Run now is booked rather than eaten.
+  exec("UPDATE runs SET status = 'succeeded', ended_at = ? WHERE id = 'live'", NOW);
+  exec("DELETE FROM bookings WHERE agent_id = 'outreach'");
+  const fresh = queueRunNow('outreach', NOW);
+  assert.equal(fresh.ok, true);
+  assert.equal(fresh.queued, undefined);
+  assert.equal(all("SELECT id FROM bookings WHERE agent_id = 'outreach' AND trigger = 'run now'").length, 1);
+  book('outreach', 'run now', null, NOW);
+  book('outreach', 'scheduled', null, NOW);
+  assert.equal(all("SELECT id FROM bookings WHERE agent_id = 'outreach'").length, 1, 'a later book joins the same slot');
+});
+
+test('extra lanes never run more than parallel, and surplus bookings collapse to one pending per slot', () => {
+  setGoal('outreach', 'Emails sent', 2000, 'day', NOW);
+  ran(10);
+  const p = paceFor(agent, NOW)!;
+  assert.equal(p.parallel, 2);
+  for (let i = 0; i < 8; i++) exec("INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES ('outreach', 'parallel', 'Goal batch extra', ?, ?)", NOW, NOW);
+  assert.equal(bookGoalRuns(agent, p, NOW), 0);
+  assert.equal(all("SELECT id FROM bookings WHERE agent_id = 'outreach' AND trigger = 'parallel'").length, 1);
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, ended_at, acts) VALUES ('p1', 'outreach', 'parallel', 1, 'running', ?, NULL, 0)", NOW);
+  // The one extra slot is in flight and already has its one pending: nothing more is booked.
+  assert.equal(bookGoalRuns(agent, p, NOW), 0);
+  assert.equal(all("SELECT id FROM bookings WHERE agent_id = 'outreach' AND trigger = 'parallel'").length, 1);
 });

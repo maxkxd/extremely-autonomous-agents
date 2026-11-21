@@ -130,9 +130,54 @@ export const APPROVAL_MAX_WAIT_MS = WAKE_WINDOWS.approval.maxMs;
 // dueAt: when it can start; for a debounced wake, when the event happened (it's due a
 // settle after).
 // person: whose message it answers - the Agency Engineer keeps one chat per person.
+//
+// The agent's own-work slot (its schedule, a run it booked itself, request done, Run
+// now) holds at most one pending booking: ticks that come due while a run is in
+// flight collapse into one start when it finishes, they never pile up. A later
+// Run now upgrades a waiting scheduled tick, so a person asking for a run is not eaten.
+const MAIN_SLOT = ['run now', 'scheduled', 'self-booked', 'request done'] as const;
+type MainSlot = (typeof MAIN_SLOT)[number];
+const isMainSlot = (t: Trigger): t is MainSlot => (MAIN_SLOT as readonly string[]).includes(t);
+export function pendingMain(agentId: string) {
+  return one<{ id: number; trigger: MainSlot }>(
+    `SELECT id, trigger FROM bookings WHERE agent_id = ? AND trigger IN (${MAIN_SLOT.map(() => '?').join(',')}) ORDER BY CASE WHEN trigger = 'run now' THEN 0 ELSE 1 END, due_at, id`,
+    agentId,
+    ...MAIN_SLOT,
+  );
+}
 export function book(agentId: string, trigger: Trigger, task: string | null, dueAt = Date.now(), person: string | null = null) {
   if (isDebounced(trigger)) return bookWake(agentId, trigger, task, dueAt, person);
+  if (isMainSlot(trigger)) {
+    const cur = pendingMain(agentId);
+    if (cur) {
+      if (trigger === 'run now' && cur.trigger !== 'run now')
+        exec('UPDATE bookings SET trigger = ?, task = ?, due_at = ?, person_id = ? WHERE id = ?', trigger, task, dueAt, person, cur.id);
+      return;
+    }
+  }
   exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at, person_id) VALUES (?, ?, ?, ?, ?, ?)', agentId, trigger, task, dueAt, Date.now(), person);
+}
+
+export const RUN_NOW_IN_FLIGHT = 'A run is already in progress. Another will start when it finishes.';
+export const RUN_NOW_QUEUED = 'A run is already queued and will start shortly.';
+export function queueRunNow(agentId: string, now = Date.now()): { ok: true; queued?: boolean; message?: string } {
+  const running = !!one("SELECT 1 AS x FROM runs WHERE agent_id = ? AND status = 'running'", agentId);
+  const pending = pendingMain(agentId);
+  if (running) {
+    book(agentId, 'run now', null, now);
+    return { ok: true, queued: true, message: RUN_NOW_IN_FLIGHT };
+  }
+  if (pending?.trigger === 'run now') return { ok: true, queued: true, message: RUN_NOW_QUEUED };
+  book(agentId, 'run now', null, now);
+  return { ok: true };
+}
+
+// While a main run is in flight, a due scheduled tick becomes one pending booking
+// (or joins the one already waiting). It starts as soon as the current run finishes.
+export function ensurePendingDue(agent: AgentDef, pace: NonNullable<ReturnType<typeof paceFor>>, st: ReturnType<typeof stateOf>, now: number) {
+  if (pendingMain(agent.id)) return;
+  const last = one<{ ended_at: number | null }>("SELECT ended_at FROM runs WHERE agent_id = ? AND status != 'running' ORDER BY started_at DESC LIMIT 1", agent.id);
+  if (goalDue(pace, st.last_scheduled_at ?? last?.ended_at ?? null, last?.ended_at ?? null, now)) book(agent.id, 'scheduled', null, now);
 }
 
 // Approved actions are run by the queue (approvals.ts), which wakes agents through here.
@@ -203,6 +248,7 @@ export async function tick(deps: RunDeps = liveDeps) {
       if (!engineer && others.length) {
         const room = others.filter(r => r.parallel).length < Math.max(parallelSlots(pace?.level ?? STEADY), (pace?.parallel ?? 1) - 1);
         const mainGoing = others.some(r => !r.parallel);
+        if (mainGoing && pace && st.state === 'active') ensurePendingDue(agent, pace, st, now);
         const next = nextRun(agent, st, now, b => (b.trigger === 'parallel' ? room : !mainGoing));
         if (!next || (next.trigger === 'parallel' ? !next.bookingId : mainGoing)) continue;
         const eligible = eligibleModels(agent, deps);

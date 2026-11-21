@@ -46,7 +46,7 @@ import { hooksBase, setTunnel, tunnelState } from './hooks.js';
 import { resume as resumeJobs } from '../jobs.js';
 import { isPrivateIp } from './net.js';
 import { agencyState, stateOf, type AgencyState, type Trigger } from './run.js';
-import { abortAll, abortRun, blockedOnConnections, book, isRunning } from './scheduler.js';
+import { abortAll, abortRun, blockedOnConnections, book, isRunning, queueRunNow } from './scheduler.js';
 import { AccessError, currentActor, nameNow, requireAdmin, requireMakerOrAdmin } from '../access.js';
 import { scrub } from '../secrets.js';
 import { preflight } from '../integrations/preflight.js';
@@ -362,8 +362,7 @@ export const runnerRoutes: Record<string, Route> = {
       const agent = await loadAgent(id);
       if (agent && !paceFor(agent)) throw new Error('It has no goal yet - give it one first: an agent with no goal does not run.');
     }
-    book(id, 'run now', null);
-    return { ok: true };
+    return queueRunNow(id);
   },
 
   // --- DM channel (docs/agent-dms.md) ---

@@ -44,7 +44,7 @@ import { selfMember, SELF_HOSTED } from '../selfhost.js';
 import { accessConfig, asActor, currentActor, localActor, personFor, recordAction, requireMakerOrAdmin, type Actor, type Role } from '../access.js';
 import { registeredToolIds } from './tools.js';
 import { stateOf } from './run.js';
-import { abortRun, book } from './scheduler.js';
+import { abortRun, book, queueRunNow } from './scheduler.js';
 import { clock, mins, paceMine, scheduledRows, scheduleMine, type Pace, type QueuedRow } from './action-queue.js';
 import {
   applyEdits,
@@ -639,8 +639,8 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
       }
       if (meta.service) throw new Error(`${meta.name} runs only when the agency calls it.`);
       await requireMakerOrAdmin(agentId, null, currentActor(), 'run it');
-      book(agentId, 'run now', null);
-      return `${meta.name} starts as soon as it can.`;
+      const r = queueRunNow(agentId);
+      return r.message ? `${meta.name}: ${r.message}` : `${meta.name} starts as soon as it can.`;
     },
   },
   {

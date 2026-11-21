@@ -211,8 +211,10 @@ export function paceFor(agent: AgentDef, now = Date.now(), goals = goalsOf(agent
   }
   // One run after another keeps up with one lane's worth; more than that goes side by
   // side - never more of them than the runs it still needs.
+  // The interval is the goal's rate, not stretched to a run's length: if a run lasts longer,
+  // due ticks coalesce into one pending start when it finishes (scheduler.ts); they are not dropped or queued up.
   let parallel = Math.min(MAX_GOAL_PARALLEL, needed, Math.max(1, Math.ceil(rate * lane)));
-  let everyMs = Math.max(lane, parallel / rate);
+  let everyMs = parallel / rate;
   let perRun = Math.min(remaining, Math.max(1, Math.ceil(each * 1.2)));
   // The Agency Conductor's call, kept inside what makes sense.
   if (held) {
@@ -241,9 +243,15 @@ export function goalDue(pace: Pace, lastStartedAt: number | null, lastEndedAt: n
 export const GOAL_BATCH = 'Goal batch';
 export function bookGoalRuns(agent: AgentDef, pace: Pace, now: number): number {
   if (pace.parallel <= 1) return 0;
+  const extra = pace.parallel - 1;
   const going = one<{ n: number }>("SELECT COUNT(*) AS n FROM runs WHERE agent_id = ? AND trigger = 'parallel' AND status = 'running'", agent.id)?.n ?? 0;
-  const queued = one<{ n: number }>("SELECT COUNT(*) AS n FROM bookings WHERE agent_id = ? AND trigger = 'parallel'", agent.id)?.n ?? 0;
-  const want = pace.parallel - 1 - going - queued;
+  const queuedRows = all<{ id: number }>("SELECT id FROM bookings WHERE agent_id = ? AND trigger = 'parallel' ORDER BY id", agent.id);
+  // At most one pending booking per extra slot, never a backlog: excess due ticks collapse.
+  const keep = Math.min(queuedRows.length, extra);
+  if (queuedRows.length > keep)
+    exec(`DELETE FROM bookings WHERE id IN (${queuedRows.slice(keep).map(() => '?').join(',')})`, ...queuedRows.slice(keep).map(r => r.id));
+  const queued = keep;
+  const want = extra - going - queued;
   for (let i = 0; i < want; i++)
     exec(
       "INSERT INTO bookings (agent_id, trigger, task, due_at, created_at) VALUES (?, 'parallel', ?, ?, ?)",

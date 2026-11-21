@@ -266,7 +266,7 @@ export const setHostZone = (zone: string) => post<{ zone: string }>('/api/settin
 export type AgencyState = 'active' | 'standby' | 'stopped';
 export const getAgency = () => request<{ state: AgencyState }>('/api/runner/agency');
 export const setAgency = (state: AgencyState) => post<{ state: AgencyState }>('/api/runner/agency', { state });
-export const runNow = (id: string) => post<{ ok: boolean }>('/api/runner/run-now', { id });
+export const runNow = (id: string) => post<{ ok: boolean; queued?: boolean; message?: string }>('/api/runner/run-now', { id });
 // A real agent's DM channel: run posts and your messages, oldest first.
 export const getDm = (id: string) =>
   request<(StampedEntry & { at: number })[]>(`/api/dm?id=${encodeURIComponent(id)}`).then(list =>
