@@ -2444,9 +2444,6 @@ body.after-onboarding .app { animation: ob-reveal 0.55s ease-out both; }
 .agent-card.is-paused .goal-status { color: var(--muted); text-shadow: none; }
 
 /* The settings. */
-.goal-set-head { display: flex; align-items: center; justify-content: space-between; }
-.goal-done { padding: 4px 12px; border: 1px solid var(--border-strong); border-radius: 6px; font-size: 12px; font-weight: 600; }
-.goal-done:hover { background: var(--surface-hover); }
 .goal-big {
   width: 100%; padding: 0 0 4px; background: transparent; border: 0; border-bottom: 1px dashed var(--border-strong); border-radius: 0; outline: none;
   font: inherit; font-size: 46px; font-weight: 700; line-height: 1.1; color: var(--text); text-align: center; font-variant-numeric: tabular-nums; transition: border-color 0.2s;

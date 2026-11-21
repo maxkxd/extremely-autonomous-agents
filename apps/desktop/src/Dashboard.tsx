@@ -563,7 +563,6 @@ export function AgentCard({
             open={goalOpen}
             onPick={setGoalShown}
             onSet={setGoal}
-            onDone={() => setPanel(null)}
             locked={viewOnly || !!off}
             onNew={preview || viewOnly || off ? undefined : () => onNavigate('agent:fleet')}
           />

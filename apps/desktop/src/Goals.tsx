@@ -109,7 +109,6 @@ export function GoalSettings({
   open,
   onPick,
   onSet,
-  onDone,
   onNew,
   locked = false,
 }: {
@@ -118,7 +117,6 @@ export function GoalSettings({
   open: boolean;
   onPick: (label: string) => void;
   onSet: (label: string, amount: number, period: Period) => void;
-  onDone: () => void;
   onNew?: () => void; // ask the Agency Engineer for a goal it doesn't have yet
   locked?: boolean; // someone else's agent: shown, not changed
 }) {
@@ -182,12 +180,6 @@ export function GoalSettings({
   const at = Math.max(0, PERIODS.findIndex(p => p.id === goal?.period));
   return (
     <div className="goal-set" aria-hidden={!open} {...(open ? {} : { inert: '' })}>
-      <div className="goal-set-head">
-        <span className="stat-label">Goal</span>
-        <button className="goal-done" onClick={onDone}>
-          Done
-        </button>
-      </div>
       <input
         className="goal-big"
         value={text ?? (goal?.amount ? String(goal.amount) : '')}
