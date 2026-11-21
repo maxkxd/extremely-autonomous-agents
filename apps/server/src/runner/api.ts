@@ -338,8 +338,9 @@ export const runnerRoutes: Record<string, Route> = {
     // has a goal (checkGoal refuses).
     if (b.goal !== undefined) {
       const agent = (await readMeta(b.id))?.builtIn ? null : await loadAgent(b.id);
-      const label = String(b.goal?.label ?? '');
-      if (!agent || !agent.output.some(o => o.label === label)) throw new Error("That isn't one of this agent's outputs. Ask the Agency Engineer to add a new goal.");
+      const want = String(b.goal?.label ?? '').trim().toLowerCase();
+      const label = agent?.output.find(o => o.label.toLowerCase() === want)?.label;
+      if (!agent || !label) throw new Error("That isn't one of this agent's outputs. Ask the Agency Engineer to add a new goal.");
       const g = checkGoal(agent, label, b.goal.amount, b.goal.period, now);
       setGoal(b.id, label, g.amount, g.period, now);
     }
