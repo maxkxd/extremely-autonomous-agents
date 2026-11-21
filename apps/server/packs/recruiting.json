@@ -109,19 +109,27 @@
     "kpi": [
       {
         "id": "docs.update_sheet",
-        "label": "candidates shortlisted"
+        "label": "candidates shortlisted",
+        "amount": 5,
+        "period": "day"
       },
       {
         "id": "linkedin.send_connection_request",
-        "label": "candidates approached on linkedin"
+        "label": "candidates approached on linkedin",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "linkedin.send_message",
-        "label": "candidate messages sent"
+        "label": "candidate messages sent",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "gmail.send_email",
-        "label": "candidate emails sent"
+        "label": "candidate emails sent",
+        "amount": 10,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 12
@@ -246,19 +254,27 @@
     "kpi": [
       {
         "id": "gmail.send_application_acknowledgement",
-        "label": "applications acknowledged"
+        "label": "applications acknowledged",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "calendar.book_offered_interview_slot",
-        "label": "first interviews booked"
+        "label": "first interviews booked",
+        "amount": 3,
+        "period": "day"
       },
       {
         "id": "calendar.create_event",
-        "label": "first interviews booked at custom times"
+        "label": "first interviews booked at custom times",
+        "amount": 3,
+        "period": "day"
       },
       {
         "id": "gmail.send_email",
-        "label": "candidate emails sent"
+        "label": "candidate emails sent",
+        "amount": 10,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 24

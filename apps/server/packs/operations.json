@@ -66,15 +66,21 @@
     "kpi": [
       {
         "id": "gmail.create_draft",
-        "label": "replies drafted"
+        "label": "replies drafted",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "gmail.modify_labels",
-        "label": "emails triaged"
+        "label": "emails triaged",
+        "amount": 20,
+        "period": "day"
       },
       {
         "id": "gmail.archive_messages",
-        "label": "emails filed"
+        "label": "emails filed",
+        "amount": 20,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 48
@@ -189,15 +195,21 @@
     "kpi": [
       {
         "id": "calendar.create_event",
-        "label": "meetings booked"
+        "label": "meetings booked",
+        "amount": 5,
+        "period": "day"
       },
       {
         "id": "calendar.update_event",
-        "label": "meetings rescheduled"
+        "label": "meetings rescheduled",
+        "amount": 5,
+        "period": "day"
       },
       {
         "id": "gmail.send_email",
-        "label": "scheduling replies sent"
+        "label": "scheduling replies sent",
+        "amount": 10,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 30

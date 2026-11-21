@@ -103,11 +103,15 @@
     "kpi": [
       {
         "id": "xero.update_transaction",
-        "label": "transactions coded"
+        "label": "transactions coded",
+        "amount": 20,
+        "period": "day"
       },
       {
         "id": "xero.match_transaction",
-        "label": "transactions reconciled"
+        "label": "transactions reconciled",
+        "amount": 20,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 12
@@ -223,11 +227,15 @@
     "kpi": [
       {
         "id": "xero.send_invoice",
-        "label": "invoices sent"
+        "label": "invoices sent",
+        "amount": 5,
+        "period": "day"
       },
       {
         "id": "gmail.send_email",
-        "label": "payment reminders sent"
+        "label": "payment reminders sent",
+        "amount": 10,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 12

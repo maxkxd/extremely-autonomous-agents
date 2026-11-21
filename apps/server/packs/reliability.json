@@ -181,19 +181,27 @@
     "kpi": [
       {
         "id": "github.create_issue",
-        "label": "bugs filed"
+        "label": "bugs filed",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "github.comment_on_tracked_issue",
-        "label": "duplicates merged into existing issues"
+        "label": "duplicates merged into existing issues",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "github.close_own_issue",
-        "label": "verified fixes closed"
+        "label": "verified fixes closed",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "errors.resolve_issue",
-        "label": "errors resolved with evidence"
+        "label": "errors resolved with evidence",
+        "amount": 10,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 48
@@ -348,11 +356,15 @@
     "kpi": [
       {
         "id": "infra.restart_service",
-        "label": "services restarted"
+        "label": "services restarted",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "slack.post_message",
-        "label": "incident updates posted"
+        "label": "incident updates posted",
+        "amount": 10,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 120

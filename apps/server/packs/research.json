@@ -86,11 +86,15 @@
     "kpi": [
       {
         "id": "docs.create_document",
-        "label": "briefs written"
+        "label": "briefs written",
+        "amount": 1,
+        "period": "week"
       },
       {
         "id": "docs.append_to_document",
-        "label": "briefs updated"
+        "label": "briefs updated",
+        "amount": 3,
+        "period": "week"
       }
     ],
     "max_runs_per_day": 12
@@ -237,11 +241,15 @@
     "kpi": [
       {
         "id": "watch.triage_change",
-        "label": "competitor changes triaged"
+        "label": "competitor changes triaged",
+        "amount": 20,
+        "period": "day"
       },
       {
         "id": "notify.send_owner_update",
-        "label": "competitor updates sent"
+        "label": "competitor updates sent",
+        "amount": 3,
+        "period": "week"
       }
     ],
     "max_runs_per_day": 8

@@ -91,7 +91,9 @@
     "kpi": [
       {
         "id": "crm.create_record",
-        "label": "qualified leads added"
+        "label": "qualified leads added",
+        "amount": 10,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 20
@@ -225,19 +227,27 @@
     "kpi": [
       {
         "id": "gmail.send_email",
-        "label": "emails sent"
+        "label": "emails sent",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "linkedin.send_connection_request",
-        "label": "connection requests sent"
+        "label": "connection requests sent",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "linkedin.send_message",
-        "label": "linkedin messages sent"
+        "label": "linkedin messages sent",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "calendar.create_event",
-        "label": "meetings booked"
+        "label": "meetings booked",
+        "amount": 5,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 12

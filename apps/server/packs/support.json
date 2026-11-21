@@ -120,15 +120,21 @@
     "kpi": [
       {
         "id": "helpdesk.reply_to_customer",
-        "label": "tickets answered"
+        "label": "tickets answered",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "helpdesk.send_approved_macro",
-        "label": "saved replies sent"
+        "label": "saved replies sent",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "helpdesk.set_ticket_status",
-        "label": "tickets routed"
+        "label": "tickets routed",
+        "amount": 10,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 60
@@ -250,15 +256,21 @@
     "kpi": [
       {
         "id": "gmail.send_email",
-        "label": "check-ins sent"
+        "label": "check-ins sent",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "crm.set_health_score",
-        "label": "health scores recorded"
+        "label": "health scores recorded",
+        "amount": 10,
+        "period": "day"
       },
       {
         "id": "helpdesk.create_handoff_ticket",
-        "label": "customer issues handed to support"
+        "label": "customer issues handed to support",
+        "amount": 10,
+        "period": "day"
       }
     ],
     "max_runs_per_day": 12

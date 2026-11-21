@@ -98,11 +98,15 @@
     "kpi": [
       {
         "id": "github.post_private_review",
-        "label": "pull requests reviewed"
+        "label": "pull requests reviewed",
+        "amount": 5,
+        "period": "day"
       },
       {
         "id": "github.create_review",
-        "label": "public pull requests reviewed"
+        "label": "public pull requests reviewed",
+        "amount": 3,
+        "period": "week"
       }
     ],
     "max_runs_per_day": 40
@@ -256,15 +260,21 @@
     "kpi": [
       {
         "id": "github.create_pull_request",
-        "label": "docs pull requests opened"
+        "label": "docs pull requests opened",
+        "amount": 3,
+        "period": "week"
       },
       {
         "id": "github.merge_own_docs_pull_request",
-        "label": "docs fixes merged"
+        "label": "docs fixes merged",
+        "amount": 3,
+        "period": "week"
       },
       {
         "id": "github.create_issue",
-        "label": "docs-code mismatches reported"
+        "label": "docs-code mismatches reported",
+        "amount": 3,
+        "period": "week"
       }
     ],
     "max_runs_per_day": 12

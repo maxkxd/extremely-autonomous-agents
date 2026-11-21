@@ -625,23 +625,35 @@ export async function build(ctx: Context, turns: Turn[]): Promise<Build> {
 
 // --- 4. Customize a pack agent for this organization ---
 
+// If a customizer drops the pack's goal numbers, put them back by tool id or label.
+function withTemplateGoals(out: Build, template: Build): Build {
+  if (hasGoalNumber(out)) return out;
+  const byId = new Map(template.kpi.map(k => [k.id, k]));
+  const byLabel = new Map(template.kpi.map(k => [k.label, k]));
+  const kpi = out.kpi.map(k => {
+    if (Number.isFinite(k.amount) && Number(k.amount) >= 1) return k;
+    const t = byId.get(k.id) ?? byLabel.get(k.label);
+    if (t && Number.isFinite(t.amount) && Number(t.amount) >= 1) return { ...k, amount: t.amount, period: k.period ?? t.period ?? 'day' };
+    return k;
+  });
+  return { ...out, kpi };
+}
+
 export async function customize(ctx: Context, template: Build, packName: string): Promise<Build> {
   const { profile_notes: _p, person_notes: _n, ...files } = template;
-  const out = fromOutput(
-    await parse(
-    BuildOutputSchema,
-    ctx,
+  const prompt = (extra = '') =>
     `This agent was just added from the ready-made "${packName}" pack. Its files below were written for a generic small business. Rewrite them for this organization and this fleet:
 - Charter: keep its structure, rigour and safety rules, but make it theirs: the organization's name, what it sells and to whom, its voice, the real people it reports to or writes as (starting with the person you know), and its teammates in the fleet by name. Drop generic placeholders. Don't invent facts the profiles don't give - leave those parts general.
 - Tools: wherever a fleet tool does the same job, use the fleet tool's exact id instead (and drop the template's duplicate new tool). Keep the template's narrow, limited tools only when nothing in the fleet already does that. Keep tiers at least as strict as the template unless a narrow tool makes a case safe.
-- Goals: every agent needs one. Give at least one KPI row an amount of 1 or more and its period - a sensible basic number for an ordinary pace of this job at an organization this size.
-- Keep its name and department. ${TIERING}
+- Goals: every agent needs one. Give at least one KPI row an amount of 1 or more and its period - a sensible basic number for an ordinary pace of this job at an organization this size. Keep the template's numbers unless a different pace clearly fits this organization.
+- Keep its name and department. ${TIERING}${extra}
 
 Template files (JSON):
-${JSON.stringify(files, null, 2)}`,
-    [{ role: 'user', content: 'Customize it for us.' }],
-    'high',
-    ),
-  );
-  return { ...out, name: template.name, department: template.department };
+${JSON.stringify(files, null, 2)}`;
+  const once = async (ask: string) => fromOutput(await parse(BuildOutputSchema, ctx, ask, [{ role: 'user', content: 'Customize it for us.' }], 'high'));
+  // Every pack agent needs a goal: a customize without a number is redone once, then the
+  // template's own numbers are kept if the model still left them out.
+  const first = { ...(await once(prompt())), name: template.name, department: template.department };
+  const built = hasGoalNumber(first) ? first : { ...(await once(prompt(` ${NEEDS_GOAL}`))), name: template.name, department: template.department };
+  return withTemplateGoals(built, template);
 }

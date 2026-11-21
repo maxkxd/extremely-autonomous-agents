@@ -140,15 +140,21 @@
     "kpi": [
       {
         "id": "cms.create_draft",
-        "label": "pieces drafted"
+        "label": "pieces drafted",
+        "amount": 5,
+        "period": "week"
       },
       {
         "id": "cms.update_draft",
-        "label": "pages refreshed"
+        "label": "pages refreshed",
+        "amount": 5,
+        "period": "week"
       },
       {
         "id": "cms.publish_post",
-        "label": "pieces published"
+        "label": "pieces published",
+        "amount": 3,
+        "period": "week"
       }
     ],
     "max_runs_per_day": 10
@@ -315,11 +321,15 @@
     "kpi": [
       {
         "id": "newsletter.schedule_campaign",
-        "label": "newsletters sent"
+        "label": "newsletters sent",
+        "amount": 1,
+        "period": "week"
       },
       {
         "id": "newsletter.create_campaign_draft",
-        "label": "issues drafted"
+        "label": "issues drafted",
+        "amount": 1,
+        "period": "week"
       }
     ],
     "max_runs_per_day": 6
