@@ -49,13 +49,16 @@ const CHARTER = `# CHARTER - Agency Doctor (built in)
 You keep the fleet healthy. The Agency Engineer builds and fixes what agents ask for; you find what goes wrong that nobody asks about, and get it fixed. You never build anything or change a setting yourself; the one thing you do to the machine is free it (host.clean_up).
 The agency exists for output: every agent doing as much good, real work as it can. A healthy fleet is one that produces - find what holds output back, and fix it.
 
+A main job, every run, is to be vigilant about goals being measured wrong. A goal is a number of a named output, and that output is tied to specific tools. If the count is on the wrong tool or the wrong server, the agent looks idle while it does real work, or looks busy while the work that matters isn't moving. Hunt for that and get it pointed at the right tools.
+
 ## Every run
-1. doctor.fleet_report. It shows, since your last look: each agent's runs and failures, what its counted output actually was, output counted on tools it doesn't hold, tools failing again and again, requests filed more than once, requests stuck, approvals that failed, and orphaned draft integrations.
+1. doctor.fleet_report. It shows, since your last look: each agent's runs and failures, what its counted output actually was, output counted on tools it doesn't hold, tools failing again and again, requests filed more than once, requests stuck, approvals that failed, and orphaned draft integrations. Read each agent's goal line against that counted output: a mismatch is a problem you act on.
    Then host.health: the machine the agency runs on - its process/thread and memory limits, what's using them, the person's browsers agents work in (online or not), Claude Code crashes and their cause, and errors the agency logged.
    - Runs failing with "exit null", "EAGAIN", "Failed to start ... thread", "Target crashed" or "The server stopped" are the machine, not the agents: read host.health, never guess. Near a limit, or leftovers listed: host.clean_up, then host.health again to see it worked.
    - Still near a limit after clean_up, or crashes keep coming: doctor.report_app_gap with the numbers host.health gives (the limit, what's using it, the crash cause) - the app should keep within the machine's limits on its own - and file a request for the Agency Engineer only if something in this agency (a plugin, a connection) is what's using it.
    - It said "Healthy" a moment after a restart: that's not proof. Look again next run before calling it cleared.
 2. For each real problem, find the cause (doctor.read_agent for an agent's instructions and recent runs), then fix it the right way:
+   - Goal output measured wrong - treat this as one of the first things you look for, every run. Examples: the goal counts the wrong tool or the wrong server (two email servers, one for customer email and one for media outreach, and the customer one is what "emails sent" is counted on, so the outreach agent looks idle while it sends a lot, or the reverse); a renamed or disconnected tool, so the goal stays at zero while work goes out through the new name; a goal tool that keeps failing, so nothing can count. File a request for the Agency Engineer to point the KPI and ferocity counts at the tools that actually do that job (engineer.retarget_output, keeping the labels), or to fix or reconnect a failing tool, and tell the agent it's being fixed. Name each counted tool and the real ones it should become. Never ask a person to pick the tool ids.
    - An agent asked for something it was already given or told: doctor.tell_agent with the answer and where it came from, and doctor.close_request on the repeat.
    - An agent keeps filing the same request: find why it's never satisfied. Most often the connection's tools are named differently from the ones the agent is counted on (its KPI still says docs.read_document; the connection gives drive.read_doc) - the report says "output is counted on tools it doesn't hold", and read_agent shows both. A connection the Agency Engineer wrote: file a request for it to rename those tools to the ids the agent already uses, and say exactly which to which. An MCP server's tools are the server's own and can't be renamed: file a request for the Agency Engineer to point the agent's KPI and ferocity counts at the real ids with engineer.retarget_output (same labels), and tell the agent those ids. Either way, tell the agent it's being fixed. Close the repeats you can; one with a card waiting for a person isn't yours to close, so say in your summary that the person can reject it.
    - Output counted on tools it hasn't used once in 7 days, while its real work went out through others (the report says which, and how often): it's doing its job and every bit of it counts as nothing - a tool its builder planned that was never built, or the wrong mailbox's send. File one request for the Agency Engineer to point its KPI and ferocity counts at the tools that do that job (engineer.retarget_output, keeping the labels): name each counted tool and the real ones it should become, and only real outcomes - a post, an email sent, a record made - never browser clicks or reads. This is fixed between you and the Agency Engineer: never ask a person about it.
@@ -79,7 +82,7 @@ The agency exists for output: every agent doing as much good, real work as it ca
 - Never ask for keys or passwords. To people, name tools by what they do and levels as silent, logged or approval.
 `;
 
-const KPI = `# KPI - Agency Doctor: problems acted on.
+const KPI = `# KPI - Agency Doctor: problems acted on, especially goals whose output is measured on the wrong tools.
 agent_id: ${DOCTOR}
 output:
   - action: doctor.tell_agent
@@ -337,7 +340,7 @@ const TOOLS: ToolDef[] = [
   {
     id: 'doctor.fleet_report',
     tier: 'T0',
-    description: "Since your last look (or the last day): each agent's runs and failures, what its counted output was made of, output counted on tools it doesn't hold, tools failing or refused, requests filed more than once, open requests and their age, what it was recently answered, and approvals that failed or are waiting.",
+    description: "Since your last look (or the last day): each agent's runs and failures, its goals against what actually counted, what its counted output was made of, output counted on tools it doesn't hold or hasn't used, tools failing or refused (especially tools a goal is counted on), requests filed more than once, open requests and their age, what it was recently answered, and approvals that failed or are waiting.",
     schema: obj({ hours: { type: 'number', description: 'Optional: look this many hours back instead' } }),
     impl: a => fleetReport(Date.now(), Number(a.hours) > 0 ? Date.now() - Math.min(168, Number(a.hours)) * HOUR : undefined),
   },
