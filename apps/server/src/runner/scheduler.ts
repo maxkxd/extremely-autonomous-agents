@@ -17,7 +17,7 @@ import type { ModelChoice } from '../models/choice.js';
 import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
 import { expireApprovals, recoverInterruptedActions, runDueActions, setQueueWake } from './approvals.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
-import { backstop, parallelSlots, scheduledDue, STEADY } from './ferocity.js';
+import { backstop, HOUR, parallelSlots, scheduledDue, STEADY } from './ferocity.js';
 import { bookGoalRuns, GOAL_BATCH, goalDue, paceFor } from './goals.js';
 import { conductPace } from './conductor.js';
 
@@ -305,36 +305,62 @@ export function capRequest(connections: string[], now: number) {
 }
 
 // An ordinary agent with no goal (none of its outputs has a number) does not run: no
-// schedule, no bookings, no Run now. Agents from before goals were mandatory are like
-// that, so the Agency Engineer is asked - once per agent - to give each a sensible
-// number. The request closes by itself once the agent has a goal, whoever set it.
-// Asked once: if the Engineer closes it without setting one, the card still says it has
-// no goal, and it is asked again only after it has had one and lost it.
-const NO_GOAL_ASKED = 'no_goal_asked'; // agent -> the request filed for it
+// schedule, no bookings, no Run now. The Agency Engineer is asked to give it a sensible
+// number straight away - never a person. The request closes by itself once the agent has
+// a goal. If the Engineer closes it without setting one, it is asked again after a
+// cooldown (1 hour, then 6 hours, then daily) so the agent is not left without a goal
+// and the Engineer is not spammed. A later goal resets the backoff.
+const NO_GOAL_ASKED = 'no_goal_asked'; // agent -> { id, attempts, nextAt }
+const NO_GOAL_BACKOFF_MS = [HOUR, 6 * HOUR, 24 * HOUR];
+type NoGoalAsk = { id: number; attempts: number; nextAt: number };
+const asAsk = (raw: unknown): NoGoalAsk | null => {
+  if (raw == null) return null;
+  if (typeof raw === 'number') return { id: raw, attempts: 0, nextAt: 0 };
+  const o = raw as NoGoalAsk;
+  return typeof o.id === 'number' ? { id: o.id, attempts: o.attempts ?? 0, nextAt: o.nextAt ?? 0 } : null;
+};
 export const noGoalWhat = (name: string) => `Set a goal for ${name}: it has none, so it is not running`;
-export function noGoalRequest(agent: AgentDef, has: boolean, now: number) {
-  const asked = getSetting<Record<string, number>>(NO_GOAL_ASKED, {});
-  const id = asked[agent.id];
-  if (has) {
-    if (id == null) return;
-    exec("UPDATE requests SET status = 'done', answer = 'It has a goal now.', answered_at = ?, stage = NULL WHERE id = ? AND status = 'open'", now, id);
-    delete asked[agent.id];
-    setSetting(NO_GOAL_ASKED, asked);
-    return;
-  }
-  if (id != null) return;
-  asked[agent.id] = fileRequest(
+const noGoalWhy = (name: string) =>
+  `Every agent needs a goal: a number of one of its outputs an hour, a day, a week, a month or a year. ${name} has none, so it will not run until it has one - no schedule, no Run now; only a person's message is answered. Read its Charter and KPI (engineer.read_agent) and set a sensible basic number for an ordinary pace of that job with engineer.set_goal straight away. Do not close this without setting a number. Ask the person only if the number really matters to them; otherwise they can change it on the agent's card later.`;
+
+function fileNoGoal(agent: AgentDef, now: number, attempts: number, asked: Record<string, NoGoalAsk>) {
+  const id = fileRequest(
     agent.id,
     null,
-    {
-      what: noGoalWhat(agent.name),
-      why: `Every agent needs a goal: a number of one of its outputs an hour, a day, a week, a month or a year. ${agent.name} has none, so it will not run until it has one - no schedule, no Run now; only a person's message is answered. Read its Charter and KPI (engineer.read_agent) and set a sensible basic number for an ordinary pace of that job with engineer.set_goal straight away. Ask the person only if the number really matters to them; otherwise they can change it on the agent's card later.`,
-    },
+    { what: noGoalWhat(agent.name), why: noGoalWhy(agent.name) },
     now,
     (a, t, k) => book(a, t as Trigger, k),
     true, // straight to the Agency Engineer: there is nothing here to route
   );
+  asked[agent.id] = { id, attempts, nextAt: 0 };
   setSetting(NO_GOAL_ASKED, asked);
+}
+
+export function noGoalRequest(agent: AgentDef, has: boolean, now: number) {
+  const asked = getSetting<Record<string, number | NoGoalAsk>>(NO_GOAL_ASKED, {});
+  const cur = asAsk(asked[agent.id]);
+  if (has) {
+    if (!cur) return;
+    exec("UPDATE requests SET status = 'done', answer = 'It has a goal now.', answered_at = ?, stage = NULL WHERE id = ? AND status = 'open'", now, cur.id);
+    delete asked[agent.id];
+    setSetting(NO_GOAL_ASKED, asked);
+    return;
+  }
+  if (cur) {
+    const row = one<{ status: string }>('SELECT status FROM requests WHERE id = ?', cur.id);
+    if (row?.status === 'open') return; // at most one open request per agent
+    // The Engineer closed it (or it vanished) without a goal: wait, then ask again.
+    if (!cur.nextAt) {
+      const wait = NO_GOAL_BACKOFF_MS[Math.min(cur.attempts, NO_GOAL_BACKOFF_MS.length - 1)];
+      asked[agent.id] = { ...cur, nextAt: now + wait };
+      setSetting(NO_GOAL_ASKED, asked);
+      return;
+    }
+    if (now < cur.nextAt) return;
+    fileNoGoal(agent, now, cur.attempts + 1, asked as Record<string, NoGoalAsk>);
+    return;
+  }
+  fileNoGoal(agent, now, 0, asked as Record<string, NoGoalAsk>);
 }
 
 // The tunnel's address changes each time it starts (a quick tunnel: no account), and every

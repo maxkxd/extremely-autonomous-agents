@@ -350,15 +350,47 @@ test('the Agency Engineer is woken once for an agent with no goal, and the reque
   assert.match(asked()[0].what, /Set a goal for Outreach/);
   assert.match(asked()[0].why, /engineer\.read_agent[\s\S]*engineer\.set_goal[\s\S]*only if the number really matters/);
   assert.match(one<{ task: string }>("SELECT task FROM bookings WHERE agent_id = 'fleet'")!.task, new RegExp(`Request #${asked()[0].id} from outreach`));
-  // The Engineer closing it without setting one does not start a loop of new requests.
-  exec("UPDATE requests SET status = 'done' WHERE agent_id = 'outreach'");
-  tick();
-  assert.equal(asked().length, 1);
-  exec("UPDATE requests SET status = 'open' WHERE agent_id = 'outreach'");
   // It gets a goal (the Engineer, a person on its card, the agent in its chat): closed by itself.
   setGoal('outreach', 'Emails sent', 20, 'day', NOW);
   tick();
   assert.deepEqual(asked().map(r => r.status), ['done']);
   tick();
   assert.equal(asked().length, 1);
+});
+
+test('a no-goal request is re-filed after backoff if the Engineer closes it without setting one, and the backoff resets once it has a goal', () => {
+  const asked = () => all<{ id: number; status: string }>("SELECT id, status FROM requests WHERE agent_id = 'outreach' ORDER BY id");
+  const tick = (at: number, has = false) => noGoalRequest(agent, has, at);
+  tick(NOW);
+  tick(NOW);
+  assert.equal(asked().length, 1, 'still one while it is open');
+  exec("UPDATE requests SET status = 'done' WHERE agent_id = 'outreach'");
+  tick(NOW);
+  tick(NOW + 59 * MIN);
+  assert.equal(asked().length, 1, 'not again until the 1-hour cooldown is over');
+  tick(NOW + HOUR);
+  assert.equal(asked().length, 2);
+  assert.equal(asked()[1].status, 'open');
+  exec("UPDATE requests SET status = 'done' WHERE status = 'open'");
+  tick(NOW + HOUR);
+  tick(NOW + 7 * HOUR - 1);
+  assert.equal(asked().length, 2, 'the second close waits 6 hours');
+  tick(NOW + 7 * HOUR);
+  assert.equal(asked().length, 3);
+  exec("UPDATE requests SET status = 'done' WHERE status = 'open'");
+  tick(NOW + 7 * HOUR);
+  tick(NOW + 31 * HOUR - 1);
+  assert.equal(asked().length, 3, 'then at most daily');
+  tick(NOW + 31 * HOUR);
+  assert.equal(asked().length, 4);
+  // A goal resets the backoff: losing it later asks again immediately, not after another day.
+  setGoal('outreach', 'Emails sent', 20, 'day', NOW + 31 * HOUR);
+  tick(NOW + 31 * HOUR, true);
+  assert.ok(asked().every(r => r.status === 'done'));
+  exec("DELETE FROM agent_goals WHERE agent_id = 'outreach'");
+  tick(NOW + 31 * HOUR + 1);
+  assert.equal(asked().length, 5);
+  assert.equal(asked()[4].status, 'open');
+  tick(NOW + 31 * HOUR + 1);
+  assert.equal(asked().length, 5, 'still only one open');
 });
