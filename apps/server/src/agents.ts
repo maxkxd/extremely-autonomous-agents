@@ -194,6 +194,4 @@ export async function deleteAgent(id: string) {
   await remove(id);
   await removeChoices(id);
   await forgetAgentRuns(id);
-  // What it still owed is nobody's now (accounts that work stay, in the password store).
-  exec("UPDATE accounts SET state = 'cancelled', last_error = 'Its agent was deleted.', updated_at = ? WHERE agent_id = ? AND state NOT IN ('working', 'cancelled')", Date.now(), id);
 }

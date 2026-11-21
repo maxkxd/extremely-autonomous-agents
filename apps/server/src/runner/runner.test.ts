@@ -561,12 +561,10 @@ test('deleting an agent settles everything it left: approvals, requests, booking
   exec("INSERT INTO requests (agent_id, what, why, created_at, status) VALUES (?, 'a tool', 'needs it', ?, 'open')", ID, now);
   exec("INSERT INTO tasks (agent_id, from_agent, task, created_at) VALUES (?, 'other', 'do a thing', ?)", ID, now);
   await forgetAgentRuns(ID, now);
-  assert.deepEqual(all<{ status: string }>("SELECT status FROM approvals ORDER BY id").map(a => a.status), ['rejected', 'rejected', 'rejected']);
+  assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM approvals')!.n, 0);
   assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM bookings')!.n, 0);
-  assert.equal(one<{ status: string }>('SELECT status FROM requests')!.status, 'withdrawn'); // nobody turned it down
-  // An agent remade under the same id isn't told its predecessor's were turned down.
-  assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM requests WHERE delivered_at IS NULL')!.n, 0);
-  assert.match(one<{ status: string; result: string }>('SELECT status, result FROM tasks')!.result, /deleted/);
+  assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM requests')!.n, 0);
+  assert.equal(one<{ n: number }>('SELECT COUNT(*) AS n FROM tasks')!.n, 0);
   // Its draft was discarded:
   assert.ok(!orphanedDrafts().includes('zz-del-agent'));
 });

@@ -1,17 +1,29 @@
 import { FLEET_ENGINEER } from './agent.js';
 import { DOCTOR } from './doctor.js';
-import { all, one, run as exec } from './db.js';
+import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { abortRun } from './scheduler.js';
 import { discardDraft, draftsForRequest } from '../integrations/index.js';
+import { dequeue } from '../jobs.js';
+import { deletePassword } from './passwords.js';
 
-// What a deleted agent leaves in the runner's store, settled: nothing it was
-// waiting on stays open, and nothing waits on it. Its runs and actions stay,
-// so Usage still adds up.
+// What a deleted agent leaves behind is nothing: recreating one with the same
+// id or name starts clean. Every row, setting and secret keyed by the agent is
+// removed, not just withdrawn.
+
+const SETTINGS_BY_AGENT = ['no_goal_asked', 'resume_at', 'run_days', 'models_moved_off', 'builtin_tool_levels'] as const;
+
+function forgetSetting(id: string, key: string) {
+  const all = getSetting<Record<string, unknown>>(key, {});
+  if (!all || typeof all !== 'object' || !(id in all)) return;
+  delete all[id];
+  setSetting(key, all);
+}
+
 export async function forgetAgentRuns(id: string, now = Date.now()) {
   abortRun(id);
-  exec('DELETE FROM bookings WHERE agent_id = ?', id);
+  dequeue(id);
 
-  // Any draft integrations for the agent's pending approvals: discard them before rejecting.
+  // Draft integrations first, before the approvals and requests that point at them go.
   const pendingEngineer = all<{ args: string }>(
     "SELECT args FROM approvals WHERE status = 'pending' AND agent_id = ? AND tool = 'engineer.publish_integration' AND json_extract(args, '$.for_agent') = ?",
     FLEET_ENGINEER,
@@ -26,7 +38,6 @@ export async function forgetAgentRuns(id: string, now = Date.now()) {
     } catch {}
   }
 
-  // Any open requests of this agent: if they drafted an integration, discard it unless another open request is waiting on it.
   const openRequests = all<{ id: number }>("SELECT id FROM requests WHERE agent_id = ? AND status = 'open'", id);
   for (const r of openRequests) {
     for (const d of draftsForRequest(r.id)) {
@@ -37,23 +48,37 @@ export async function forgetAgentRuns(id: string, now = Date.now()) {
     }
   }
 
-  // Its approvals, and the Agency Engineer's for it (tools going live for it).
-  const gone = "status = 'rejected', decided_at = ?, note = 'Its agent was deleted.'";
-  exec(`UPDATE approvals SET ${gone} WHERE status = 'pending' AND agent_id = ?`, now, id);
-  exec(`UPDATE approvals SET ${gone} WHERE status = 'pending' AND agent_id = ? AND json_extract(args, '$.for_agent') = ?`, now, FLEET_ENGINEER, id);
-  // And the Agency Doctor's rule for it, if one's waiting.
-  exec(`UPDATE approvals SET ${gone} WHERE status = 'pending' AND agent_id = ? AND json_extract(args, '$.agent_id') = ?`, now, DOCTOR, id);
+  // Work it handed to someone else: close it so that agent hears it isn't needed.
+  // Its own tasks are deleted with the rest of its rows below.
+  exec(
+    "UPDATE tasks SET status = 'done', result = 'Not needed: the agent that handed it over was deleted.', done_at = ?, delivered_at = ? WHERE from_agent = ? AND agent_id != ? AND status = 'open'",
+    now,
+    now,
+    id,
+    id,
+  );
 
-  // Its open requests: withdrawn - marked told, so an agent remade under the same id doesn't hear about them.
-  exec("UPDATE requests SET status = 'withdrawn', answer = 'Its agent was deleted.', answered_at = ?, delivered_at = ?, stage = NULL WHERE agent_id = ? AND status = 'open'", now, now, id);
-  exec("UPDATE requests SET delivered_at = ? WHERE agent_id = ? AND status != 'open' AND delivered_at IS NULL", now, id);
+  for (const row of all<{ id: string }>('SELECT id FROM passwords WHERE agent_id = ?', id)) {
+    await deletePassword(row.id);
+  }
 
-  // Work handed to it: closed, so the agent that handed it over hears it wasn't done.
-  exec("UPDATE tasks SET status = 'done', result = 'Not done: the agent it was handed to was deleted.', done_at = ? WHERE agent_id = ? AND status = 'open'", now, id);
-  // Work it handed to others: nobody is left to hear the result, so they stop on it.
-  exec("UPDATE tasks SET status = 'done', result = 'Not needed: the agent that handed it over was deleted.', done_at = ?, delivered_at = ? WHERE from_agent = ? AND status = 'open'", now, now, id);
-
+  exec('DELETE FROM request_messages WHERE request_id IN (SELECT id FROM requests WHERE agent_id = ?)', id);
+  exec('DELETE FROM requests WHERE agent_id = ?', id);
+  exec('DELETE FROM approvals WHERE agent_id = ?', id);
+  exec("DELETE FROM approvals WHERE json_extract(args, '$.for_agent') = ?", id);
+  exec("DELETE FROM approvals WHERE json_extract(args, '$.agent_id') = ?", id);
+  exec('DELETE FROM tasks WHERE agent_id = ?', id);
+  exec('DELETE FROM bookings WHERE agent_id = ?', id);
   exec('DELETE FROM dm WHERE agent_id = ?', id);
   exec('DELETE FROM memories WHERE agent_id = ?', id);
+  exec('DELETE FROM tool_health WHERE agent_id = ?', id);
+  exec('DELETE FROM action_pace WHERE agent_id = ?', id);
+  exec('DELETE FROM actions WHERE agent_id = ?', id);
+  exec('DELETE FROM runs WHERE agent_id = ?', id);
+  exec('DELETE FROM agent_goals WHERE agent_id = ?', id);
+  exec('DELETE FROM agent_pace WHERE agent_id = ?', id);
   exec('DELETE FROM agent_state WHERE agent_id = ?', id);
+  exec('DELETE FROM accounts WHERE agent_id = ?', id);
+
+  for (const key of SETTINGS_BY_AGENT) forgetSetting(id, key);
 }

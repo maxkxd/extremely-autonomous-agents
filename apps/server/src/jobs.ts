@@ -38,6 +38,13 @@ export function enqueue(id: string) {
   pump();
 }
 
+// Drop a deleted agent from the set-up queue. One already running finishes and
+// then sees its files are gone and stops.
+export function dequeue(id: string) {
+  const i = queue.indexOf(id);
+  if (i >= 0) queue.splice(i, 1);
+}
+
 function pump() {
   while (active.size < CONCURRENCY && queue.length && !agencyStopped()) {
     const id = queue.shift()!;
