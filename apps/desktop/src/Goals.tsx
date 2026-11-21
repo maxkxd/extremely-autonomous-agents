@@ -14,11 +14,11 @@ export type AgentGoal = { label: string; amount: number; period: Period; done: n
 export type AgentPace = { status: string; parallel: number; runsPerDay?: number };
 
 const PERIODS: { id: Period; short: string; now: string }[] = [
-  { id: 'hour', short: 'hr', now: 'this hour' },
-  { id: 'day', short: 'day', now: 'today' },
-  { id: 'week', short: 'wk', now: 'this week' },
-  { id: 'month', short: 'mo', now: 'this month' },
-  { id: 'year', short: 'yr', now: 'this year' },
+  { id: 'hour', short: 'hr', now: 'in the last hour' },
+  { id: 'day', short: 'day', now: 'in the last 24 hours' },
+  { id: 'week', short: 'wk', now: 'in the last 7 days' },
+  { id: 'month', short: 'mo', now: 'in the last 30 days' },
+  { id: 'year', short: 'yr', now: 'in the last 365 days' },
 ];
 const nowWord = (p: Period) => PERIODS.find(x => x.id === p)?.now ?? 'today';
 const count = (n: number) => n.toLocaleString();

@@ -58,16 +58,16 @@ built-in agents' Steady and as the tone an agent is told in.
   is the Agency Engineer's (`engineer.set_goal`): the label, and the tools whose calls
   count. KPI rows written before periods carry `per_day`, read as an amount a day.
 - **What counts.** An action as soon as it is done or drafted (queued for approval), within
-  the goal's current period on the host's clock (the hour, the day, the week from Monday,
-  the month, the year). A draft a person rejects comes off again, so an agent at its goal
-  can drop back under it.
-- **The pace.** Worked out fresh, goal by goal: the runs each still needs (from what one of
-  its runs usually makes) over what is left of its own period, aiming to finish a little
-  early. Those rates are added together and give how often it runs, how many runs of it go
-  at once (up to 20; the scheduler starts them, each told to take a different slice) and
-  what each run is asked for. Never faster than a run's length plus a breath, never slower
-  than its ordinary schedule. Behind, it speeds up; at its goal it eases off to its ordinary
-  schedule. It is never stopped for reaching it.
+  a trailing window: the last hour, 24 hours, 7 days, 30 days or 365 days. There is no
+  calendar or time-zone boundary (not "by midnight", not "this week from Monday"). A draft
+  a person rejects, withdraws or lets expire comes off again, so an agent at its goal can
+  drop back under it.
+- **The pace.** Worked out fresh, goal by goal, as a steady rate of the amount over that
+  window (100 a day is 100 / 24 hours, even at 11pm with 90 still to go). Those rates are
+  added together and give how often it runs, how many runs of it go at once (up to 20; the
+  scheduler starts them, each told to take a different slice) and what each run is asked
+  for. Never slower than its ordinary schedule. At its goal it eases off to that schedule.
+  It is never stopped for reaching it.
 - **The Agency Conductor.** Every half hour it looks over every agent with a goal in one
   cheap call and may change an agent's numbers or leave it a line of advice. Its numbers
   are kept in bounds and hold for 45 minutes; if the call fails the arithmetic stands.
@@ -75,8 +75,8 @@ built-in agents' Steady and as the tone an agent is told in.
   agent is told) comes from the estimated runs a day at its pace: up to 2 is 0, up to 12 is
   1, up to 48 is 2, up to 200 is 3, more is 4. It moves by itself whenever the pace does,
   the Conductor's changes included.
-- **What the agent is told.** Its goals, the count so far in each one's period ("70 of 100
-  today", "64 of 150 this week"), that it runs many times, and what this run owes.
+- **What the agent is told.** Its goals, the count so far in each one's window ("70 of 100
+  in the last 24 hours", "64 of 150 in the last 7 days"), that it runs many times, and what this run owes.
 - **Runs that make nothing** are not multiplied: after five in a row it drops to one run an
   hour and is told to find what is in the way.
 

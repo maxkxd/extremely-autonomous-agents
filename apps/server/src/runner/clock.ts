@@ -57,10 +57,13 @@ export function startOfMonth(now: number, zone = hostZone()): number {
   return instant(w.y, w.m, 1, zone);
 }
 
-// A goal's period (goals.ts): the stretch its number is for. Each starts on the host's
-// clock: the top of the hour, midnight, Monday, the 1st, 1 January.
+// A goal's period (goals.ts): a trailing window, not a calendar period. "100 a day"
+// is 100 in the last 24 hours, wherever the clock or the time zone sits.
 export const PERIODS = ['hour', 'day', 'week', 'month', 'year'] as const;
 export type Period = (typeof PERIODS)[number];
+const MS = { hour: 3_600_000, day: 24 * 3_600_000, week: 7 * 24 * 3_600_000, month: 30 * 24 * 3_600_000, year: 365 * 24 * 3_600_000 } as const;
+export const PERIOD_MS: Record<Period, number> = { ...MS };
+export const rollingSince = (period: Period, now: number) => now - PERIOD_MS[period];
 
 // How many days back Monday is from a wall-clock date.
 const sinceMonday = (y: number, m: number, d: number) => (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;

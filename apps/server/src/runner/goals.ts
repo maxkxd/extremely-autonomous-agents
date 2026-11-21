@@ -1,5 +1,5 @@
 import type { AgentDef } from './agent.js';
-import { periodEnd, PERIODS, periodStart, startOfDay, type Period } from './clock.js';
+import { PERIOD_MS, PERIODS, rollingSince, startOfDay, type Period } from './clock.js';
 import { all, one, run as exec } from './db.js';
 import { DRIVEN, HOUR, MAX_NUDGES, RELENTLESS, STEADY, stanceLines } from './ferocity.js';
 
@@ -8,7 +8,8 @@ import { DRIVEN, HOUR, MAX_NUDGES, RELENTLESS, STEADY, stanceLines } from './fer
 // labels (KPI.yaml `output`), so what counts toward it is exactly the actions under that
 // label. Nobody sets how hard the agent works: the pace is worked out from how far it is
 // from its goals - how often it runs, how many runs of it go at once, and what each run is
-// asked for - and changes as the period goes. Behind, it speeds up; at its goal it eases
+// asked for. A goal of N a day is a steady rate of N over the last (and next) 24 hours, not
+// a race to midnight. Behind, it may go a little faster; at its goal it eases
 // off to its ordinary schedule (it is never stopped for reaching it).
 //
 // Every agent has a goal: one with none does not run until it is given one (scheduler.ts),
@@ -36,8 +37,6 @@ export const MAX_GOAL_PARALLEL = 20;
 export const MAX_AMOUNT = 1_000_000;
 const DAY = 24 * HOUR;
 const GAP_MS = 20_000; // a breath between back-to-back runs
-// However little of a period is left, the pace is worked out as if this much were.
-const MIN_LEFT_MS = 5 * 60_000;
 const OWN_WORK = "('scheduled', 'apocalyptic', 'self-booked', 'request done', 'run now', 'parallel')";
 // The Conductor's numbers hold this long; then the worked-out pace again until it next looks.
 export const CONDUCTOR_HOLDS_MS = 45 * 60_000;
@@ -45,8 +44,14 @@ export const CONDUCTOR_HOLDS_MS = 45 * 60_000;
 const STUCK_RUNS = 5;
 
 const count = (n: number) => n.toLocaleString('en-US');
-// "70 of 100 today", and "100 a day".
-const NOW_WORDS: Record<Period, string> = { hour: 'this hour', day: 'today', week: 'this week', month: 'this month', year: 'this year' };
+// "70 of 100 in the last 24 hours", and "100 a day".
+const NOW_WORDS: Record<Period, string> = {
+  hour: 'in the last hour',
+  day: 'in the last 24 hours',
+  week: 'in the last 7 days',
+  month: 'in the last 30 days',
+  year: 'in the last 365 days',
+};
 const EACH_WORDS: Record<Period, string> = { hour: 'an hour', day: 'a day', week: 'a week', month: 'a month', year: 'a year' };
 export const periodNow = (p: Period) => NOW_WORDS[p];
 export const periodEach = (p: Period) => EACH_WORDS[p];
@@ -114,7 +119,7 @@ export const hasGoal = (agentId: string, output: OutputRow[]) => [...goalNumbers
 
 // Every goal it could have (one per KPI label), with the count so far in its period.
 export function goalsOf(agent: AgentDef, now = Date.now()): Goal[] {
-  return [...goalNumbers(agent.id, agent.output)].map(([label, g]) => ({ label, ...g, ...countSince(agent.id, g.actions, periodStart(g.period, now)) }));
+  return [...goalNumbers(agent.id, agent.output)].map(([label, g]) => ({ label, ...g, ...countSince(agent.id, g.actions, rollingSince(g.period, now)) }));
 }
 
 // A number someone wants on a goal, checked before it is set: a whole number, a real
@@ -178,15 +183,16 @@ export function paceFor(agent: AgentDef, now = Date.now(), goals = goalsOf(agent
   if (r.stuck) return paced({ everyMs: Math.min(steadyMs, HOUR), parallel: 1, perRun: 0, remaining, note }, 'stuck');
   const each = Math.max(1, r.perRun ?? agent.ferocity.floor);
   const lane = r.ms + GAP_MS;
-  // Each goal by itself: the runs it still needs, over what is left of its own period
-  // (aiming to be done a little before it ends). Added together they are the runs it
-  // needs per millisecond, whatever mix of hours, days and weeks its goals are in.
+  // Each goal by itself: a steady rate of its amount over its trailing window
+  // (100 a day is 100 / 24 hours, not "whatever is left before midnight"). Added
+  // together they are the runs it needs per millisecond, whatever mix of hours,
+  // days and weeks its goals are in.
   let rate = 0;
   let needed = 0;
   for (const g of live) {
     const runs = Math.ceil(Math.max(0, g.amount - g.done) / each);
     needed += runs;
-    rate += runs / Math.max(MIN_LEFT_MS, (periodEnd(g.period, now) - now) * 0.9);
+    rate += g.amount / PERIOD_MS[g.period] / each;
   }
   // One run after another keeps up with one lane's worth; more than that goes side by
   // side - never more of them than the runs it still needs.
@@ -290,14 +296,13 @@ export function storePace(agentId: string, sig: string, p: { every_min?: number;
 }
 
 // One agent's line for the Conductor: its goals, what its runs make, the pace worked out for it.
-const leftWords = (ms: number) => (ms >= 48 * HOUR ? `${(ms / DAY).toFixed(1)} days` : `${(Math.max(0, ms) / HOUR).toFixed(1)} h`);
 export function paceFacts(agent: AgentDef, now: number): { sig: string; line: string } | null {
   const goals = goalsOf(agent, now);
   const pace = paceFor(agent, now, goals);
   if (!pace || pace.status === 'goal hit') return null;
   const r = recent(agent.id);
   const runsToday = one<{ n: number }>('SELECT COUNT(*) AS n FROM runs WHERE agent_id = ? AND started_at >= ?', agent.id, startOfDay(now))?.n ?? 0;
-  const said = goals.filter(g => g.amount > 0).map(g => `${g.label} ${g.done}/${g.amount} ${NOW_WORDS[g.period]} (${leftWords(periodEnd(g.period, now) - now)} left)`);
+  const said = goals.filter(g => g.amount > 0).map(g => `${g.label} ${g.done}/${g.amount} ${NOW_WORDS[g.period]}`);
   return {
     sig: sigOf(goals),
     line: `- ${agent.name} (id: ${agent.id}): ${said.join(', ')}. ${runsToday} runs so far today. A run makes about ${r.perRun == null ? 'unknown (no output yet)' : r.perRun.toFixed(1)} and takes about ${Math.round(r.ms / 60_000)} min.${r.stuck ? ' Its last runs made nothing.' : ''} Worked out for it now: a run every ${Math.max(1, Math.round(pace.everyMs / 60_000))} min, ${pace.parallel} at once, ${pace.perRun} per run (about ${Math.round(pace.runsPerDay)} runs a day).`,

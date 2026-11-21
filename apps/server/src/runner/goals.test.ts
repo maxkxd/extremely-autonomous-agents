@@ -2,7 +2,7 @@ import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import { DEFAULT_PLAN, type AgentDef } from './agent.js';
-import { periodEnd, periodStart, setHostZone } from './clock.js';
+import { PERIOD_MS, rollingSince, setHostZone } from './clock.js';
 import { all, one, resetDbForTests, run as exec } from './db.js';
 import { bookGoalRuns, checkGoal, goalDue, goalFloor, goalInstructions, goalsOf, levelOf, MAX_GOAL_PARALLEL, noGoalInstructions, paceFor, setGoal, storePace } from './goals.js';
 import { stateOf } from './run.js';
@@ -11,7 +11,7 @@ import { execute } from './tools.js';
 
 // Goals (goals.ts): what counts toward one, in which period, and the pace it calls for.
 
-const NOW = Date.UTC(2026, 9, 20, 12); // Tuesday 20 October 2026, noon UTC: half the day left
+const NOW = Date.UTC(2026, 9, 20, 12); // Tuesday 20 October 2026, noon UTC
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const agent = {
@@ -82,37 +82,33 @@ test('a draft comes off if a person lets it expire, the same as if they rejected
   assert.equal(emails().waiting, 0);
 });
 
-test('a period starts on the clock of the host: the top of the hour, midnight, Monday, the 1st, 1 January', () => {
-  const at = NOW + 30 * MIN; // Tuesday 12:30
-  assert.equal(periodStart('hour', at), NOW);
-  assert.equal(periodEnd('hour', at), NOW + HOUR);
-  assert.equal(periodStart('day', at), Date.UTC(2026, 9, 20));
-  assert.equal(periodStart('week', at), Date.UTC(2026, 9, 19)); // Monday
-  assert.equal(periodEnd('week', at), Date.UTC(2026, 9, 26));
-  assert.equal(periodStart('week', Date.UTC(2026, 9, 25, 23)), Date.UTC(2026, 9, 19), 'Sunday night is still that week');
-  assert.equal(periodStart('month', at), Date.UTC(2026, 9, 1));
-  assert.equal(periodEnd('month', Date.UTC(2026, 11, 15)), Date.UTC(2027, 0, 1));
-  assert.equal(periodStart('year', at), Date.UTC(2026, 0, 1));
-  assert.equal(periodEnd('year', at), Date.UTC(2027, 0, 1));
-  // Where the host is, not where the server is: Sydney is 11 hours ahead in October.
-  setHostZone('Australia/Sydney');
-  assert.equal(periodStart('day', at), Date.UTC(2026, 9, 19, 13));
-  assert.equal(periodStart('week', at), Date.UTC(2026, 9, 18, 13));
-});
-
-test('a goal counts what was done in the period it is in', () => {
-  const at = NOW + 30 * MIN; // Tuesday 12:30
-  did('gmail.send_email', 1, 'ok', null, NOW + 10 * MIN); // this hour
-  did('gmail.send_email', 1, 'ok', null, NOW - 10 * MIN); // today, the hour before
-  did('gmail.send_email', 1, 'ok', null, Date.UTC(2026, 9, 19, 10)); // Monday
-  did('gmail.send_email', 1, 'ok', null, Date.UTC(2026, 9, 18, 10)); // last week, this month
-  did('gmail.send_email', 1, 'ok', null, Date.UTC(2026, 8, 30)); // September
-  did('gmail.send_email', 1, 'ok', null, Date.UTC(2025, 11, 31)); // last year
+test('a goal counts a trailing window, not a calendar period, and the host time zone does not matter', () => {
+  assert.equal(rollingSince('hour', NOW), NOW - HOUR);
+  assert.equal(rollingSince('day', NOW), NOW - 24 * HOUR);
+  assert.equal(PERIOD_MS.week, 7 * 24 * HOUR);
+  assert.equal(PERIOD_MS.month, 30 * 24 * HOUR);
+  assert.equal(PERIOD_MS.year, 365 * 24 * HOUR);
+  // Just inside / just outside each window, measured back from NOW.
+  did('gmail.send_email', 1, 'ok', null, NOW - 10 * MIN); // last hour
+  did('gmail.send_email', 1, 'ok', null, NOW - 2 * HOUR); // last 24 hours
+  did('gmail.send_email', 1, 'ok', null, NOW - 2 * 24 * HOUR); // last 7 days
+  did('gmail.send_email', 1, 'ok', null, NOW - 10 * 24 * HOUR); // last 30 days
+  did('gmail.send_email', 1, 'ok', null, NOW - 40 * 24 * HOUR); // last 365 days
+  did('gmail.send_email', 1, 'ok', null, NOW - 400 * 24 * HOUR); // older than a year
   const done = (['hour', 'day', 'week', 'month', 'year'] as const).map(period => {
-    setGoal('outreach', 'Emails sent', 100, period, at);
-    return emails(at).done;
+    setGoal('outreach', 'Emails sent', 100, period, NOW);
+    return emails(NOW).done;
   });
   assert.deepEqual(done, [1, 2, 3, 4, 5]);
+  setHostZone('Australia/Sydney');
+  assert.deepEqual(
+    (['hour', 'day', 'week', 'month', 'year'] as const).map(period => {
+      setGoal('outreach', 'Emails sent', 100, period, NOW);
+      return emails(NOW).done;
+    }),
+    [1, 2, 3, 4, 5],
+    'a trailing window does not move with the host time zone',
+  );
 });
 
 test('at its goal it eases off to its ordinary schedule, and drops back under if drafts are rejected', () => {
@@ -129,48 +125,47 @@ test('at its goal it eases off to its ordinary schedule, and drops back under if
   assert.equal(paceFor(agent, NOW)!.remaining, 1);
 });
 
-test('a small goal is spread over the rest of the day, one run at a time', () => {
+test('a small goal is spread over the next 24 hours, one run at a time', () => {
   setGoal('outreach', 'Emails sent', 100, 'day', NOW);
   ran(10);
   const p = paceFor(agent, NOW)!;
   assert.equal(p.parallel, 1);
   assert.equal(p.perRun, 12);
-  // 10 runs in the 10.8 hours it aims to finish in.
-  assert.ok(p.everyMs > 60 * MIN && p.everyMs < 70 * MIN, `every ${p.everyMs / MIN} min`);
-  assert.ok(p.runsPerDay > 20 && p.runsPerDay < 24, `${p.runsPerDay} runs a day`);
-  assert.equal(p.status, 'speeding up');
+  // 10 runs of 10 each, steadily over 24 hours: one about every 2.4 hours.
+  assert.ok(p.everyMs > 2.3 * HOUR && p.everyMs < 2.5 * HOUR, `every ${p.everyMs / HOUR} h`);
+  assert.ok(p.runsPerDay > 9.5 && p.runsPerDay < 10.5, `${p.runsPerDay} runs a day`);
+  assert.equal(p.status, 'on pace');
 });
 
-test('a goal for the week is spread over what is left of the week', () => {
+test('a weekly goal is a steady rate over the last and next 7 days', () => {
   setGoal('outreach', 'Emails sent', 150, 'week', NOW);
   ran(10);
-  did('gmail.send_email', 64, 'ok', null, Date.UTC(2026, 9, 19, 10)); // Monday's work counts
+  did('gmail.send_email', 64, 'ok', null, NOW - 26 * HOUR); // still inside the last 7 days
   const goals = goalsOf(agent, NOW);
   const p = paceFor(agent, NOW, goals)!;
-  // 86 to go is 9 runs, in nine tenths of the 5.5 days to Monday: one about every 13 hours.
+  // 86 still to go, but the pace is 150 / 7 days, not a sprint over what's left of a calendar week.
   assert.equal(p.remaining, 86);
   assert.equal(p.parallel, 1);
-  assert.ok(p.everyMs > 13 * HOUR && p.everyMs < 13.5 * HOUR, `every ${p.everyMs / HOUR} h`);
-  assert.equal(p.level, 0);
+  assert.ok(p.everyMs > 11 * HOUR && p.everyMs < 11.3 * HOUR, `every ${p.everyMs / HOUR} h`);
   assert.equal(p.status, 'on pace');
-  assert.match(goalInstructions(agent, goals, p), /Emails sent: 64 of 150 this week/);
+  assert.match(goalInstructions(agent, goals, p), /Emails sent: 64 of 150 in the last 7 days/);
 });
 
-test('a goal for the hour has only what is left of the hour', () => {
-  const at = NOW + 30 * MIN;
-  setGoal('outreach', 'Emails sent', 30, 'hour', at);
+test('an hourly goal holds a steady rate, and a day goal does not sprint in the last hour', () => {
+  setGoal('outreach', 'Emails sent', 30, 'hour', NOW + 30 * MIN);
   ran(10);
-  const goals = goalsOf(agent, at);
-  const p = paceFor(agent, at, goals)!;
-  // 3 runs of 10 min 20 s in 27 minutes do not fit one after another: two side by side.
-  assert.equal(p.parallel, 2);
-  assert.equal(p.everyMs, 18 * MIN);
-  assert.equal(p.status, 'pushing hard');
-  assert.match(goalInstructions(agent, goals, p), /Emails sent: 0 of 30 this hour/);
-  // However little of the period is left, never more runs at once than runs it needs.
-  const late = NOW + 59 * MIN;
-  setGoal('outreach', 'Emails sent', 1, 'hour', late);
-  assert.equal(paceFor(agent, late)!.parallel, 1);
+  const goals = goalsOf(agent, NOW + 30 * MIN);
+  const p = paceFor(agent, NOW + 30 * MIN, goals)!;
+  // 3 runs of 10, one every 20 minutes, whether 30 minutes or 1 minute of a clock hour remains.
+  assert.equal(p.parallel, 1);
+  assert.equal(p.everyMs, 20 * MIN);
+  assert.match(goalInstructions(agent, goals, p), /Emails sent: 0 of 30 in the last hour/);
+  // 240 to go, one hour before "the end of the day": still 240 / 24 hours (about 10 an hour), not 240 in that hour.
+  setGoal('outreach', 'Emails sent', 240, 'day', NOW + 23 * HOUR);
+  ran(10);
+  const late = paceFor(agent, NOW + 23 * HOUR)!;
+  assert.equal(late.parallel, 1);
+  assert.ok(late.everyMs > 59 * MIN && late.everyMs < 61 * MIN, `every ${late.everyMs / MIN} min, not a last-hour sprint`);
 });
 
 test('several goals: the runs each one needs are added together', () => {
@@ -189,17 +184,16 @@ test('a goal it cannot reach one run after another gets runs side by side, up to
   setGoal('outreach', 'Emails sent', 600, 'day', NOW);
   ran(10);
   const hard = paceFor(agent, NOW)!;
-  // 60 runs of 10 min 20 s just fit in 10.8 hours: back to back, one at a time.
+  // 60 runs of 10 min 20 s over 24 hours fit one after another.
   assert.equal(hard.parallel, 1);
-  assert.equal(hard.status, 'pushing hard');
   setGoal('outreach', 'Emails sent', 2000, 'day', NOW);
-  // 200 runs: 62 fit one after another, so 4 lanes.
-  assert.equal(paceFor(agent, NOW)!.parallel, 4);
+  // 200 runs: one lane does about 144 a day, so 2 lanes.
+  assert.equal(paceFor(agent, NOW)!.parallel, 2);
   setGoal('outreach', 'Emails sent', 90_000, 'day', NOW);
-  const all = paceFor(agent, NOW)!;
-  assert.equal(all.parallel, MAX_GOAL_PARALLEL);
-  assert.equal(all.level, 4);
-  assert.equal(all.status, 'all out');
+  const allOut = paceFor(agent, NOW)!;
+  assert.equal(allOut.parallel, MAX_GOAL_PARALLEL);
+  assert.equal(allOut.level, 4);
+  assert.equal(allOut.status, 'all out');
 });
 
 test('the effect level comes from the runs a day the pace is, whoever set that pace', () => {
@@ -208,7 +202,7 @@ test('the effect level comes from the runs a day the pace is, whoever set that p
   ran(10);
   const worked = paceFor(agent, NOW)!;
   assert.equal(worked.level, levelOf(worked.runsPerDay));
-  assert.equal(worked.level, 2);
+  assert.equal(worked.level, 1);
   // The Conductor slows it to a run every 3 hours: 8 a day, so the level drops by itself.
   storePace('outreach', 'Emails sent=100/day|Leads researched=0/day', { every_min: 180 }, NOW);
   const slowed = paceFor(agent, NOW)!;
@@ -258,7 +252,8 @@ test('the runs beside its main one are booked up to the number wanted, once', ()
   setGoal('outreach', 'Emails sent', 2000, 'day', NOW);
   ran(10);
   const p = paceFor(agent, NOW)!;
-  assert.equal(bookGoalRuns(agent, p, NOW), 3);
+  assert.equal(p.parallel, 2);
+  assert.equal(bookGoalRuns(agent, p, NOW), 1);
   assert.equal(bookGoalRuns(agent, p, NOW), 0);
 });
 
@@ -268,7 +263,7 @@ test('the agent is told its goal, how far it is and what this run owes', () => {
   did('gmail.send_email', 70);
   const goals = goalsOf(agent, NOW);
   const text = goalInstructions(agent, goals, paceFor(agent, NOW, goals)!);
-  assert.match(text, /Emails sent: 70 of 100 today/);
+  assert.match(text, /Emails sent: 70 of 100 in the last 24 hours/);
   assert.match(text, /You run many times/);
   assert.match(text, /This run: at least 12/);
   assert.doesNotMatch(text, /Leads researched/, 'a label with no number is not a goal');
