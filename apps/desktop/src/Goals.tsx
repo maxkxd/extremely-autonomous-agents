@@ -149,30 +149,64 @@ export function GoalSettings({
     save(digits(text));
   };
 
-  // The wheel: the goal in the middle is the one chosen. It opens on the chosen one.
+  // The wheel: three rows tall, the goal in the middle is the one chosen. With three or
+  // more goals it wraps, so scrolling past the last lands on the first and keeps going.
+  // One or two sit in the same viewport without a fake wrap that would show the same
+  // name twice. "+ New goal" lives under the wheel, not in the wrapping list.
+  const ROW = 36;
+  const looping = goals.length >= 3;
+  const copies = looping ? 3 : 1;
   const wheel = useRef<HTMLDivElement>(null);
   const settle = useRef<ReturnType<typeof setTimeout>>();
-  const centre = (label: string, smooth: boolean) => {
+  const jumping = useRef(false);
+  const goalRef = useRef(goal);
+  goalRef.current = goal;
+  const pickRef = useRef(onPick);
+  pickRef.current = onPick;
+  const nearest = (w: HTMLDivElement, label?: string, copy?: string) => {
+    const sel = label
+      ? `[data-goal="${CSS.escape(label)}"]${copy != null ? `[data-copy="${copy}"]` : ''}`
+      : '[data-goal]';
+    const nodes = [...w.querySelectorAll<HTMLElement>(sel)];
+    if (!nodes.length) return null;
+    const mid = w.scrollTop + w.clientHeight / 2;
+    return nodes.reduce((best, el) => {
+      const d = Math.abs(el.offsetTop + el.offsetHeight / 2 - mid);
+      return !best || d < Math.abs(best.offsetTop + best.offsetHeight / 2 - mid) ? el : best;
+    });
+  };
+  const centre = (label: string, smooth: boolean, midCopy = false) => {
     const w = wheel.current;
-    const el = w?.querySelector<HTMLElement>(`[data-goal="${CSS.escape(label)}"]`);
-    if (w && el) w.scrollTo({ top: el.offsetTop - w.clientHeight / 2 + el.offsetHeight / 2, behavior: smooth ? 'smooth' : 'auto' });
+    if (!w) return;
+    const el = nearest(w, label, midCopy && looping ? '1' : undefined);
+    if (el) w.scrollTo({ top: el.offsetTop - ROW, behavior: smooth ? 'smooth' : 'auto' });
   };
   useLayoutEffect(() => {
-    if (open && goal) centre(goal.label, false);
-  }, [open]);
+    if (open && goal) centre(goal.label, false, true);
+  }, [open, looping]);
   const onScroll = () => {
+    const w = wheel.current;
+    if (!w || jumping.current) return;
+    if (looping) {
+      const copyH = goals.length * ROW;
+      if (w.scrollTop < copyH - ROW) {
+        jumping.current = true;
+        w.scrollTop += copyH;
+        jumping.current = false;
+      } else if (w.scrollTop >= 2 * copyH - ROW) {
+        jumping.current = true;
+        w.scrollTop -= copyH;
+        jumping.current = false;
+      }
+    }
     clearTimeout(settle.current);
     // Once it comes to rest, whichever goal sits in the middle is chosen.
     settle.current = setTimeout(() => {
       const w = wheel.current;
       if (!w) return;
-      const mid = w.scrollTop + w.clientHeight / 2;
-      let best: { label: string; d: number } | null = null;
-      for (const el of w.querySelectorAll<HTMLElement>('[data-goal]')) {
-        const d = Math.abs(el.offsetTop + el.offsetHeight / 2 - mid);
-        if (!best || d < best.d) best = { label: el.dataset.goal!, d };
-      }
-      if (best && best.label !== goal?.label) onPick(best.label);
+      const el = nearest(w);
+      const label = el?.dataset.goal;
+      if (label && label !== goalRef.current?.label) pickRef.current(label);
     }, 120);
   };
   useEffect(() => () => clearTimeout(settle.current), []);
@@ -200,28 +234,33 @@ export function GoalSettings({
           </button>
         ))}
       </div>
+      <div className="goal-wheel-block">
       <div className="goal-wheel-wrap">
-        <div className="goal-wheel" ref={wheel} onScroll={onScroll}>
-          {goals.map(g => (
-            <button
-              key={g.label}
-              data-goal={g.label}
-              className={g.label === goal?.label ? 'on' : ''}
-              onClick={() => {
-                onPick(g.label);
-                centre(g.label, true);
-              }}
-            >
-              {said(g.label)}
-            </button>
-          ))}
-          {onNew && (
-            <button className="new" onClick={onNew} title="Ask the Agency Engineer for a goal this agent doesn't have yet">
-              <Plus size={14} />
-              New goal
-            </button>
+        <div className={`goal-wheel${looping ? ' loop' : ''}`} ref={wheel} onScroll={onScroll}>
+          {Array.from({ length: copies }, (_, copy) =>
+            goals.map(g => (
+              <button
+                key={`${copy}:${g.label}`}
+                data-goal={g.label}
+                data-copy={copy}
+                className={g.label === goal?.label ? 'on' : ''}
+                onClick={() => {
+                  onPick(g.label);
+                  centre(g.label, true);
+                }}
+              >
+                {said(g.label)}
+              </button>
+            )),
           )}
         </div>
+      </div>
+      {onNew && (
+        <button className="goal-new" onClick={onNew} title="Ask the Agency Engineer for a goal this agent doesn't have yet">
+          <Plus size={14} />
+          New goal
+        </button>
+      )}
       </div>
     </div>
   );

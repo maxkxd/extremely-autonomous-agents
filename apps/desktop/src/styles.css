@@ -2462,15 +2462,17 @@ body.after-onboarding .app { animation: ob-reveal 0.55s ease-out both; }
 .goal-periods button.on { color: var(--text); font-weight: 600; }
 .goal-periods button:disabled { cursor: default; }
 
-/* Every goal it has, on a wheel: the one in the middle is the one chosen. */
+/* Every goal it has, on a wheel: three rows tall, the one in the middle is chosen. */
+.goal-wheel-block { display: flex; flex-direction: column; min-height: 0; }
 .goal-wheel-wrap { position: relative; flex: 0 0 108px; overflow: hidden; }
 .goal-wheel-wrap::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 36px; margin-top: -18px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); pointer-events: none; }
 .goal-wheel {
   position: relative; height: 108px; box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; scroll-snap-type: y mandatory; scrollbar-width: none;
-  /* Three rows tall, with a row of room above the first and below the last, so either can sit in the middle. */
+  /* A row of room above the first and below the last, so either can sit in the middle when it does not wrap. */
   padding: 36px 0;
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 34%, #000 66%, transparent); mask-image: linear-gradient(to bottom, transparent, #000 34%, #000 66%, transparent);
 }
+.goal-wheel.loop { padding: 0; } /* clones on both sides stand in for the empty rows */
 .goal-wheel::-webkit-scrollbar { display: none; }
 .goal-wheel button {
   display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 36px; padding: 0 8px; scroll-snap-align: center;
@@ -2478,8 +2480,12 @@ body.after-onboarding .app { animation: ob-reveal 0.55s ease-out both; }
   transition: color 0.2s, transform 0.25s cubic-bezier(0.22, 1.3, 0.32, 1);
 }
 .goal-wheel button.on { color: var(--text); font-weight: 700; transform: scale(1.12); }
-.goal-wheel button.new { font-size: 13px; }
 .goal-wheel button:hover { color: var(--text); }
+.goal-new {
+  display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 28px; margin-top: 2px;
+  font-size: 13px; color: var(--muted);
+}
+.goal-new:hover { color: var(--text); }
 
 @media (prefers-reduced-motion: reduce) {
   .side-main, .goal-set, .goal-periods i, .goal-wheel button, .goal-row-chev { transition: none !important; }
