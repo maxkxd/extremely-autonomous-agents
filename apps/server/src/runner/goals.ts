@@ -139,18 +139,33 @@ export function checkGoal(agent: AgentDef, label: string, amount: unknown, perio
 
 // Its own recent runs: what one makes, how long one takes, and whether they've stopped
 // making anything.
-function recent(agentId: string): { perRun: number | null; ms: number; stuck: boolean } {
-  const rows = all<{ acts: number | null; ms: number | null }>(
-    `SELECT acts, ended_at - started_at AS ms FROM runs WHERE agent_id = ? AND status = 'succeeded' AND ended_at IS NOT NULL AND trigger IN ${OWN_WORK} ORDER BY started_at DESC LIMIT 10`,
+// What one of its own runs usually makes toward the tools on its live goals -
+// never browser clicks, workspace files, or other tools that are not those outputs.
+function recent(agentId: string, tools: string[]): { perRun: number | null; ms: number; stuck: boolean } {
+  const rows = all<{ id: string; ms: number | null }>(
+    `SELECT id, ended_at - started_at AS ms FROM runs WHERE agent_id = ? AND status = 'succeeded' AND ended_at IS NOT NULL AND trigger IN ${OWN_WORK} ORDER BY started_at DESC LIMIT 10`,
     agentId,
   );
   if (!rows.length) return { perRun: null, ms: 10 * 60_000, stuck: false };
-  const acts = rows.map(r => r.acts ?? 0);
-  const made = acts.filter(n => n > 0);
+  let made = rows.map(() => 0);
+  if (tools.length) {
+    const sums = all<{ run_id: string; n: number | null }>(
+      `SELECT a.run_id, SUM(CASE WHEN p.status IN ('rejected', 'withdrawn', 'expired') THEN 0 ELSE a.output END) AS n
+         FROM actions a LEFT JOIN approvals p ON p.id = a.approval_id
+        WHERE a.agent_id = ? AND a.run_id IN (${rows.map(() => '?').join(', ')}) AND a.outcome IN ('ok', 'queued') AND a.tool IN (${tools.map(() => '?').join(', ')})
+        GROUP BY a.run_id`,
+      agentId,
+      ...rows.map(r => r.id),
+      ...tools,
+    );
+    const byRun = new Map(sums.map(s => [s.run_id, s.n ?? 0]));
+    made = rows.map(r => byRun.get(r.id) ?? 0);
+  }
+  const positive = made.filter(n => n > 0);
   return {
-    perRun: made.length ? made.reduce((s, n) => s + n, 0) / made.length : null,
+    perRun: positive.length ? positive.reduce((s, n) => s + n, 0) / positive.length : null,
     ms: Math.max(30_000, rows.reduce((s, r) => s + (r.ms ?? 0), 0) / rows.length),
-    stuck: rows.length >= STUCK_RUNS && acts.slice(0, STUCK_RUNS).every(n => n === 0),
+    stuck: rows.length >= STUCK_RUNS && made.slice(0, STUCK_RUNS).every(n => n === 0),
   };
 }
 
@@ -178,7 +193,7 @@ export function paceFor(agent: AgentDef, now = Date.now(), goals = goalsOf(agent
   const note = held?.note?.trim() || null;
   // At its goal: its ordinary schedule, nothing asked of a run. It carries on; it isn't stopped.
   if (remaining <= 0) return paced({ everyMs: steadyMs, parallel: 1, perRun: 0, remaining: 0, note }, 'goal hit');
-  const r = recent(agent.id);
+  const r = recent(agent.id, [...new Set(live.flatMap(g => g.actions))]);
   // Runs that make nothing don't get more of them: an hour apart, one at a time, until one does.
   if (r.stuck) return paced({ everyMs: Math.min(steadyMs, HOUR), parallel: 1, perRun: 0, remaining, note }, 'stuck');
   const each = Math.max(1, r.perRun ?? agent.ferocity.floor);
@@ -300,7 +315,7 @@ export function paceFacts(agent: AgentDef, now: number): { sig: string; line: st
   const goals = goalsOf(agent, now);
   const pace = paceFor(agent, now, goals);
   if (!pace || pace.status === 'goal hit') return null;
-  const r = recent(agent.id);
+  const r = recent(agent.id, [...new Set(goals.filter(g => g.amount > 0).flatMap(g => g.actions))]);
   const runsToday = one<{ n: number }>('SELECT COUNT(*) AS n FROM runs WHERE agent_id = ? AND started_at >= ?', agent.id, startOfDay(now))?.n ?? 0;
   const said = goals.filter(g => g.amount > 0).map(g => `${g.label} ${g.done}/${g.amount} ${NOW_WORDS[g.period]}`);
   return {

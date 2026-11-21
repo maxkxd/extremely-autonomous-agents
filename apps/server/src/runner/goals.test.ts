@@ -29,8 +29,11 @@ const did = (tool: string, output: number, outcome = 'ok', approval: string | nu
   exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, approval_id, at) VALUES ('r', 'outreach', ?, '[]', 'T1', ?, ?, ?, ?)", tool, outcome, output, approval, at);
 const approval = (id: string, status: string) =>
   exec("INSERT INTO approvals (id, agent_id, run_id, tool, args, status, created_at, expires_at) VALUES (?, 'outreach', 'r', 'gmail.send_email', '{}', ?, ?, ?)", id, status, NOW, NOW + MIN);
-const ran = (acts: number, minutes = 10, at = NOW - 60 * MIN) =>
-  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, ended_at, acts) VALUES (?, 'outreach', 'scheduled', 1, 'succeeded', ?, ?, ?)", `r${n++}`, at, at + minutes * MIN, acts);
+const ran = (acts: number, minutes = 10, at = NOW - 60 * MIN) => {
+  const id = `r${n++}`;
+  exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, ended_at, acts) VALUES (?, 'outreach', 'scheduled', 1, 'succeeded', ?, ?, ?)", id, at, at + minutes * MIN, acts);
+  return id;
+};
 const emails = (now = NOW) => goalsOf(agent, now).find(g => g.label === 'Emails sent')!;
 
 beforeEach(() => {
@@ -212,6 +215,19 @@ test('the effect level comes from the runs a day the pace is, whoever set that p
   // At its goal, on a 24-hour schedule: one run a day, the calmest there is.
   did('gmail.send_email', 100);
   assert.deepEqual([paceFor(agent, NOW)!.level, paceFor(agent, NOW)!.status], [0, 'goal hit']);
+});
+
+test('pace counts only actions toward live goals, not files or browser clicks', () => {
+  setGoal('outreach', 'Emails sent', 100, 'day', NOW);
+  const id = ran(50); // the run's acts column is a lie: most of it was not goal work
+  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'files.write_file', '[]', 'T0', 'ok', 20, ?)", id, NOW - 60 * MIN);
+  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'browser.click', '[]', 'T0', 'ok', 28, ?)", id, NOW - 60 * MIN);
+  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'gmail.send_email', '[]', 'T1', 'ok', 2, ?)", id, NOW - 60 * MIN);
+  const p = paceFor(agent, NOW)!;
+  // One run usually makes 2 emails, so it asks for about 3, not 50 workspace writes.
+  assert.equal(p.perRun, 3);
+  // 100 emails a day at 2 per run is 50 runs a day, not 2.
+  assert.ok(p.runsPerDay > 45 && p.runsPerDay < 55, `${p.runsPerDay} runs a day`);
 });
 
 test('runs that make nothing are not multiplied', () => {
