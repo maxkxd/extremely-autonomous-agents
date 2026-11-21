@@ -64,39 +64,3 @@ export type Period = (typeof PERIODS)[number];
 const MS = { hour: 3_600_000, day: 24 * 3_600_000, week: 7 * 24 * 3_600_000, month: 30 * 24 * 3_600_000, year: 365 * 24 * 3_600_000 } as const;
 export const PERIOD_MS: Record<Period, number> = { ...MS };
 export const rollingSince = (period: Period, now: number) => now - PERIOD_MS[period];
-
-// How many days back Monday is from a wall-clock date.
-const sinceMonday = (y: number, m: number, d: number) => (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
-
-export function startOfHour(now: number, zone = hostZone()): number {
-  const w = wall(now, zone);
-  return instant(w.y, w.m, w.d, zone, w.h);
-}
-
-export function startOfWeek(now: number, zone = hostZone()): number {
-  const w = wall(now, zone);
-  return instant(w.y, w.m, w.d - sinceMonday(w.y, w.m, w.d), zone);
-}
-
-export function startOfYear(now: number, zone = hostZone()): number {
-  const w = wall(now, zone);
-  return instant(w.y, 1, 1, zone);
-}
-
-export function periodStart(period: Period, now: number, zone = hostZone()): number {
-  if (period === 'hour') return startOfHour(now, zone);
-  if (period === 'week') return startOfWeek(now, zone);
-  if (period === 'month') return startOfMonth(now, zone);
-  if (period === 'year') return startOfYear(now, zone);
-  return startOfDay(now, zone);
-}
-
-// When the period now is in ends: the start of the next one.
-export function periodEnd(period: Period, now: number, zone = hostZone()): number {
-  const w = wall(now, zone);
-  if (period === 'hour') return instant(w.y, w.m, w.d, zone, w.h + 1);
-  if (period === 'week') return instant(w.y, w.m, w.d - sinceMonday(w.y, w.m, w.d) + 7, zone);
-  if (period === 'month') return instant(w.y, w.m + 1, 1, zone);
-  if (period === 'year') return instant(w.y + 1, 1, 1, zone);
-  return instant(w.y, w.m, w.d + 1, zone);
-}

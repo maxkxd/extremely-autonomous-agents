@@ -258,7 +258,7 @@ export const runnerRoutes: Record<string, Route> = {
         id,
         since,
       );
-      // Its goals, each for the period it is in, and the pace they call for (goals.ts). The
+      // Its goals, each over its trailing window, and the pace they call for (goals.ts). The
       // card's effects follow that pace: nobody sets a level. An ordinary agent with no goal
       // does not run (noGoal); a built-in has none and works steadily.
       const ordinary = !BUILT_IN_IDS.includes(id) && !meta.builtIn && !meta.service;

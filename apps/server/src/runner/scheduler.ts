@@ -240,7 +240,8 @@ export async function tick(deps: RunDeps = liveDeps) {
       const pace = builtIn ? null : paceFor(agent, now);
       // No goal: it does not run, and the Agency Engineer is asked once to give it one.
       if (!builtIn) noGoalRequest(agent, !!pace, now);
-      if (pace && pace.parallel > 1 && st.state === 'active') bookGoalRuns(agent, pace, now);
+      // Not on a day its person said it doesn't work: those runs are its schedule's too.
+      if (pace && pace.parallel > 1 && st.state === 'active' && runsOnDay(id, now)) bookGoalRuns(agent, pace, now);
       else if (!engineer) exec("DELETE FROM bookings WHERE agent_id = ? AND trigger = 'parallel' AND task LIKE ?", id, `${GOAL_BATCH}%`);
       // An agent already running: only its own parallel runs (ops.start_parallel_run, any level)
       // start beside it, up to its level's slots - and its main run, if what's

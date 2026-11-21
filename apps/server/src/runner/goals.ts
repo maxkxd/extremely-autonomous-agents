@@ -9,8 +9,8 @@ import { DRIVEN, HOUR, MAX_NUDGES, RELENTLESS, STEADY, stanceLines } from './fer
 // label. Nobody sets how hard the agent works: the pace is worked out from how far it is
 // from its goals - how often it runs, how many runs of it go at once, and what each run is
 // asked for. A goal of N a day is a steady rate of N over the last (and next) 24 hours, not
-// a race to midnight. Behind, it may go a little faster; at its goal it eases
-// off to its ordinary schedule (it is never stopped for reaching it).
+// a race to midnight: the rate does not change with how far behind it is. At its goal it
+// eases off to its ordinary schedule (it is never stopped for reaching it).
 //
 // Every agent has a goal: one with none does not run until it is given one (scheduler.ts),
 // so nothing here may leave an agent without a number (checkGoal).
@@ -42,6 +42,11 @@ const OWN_WORK = "('scheduled', 'apocalyptic', 'self-booked', 'request done', 'r
 export const CONDUCTOR_HOLDS_MS = 45 * 60_000;
 // This many of its own runs in a row with nothing counted: more runs won't help.
 const STUCK_RUNS = 5;
+// The least a run is taken to make when its rate is worked out (one productive run in five).
+const MIN_YIELD = 1 / STUCK_RUNS;
+// Within a tenth of every goal (or one short of a small one): it is on pace, however many
+// runs a day holding that goal takes.
+const NEAR = 0.1;
 
 const count = (n: number) => n.toLocaleString('en-US');
 // "70 of 100 in the last 24 hours", and "100 a day".
@@ -117,7 +122,7 @@ export function goalNumbers(agentId: string, output: OutputRow[]): Map<string, {
 // Whether it has a goal at all: a label with a number.
 export const hasGoal = (agentId: string, output: OutputRow[]) => [...goalNumbers(agentId, output).values()].some(g => g.amount > 0);
 
-// Every goal it could have (one per KPI label), with the count so far in its period.
+// Every goal it could have (one per KPI label), with the count in its trailing window.
 export function goalsOf(agent: AgentDef, now = Date.now()): Goal[] {
   return [...goalNumbers(agent.id, agent.output)].map(([label, g]) => ({ label, ...g, ...countSince(agent.id, g.actions, rollingSince(g.period, now)) }));
 }
@@ -138,15 +143,17 @@ export function checkGoal(agent: AgentDef, label: string, amount: unknown, perio
 // --- The pace ---------------------------------------------------------------------
 
 // Its own recent runs: what one makes, how long one takes, and whether they've stopped
-// making anything.
-// What one of its own runs usually makes toward the tools on its live goals -
-// never browser clicks, workspace files, or other tools that are not those outputs.
-function recent(agentId: string, tools: string[]): { perRun: number | null; ms: number; stuck: boolean } {
+// making anything. Counted on the tools of its live goals only - never browser clicks,
+// workspace files, or other tools that are not those outputs.
+//   perRun: what a run that makes something makes (what one run can be asked for)
+//   each:   what a run makes on average, the ones that made nothing included (what the
+//           rate is worked out from: with half its runs empty it needs twice as many)
+function recent(agentId: string, tools: string[]): { perRun: number | null; each: number | null; ms: number; stuck: boolean } {
   const rows = all<{ id: string; ms: number | null }>(
     `SELECT id, ended_at - started_at AS ms FROM runs WHERE agent_id = ? AND status = 'succeeded' AND ended_at IS NOT NULL AND trigger IN ${OWN_WORK} ORDER BY started_at DESC LIMIT 10`,
     agentId,
   );
-  if (!rows.length) return { perRun: null, ms: 10 * 60_000, stuck: false };
+  if (!rows.length) return { perRun: null, each: null, ms: 10 * 60_000, stuck: false };
   let made = rows.map(() => 0);
   if (tools.length) {
     const sums = all<{ run_id: string; n: number | null }>(
@@ -162,8 +169,10 @@ function recent(agentId: string, tools: string[]): { perRun: number | null; ms: 
     made = rows.map(r => byRun.get(r.id) ?? 0);
   }
   const positive = made.filter(n => n > 0);
+  const total = positive.reduce((s, n) => s + n, 0);
   return {
-    perRun: positive.length ? positive.reduce((s, n) => s + n, 0) / positive.length : null,
+    perRun: positive.length ? total / positive.length : null,
+    each: positive.length ? total / rows.length : null,
     ms: Math.max(30_000, rows.reduce((s, r) => s + (r.ms ?? 0), 0) / rows.length),
     stuck: rows.length >= STUCK_RUNS && made.slice(0, STUCK_RUNS).every(n => n === 0),
   };
@@ -196,7 +205,7 @@ export function paceFor(agent: AgentDef, now = Date.now(), goals = goalsOf(agent
   const r = recent(agent.id, [...new Set(live.flatMap(g => g.actions))]);
   // Runs that make nothing don't get more of them: an hour apart, one at a time, until one does.
   if (r.stuck) return paced({ everyMs: Math.min(steadyMs, HOUR), parallel: 1, perRun: 0, remaining, note }, 'stuck');
-  const each = Math.max(1, r.perRun ?? agent.ferocity.floor);
+  const each = Math.max(MIN_YIELD, r.each ?? agent.ferocity.floor);
   const lane = r.ms + GAP_MS;
   // Each goal by itself: a steady rate of its amount over its trailing window
   // (100 a day is 100 / 24 hours, not "whatever is left before midnight"). Added
@@ -215,7 +224,7 @@ export function paceFor(agent: AgentDef, now = Date.now(), goals = goalsOf(agent
   // due ticks coalesce into one pending start when it finishes (scheduler.ts); they are not dropped or queued up.
   let parallel = Math.min(MAX_GOAL_PARALLEL, needed, Math.max(1, Math.ceil(rate * lane)));
   let everyMs = parallel / rate;
-  let perRun = Math.min(remaining, Math.max(1, Math.ceil(each * 1.2)));
+  let perRun = Math.min(remaining, Math.max(1, Math.ceil((r.perRun ?? agent.ferocity.floor) * 1.2)));
   // The Agency Conductor's call, kept inside what makes sense.
   if (held) {
     if (held.per_run) perRun = Math.min(remaining, Math.max(1, Math.floor(held.per_run)));
@@ -224,7 +233,10 @@ export function paceFor(agent: AgentDef, now = Date.now(), goals = goalsOf(agent
   }
   // Never slower than its ordinary schedule.
   everyMs = Math.min(everyMs, steadyMs);
-  return paced({ everyMs, parallel, perRun, remaining, note });
+  // The word for it is how far it is from its goals, not how many runs they take: an agent
+  // holding 9,000 a day runs all day and is still on pace.
+  const near = live.every(g => g.amount - g.done <= Math.max(1, g.amount * NEAR));
+  return paced({ everyMs, parallel, perRun, remaining, note }, near ? 'on pace' : undefined);
 }
 
 // What a run of its own work is held to.
@@ -274,17 +286,19 @@ export function goalInstructions(agent: AgentDef, goals: Goal[], pace: Pace): st
     "Only the work named there moves your goal; anything else doesn't. Something counts as soon as you do it or queue it for approval, and comes off again if a person rejects it.",
   ];
   if (pace.status === 'goal hit')
-    lines.push("Your goal is reached for now. Carry on at an easy pace with whatever is still useful - you aren't stopped, and there's nothing to push for until the count starts again.");
+    lines.push("Your goal is reached for now. Carry on at an easy pace with whatever is still useful - you aren't stopped, and there's nothing to push for until older work drops out of the count.");
   else if (pace.status === 'stuck')
     lines.push('Your last runs made nothing toward it. More of the same will not help: find out what is in the way (a tool, a limit, nothing left to work on), fix what you can, and file a request for what you cannot.');
   else {
     lines.push(
       `You run many times${pace.parallel > 1 ? `, and ${pace.parallel} runs of you are working at once` : ''}, so the whole goal is not this run's job. This run: at least ${count(pace.perRun)} toward it - keep going until you reach that.`,
-      pace.level >= RELENTLESS
-        ? 'You are behind where you need to be by now. Volume of finished work matters more than token efficiency: move fast, and keep going while there is real work left.'
-        : pace.level === DRIVEN
-          ? 'You need to move a little faster than usual to get there in time.'
-          : 'You are on pace.',
+      pace.status === 'on pace'
+        ? 'You are on pace.'
+        : pace.level >= RELENTLESS
+          ? 'You are well short of your goal. Volume of finished work matters more than token efficiency: move fast, and keep going while there is real work left.'
+          : pace.level === DRIVEN
+            ? 'You are short of your goal: move a little faster than usual.'
+            : 'You are short of your goal: keep a steady pace.',
     );
   }
   if (pace.note) lines.push(`From the Agency Conductor, who keeps every agent on its goal: ${pace.note}`);
@@ -328,6 +342,6 @@ export function paceFacts(agent: AgentDef, now: number): { sig: string; line: st
   const said = goals.filter(g => g.amount > 0).map(g => `${g.label} ${g.done}/${g.amount} ${NOW_WORDS[g.period]}`);
   return {
     sig: sigOf(goals),
-    line: `- ${agent.name} (id: ${agent.id}): ${said.join(', ')}. ${runsToday} runs so far today. A run makes about ${r.perRun == null ? 'unknown (no output yet)' : r.perRun.toFixed(1)} and takes about ${Math.round(r.ms / 60_000)} min.${r.stuck ? ' Its last runs made nothing.' : ''} Worked out for it now: a run every ${Math.max(1, Math.round(pace.everyMs / 60_000))} min, ${pace.parallel} at once, ${pace.perRun} per run (about ${Math.round(pace.runsPerDay)} runs a day).`,
+    line: `- ${agent.name} (id: ${agent.id}): ${said.join(', ')}. ${runsToday} runs so far today. A run makes about ${r.each == null ? 'unknown (no output yet)' : r.each.toFixed(1)} and takes about ${Math.round(r.ms / 60_000)} min.${r.stuck ? ' Its last runs made nothing.' : ''} Worked out for it now: a run every ${Math.max(1, Math.round(pace.everyMs / 60_000))} min, ${pace.parallel} at once, ${pace.perRun} per run (about ${Math.round(pace.runsPerDay)} runs a day).`,
   };
 }

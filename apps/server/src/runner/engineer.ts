@@ -1392,12 +1392,15 @@ const TOOLS: ToolDef[] = [
     impl: async (a, ctx) => {
       const agentId = String(a.agent_id ?? '');
       const meta = await changeable(agentId, false);
-      const label = String(a.label ?? '').trim();
-      if (!label) throw new Error('Name the goal.');
+      const asked = String(a.label ?? '').trim();
+      if (!asked) throw new Error('Name the goal.');
       const actions = (Array.isArray(a.actions) ? a.actions : []).map(String).filter(Boolean);
       const agent = await loadAgent(agentId);
       if (!agent) throw new Error(`${meta.name}'s files could not be read.`);
-      const has = agent.output.some(o => o.label === label);
+      // A goal it has, whatever the capitals ("emails sent" is its "Emails sent", not a second goal).
+      const existing = agent.output.find(o => o.label.toLowerCase() === asked.toLowerCase())?.label;
+      const label = existing ?? asked;
+      const has = !!existing;
       if (!has && !actions.length) throw new Error(`${meta.name} has no output called "${label}". To add it, give actions: the tools it holds whose calls are that output.`);
       // Checked before anything is written: a number that would leave it with no goal is refused.
       const g = checkGoal(agent, label, a.amount, a.period, ctx.now());

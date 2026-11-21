@@ -209,7 +209,7 @@ const nameOf = async (id: string, cache = new Map<string, string>()) => {
 const lc = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : null);
 const page = (a: Record<string, unknown>, dflt = 25) => ({ offset: Math.max(0, Math.floor(Number(a.offset) || 0)), limit: Math.max(1, Math.min(200, Math.floor(Number(a.limit) || dflt))) });
 
-// An agent's goals, each for the period it is in, and the pace they call for (goals.ts),
+// An agent's goals, each over its trailing window, and the pace they call for (goals.ts),
 // as the app's card has them. noGoal: an ordinary agent with none, which does not run.
 async function goalsNow(agentId: string, builtIn: boolean): Promise<{ goals: Goal[]; pace: ReturnType<typeof paceFor>; noGoal: boolean }> {
   const agent = builtIn ? null : await loadAgent(agentId);

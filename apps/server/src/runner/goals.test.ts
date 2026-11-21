@@ -463,3 +463,34 @@ test('extra lanes never run more than parallel, and surplus bookings collapse to
   assert.equal(bookGoalRuns(agent, p, NOW), 0);
   assert.equal(all("SELECT id FROM bookings WHERE agent_id = 'outreach' AND trigger = 'parallel'").length, 1);
 });
+
+test('runs that made nothing count in what a run makes, so the rate still reaches the goal', () => {
+  setGoal('outreach', 'Emails sent', 100, 'day', NOW);
+  // Every other run makes 10, the rest nothing: 5 a run on average.
+  for (let i = 0; i < 6; i++) {
+    const id = ran(0, 10, NOW - (i + 1) * HOUR);
+    if (i % 2) exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'gmail.send_email', '[]', 'T1', 'ok', 10, ?)", id, NOW - 26 * HOUR);
+  }
+  const p = paceFor(agent, NOW)!;
+  // 100 a day at 5 a run is 20 runs a day, not the 10 that would leave it at half its goal.
+  assert.equal(Math.round(p.runsPerDay), 20);
+  // A run that does make something makes 10: that is what one run is asked for.
+  assert.equal(p.perRun, 12);
+});
+
+test('the word for its pace is how far it is from its goal, not how many runs the goal takes', () => {
+  setGoal('outreach', 'Emails sent', 9000, 'day', NOW);
+  ran(10);
+  did('gmail.send_email', 8950);
+  const holding = paceFor(agent, NOW)!;
+  // Holding 9,000 a day takes hundreds of runs: its card glows, and it is on pace.
+  assert.equal(holding.level, 4);
+  assert.equal(holding.status, 'on pace');
+  assert.match(goalInstructions(agent, goalsOf(agent, NOW), holding), /You are on pace/);
+  // Half way there, the same goal is all out, and the agent is told it is short.
+  exec('DELETE FROM actions');
+  did('gmail.send_email', 4500);
+  const short = paceFor(agent, NOW)!;
+  assert.equal(short.status, 'all out');
+  assert.match(goalInstructions(agent, goalsOf(agent, NOW), short), /well short of your goal/);
+});
