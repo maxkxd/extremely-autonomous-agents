@@ -564,7 +564,7 @@ export function AgentCard({
             onPick={setGoalShown}
             onSet={setGoal}
             locked={viewOnly || !!off}
-            onNew={preview || viewOnly || off ? undefined : () => onNavigate('agent:fleet')}
+            onNew={preview || viewOnly || off ? undefined : () => onNavigate(`agent:${agent.id}`)}
           />
         )}
       </aside>

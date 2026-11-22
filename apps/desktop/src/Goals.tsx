@@ -117,7 +117,7 @@ export function GoalSettings({
   open: boolean;
   onPick: (label: string) => void;
   onSet: (label: string, amount: number, period: Period) => void;
-  onNew?: () => void; // ask the Agency Engineer for a goal it doesn't have yet
+  onNew?: () => void; // open the agent's DM, to tell it a goal it doesn't have yet
   locked?: boolean; // someone else's agent: shown, not changed
 }) {
   const goal = goals.find(g => g.label === selected) ?? goals[0];
@@ -256,7 +256,7 @@ export function GoalSettings({
         </div>
       </div>
       {onNew && (
-        <button className="goal-new" onClick={onNew} title="Ask the Agency Engineer for a goal this agent doesn't have yet">
+        <button className="goal-new" onClick={onNew} title="Tell this agent the new goal you want it to have">
           <Plus size={14} />
           New goal
         </button>
