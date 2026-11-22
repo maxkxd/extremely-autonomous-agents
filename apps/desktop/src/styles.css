@@ -2426,14 +2426,21 @@ body.after-onboarding .app { animation: ob-reveal 0.55s ease-out both; }
 .goal.none .goal-row-name { color: #e2b45b; }
 
 .goal-bar { position: relative; height: 6px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
-.goal-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--fx); transition: width 0.5s cubic-bezier(0.22, 0.9, 0.25, 1), background-color var(--tx); }
+.goal-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; overflow: hidden; background: var(--fx); transition: width 0.5s cubic-bezier(0.22, 0.9, 0.25, 1), background-color var(--tx); }
 .agent-card.is-paused .goal-bar i { background: #6a6a6a; }
-/* A light runs along the bar while it's being pushed, and twice when the goal is hit. */
-.goal-bar i::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent); transform: translateX(-100%); }
-.agent-card.fero-2 .goal-bar i::after, .agent-card.fero-3 .goal-bar i::after, .agent-card.fero-4 .goal-bar i::after { animation: goal-sweep var(--pulse) linear infinite; }
-.agent-card .goal.hit .goal-bar i::after { animation: goal-sweep 0.9s ease-out 2; }
+/* A light runs along the bar while it's being pushed, and twice when the goal is hit. It
+   stays inside the coloured part (clipped by it), fades in and out, and rests between
+   passes, so it never jumps back to the start in view. */
+.goal-bar i::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent); transform: translateX(-100%); opacity: 0; }
+.agent-card.fero-2 .goal-bar i::after, .agent-card.fero-3 .goal-bar i::after, .agent-card.fero-4 .goal-bar i::after { animation: goal-sweep var(--pulse) ease-in-out infinite; }
+.agent-card .goal.hit .goal-bar i::after { animation: goal-sweep 1.2s ease-in-out 2; }
 .agent-card.is-paused .goal-bar i::after { animation: none !important; }
-@keyframes goal-sweep { to { transform: translateX(100%); } }
+@keyframes goal-sweep {
+  0% { transform: translateX(-100%); opacity: 0; }
+  15% { opacity: 1; }
+  60% { opacity: 1; }
+  75%, 100% { transform: translateX(100%); opacity: 0; }
+}
 
 .goal-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-height: 16px; font-size: 12.5px; color: #a3a3a3; font-variant-numeric: tabular-nums; }
 .goal-foot b { color: var(--text); font-weight: 600; }

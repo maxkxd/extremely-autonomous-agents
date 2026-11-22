@@ -44,6 +44,13 @@ export const CONDUCTOR_HOLDS_MS = 45 * 60_000;
 const STUCK_RUNS = 5;
 // The least a run is taken to make when its rate is worked out (one productive run in five).
 const MIN_YIELD = 1 / STUCK_RUNS;
+// How many of its own latest runs what a run makes is worked out from.
+const RECENT_RUNS = 20;
+// Until it has a history, what a run makes leans on what its plan says a run should make
+// (its floor), weighted as this many runs: one or two empty runs at the start must not read
+// as "a run makes nothing" and send it all out. With 20 runs behind it, its own count is
+// most of the answer.
+const PLAN_RUNS = 5;
 // Within a tenth of every goal (or one short of a small one): it is on pace, however many
 // runs a day holding that goal takes.
 const NEAR = 0.1;
@@ -148,18 +155,23 @@ export function checkGoal(agent: AgentDef, label: string, amount: unknown, perio
 //   perRun: what a run that makes something makes (what one run can be asked for)
 //   each:   what a run makes on average, the ones that made nothing included (what the
 //           rate is worked out from: with half its runs empty it needs twice as many)
-function recent(agentId: string, tools: string[]): { perRun: number | null; each: number | null; ms: number; stuck: boolean } {
+//   total, runs: what that average is of
+// A draft that expired before a person decided still counts here: the run made it, and
+// a person not getting to it is no reason to give the agent more runs (which only queued
+// more to expire). It still comes off its goal's count (countSince). A rejected or
+// withdrawn one doesn't count: that work was no good.
+function recent(agentId: string, tools: string[]): { perRun: number | null; each: number | null; total: number; runs: number; ms: number; stuck: boolean } {
   const rows = all<{ id: string; ms: number | null }>(
-    `SELECT id, ended_at - started_at AS ms FROM runs WHERE agent_id = ? AND status = 'succeeded' AND ended_at IS NOT NULL AND trigger IN ${OWN_WORK} ORDER BY started_at DESC LIMIT 10`,
+    `SELECT id, ended_at - started_at AS ms FROM runs WHERE agent_id = ? AND status = 'succeeded' AND ended_at IS NOT NULL AND trigger IN ${OWN_WORK} ORDER BY started_at DESC LIMIT ${RECENT_RUNS}`,
     agentId,
   );
-  if (!rows.length) return { perRun: null, each: null, ms: 10 * 60_000, stuck: false };
+  if (!rows.length) return { perRun: null, each: null, total: 0, runs: 0, ms: 10 * 60_000, stuck: false };
   let made = rows.map(() => 0);
   if (tools.length) {
     const sums = all<{ run_id: string; n: number | null }>(
-      `SELECT a.run_id, SUM(CASE WHEN p.status IN ('rejected', 'withdrawn', 'expired') THEN 0 ELSE a.output END) AS n
+      `SELECT a.run_id, SUM(CASE WHEN p.status IN ('rejected', 'withdrawn') THEN 0 ELSE a.output END) AS n
          FROM actions a LEFT JOIN approvals p ON p.id = a.approval_id
-        WHERE a.agent_id = ? AND a.run_id IN (${rows.map(() => '?').join(', ')}) AND a.outcome IN ('ok', 'queued') AND a.tool IN (${tools.map(() => '?').join(', ')})
+        WHERE a.agent_id = ? AND a.run_id IN (${rows.map(() => '?').join(', ')}) AND (a.outcome IN ('ok', 'queued') OR p.status = 'expired') AND a.tool IN (${tools.map(() => '?').join(', ')})
         GROUP BY a.run_id`,
       agentId,
       ...rows.map(r => r.id),
@@ -173,6 +185,8 @@ function recent(agentId: string, tools: string[]): { perRun: number | null; each
   return {
     perRun: positive.length ? total / positive.length : null,
     each: positive.length ? total / rows.length : null,
+    total,
+    runs: rows.length,
     ms: Math.max(30_000, rows.reduce((s, r) => s + (r.ms ?? 0), 0) / rows.length),
     stuck: rows.length >= STUCK_RUNS && made.slice(0, STUCK_RUNS).every(n => n === 0),
   };
@@ -182,6 +196,17 @@ function recent(agentId: string, tools: string[]): { perRun: number | null; each
 // moves by itself whenever the pace does (the Conductor's numbers included).
 export const levelOf = (runsPerDay: number) => (runsPerDay <= 2 ? 0 : runsPerDay <= 12 ? 1 : runsPerDay <= 48 ? 2 : runsPerDay <= 200 ? 3 : 4);
 const STATUS = ['on pace', 'on pace', 'speeding up', 'pushing hard', 'all out'] as const;
+
+// What a run is taken to make, for working out how many runs its goals need: its own
+// recent count, leaning on its plan's floor until it has a history. Nothing counted yet
+// is no history: the plan's number. The plan's weight (PLAN_RUNS runs' worth) fades out
+// as runs come in, and is gone at RECENT_RUNS: then it is its own count alone.
+function yieldOf(agent: AgentDef, r: ReturnType<typeof recent>): number {
+  const plan = Math.max(MIN_YIELD, agent.ferocity.floor);
+  if (r.total <= 0) return plan;
+  const weight = PLAN_RUNS * Math.max(0, 1 - r.runs / RECENT_RUNS);
+  return Math.max(MIN_YIELD, (r.total + plan * weight) / (r.runs + weight));
+}
 function paced(p: Pick<Pace, 'everyMs' | 'parallel' | 'perRun' | 'remaining' | 'note'>, status?: Pace['status']): Pace {
   const runsPerDay = (p.parallel * DAY) / p.everyMs;
   const level = levelOf(runsPerDay);
@@ -205,7 +230,7 @@ export function paceFor(agent: AgentDef, now = Date.now(), goals = goalsOf(agent
   const r = recent(agent.id, [...new Set(live.flatMap(g => g.actions))]);
   // Runs that make nothing don't get more of them: an hour apart, one at a time, until one does.
   if (r.stuck) return paced({ everyMs: Math.min(steadyMs, HOUR), parallel: 1, perRun: 0, remaining, note }, 'stuck');
-  const each = Math.max(MIN_YIELD, r.each ?? agent.ferocity.floor);
+  const each = yieldOf(agent, r);
   const lane = r.ms + GAP_MS;
   // Each goal by itself: a steady rate of its amount over its trailing window
   // (100 a day is 100 / 24 hours, not "whatever is left before midnight"). Added
@@ -342,6 +367,6 @@ export function paceFacts(agent: AgentDef, now: number): { sig: string; line: st
   const said = goals.filter(g => g.amount > 0).map(g => `${g.label} ${g.done}/${g.amount} ${NOW_WORDS[g.period]}`);
   return {
     sig: sigOf(goals),
-    line: `- ${agent.name} (id: ${agent.id}): ${said.join(', ')}. ${runsToday} runs so far today. A run makes about ${r.each == null ? 'unknown (no output yet)' : r.each.toFixed(1)} and takes about ${Math.round(r.ms / 60_000)} min.${r.stuck ? ' Its last runs made nothing.' : ''} Worked out for it now: a run every ${Math.max(1, Math.round(pace.everyMs / 60_000))} min, ${pace.parallel} at once, ${pace.perRun} per run (about ${Math.round(pace.runsPerDay)} runs a day).`,
+    line: `- ${agent.name} (id: ${agent.id}): ${said.join(', ')}. ${runsToday} runs so far today. A run makes about ${yieldOf(agent, r).toFixed(1)} (its last ${r.runs} runs made ${r.total}${r.runs < RECENT_RUNS ? `; too few runs yet, so this leans on its plan's ${agent.ferocity.floor} a run` : ''}) and takes about ${Math.round(r.ms / 60_000)} min.${r.stuck ? ' Its last runs made nothing.' : ''} Worked out for it now: a run every ${Math.max(1, Math.round(pace.everyMs / 60_000))} min, ${pace.parallel} at once, ${pace.perRun} per run (about ${Math.round(pace.runsPerDay)} runs a day).`,
   };
 }

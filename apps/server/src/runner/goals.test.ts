@@ -219,10 +219,13 @@ test('the effect level comes from the runs a day the pace is, whoever set that p
 
 test('pace counts only actions toward live goals, not files or browser clicks', () => {
   setGoal('outreach', 'Emails sent', 100, 'day', NOW);
-  const id = ran(50); // the run's acts column is a lie: most of it was not goal work
-  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'files.write_file', '[]', 'T0', 'ok', 20, ?)", id, NOW - 60 * MIN);
-  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'browser.click', '[]', 'T0', 'ok', 28, ?)", id, NOW - 60 * MIN);
-  exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'gmail.send_email', '[]', 'T1', 'ok', 2, ?)", id, NOW - 60 * MIN);
+  // A full history of runs like this one (fewer would lean on its plan's number).
+  for (let i = 0; i < 20; i++) {
+    const id = ran(50, 10, NOW - (i + 1) * HOUR); // the run's acts column is a lie: most of it was not goal work
+    exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'files.write_file', '[]', 'T0', 'ok', 20, ?)", id, NOW - 26 * HOUR);
+    exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'browser.click', '[]', 'T0', 'ok', 28, ?)", id, NOW - 26 * HOUR);
+    exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'gmail.send_email', '[]', 'T1', 'ok', 2, ?)", id, NOW - 26 * HOUR);
+  }
   const p = paceFor(agent, NOW)!;
   // One run usually makes 2 emails, so it asks for about 3, not 50 workspace writes.
   assert.equal(p.perRun, 3);
@@ -466,8 +469,8 @@ test('extra lanes never run more than parallel, and surplus bookings collapse to
 
 test('runs that made nothing count in what a run makes, so the rate still reaches the goal', () => {
   setGoal('outreach', 'Emails sent', 100, 'day', NOW);
-  // Every other run makes 10, the rest nothing: 5 a run on average.
-  for (let i = 0; i < 6; i++) {
+  // Every other run makes 10, the rest nothing: 5 a run on average, over a full history.
+  for (let i = 0; i < 20; i++) {
     const id = ran(0, 10, NOW - (i + 1) * HOUR);
     if (i % 2) exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'gmail.send_email', '[]', 'T1', 'ok', 10, ?)", id, NOW - 26 * HOUR);
   }
@@ -476,6 +479,42 @@ test('runs that made nothing count in what a run makes, so the rate still reache
   assert.equal(Math.round(p.runsPerDay), 20);
   // A run that does make something makes 10: that is what one run is asked for.
   assert.equal(p.perRun, 12);
+});
+
+test('a draft a person let expire still counts as what its run made, though it comes off the goal', () => {
+  setGoal('outreach', 'Emails sent', 50, 'day', NOW);
+  // 20 runs, each queuing 5 that expired before anyone decided (an expired draft's action
+  // is settled as refused, as approvals.ts does).
+  for (let i = 0; i < 20; i++) {
+    const id = ran(0, 10, NOW - (i + 1) * HOUR);
+    approval(`x${i}`, 'expired');
+    exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, approval_id, at) VALUES (?, 'outreach', 'gmail.send_email', '[]', 'T1', 'refused', 5, ?, ?)", id, `x${i}`, NOW - (i + 1) * HOUR);
+  }
+  assert.equal(emails().done, 0);
+  const p = paceFor(agent, NOW)!;
+  // 50 a day at 5 a run: 10 runs a day, not hundreds as if its runs made nothing.
+  assert.equal(Math.round(p.runsPerDay), 10);
+  assert.notEqual(p.status, 'stuck');
+  // A rejected one is no good: that run made nothing.
+  exec("UPDATE approvals SET status = 'rejected'");
+  assert.equal(paceFor(agent, NOW)!.status, 'stuck');
+});
+
+test('with only a few runs behind it, a poor start does not send it all out', () => {
+  setGoal('outreach', 'Emails sent', 50, 'day', NOW);
+  // Three runs, one of which made 1: on its own that is a third of one a run, 150 runs a day.
+  for (let i = 0; i < 3; i++) {
+    const id = ran(0, 10, NOW - (i + 1) * HOUR);
+    if (!i) exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'gmail.send_email', '[]', 'T1', 'ok', 1, ?)", id, NOW - 26 * HOUR);
+  }
+  const few = paceFor(agent, NOW)!;
+  assert.ok(few.level < 3, `level ${few.level}, ${Math.round(few.runsPerDay)} runs a day`);
+  // The same poor yield kept up over 20 runs is its own answer.
+  for (let i = 3; i < 20; i++) {
+    const id = ran(0, 10, NOW - (i + 1) * HOUR);
+    if (i % 3 === 0) exec("INSERT INTO actions (run_id, agent_id, tool, fields, tier, outcome, output, at) VALUES (?, 'outreach', 'gmail.send_email', '[]', 'T1', 'ok', 1, ?)", id, NOW - 26 * HOUR);
+  }
+  assert.ok(paceFor(agent, NOW)!.level >= 3);
 });
 
 test('the word for its pace is how far it is from its goal, not how many runs the goal takes', () => {
