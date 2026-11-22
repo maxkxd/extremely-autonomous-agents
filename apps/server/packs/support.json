@@ -126,15 +126,11 @@
       },
       {
         "id": "helpdesk.send_approved_macro",
-        "label": "saved replies sent",
-        "amount": 10,
-        "period": "day"
+        "label": "saved replies sent"
       },
       {
         "id": "helpdesk.set_ticket_status",
-        "label": "tickets routed",
-        "amount": 10,
-        "period": "day"
+        "label": "tickets routed"
       }
     ],
     "max_runs_per_day": 60
@@ -262,15 +258,11 @@
       },
       {
         "id": "crm.set_health_score",
-        "label": "health scores recorded",
-        "amount": 10,
-        "period": "day"
+        "label": "health scores recorded"
       },
       {
         "id": "helpdesk.create_handoff_ticket",
-        "label": "customer issues handed to support",
-        "amount": 10,
-        "period": "day"
+        "label": "customer issues handed to support"
       }
     ],
     "max_runs_per_day": 12

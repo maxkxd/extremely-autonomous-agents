@@ -173,31 +173,19 @@
 .hd-donut-mid span { font-size: 10.5px; color: var(--muted); }
 
 /* Ferocity scale: five columns, colour building from grey to red. */
-.hd-ferocity { flex-direction: column; align-items: stretch; gap: 0; }
+/* An agent's goal: the row on its card, and its settings (Goals.tsx). */
+.hd-goal-stage { gap: 22px; padding: 26px 34px; align-items: center; }
+.hd-goal { --fx: var(--attention); --fx-rgb: 63, 123, 214; --tx: 0.3s; flex-shrink: 0; }
+.hd-goal .card-side { position: relative; width: 272px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
+.hd-goal-open .card-side { height: 282px; }
+.hd-goal .goal-set { transition: none; }
+.hd-goal-arrow { flex-shrink: 0; color: var(--muted); }
 /* Grey, grey-blue, blue, vibrant blue, red. */
-.hd-fero, .hd-fero-stop { --c: 138, 138, 138; }
-.hd-ferocity .fero-1 { --c: 128, 148, 180; }
-.hd-ferocity .fero-2 { --c: 63, 123, 214; }
-.hd-ferocity .fero-3 { --c: 46, 140, 255; }
-.hd-ferocity .fero-4 { --c: 229, 72, 77; }
 /* Like the card's slider: a track, one stop per level, getting fiercer to the right. */
-.hd-fero-slider { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); height: 40px; }
-.hd-fero-track {
   position: absolute; left: 10%; right: 10%; top: 50%; height: 8px; margin-top: -4px; border-radius: 4px;
   background: linear-gradient(to right, rgb(138, 138, 138), rgb(128, 148, 180), rgb(63, 123, 214), rgb(46, 140, 255), rgb(229, 72, 77));
   box-shadow: 0 0 14px rgba(229, 72, 77, 0.12);
 }
-.hd-fero-stop { position: relative; display: grid; place-items: center; }
-.hd-fero-dot { width: 12px; height: 12px; border-radius: 50%; background: rgb(var(--c)); box-shadow: 0 0 0 3px var(--sidebar); }
-.hd-fero-stop.fero-3 .hd-fero-dot { box-shadow: 0 0 0 3px var(--sidebar), 0 0 12px rgba(var(--c), 0.7); }
-.hd-fero-stop.fero-4 .hd-fero-dot { box-shadow: 0 0 0 3px var(--sidebar), 0 0 16px rgba(var(--c), 0.9); }
-.hd-fero-levels { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 10px; }
-.hd-fero { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
-.hd-fero-name { font-size: 15px; font-weight: 600; color: rgb(var(--c)); }
-.hd-fero.fero-4 .hd-fero-name { text-transform: uppercase; letter-spacing: 0.06em; text-shadow: 0 0 10px rgba(var(--c), 0.8); }
-.hd-fero-title { font-size: 12.5px; font-weight: 600; line-height: 1.3; color: var(--text); }
-.hd-fero-line { margin-top: -4px; font-size: 12px; line-height: 1.35; color: #b4b4b4; }
-
 /* The card's right-hand column on its own, numbered, with a legend. */
 .hd-side-stage { gap: 44px; padding: 26px 34px; counter-reset: none; }
 .hd-side { zoom: 1.1; flex-shrink: 0; counter-reset: part; }

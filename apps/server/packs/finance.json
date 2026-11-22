@@ -109,9 +109,7 @@
       },
       {
         "id": "xero.match_transaction",
-        "label": "transactions reconciled",
-        "amount": 20,
-        "period": "day"
+        "label": "transactions reconciled"
       }
     ],
     "max_runs_per_day": 12
@@ -233,9 +231,7 @@
       },
       {
         "id": "gmail.send_email",
-        "label": "payment reminders sent",
-        "amount": 10,
-        "period": "day"
+        "label": "payment reminders sent"
       }
     ],
     "max_runs_per_day": 12

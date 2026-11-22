@@ -233,21 +233,15 @@
       },
       {
         "id": "linkedin.send_connection_request",
-        "label": "connection requests sent",
-        "amount": 10,
-        "period": "day"
+        "label": "connection requests sent"
       },
       {
         "id": "linkedin.send_message",
-        "label": "linkedin messages sent",
-        "amount": 10,
-        "period": "day"
+        "label": "linkedin messages sent"
       },
       {
         "id": "calendar.create_event",
-        "label": "meetings booked",
-        "amount": 5,
-        "period": "day"
+        "label": "meetings booked"
       }
     ],
     "max_runs_per_day": 12

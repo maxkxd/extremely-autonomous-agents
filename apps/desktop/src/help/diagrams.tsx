@@ -26,6 +26,7 @@ import { RunPostView, type StampedEntry } from '../AgentDM';
 import type { RunPost as RunPostType } from '../dms';
 import { AgentCard as RealAgentCard, Donut as RealDonut } from '../Dashboard';
 import { ModelPanel } from '../ModelPicker';
+import { GoalRow, GoalSettings, type AgentGoal } from '../Goals';
 import type { AgentSetup, AvailableModels, ModelChoice } from '../builder';
 
 // ---- Pieces ----------------------------------------------------------------
@@ -248,7 +249,7 @@ const SIDE_PARTS = [
   ['Last run', 'When it last ran, and how that went.'],
   ['Standby and Stop', 'Standby lets the run in progress finish, then starts nothing new on its own. Stop cuts it off now.'],
   ['Model', 'The AI it runs on. Click to choose.'],
-  ['Goal', 'What it has to get done each day, and how far today has got. Click to see every goal.'],
+  ['Goal', 'What it has to get done, and how far it has got. Click to change it.'],
 ];
 function CardSide() {
   return (
@@ -292,39 +293,30 @@ function Models() {
   );
 }
 
-// What each level is like, Chill to Apocalyptic: a title, then what it means.
-const FEROCITY_TAGLINES: [string, string?][] = [
-  ['On Call', 'works only when given work'],
-  ['The Default', 'will get the job done'],
-  ['Intensely Overworked', 'will never leave output on the table'],
-  ['Inhuman', 'will never rest'],
-  ['The Paperclip Maximizer'],
+// An agent's goal as its card has it: the row in the right-hand column, and the
+// settings that rise in its place when the row is clicked (the real ones, with
+// sample numbers).
+const SAMPLE_GOALS: AgentGoal[] = [
+  { label: 'meetings booked', amount: 5, period: 'week', done: 2, waiting: 0 },
+  { label: 'emails sent', amount: 100, period: 'day', done: 70, waiting: 4 },
+  { label: 'linkedin messages sent', amount: 0, period: 'day', done: 12, waiting: 0 },
 ];
-
-// Drawn like the card's ferocity slider: a track with a stop for each level,
-// and what each level means under its stop.
-function Ferocity() {
+function GoalPicture() {
+  const goal = SAMPLE_GOALS[1];
   return (
-    <Stage className="hd-ferocity">
-      <div className="hd-fero-slider">
-        <div className="hd-fero-track" />
-        {FEROCITY.map((f, i) => (
-          <div key={f.name} className={`hd-fero-stop fero-${i}`}>
-            <div className="hd-fero-dot" />
+    <Stage className="hd-goal-stage">
+      <div className="hd-goal" {...{ inert: '' }}>
+        <div className="card-side">
+          <div className="side-main">
+            <GoalRow goal={goal} pace={{ status: 'on pace', parallel: 1 }} open={false} onOpen={() => {}} />
           </div>
-        ))}
+        </div>
       </div>
-      <div className="hd-fero-levels">
-        {FEROCITY.map((f, i) => {
-          const [title, line] = FEROCITY_TAGLINES[i] ?? [];
-          return (
-            <div key={f.name} className={`hd-fero fero-${i}`}>
-              <div className="hd-fero-name">{f.name}</div>
-              {title && <div className="hd-fero-title">{title}</div>}
-              {line && <div className="hd-fero-line">{line}</div>}
-            </div>
-          );
-        })}
+      <ChevronRight size={18} className="hd-goal-arrow" />
+      <div className="hd-goal hd-goal-open" {...{ inert: '' }}>
+        <div className="card-side goal-open">
+          <GoalSettings goals={SAMPLE_GOALS} selected={goal.label} open onPick={() => {}} onSet={() => {}} locked />
+        </div>
       </div>
     </Stage>
   );
@@ -733,7 +725,7 @@ export const DIAGRAMS = {
   'first-run': FirstRun,
   'agent-card': () => <AgentCard />,
   'output-cost': OutputCost,
-  ferocity: Ferocity,
+  ferocity: GoalPicture,
   'card-side': CardSide,
   models: Models,
   tiers: Tiers,

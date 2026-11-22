@@ -146,15 +146,11 @@
       },
       {
         "id": "cms.update_draft",
-        "label": "pages refreshed",
-        "amount": 5,
-        "period": "week"
+        "label": "pages refreshed"
       },
       {
         "id": "cms.publish_post",
-        "label": "pieces published",
-        "amount": 3,
-        "period": "week"
+        "label": "pieces published"
       }
     ],
     "max_runs_per_day": 10
@@ -327,9 +323,7 @@
       },
       {
         "id": "newsletter.create_campaign_draft",
-        "label": "issues drafted",
-        "amount": 1,
-        "period": "week"
+        "label": "issues drafted"
       }
     ],
     "max_runs_per_day": 6

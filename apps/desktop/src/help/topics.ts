@@ -82,7 +82,7 @@ export const HELP_TOPICS = {
       {
         heading: 'Goals',
         diagram: 'ferocity',
-        caption: 'Give an agent a number to reach each day. The agency speeds it up or eases it off to get there; the harder it has to push, the hotter its card.',
+        caption: 'Give an agent a number to hold: so many an hour, a day, a week, a month or a year. The agency paces it to that number; the more runs it takes, the hotter its card.',
       },
       {
         heading: 'The right-hand column',

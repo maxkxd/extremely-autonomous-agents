@@ -169,15 +169,11 @@
     "kpi": [
       {
         "id": "ads.add_negative_keywords",
-        "label": "wasted searches blocked",
-        "amount": 10,
-        "period": "day"
+        "label": "wasted searches blocked"
       },
       {
         "id": "ads.adjust_keyword_bid",
-        "label": "bids tuned",
-        "amount": 10,
-        "period": "day"
+        "label": "bids tuned"
       },
       {
         "id": "ads.create_ad_draft",
@@ -187,9 +183,7 @@
       },
       {
         "id": "ads.enable_ad",
-        "label": "ads launched",
-        "amount": 3,
-        "period": "week"
+        "label": "ads launched"
       }
     ],
     "max_runs_per_day": 12
@@ -547,9 +541,7 @@
     "kpi": [
       {
         "id": "cms.publish_post",
-        "label": "pages published",
-        "amount": 3,
-        "period": "week"
+        "label": "pages published"
       },
       {
         "id": "cms.create_draft",
@@ -559,15 +551,11 @@
       },
       {
         "id": "gmail.send_email",
-        "label": "link pitches sent",
-        "amount": 10,
-        "period": "day"
+        "label": "link pitches sent"
       },
       {
         "id": "indexnow.submit_urls",
-        "label": "pages submitted for indexing",
-        "amount": 5,
-        "period": "week"
+        "label": "pages submitted for indexing"
       }
     ],
     "max_runs_per_day": 12

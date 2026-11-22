@@ -187,21 +187,15 @@
       },
       {
         "id": "github.comment_on_tracked_issue",
-        "label": "duplicates merged into existing issues",
-        "amount": 10,
-        "period": "day"
+        "label": "duplicates merged into existing issues"
       },
       {
         "id": "github.close_own_issue",
-        "label": "verified fixes closed",
-        "amount": 10,
-        "period": "day"
+        "label": "verified fixes closed"
       },
       {
         "id": "errors.resolve_issue",
-        "label": "errors resolved with evidence",
-        "amount": 10,
-        "period": "day"
+        "label": "errors resolved with evidence"
       }
     ],
     "max_runs_per_day": 48
@@ -356,14 +350,12 @@
     "kpi": [
       {
         "id": "infra.restart_service",
-        "label": "services restarted",
-        "amount": 10,
-        "period": "day"
+        "label": "services restarted"
       },
       {
         "id": "slack.post_message",
         "label": "incident updates posted",
-        "amount": 10,
+        "amount": 1,
         "period": "day"
       }
     ],

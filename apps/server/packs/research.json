@@ -92,9 +92,7 @@
       },
       {
         "id": "docs.append_to_document",
-        "label": "briefs updated",
-        "amount": 3,
-        "period": "week"
+        "label": "briefs updated"
       }
     ],
     "max_runs_per_day": 12
@@ -247,9 +245,7 @@
       },
       {
         "id": "notify.send_owner_update",
-        "label": "competitor updates sent",
-        "amount": 3,
-        "period": "week"
+        "label": "competitor updates sent"
       }
     ],
     "max_runs_per_day": 8
