@@ -36,15 +36,40 @@ type Ask = {
   summary: (text: string) => string | Promise<string>;
 };
 
+// A helper's call isn't a run the scheduler holds, so the watchdog never sees it.
+// With no deadline of its own, a plan's program that keeps retrying (Claude Code
+// offline overnight, 21 Nov 2026: ENOTFOUND for hours) held the Conductor's pacing
+// for up to four hours. So each call gets one, under the 10 minutes after which a
+// 'running' row nobody holds is swept as lost, and a call past it moves on to the
+// next model.
+export const QUICK_MS = 8 * 60_000;
+export async function withDeadline<T>(ms: number, what: string, go: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new ModelError(`${what} gave no answer in ${Math.round(ms / 60_000)} minutes.`, 'network'));
+    }, ms);
+  });
+  try {
+    return await Promise.race([go(controller.signal), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function call(c: ModelChoice, system: string, prompt: string, maxTokens: number): Promise<HarnessResult> {
   const adapter = adapterFor(c.connection);
-  if (adapter) {
-    const r = await adapter({ connection: c.connection, model: c.model, system, messages: [{ role: 'user', text: prompt }], tools: [], maxTokens });
-    return { text: r.text, usage: r.usage };
-  }
-  const harness = harnessFor(c.connection);
-  if (!harness) throw new Error(`Can't call ${c.connection}.`);
-  return harness({ model: c.model, system, opening: prompt, tools: [], call: async () => ({ content: '', error: true }), next: () => null });
+  const harness = adapter ? null : harnessFor(c.connection);
+  if (!adapter && !harness) throw new Error(`Can't call ${c.connection}.`);
+  return withDeadline(QUICK_MS, `${c.connection}/${c.model}`, async signal => {
+    if (adapter) {
+      const r = await adapter({ connection: c.connection, model: c.model, system, messages: [{ role: 'user', text: prompt }], tools: [], maxTokens, signal });
+      return { text: r.text, usage: r.usage };
+    }
+    return harness!({ model: c.model, system, opening: prompt, tools: [], call: async () => ({ content: '', error: true }), next: () => null, signal });
+  });
 }
 
 // The other AIs to try once its own have failed: working ones it doesn't
@@ -98,7 +123,8 @@ export async function ask(agentId: string, a: Ask): Promise<string> {
       const summary = await Promise.resolve(a.summary(r.text)).catch(() => r.text.slice(0, 500));
       const endedAt = Date.now();
       exec(
-        "UPDATE runs SET status = 'succeeded', ended_at = ?, connection = ?, model = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, summary = ? WHERE id = ?",
+        // error cleared: a row swept as lost meanwhile doesn't show a success with a failure's words.
+        "UPDATE runs SET status = 'succeeded', ended_at = ?, connection = ?, model = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, summary = ?, error = NULL WHERE id = ?",
         endedAt, c.connection, c.model, r.usage.input, r.usage.output, cost, summary, id,
       );
       postRun(agentId, id, a.trigger, 'succeeded', cost, endedAt - startedAt, summary);

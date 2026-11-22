@@ -6,6 +6,10 @@ import { adapterFor, type Msg } from '../runner/providers.js';
 import { harnessFor } from '../runner/harness.js';
 import { pickDefaults } from '../runner/defaults.js';
 import { getHealth } from '../runner/run.js';
+import { withDeadline } from '../runner/quick.js';
+
+// The builder's answer can be long (16k tokens), so more time than a helper's call.
+const SAY_MS = 15 * 60_000;
 
 // One structured answer from whatever AI is connected - the agent builder's
 // route when there's no working Anthropic key. A packaged app has no .env key,
@@ -49,13 +53,13 @@ async function say(connection: string, model: string, system: string, said: Said
   const adapter = adapterFor(connection);
   if (adapter) {
     const messages: Msg[] = said.map(s => (s.role === 'user' ? { role: 'user', text: s.text } : { role: 'assistant', text: s.text, calls: [] }));
-    return (await adapter({ connection, model, system, messages, tools: [], maxTokens: 16_000 })).text;
+    return withDeadline(SAY_MS, `${connection}/${model}`, async signal => (await adapter({ connection, model, system, messages, tools: [], maxTokens: 16_000, signal })).text);
   }
   const harness = harnessFor(connection);
   if (!harness) throw new Error(`${connection} can't be used here`);
   // A plan's own loop starts from one message: the conversation so far, then what's asked.
   const opening = said.length === 1 ? said[0].text : said.map(s => `${s.role === 'user' ? 'Them' : 'You'}: ${s.text}`).join('\n\n');
-  return (await harness({ model, system, opening, tools: [], call: async () => ({ content: '', error: true }), next: () => null })).text;
+  return withDeadline(SAY_MS, `${connection}/${model}`, async signal => (await harness({ model, system, opening, tools: [], call: async () => ({ content: '', error: true }), next: () => null, signal })).text);
 }
 
 export async function jsonFromAnyModel<T extends z.ZodType>(schema: T, system: string, said: Said[], skip?: (connection: string) => boolean): Promise<z.infer<T>> {
