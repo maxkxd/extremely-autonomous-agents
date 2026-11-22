@@ -239,20 +239,32 @@ test('runs that make nothing are not multiplied', () => {
   const p = paceFor(agent, NOW)!;
   assert.equal(p.status, 'stuck');
   assert.equal(p.parallel, 1);
-  assert.equal(p.runsPerDay, 24, 'an hour apart');
+  // Its ordinary schedule is once a day: stuck, it is never run more often than that.
+  assert.equal(p.runsPerDay, 1, 'no more often than its own schedule');
+  // One whose schedule is hourly: an hour apart, then further apart with each empty run.
+  const hourly = { ...agent, ferocity: { ...agent.ferocity, every_hours: [1, 1, 1, 1] } } as AgentDef;
+  assert.equal(paceFor(hourly, NOW)!.everyMs, HOUR);
+  for (let i = 0; i < 3; i++) ran(0);
+  assert.equal(paceFor(hourly, NOW)!.everyMs, 8 * HOUR, '8 empty runs: 8 hours apart');
+  for (let i = 0; i < 10; i++) ran(0);
+  assert.equal(paceFor(hourly, NOW)!.everyMs, 24 * HOUR, 'at most a day apart');
 });
 
 test("the Conductor's numbers are kept in bounds, and only for the goal they were set for", () => {
   setGoal('outreach', 'Emails sent', 100, 'day', NOW);
   ran(10);
   const sig = 'Emails sent=100/day|Leads researched=0/day';
+  const worked = paceFor(agent, NOW)!;
   storePace('outreach', sig, { parallel: 500, per_run: 40, every_min: 5, note: 'Use the new lead list first.' }, NOW);
   const p = paceFor(agent, NOW)!;
-  assert.equal(p.parallel, MAX_GOAL_PARALLEL);
   assert.equal(p.perRun, 40);
-  assert.equal(p.everyMs, 5 * MIN);
   assert.equal(p.note, 'Use the new lead list first.');
-  assert.equal(p.status, 'all out', 'its level follows the pace the Conductor set');
+  // 500 at once every 5 minutes is 144,000 runs a day: held to twice the worked-out pace.
+  assert.ok(Math.abs(p.runsPerDay - 2 * worked.runsPerDay) < 0.01, `${p.runsPerDay} runs a day beside ${worked.runsPerDay}`);
+  assert.equal(p.level, levelOf(p.runsPerDay), 'its level follows the pace the Conductor set');
+  // Slowing it down is the Conductor's call, however far.
+  storePace('outreach', sig, { every_min: 600 }, NOW);
+  assert.equal(paceFor(agent, NOW)!.everyMs, 600 * MIN);
   assert.equal(paceFor(agent, NOW + 46 * MIN)!.parallel, 1, 'after a while the worked-out pace stands again');
   storePace('outreach', sig, { parallel: 500 }, NOW);
   setGoal('outreach', 'Emails sent', 100, 'week', NOW);

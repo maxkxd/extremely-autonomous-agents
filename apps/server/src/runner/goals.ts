@@ -40,6 +40,8 @@ const GAP_MS = 20_000; // a breath between back-to-back runs
 const OWN_WORK = "('scheduled', 'apocalyptic', 'self-booked', 'request done', 'run now', 'parallel')";
 // The Conductor's numbers hold this long; then the worked-out pace again until it next looks.
 export const CONDUCTOR_HOLDS_MS = 45 * 60_000;
+// The most runs a day the Conductor may give an agent, as a multiple of the worked-out pace.
+const CONDUCTOR_MAX = 2;
 // This many of its own runs in a row with nothing counted: more runs won't help.
 const STUCK_RUNS = 5;
 // The least a run is taken to make when its rate is worked out (one productive run in five).
@@ -160,12 +162,12 @@ export function checkGoal(agent: AgentDef, label: string, amount: unknown, perio
 // a person not getting to it is no reason to give the agent more runs (which only queued
 // more to expire). It still comes off its goal's count (countSince). A rejected or
 // withdrawn one doesn't count: that work was no good.
-function recent(agentId: string, tools: string[]): { perRun: number | null; each: number | null; total: number; runs: number; ms: number; stuck: boolean } {
+function recent(agentId: string, tools: string[]): { perRun: number | null; each: number | null; total: number; runs: number; ms: number; stuck: boolean; empty: number } {
   const rows = all<{ id: string; ms: number | null }>(
     `SELECT id, ended_at - started_at AS ms FROM runs WHERE agent_id = ? AND status = 'succeeded' AND ended_at IS NOT NULL AND trigger IN ${OWN_WORK} ORDER BY started_at DESC LIMIT ${RECENT_RUNS}`,
     agentId,
   );
-  if (!rows.length) return { perRun: null, each: null, total: 0, runs: 0, ms: 10 * 60_000, stuck: false };
+  if (!rows.length) return { perRun: null, each: null, total: 0, runs: 0, ms: 10 * 60_000, stuck: false, empty: 0 };
   let made = rows.map(() => 0);
   if (tools.length) {
     const sums = all<{ run_id: string; n: number | null }>(
@@ -189,6 +191,8 @@ function recent(agentId: string, tools: string[]): { perRun: number | null; each
     runs: rows.length,
     ms: Math.max(30_000, rows.reduce((s, r) => s + (r.ms ?? 0), 0) / rows.length),
     stuck: rows.length >= STUCK_RUNS && made.slice(0, STUCK_RUNS).every(n => n === 0),
+    // Its latest runs in a row that made nothing.
+    empty: made.findIndex(n => n > 0) === -1 ? made.length : made.findIndex(n => n > 0),
   };
 }
 
@@ -228,8 +232,14 @@ export function paceFor(agent: AgentDef, now = Date.now(), goals = goalsOf(agent
   // At its goal: its ordinary schedule, nothing asked of a run. It carries on; it isn't stopped.
   if (remaining <= 0) return paced({ everyMs: steadyMs, parallel: 1, perRun: 0, remaining: 0, note }, 'goal hit');
   const r = recent(agent.id, [...new Set(live.flatMap(g => g.actions))]);
-  // Runs that make nothing don't get more of them: an hour apart, one at a time, until one does.
-  if (r.stuck) return paced({ everyMs: Math.min(steadyMs, HOUR), parallel: 1, perRun: 0, remaining, note }, 'stuck');
+  // Runs that make nothing don't get more of them: one at a time, never more often than its
+  // ordinary schedule, and further apart with each further empty run (an hour, then 2, 4, 8,
+  // 16, then a day) until one makes something. It used to be "an hour or its schedule,
+  // whichever is sooner": an agent whose schedule is once a day ran 24 times a day while stuck.
+  if (r.stuck) {
+    const backoff = Math.min(DAY, HOUR * 2 ** Math.max(0, r.empty - STUCK_RUNS));
+    return paced({ everyMs: Math.max(steadyMs, backoff), parallel: 1, perRun: 0, remaining, note }, 'stuck');
+  }
   const each = yieldOf(agent, r);
   const lane = r.ms + GAP_MS;
   // Each goal by itself: a steady rate of its amount over its trailing window
@@ -250,11 +260,20 @@ export function paceFor(agent: AgentDef, now = Date.now(), goals = goalsOf(agent
   let parallel = Math.min(MAX_GOAL_PARALLEL, needed, Math.max(1, Math.ceil(rate * lane)));
   let everyMs = parallel / rate;
   let perRun = Math.min(remaining, Math.max(1, Math.ceil((r.perRun ?? agent.ferocity.floor) * 1.2)));
-  // The Agency Conductor's call, kept inside what makes sense.
+  // The Agency Conductor's call, kept inside what makes sense: it may slow an agent down as
+  // far as it likes, but never run it more than CONDUCTOR_MAX times what the arithmetic says
+  // (it once read a stale "a tenth of a pitch a run" and set 2 at once every 12 minutes, about
+  // 240 runs a day for a goal of 50).
   if (held) {
+    const worked = (parallel * DAY) / everyMs;
     if (held.per_run) perRun = Math.min(remaining, Math.max(1, Math.floor(held.per_run)));
     if (held.parallel) parallel = Math.min(MAX_GOAL_PARALLEL, Math.max(1, Math.floor(held.parallel)));
     if (held.every_ms) everyMs = Math.max(GAP_MS, held.every_ms);
+    const most = worked * CONDUCTOR_MAX;
+    if ((parallel * DAY) / everyMs > most) {
+      parallel = Math.max(1, Math.min(parallel, Math.ceil(most * lane / DAY)));
+      everyMs = (parallel * DAY) / most;
+    }
   }
   // Never slower than its ordinary schedule.
   everyMs = Math.min(everyMs, steadyMs);
