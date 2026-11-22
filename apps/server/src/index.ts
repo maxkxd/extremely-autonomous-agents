@@ -130,7 +130,22 @@ function forApp(b: Build, takenIds: string[], fleetIds?: Set<string>, available?
   let id = slug(b.name);
   for (let n = 2; takenIds.includes(id); n++) id = `${slug(b.name)}-${n}`;
   const files = compose(b, id, fleetIds, available, new Set(liveEventIds()));
-  return { agent: { id, name: b.name, department: b.department, output: b.kpi.map(k => k.label) }, files };
+  return { agent: { id, name: b.name, department: b.department, output: b.kpi.map(k => k.label), goals: goalsFor(b.kpi) }, files };
+}
+
+// The goals the new agent's card shows before it's added: one per output label, the
+// biggest number on it and that row's period, as the runner reads them (runner/goals.ts
+// goalNumbers). A pack's rows from before periods carry per_day: an amount a day.
+function goalsFor(kpi: Build['kpi']): { label: string; amount: number; period: string }[] {
+  const byLabel = new Map<string, { label: string; amount: number; period: string }>();
+  for (const k of kpi) {
+    const row = k as { label: string; amount?: number; per_day?: number; period?: string };
+    const amount = Math.max(0, Math.floor(Number(row.amount ?? row.per_day ?? 0)) || 0);
+    const g = byLabel.get(row.label) ?? { label: row.label, amount: 0, period: 'day' };
+    if (amount > g.amount) byLabel.set(row.label, { label: row.label, amount, period: row.period ?? 'day' });
+    else byLabel.set(row.label, g);
+  }
+  return [...byLabel.values()];
 }
 
 // Pre-built pack agents (scripts/build-packs.ts), reviewed and committed.

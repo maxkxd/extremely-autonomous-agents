@@ -3,6 +3,10 @@ import { agencyFetch, currentOrg } from './account';
 import { AGENT_PACKS } from './packs';
 import type { StampedEntry } from './AgentDM';
 import type { IntegrationCard } from './approvalTools';
+import type { Period } from './Goals';
+
+const PERIODS: readonly string[] = ['hour', 'day', 'week', 'month', 'year'] satisfies Period[];
+const isPeriod = (p: string): p is Period => PERIODS.includes(p);
 
 // Client side of the agent builder (docs/agent-creation.md). The server
 // (apps/server) does the thinking with Claude; the Charter, TOOLS.yaml and
@@ -132,7 +136,8 @@ export const nextTurn = (turns: Turn[], declinedPack: string | null) =>
   post<{ reply: string; confidence: number; ready: boolean; turns?: Turn[] }>('/api/builder/turn', { turns, declinedPack });
 
 type ServerAgent = {
-  agent: { id: string; name: string; department: Department; output: string[] };
+  // goals: what the builder set for each output (one per label); missing from a server before 23 Nov 2026.
+  agent: { id: string; name: string; department: Department; output: string[]; goals?: { label: string; amount: number; period: string }[] };
   files: AgentFiles;
   setup?: { packId: string; index: number; member?: string };
 };
@@ -167,6 +172,8 @@ function toBuilt(out: ServerAgent): Built {
       lastRun: null,
       decisions: { approved: 0, rejected: 0, expired: 0 },
       ferocity: 1,
+      // Its goals as built, nothing done yet (without them the card made up a goal of 1).
+      goals: out.agent.goals?.map(g => ({ label: g.label, amount: g.amount, period: isPeriod(g.period) ? g.period : 'day', done: 0, waiting: 0 })),
       settingUp: !!out.setup,
       pack: out.setup ? { id: out.setup.packId, member: out.setup.member ?? out.agent.name } : null,
     },
