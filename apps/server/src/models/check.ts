@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { getSecret } from '../vault.js';
 import { fromLevels, type ModelInfo } from './caps.js';
 import { chatGptAccessToken, connectionBaseUrl, setModelLevels } from './connections.js';
+import { ConnectError } from './providers.js';
 import { DATA_DIR } from '../paths.js';
 
 // Does a model actually work on this account? (docs/model-connections.md)
@@ -59,13 +60,26 @@ export async function checkModel(connection: string, model: string, force = fals
     try {
       check = await probe(connection, model);
     } catch (e) {
-      check = { ok: true, unsure: true, reason: `Couldn't check: ${(e as Error).message}`, at: Date.now() };
+      check = thrownCheck(e);
     }
     await save(key, check);
     return check;
   })().finally(() => inFlight.delete(key));
   inFlight.set(key, p);
   return p;
+}
+
+// A check that threw before the provider answered. Mostly that's a blip (busy,
+// offline), so it stays unsure and counts as working. A sign-in that has expired,
+// was revoked or isn't there is no blip: every run on it fails the same way, so
+// it's a failed check. Otherwise Auto-switch moves agents onto it (21 Nov 2026:
+// Claude Code ran out and every agent went to a ChatGPT whose sign-in had expired).
+// A failed check is run again hourly, so it passes again once someone signs back in.
+const DEAD_SIGN_IN = /sign-in has expired|expired or was revoked|is not connected|isn't connected/i;
+export function thrownCheck(e: unknown, at = Date.now()): Check {
+  const message = e instanceof Error ? e.message : String(e);
+  if (e instanceof ConnectError && DEAD_SIGN_IN.test(message)) return { ok: false, reason: message, at };
+  return { ok: true, unsure: true, reason: `Couldn't check: ${message}`, at };
 }
 
 // Failed checks due again: a model out of its plan's limit, or a key fixed since,

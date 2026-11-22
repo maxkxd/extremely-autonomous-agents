@@ -1,7 +1,8 @@
 import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { classify, dueForRecheck, levelsFromError, RECHECK_MS } from './check.js';
+import { classify, dueForRecheck, levelsFromError, RECHECK_MS, thrownCheck } from './check.js';
+import { ConnectError } from './providers.js';
 
 // Real error messages each provider returned on 2026-10-28.
 const reason = (status: number, message: string, headers?: Record<string, string>) => classify({ status, message, headers: headers && new Headers(headers) });
@@ -52,4 +53,17 @@ test("a plan's usage limit is out for now, and failed checks are run again hourl
     { connection: 'chatgpt', model: 'gpt-6-luna' },
     { connection: 'openrouter', model: 'meta-llama/llama-4' },
   ]);
+});
+
+test('a dead sign-in is a failed check, so Auto-switch never moves agents onto it; a blip stays unsure', () => {
+  for (const m of ['That sign-in has expired. Start it again.', 'ChatGPT is not connected.', 'The sign-in has expired or was revoked. Sign in again.']) {
+    const c = thrownCheck(new ConnectError(m), 1);
+    assert.equal(c.ok, false, m);
+    assert.equal(c.unsure, undefined, m);
+    assert.equal(c.reason, m);
+  }
+  // Failed, so it is run again hourly and passes once someone signs back in.
+  assert.equal(dueForRecheck({ 'chatgpt/gpt-6-luna': thrownCheck(new ConnectError('That sign-in has expired. Start it again.'), 0) }, RECHECK_MS).length, 1);
+  assert.deepEqual(thrownCheck(new ConnectError('ChatGPT sign-in failed (503).'), 1), { ok: true, unsure: true, reason: "Couldn't check: ChatGPT sign-in failed (503).", at: 1 });
+  assert.deepEqual(thrownCheck(new TypeError('fetch failed'), 1), { ok: true, unsure: true, reason: "Couldn't check: fetch failed", at: 1 });
 });
