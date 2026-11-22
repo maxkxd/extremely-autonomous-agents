@@ -217,7 +217,19 @@ export const hasIntegration = (id: string) => loaded.some(l => l.integration.id 
 // A live integration being redrafted: the version agents keep using meanwhile.
 let liveCopies = new Map<string, Integration>();
 
-export async function loadIntegrations() {
+// Until the first load is done, no integration's tools are registered: a run or an approved
+// action started then would find them missing ("zohomail_send_mail no longer exists").
+// Runs and approved actions wait for it (run.ts, tools.ts runApproved, scheduler.ts).
+let loading: Promise<void> | null = null;
+export const integrationsLoaded = () => loading ?? Promise.resolve();
+
+export function loadIntegrations(): Promise<void> {
+  const next = (loading ?? Promise.resolve()).catch(() => {}).then(loadNow);
+  loading = next;
+  return next;
+}
+
+async function loadNow() {
   loaded = [];
   problems = [];
   liveCopies = new Map();

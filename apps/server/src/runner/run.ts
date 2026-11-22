@@ -1,3 +1,4 @@
+import { integrationsLoaded } from '../integrations/index.js';
 import { describeTrip, endWatch, touch, watchRun } from './watchdog.js';
 import { randomBytes } from 'node:crypto';
 import { listIds, readMeta } from '../files.js';
@@ -382,6 +383,8 @@ export function nowLine(at: number): string {
 
 // resumeFrom: a run of the same job a restart cut short, carried on from where it got to.
 export async function runAgent(agent: AgentDef, trigger: Trigger, task: string | null, deps: RunDeps, signal?: AbortSignal, resumeFrom: string | null = null, person: string | null = null): Promise<RunResult> {
+  // Its tools from connections are only there once they have loaded (just after a start).
+  await integrationsLoaded();
   const id = newRunId();
   const startedAt = deps.now();
   // Nobody sets a level: the pace its goals call for gives it one (goals.ts), for the tone of

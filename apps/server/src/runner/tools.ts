@@ -12,7 +12,7 @@ import { remember } from './memory.js';
 import { SELF_SETTINGS } from './selfsettings.js';
 import type { Call, ToolImage, ToolSpec } from './providers.js';
 import { DATA_DIR } from '../paths.js';
-import { hasIntegration, repairingConnectionOf } from '../integrations/index.js';
+import { hasIntegration, integrationsLoaded, repairingConnectionOf } from '../integrations/index.js';
 import { paceMine, queueMine, scheduleMine } from './action-queue.js';
 import { callEnded, callStarted, callTimeoutMs, toolTimedOut, withTimeout } from './watchdog.js';
 
@@ -679,6 +679,7 @@ export function withdrawMine(agentId: string, a: Record<string, unknown>, now: n
 }
 
 export async function runApproved(ctx: RunCtx, id: string, args: Record<string, unknown>): Promise<string> {
+  await integrationsLoaded();
   const impl = find(id);
   if (!impl) throw new Error(`${id} no longer exists.`);
   if (impl.ready && !impl.ready()) throw new Error(`${id} isn't connected right now.`);

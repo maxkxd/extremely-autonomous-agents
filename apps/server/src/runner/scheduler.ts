@@ -563,7 +563,9 @@ export const abortAll = () => {
 
 let timer: NodeJS.Timeout | null = null;
 export function startScheduler() {
-  void loadIntegrations().catch(e => console.error('Loading integrations failed:', (e as Error).message));
+  // Nothing runs until connections have loaded: a run or an approved send in the first
+  // seconds after a start found every connected tool missing and failed for good.
+  const ready = loadIntegrations().catch(e => console.error('Loading integrations failed:', (e as Error).message));
   // The Agency Engineer: its files kept current, and woken by requests and connections.
   void ensureFleetEngineer()
     .then(() => startEngineer(book))
@@ -586,7 +588,9 @@ export function startScheduler() {
   for (const r of cut)
     if (!['scheduled', 'apocalyptic'].includes(r.trigger) && !HELPER_IDS.includes(r.agent_id))
       exec('INSERT INTO bookings (agent_id, trigger, task, due_at, created_at, resume_from) VALUES (?, ?, ?, ?, ?, ?)', r.agent_id, r.trigger, r.task, Date.now(), Date.now(), r.id);
-  timer ??= setInterval(() => void tick().catch(e => console.error('Runner tick failed:', (e as Error).message)), TICK_MS);
+  void ready.then(() => {
+    timer ??= setInterval(() => void tick().catch(e => console.error('Runner tick failed:', (e as Error).message)), TICK_MS);
+  });
 }
 export const stopScheduler = () => {
   if (timer) clearInterval(timer);
