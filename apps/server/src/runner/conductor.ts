@@ -102,14 +102,15 @@ setRequestRouter(conduct);
 const PACE_EVERY_MS = 30 * 60_000;
 const PACED_AT = 'goals_paced_at';
 
-const PACE_SYSTEM = `You keep the agents of an AI agency on their goals. A goal is a number for a trailing window: the last hour, 24 hours, 7 days, 30 days or 365 days. There is no deadline: 100 a day means 100 in any 24 hours, held at a steady rate. Each line below is one agent that is not at its goal yet: its goals (done/goal in that window), what one of its runs usually makes and how long it takes, and the pace simple arithmetic has worked out for it.
-Change an agent's numbers only where judgement helps:
-- more per run when its runs are short and productive; fewer runs, each asked for more, is cheaper than many small ones
-- more runs at once (up to 20) only when it cannot get there one after another
-- a steady rate, not one burst: work done in a burst all drops out of the window together later
+const PACE_SYSTEM = `You keep the agents of an AI agency on their goals. A goal is a number for a trailing window: the last hour, 24 hours, 7 days, 30 days or 365 days. There is no deadline: 100 a day means 100 in any 24 hours, held at a steady rate. Each line below is one agent that is not at its goal yet: its goals (done/goal in that window), what its recent runs were asked for and made, how long one takes, and the pace simple arithmetic has worked out for it.
+The arithmetic already holds every agent to a steady rate at its goal: its next run comes sooner when a run made less than it was asked for and later when it made more, so there is nothing to speed up. Change an agent's numbers only where judgement helps:
+- per_run, what one run is asked for: more when its runs are short and make all they are asked for (fewer, bigger runs are cheaper than many small ones), less when they keep falling well short. The time between its runs follows by itself, so the goal stays the same
+- every_min, only to slow an agent down (a tool that needs time between uses, a person who cannot keep up with its approvals). It is never run more than twice as often as the arithmetic says, whatever you set
+- parallel, room for more runs at once (up to 20): only when its runs are long
+- never a burst: work done in a burst all drops out of the window together later
 - an agent whose runs make nothing needs a hint about what to check, not more runs
 Leave an agent out to keep the arithmetic. Refer to people by name or as "they".
-Answer with JSON only: {"agents":{"<id>":{"every_min":<minutes between its runs>,"parallel":<runs at once>,"per_run":<what one run is asked for>,"note":"<one short sentence to that agent, or empty>"}}}`;
+Answer with JSON only: {"agents":{"<id>":{"every_min":<minutes between its runs toward its goal>,"parallel":<runs at once>,"per_run":<what one run is asked for>,"note":"<one short sentence to that agent, or empty>"}}} - leave out any number you are not changing`;
 
 type PaceAnswer = { agents?: Record<string, { every_min?: number; parallel?: number; per_run?: number; note?: string }> };
 

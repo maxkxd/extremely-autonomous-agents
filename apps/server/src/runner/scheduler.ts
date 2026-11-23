@@ -177,7 +177,7 @@ export function queueRunNow(agentId: string, now = Date.now()): { ok: true; queu
 export function ensurePendingDue(agent: AgentDef, pace: NonNullable<ReturnType<typeof paceFor>>, st: ReturnType<typeof stateOf>, now: number) {
   if (pendingMain(agent.id)) return;
   const last = one<{ ended_at: number | null }>("SELECT ended_at FROM runs WHERE agent_id = ? AND status != 'running' ORDER BY started_at DESC LIMIT 1", agent.id);
-  if (goalDue(pace, st.last_scheduled_at ?? last?.ended_at ?? null, last?.ended_at ?? null, now)) book(agent.id, 'scheduled', null, now);
+  if (goalDue(pace, st.last_scheduled_at ?? last?.ended_at ?? null, last?.ended_at ?? null, now, pace.parallel > 1)) book(agent.id, 'scheduled', null, now);
 }
 
 // Approved actions are run by the queue (approvals.ts), which wakes agents through here.

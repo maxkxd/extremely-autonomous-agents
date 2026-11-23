@@ -12,7 +12,7 @@ import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { queueForPrompt } from './action-queue.js';
 import { accountsForPrompt } from './accounts.js';
 import { backoffMs, canCount, DEFAULT_LEVEL, ferocityInstructions, nudgeText } from './ferocity.js';
-import { goalFloor, goalInstructions, goalsOf, isGoalBatch, noGoalInstructions, paceFor } from './goals.js';
+import { goalFloor, goalInstructions, goalsOf, isGoalBatch, noGoalInstructions, paceFor, type Pace } from './goals.js';
 import { ago, COMPACT_PROMPT, compactIfNeeded, memoryForPrompt } from './memory.js';
 import { costOf, isFree, spentThisMonth } from './pricing.js';
 import { hostZone } from './clock.js';
@@ -157,7 +157,7 @@ export function noModelReason(agent: AgentDef, deps: RunDeps): string {
 // What a run was told under "Since your last run": handed back if a person stops it part-way.
 type Told = { requests: number[]; tasks: number[] };
 
-async function instructions(agent: AgentDef, level: number, notReady: string[], deps: RunDeps, told?: Told): Promise<string> {
+async function instructions(agent: AgentDef, level: number, notReady: string[], deps: RunDeps, told?: Told, runPace?: Pace | null): Promise<string> {
   const now = deps.now();
   const fleet = await fleetOf(agent.id);
   // Everyone the agency works for (agent owners): none has pronouns on file yet.
@@ -256,7 +256,9 @@ async function instructions(agent: AgentDef, level: number, notReady: string[], 
     (() => {
       if (BUILT_IN_IDS.includes(agent.id)) return ferocityInstructions(agent, level, callable);
       const goals = goalsOf(agent, now);
-      const pace = paceFor(agent, now, goals);
+      // The pace this run started on, when it has one: worked out again here, it would see
+      // this run itself as the one just started, and say nothing is due.
+      const pace = runPace === undefined ? paceFor(agent, now, goals) : runPace;
       return pace ? goalInstructions(agent, goals, pace) : noGoalInstructions();
     })(),
     `## Your tools right now
@@ -390,8 +392,8 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   // Nobody sets a level: the pace its goals call for gives it one (goals.ts), for the tone of
   // what it is told and its card. A built-in works steadily on its own schedule; so does an
   // agent with no goal, for the one thing it still does - answering a person.
-  const pace = BUILT_IN_IDS.includes(agent.id) ? null : paceFor(agent, startedAt);
-  const level = pace?.level ?? DEFAULT_LEVEL;
+  const worked = BUILT_IN_IDS.includes(agent.id) ? null : paceFor(agent, startedAt, undefined, trigger === 'run now');
+  const level = worked?.level ?? DEFAULT_LEVEL;
   // A run answering a person is never pushed past its answer (WAR).
   // A target is for an agent's own work toward its goal (its schedule, a run it booked, Run now):
   // a task handed to it, a person's message or a decision coming back is done when
@@ -399,7 +401,9 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   // 21 files).
   const callableNow = new Set(toolsFor(agent).ids.values());
   const ownWork = ['scheduled', 'apocalyptic', 'self-booked', 'request done', 'run now'].includes(trigger) || (trigger === 'parallel' && isGoalBatch(task));
-  const floor = ownWork && pace && canCount(agent, callableNow) ? goalFloor(pace) : null;
+  // Any other run is asked for nothing toward its goal, and is told so.
+  const pace: Pace | null = worked && !ownWork ? { ...worked, perRun: 0, other: true } : worked;
+  const floor = pace && canCount(agent, callableNow) ? goalFloor(pace) : null;
   exec(
     'INSERT INTO runs (id, agent_id, trigger, task, ferocity, status, started_at, floor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     id,
@@ -409,7 +413,9 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
     level,
     'running',
     startedAt,
-    floor?.floor ?? null,
+    // A run toward its goal that can count nothing (its tools aren't connected) is still
+    // one: recorded as asked for 0, so the next is spaced from it (goals.ts).
+    floor?.floor ?? (pace && pace.perRun > 0 ? 0 : null),
   );
 
   const { specs, ids, notReady } = toolsFor(agent);
@@ -439,7 +445,7 @@ export async function runAgent(agent: AgentDef, trigger: Trigger, task: string |
   let error: string | undefined;
 
   try {
-    const system = await instructions(agent, level, notReady, deps, told);
+    const system = await instructions(agent, level, notReady, deps, told, pace);
     let health = getHealth();
     const guard = loopGuard();
     let stuck: string | null = null;

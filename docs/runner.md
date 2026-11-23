@@ -34,9 +34,9 @@ Everything the builder sets lives in the agent's TOOLS.yaml under `ferocity:`
 threshold), so changing an agent's level on its card changes its behaviour
 straight away, without a rebuild.
 
-## Goals set the pace (the `goals` branch)
+## Goals set the pace
 
-On this branch nobody chooses a level, anywhere: not on the card, not the agent in its chat,
+Nobody chooses a level, anywhere: not on the card, not the agent in its chat,
 not through the MCP server. Each agent has goals: an output in plain words, an amount and a
 period - an hour, a day, a week, a month or a year ("emails sent: 100 a day", "posts
 published: 5 a week"). A goal is one of its KPI labels, so what counts toward it is exactly
@@ -62,23 +62,57 @@ built-in agents' Steady and as the tone an agent is told in.
   calendar or time-zone boundary (not "by midnight", not "this week from Monday"). A draft
   a person rejects, withdraws or lets expire comes off again, so an agent at its goal can
   drop back under it.
-- **The pace.** Worked out fresh, goal by goal, as a steady rate of the amount over that
-  window (100 a day is 100 / 24 hours, even at 11pm with 90 still to go). Those rates are
-  added together and give how often it runs, how many runs of it go at once (up to 20; the
-  scheduler starts them, each told to take a different slice) and what each run is asked
-  for. Never slower than its ordinary schedule. At its goal it eases off to that schedule.
-  It is never stopped for reaching it.
+- **The pace.** A steady rate of each goal's amount over its window (100 a day is 100 / 24
+  hours, even at 11pm with 90 still to go), the rates added together. It is worked out
+  fresh every time it is needed, from the goal and the agent's own runs (`paceFor`):
+  - **What a run is asked for** is what its plan says a good run makes (`floor`) - or, when
+    its ordinary schedule alone covers the goal, that schedule's share (5 a day on an hourly
+    schedule is 1 a run, five times a day). It is a fixed point: it comes down only when
+    its runs were asked for more than any of them made, and goes back up when that evidence
+    has aged out. It is never an average of what its runs made, which crept up for agents
+    that did as asked and down for ones that fell a little short.
+  - **When the next run toward its goal starts** follows what the last one made: 10 made
+    at 100 a day buys 2.4 hours, 5 made buys 1.2. So the work comes at the goal's rate
+    whatever each run makes, at once and without an average having to catch up. A run buys
+    at most what it was asked for, and at least a breather (a fifth of it, an hour at most);
+    what a breather cost is paid back by the next runs. A failed run buys only what it made.
+  - **What that run is asked for** is what will be short by the time it has earned the next
+    one: what is short now, and what leaves the window meanwhile. Work about to drop out of
+    the count is replaced as it goes, not after the count has dipped. A run for very little
+    waits until it is worth one.
+  - **Runs at once** (up to 20) are only room for long runs. Whichever lane a run starts
+    in, runs toward the goal start one gap apart; the lanes are never kept full.
+  - **Its ordinary schedule** still runs when no run toward the goal is due, and such a run
+    is asked for nothing toward it: it is told to do the rest of its job and not add to the
+    goal. At its goal it is never stopped; it is told the same.
+  - **No faster for being behind.** After time switched off, or while a new goal fills, the
+    rate is the same steady rate. A faster patch bunches work in the window, the bunch
+    leaves it together a period later, and the count then swings for good. The cost is
+    known: off 8 hours a night, it holds about four fifths of a daily goal.
+  - **A changed goal** takes effect in the same moment: the card's level, when the next run
+    is due, and a fresh try for an agent that was stuck. Lowered below what the window
+    already holds, it makes the new amount from that moment.
 - **The Agency Conductor.** Every half hour it looks over every agent with a goal in one
-  cheap call and may change an agent's numbers or leave it a line of advice. Its numbers
-  are kept in bounds and hold for 45 minutes; if the call fails the arithmetic stands.
+  cheap call and may change what an agent's runs are asked for, slow it down, or leave it a
+  line of advice. Asked for more a run, it runs less often by itself: the goal stays the
+  goal. Its numbers are kept in bounds (never more than twice the worked-out runs) and
+  hold for 45 minutes; if the call fails the arithmetic stands.
 - **The effect level** (0-4: the card's glow, twitch and red, and the tone of what the
-  agent is told) comes from the estimated runs a day at its pace: up to 2 is 0, up to 12 is
-  1, up to 48 is 2, up to 200 is 3, more is 4. It moves by itself whenever the pace does,
-  the Conductor's changes included.
+  agent is told) comes from the runs a day that holding its goals takes: up to 2 is 0, up to
+  12 is 1, up to 48 is 2, up to 200 is 3, more is 4. It moves when a goal's number does, and
+  not when the goal is reached for a moment; right on a boundary it keeps the level it had.
 - **What the agent is told.** Its goals, the count so far in each one's window ("70 of 100
-  in the last 24 hours", "64 of 150 in the last 7 days"), that it runs many times, and what this run owes.
-- **Runs that make nothing** are not multiplied: after five in a row it drops to one run an
-  hour and is told to find what is in the way.
+  in the last 24 hours", "64 of 150 in the last 7 days"), that the count is a moving
+  window, that it runs many times, and what this run owes - or that nothing is owed.
+- **Runs that make nothing** are not multiplied: after five in a row that were asked for
+  something it is "stuck": one run at a time, an hour apart, then 2, 4, 8, 16 hours and a
+  day, each asked gently for one, until one makes something. Runs asked for nothing (its
+  goal was reached) never count toward this.
+- **Held to it by a simulator.** `runner/goals-sim.test.ts` drives the real arithmetic and
+  scheduler decisions with a made-up clock over days, against agents that do as asked, make
+  more, fall short, are capped, make nothing three times in ten, fail, are switched off,
+  wait on approvals, and have their goal changed under them. A change to the pace has to
+  keep every one of those at its goal.
 
 ## When more of the main action isn't better
 
