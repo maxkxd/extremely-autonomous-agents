@@ -931,8 +931,10 @@ function BrowserCard() {
   const [confirm, setConfirm] = useState<number | null>(null);
   // Counted from the password list, so each browser shows how many accounts agents have there.
   const [saved, setSaved] = useState<SavedPassword[] | null>(null);
-  // After pairing: the browsers there were, until a new one shows up (then "Browser connected").
-  const [waiting, setWaiting] = useState<{ known: number[]; until: number } | null>(null);
+  // After pairing: the browsers there were, by number, with when each was paired, until
+  // one pairs (then "Browser connected"): a new number, or a browser paired before
+  // pairing again into its own number. An older agency sends no paired: new numbers only.
+  const [waiting, setWaiting] = useState<{ known: Map<number, number | undefined>; until: number } | null>(null);
   const waitRef = useRef(waiting);
   waitRef.current = waiting;
   const load = () =>
@@ -942,7 +944,7 @@ function BrowserCard() {
         setError(null);
         const w = waitRef.current;
         if (!w) return;
-        if (v.browsers.some(b => !w.known.includes(b.n))) {
+        if (v.browsers.some(b => !w.known.has(b.n) || (b.online && w.known.get(b.n) !== b.paired))) {
           waitRef.current = null;
           setWaiting(null);
           setLink(null);
@@ -970,7 +972,7 @@ function BrowserCard() {
       const p = await pairBrowser();
       if (which === 'here') await openBrowserConnect(p.link);
       else setLink(p.link);
-      setWaiting({ known: (view?.browsers ?? []).map(b => b.n), until: Date.now() + PAIR_WAIT_MS });
+      setWaiting({ known: new Map((view?.browsers ?? []).map(b => [b.n, b.paired])), until: Date.now() + PAIR_WAIT_MS });
     } catch (e) {
       setError((e as Error).message);
     } finally {

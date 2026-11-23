@@ -45,12 +45,14 @@ export const _testing = {
   setOpener: (fn: (url: string) => void) => void (opener = fn),
 };
 
-export type LinkedBrowser = { n: number; name: string; kind: 'chrome' | 'edge'; online: boolean; since?: number; lastSeen?: number; version?: string; managed: boolean };
+// paired: when it was last paired, so the app can tell a browser that paired again
+// (same number) from one that was there all along.
+export type LinkedBrowser = { n: number; name: string; kind: 'chrome' | 'edge'; online: boolean; since?: number; lastSeen?: number; version?: string; managed: boolean; paired: number };
 
 type Kind = LinkedBrowser['kind'];
 // managed: an agents' profile, its folder dir (a name under browser-profiles, so the
 // data folder can move). tokenHash '' means not paired yet, or its pairing was removed.
-type Stored = { n: number; name: string; kind: Kind; version?: string; tokenHash: string; created: number; lastSeen?: number; managed?: true; dir?: string };
+type Stored = { n: number; name: string; kind: Kind; version?: string; tokenHash: string; created: number; paired?: number; lastSeen?: number; managed?: true; dir?: string };
 type Store = { v: 1; browsers: Stored[] };
 
 const log = (...a: unknown[]) => console.log('[browser-link]', ...a);
@@ -299,7 +301,7 @@ export function listBrowsers(): LinkedBrowser[] {
     .map(b => {
       const l = live.get(b.n);
       const seen = lastSeen.get(b.n) ?? b.lastSeen;
-      return { n: b.n, name: b.name, kind: b.kind, online: !!l, ...(l ? { since: l.since } : {}), ...(seen ? { lastSeen: seen } : {}), ...(b.version ? { version: b.version } : {}), managed: !!b.managed };
+      return { n: b.n, name: b.name, kind: b.kind, online: !!l, ...(l ? { since: l.since } : {}), ...(seen ? { lastSeen: seen } : {}), ...(b.version ? { version: b.version } : {}), managed: !!b.managed, paired: b.paired ?? b.created };
     });
 }
 
@@ -496,20 +498,25 @@ function accept(ws: WebSocket) {
       const kind = kindOf(msg.browser);
       const label = typeof msg.label === 'string' ? msg.label.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
       const token = randomBytes(32).toString('base64url');
-      if (reserved != null) {
-        // An agents' profile, into its own number: a new token replaces any old one.
-        const b = store.browsers.find(x => x.n === reserved && x.managed);
-        if (!b) return refuse(ws, "That agents' profile was removed from EXTREMELY.");
-        const was = { tokenHash: b.tokenHash, kind: b.kind, version: b.version, lastSeen: b.lastSeen };
-        Object.assign(b, { tokenHash: sha256(token), kind, version: versionOf(msg.version) ?? b.version, lastSeen: Date.now() });
+      // Into a number it has already: an agents' profile's own (its code says which), or
+      // a browser paired here before, which sends the token it holds with the code. A
+      // browser pairing again must keep its number: its saved accounts and kept pages
+      // are under it, and a new one left the old listed, offline for good.
+      const b = reserved != null ? store.browsers.find(x => x.n === reserved && x.managed) : browserForToken(msg.token);
+      if (reserved != null && !b) return refuse(ws, "That agents' profile was removed from EXTREMELY.");
+      if (b) {
+        // A new token replaces the old one, which stops working.
+        const was = { tokenHash: b.tokenHash, kind: b.kind, version: b.version, lastSeen: b.lastSeen, paired: b.paired };
+        Object.assign(b, { tokenHash: sha256(token), kind, version: versionOf(msg.version) ?? b.version, lastSeen: Date.now(), paired: Date.now() });
         try {
           await persist();
         } catch (e) {
           Object.assign(b, was);
           return refuse(ws, `The agency couldn't save this pairing: ${errText(e)}`);
         }
-        log(`browser ${b.n} paired (${kind}, an agents' profile)`);
+        log(`browser ${b.n} paired${reserved != null ? '' : ' again'} (${kind}${b.managed ? ", an agents' profile" : ''})`);
         ws.send(JSON.stringify({ type: 'paired', token, browser: b.n, name: b.name }));
+        // Its older connection, if it's still open, is replaced.
         goOnline(b);
         return;
       }
@@ -518,19 +525,19 @@ function accept(ws: WebSocket) {
       const used = new Set([...store.browsers.map(b => b.n), ...reservedNumbers()]);
       let next = 1;
       while (used.has(next)) next++;
-      const b: Stored = { n: next, name: label || (kind === 'edge' ? 'Edge' : 'Chrome'), kind, version: versionOf(msg.version), tokenHash: sha256(token), created: Date.now(), lastSeen: Date.now() };
-      store.browsers.push(b);
+      const fresh: Stored = { n: next, name: label || (kind === 'edge' ? 'Edge' : 'Chrome'), kind, version: versionOf(msg.version), tokenHash: sha256(token), created: Date.now(), paired: Date.now(), lastSeen: Date.now() };
+      store.browsers.push(fresh);
       try {
         await persist();
       } catch (e) {
         // Not saved means it wouldn't survive a restart: better to say so now.
-        store.browsers = store.browsers.filter(x => x !== b);
+        store.browsers = store.browsers.filter(x => x !== fresh);
         return refuse(ws, `The agency couldn't save this pairing: ${errText(e)}`);
       }
-      log(`browser ${b.n} paired (${kind})`);
-      ws.send(JSON.stringify({ type: 'paired', token, browser: b.n, name: b.name }));
+      log(`browser ${fresh.n} paired (${kind})`);
+      ws.send(JSON.stringify({ type: 'paired', token, browser: fresh.n, name: fresh.name }));
       // The extension may carry on over this connection, or reconnect with hello.
-      goOnline(b);
+      goOnline(fresh);
       return;
     }
     logError(`refused a first frame of type ${String(msg.type).slice(0, 30)}`);

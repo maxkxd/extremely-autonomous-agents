@@ -353,6 +353,39 @@ test('detach leaves the tab open and unattached; attach works again', async t =>
   assert.match(snap, /Order form/);
 });
 
+// Connect this browser again, in a browser that's paired already and online: the
+// extension sends the token it holds, so it pairs again into its own number and stays
+// online. It used to become a new browser and leave its old number listed offline.
+test('pairing again from the connect page keeps the browser number, online', async t => {
+  if (!b) return t.skip(skipReason());
+  const count = listBrowsers().length;
+  const was = listBrowsers().find(x => x.n === b!.n)!;
+  const oldConn = b!.conn;
+  let off = () => {};
+  const again = new Promise<{ n: number; conn: CdpConn }>(r => (off = onBrowserOnline((n, conn) => r({ n, conn }))));
+  const { link } = pairCode(`http://127.0.0.1:${port}`);
+  // The connect page, as the app opens it (here in a tab only an agency can open).
+  const { targetId } = await oldConn.send<{ targetId: string }>('Target.createTarget', { url: `http://127.0.0.1:${port}/browser/connect#${link}`, eaaGroup: group });
+  const got = await Promise.race([again, new Promise<null>(r => setTimeout(() => r(null), 15_000).unref())]);
+  off();
+  assert.ok(got, 'online again after pairing again');
+  assert.equal(got.n, b!.n, 'the same number');
+  // Steady on the pairing connection: no hello replacing it, nothing closing it.
+  await new Promise(r => setTimeout(r, 1500));
+  assert.equal(browserConn(b!.n), got.conn, 'still the pairing connection');
+  assert.ok(oldConn.closed, 'the older connection was replaced');
+  assert.equal(listBrowsers().length, count, 'no second browser');
+  const now = listBrowsers().find(x => x.n === b!.n)!;
+  assert.ok(now.online, 'listed online');
+  assert.ok(now.paired > was.paired, 'paired again');
+  b!.conn = got.conn;
+  // Back online, the agency closes agent tabs no live run has (the connect page's
+  // among them, here). The browser works on the new connection.
+  await until(async () => !(await targets()).some(x => x.targetId === targetId), 5000, 'the connect tab to close');
+  page = await CdpPage.open(b!.conn, bounds, `http://127.0.0.1:${port}/site`, { eaaGroup: group });
+  assert.equal(await page.title(), 'Order form');
+});
+
 test('the browser going away: offline, and waiting calls fail at once', async t => {
   if (!b) return t.skip(skipReason());
   // A call the page never answers (a promise that never settles) is waiting when the browser dies.

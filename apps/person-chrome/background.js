@@ -15,6 +15,10 @@ const REVIVE_ALARM = 'eaa-revive';
 
 // One per pairing, by its url: {ws, state: 'connecting'|'online'|'offline', backoff, retry, ping, error, stopped}
 const conns = new Map();
+// Agencies being paired with right now, by url: no hello meanwhile. A hello sent with
+// the new token while the pairing connection is being adopted would replace it, and
+// then be closed itself, leaving the browser offline.
+const pairingNow = new Set();
 
 const relay = createRelay(chrome, sendTo, {
   userAgent: navigator.userAgent,
@@ -61,7 +65,7 @@ function sendTo(url, frame) {
 
 async function connect(url) {
   const c = connOf(url);
-  if (c.stopped || c.starting || (c.ws && c.ws.readyState <= WebSocket.OPEN)) return;
+  if (c.stopped || c.starting || pairingNow.has(url) || (c.ws && c.ws.readyState <= WebSocket.OPEN)) return;
   c.starting = true;
   clearTimeout(c.retry);
   try {
@@ -220,6 +224,7 @@ function pair(link) {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      pairingNow.delete(url);
       if (!keep) {
         try {
           ws?.close(1000, 'paired');
@@ -233,13 +238,16 @@ function pair(link) {
       } else resolve(value);
     };
     const timer = setTimeout(() => finish('The agency did not answer. Is EXTREMELY running?'), PAIR_TIMEOUT_MS);
-    label().then(lbl => {
+    Promise.all([label(), pairings()]).then(([lbl, list]) => {
       try {
         ws = new WebSocket(url);
       } catch (e) {
         return finish('Bad agency address in that link.');
       }
-      ws.onopen = () => ws.send(JSON.stringify({ type: 'pair', code, protocol: PROTOCOL, version: VERSION, browser: KIND, label: lbl }));
+      // Paired with this agency before: the token it gave goes with the code, so this
+      // browser pairs again into its own number instead of becoming a new browser.
+      const token = list.find(p => p.url === url)?.token;
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'pair', code, protocol: PROTOCOL, version: VERSION, browser: KIND, label: lbl, ...(token ? { token } : {}) }));
       ws.onmessage = async ev => {
         let msg;
         try {
@@ -250,6 +258,7 @@ function pair(link) {
         if (msg.type === 'error') return finish(String(msg.error || 'The agency refused that code.'));
         if (msg.type !== 'paired' || !msg.token) return;
         gotToken = true;
+        pairingNow.add(url);
         // The agency may send commands as soon as it has said "paired": held until this
         // connection is adopted below, then answered in order.
         const early = [];

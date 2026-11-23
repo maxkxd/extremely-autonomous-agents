@@ -92,7 +92,7 @@ export function __setBrowserConnForTest(n: number, conn: CdpConn | null, name = 
 export const pairedBrowsers = (): LinkedBrowser[] =>
   (testBrowsers
     ? [
-        ...[...testBrowsers].map(([n, b]) => ({ n, name: b.name, kind: 'chrome' as const, online: !!b.conn && !b.conn.closed, managed: !!managedProfile(n) })),
+        ...[...testBrowsers].map(([n, b]) => ({ n, name: b.name, kind: 'chrome' as const, online: !!b.conn && !b.conn.closed, managed: !!managedProfile(n), paired: 0 })),
         ...listBrowsers().filter(b => b.managed && !testBrowsers!.has(b.n)),
       ]
     : listBrowsers()

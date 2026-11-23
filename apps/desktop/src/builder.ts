@@ -376,7 +376,8 @@ export const decideApproval = (id: string, decision: 'approved' | 'rejected', no
 // The browser connector (docs/browser-extension.md): the person's own Chrome or Edge
 // profiles, paired through the EXTREMELY extension. Agents work there in their own tab groups.
 // managed: an agents' profile, which the app opens itself (Open, below).
-export type PairedBrowser = { n: number; name: string; kind: 'chrome' | 'edge'; online: boolean; since?: number; lastSeen?: number; version?: string; agentTabs: number; managed?: boolean };
+// paired: when it was last paired (an older agency doesn't say).
+export type PairedBrowser = { n: number; name: string; kind: 'chrome' | 'edge'; online: boolean; since?: number; lastSeen?: number; version?: string; agentTabs: number; managed?: boolean; paired?: number };
 export type BrowsersView = { browsers: PairedBrowser[]; storeLinks: { chrome?: string; edge?: string }; profiles?: { available: boolean; kind?: 'edge' | 'chromium'; why?: string } };
 export const getBrowsers = () => request<BrowsersView>('/api/browser');
 // An agents' profile, opened now: answers once it's online (up to about 40 s).

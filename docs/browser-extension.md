@@ -35,7 +35,7 @@ Server to extension:
 
 Extension to server:
 - `{ "type": "hello", "token": "...", "protocol": 1, "version": "0.2.0", "browser": "chrome" | "edge", "label": "<profile or user-chosen name>" }`. The first frame on a paired connection.
-- `{ "type": "pair", "code": "K7Q2-9XPD", "protocol": 1, "version": "0.2.0", "browser": "chrome", "label": "..." }`. The first frame when pairing.
+- `{ "type": "pair", "code": "K7Q2-9XPD", "token": "...", "protocol": 1, "version": "0.2.0", "browser": "chrome", "label": "..." }`. The first frame when pairing. `token` is the one this browser already holds for this agency, if it has one: sent so it pairs again into its own number.
 - `{ "id": 7, "result": {...} }` or `{ "id": 7, "error": { "message": "..." } }`, a command's answer.
 - `{ "method": "Page.loadEventFired", "params": {...}, "sessionId": "t:123" }`, an event.
 - `{ "type": "ping" }` every 20 s. The server answers `{ "type": "pong" }`, and this keeps the MV3 worker alive.
@@ -137,6 +137,7 @@ Chrome may restore the last session. The agent tabs and groups come back with ne
    - **This browser:** the app opens `http://127.0.0.1:<app port>/browser/connect#<link>` in the default browser. The extension's content script on loopback reads the hash and pairs. If the extension isn't installed, the page says so, with the store links.
    - **Another profile:** the person copies `link` into the extension's popup (**Pair with EXTREMELY**, then paste).
 3. The extension connects to `url` and sends `{type: "pair", code}`. The server checks the code (one use, unexpired) and assigns the next browser number. It stores `sha256(token)` in the vault (`browser-link`, never the token itself) and replies `paired` with the token. The browser is online on that connection from then on; later connections start with `hello`.
+4. **Pairing again** (Connect this browser in a browser that's paired already, or a link pasted into it again): the extension sends the token it holds for that agency with the code. If the agency knows it, the browser keeps its number and its name: a new token replaces the old one, which stops working, and an older connection still open is replaced. Its saved accounts and kept pages are under that number, so it must not become a new browser and leave the old one listed offline. An unknown or missing token pairs as a new browser. An agents' profile's own code always pairs into that profile's number.
 
 **Address `url`:**
 - The agency's own address as the browser reaches it: `ws://127.0.0.1:<its port>/api/browser-link` when it runs on this computer.
@@ -151,7 +152,7 @@ Chrome may restore the last session. The agent tabs and groups come back with ne
 - Loopback connections and any `wss` connection are accepted only with a valid token or code.
 - `Origin` must be `chrome-extension://…`, or absent in tests.
 
-**`GET /api/browser`:** `{ browsers: [{ n, name, kind: "chrome"|"edge", online, since, agentTabs, version, managed }], storeLinks: { chrome?, edge? }, profiles: { available, kind?: "edge"|"chromium", why? } }`. `managed` is an agents' profile; `profiles` says whether the app can open them here, and why not.
+**`GET /api/browser`:** `{ browsers: [{ n, name, kind: "chrome"|"edge", online, since, agentTabs, version, managed, paired }], storeLinks: { chrome?, edge? }, profiles: { available, kind?: "edge"|"chromium", why? } }`. `managed` is an agents' profile; `profiles` says whether the app can open them here, and why not. `paired` is when it was last paired: after Connect a browser, the app says "Browser connected" for a new number, or for a known one whose `paired` changed while it's online.
 
 Routes:
 - `POST /api/browser/rename {n, name}`

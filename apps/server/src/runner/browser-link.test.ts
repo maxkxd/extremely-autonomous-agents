@@ -288,6 +288,67 @@ test('a second connection for the same browser replaces the first', async () => 
   removeBrowser(p.n);
 });
 
+// Connect this browser again, in a browser that's paired already: the extension sends
+// the token it holds with the new code. It used to get a new number while the old one
+// stayed listed, offline for good, so the app said the browser wasn't connected.
+test('pairing again from a paired browser keeps its number, and it is online', async () => {
+  const p = await pair('Chrome - Sam Rivera');
+  renameBrowser(p.n, 'Sam work');
+  const before = listBrowsers().find(b => b.n === p.n)!;
+  const count = listBrowsers().length;
+  let offline = 0;
+  const off = onBrowserOffline(n => n === p.n && offline++);
+  await new Promise(r => setTimeout(r, 5)); // a later pairing time
+
+  const { code } = pairCode('http://agency.example.test');
+  const again = new Ext();
+  await again.open();
+  again.send({ type: 'pair', code, token: p.token, protocol: 1, version: '0.2.1', browser: 'chrome', label: 'Chrome - Sam Rivera' });
+  const reply = await again.next();
+  assert.equal(reply.type, 'paired');
+  assert.equal(reply.browser, p.n, 'the same number');
+  assert.equal(reply.name, 'Sam work', 'its name kept');
+  assert.notEqual(reply.token, p.token, 'a new token');
+
+  // The old connection is replaced, never left behind offline.
+  const old = await p.ext.next();
+  assert.equal(old.type, 'error');
+  await p.ext.closed;
+  assert.equal(listBrowsers().length, count, 'no second browser');
+  const now = listBrowsers().find(b => b.n === p.n)!;
+  assert.ok(now.online, 'online');
+  assert.equal(now.version, '0.2.1');
+  assert.ok(now.paired > before.paired, 'paired again: the app knows it just connected');
+  assert.equal(offline, 0);
+
+  // The old token is spent; the new one says hello.
+  const stale = await hello(p.token);
+  assert.equal(stale.reply.type, 'error');
+  await stale.ext.closed;
+  again.ws.close();
+  await again.closed;
+  const back = await hello(reply.token);
+  assert.equal(back.reply.type, 'hello-ok');
+  assert.equal(back.reply.browser, p.n);
+  off();
+  back.ext.ws.close();
+  await back.ext.closed;
+  removeBrowser(p.n);
+});
+
+test('pairing with a token the agency does not know: a new browser', async () => {
+  const { code } = pairCode('http://agency.example.test');
+  const ext = new Ext();
+  await ext.open();
+  ext.send({ type: 'pair', code, token: 'x'.repeat(43), protocol: 1, version: '0.2.0', browser: 'chrome', label: 'Chrome - Sam' });
+  const reply = await ext.next();
+  assert.equal(reply.type, 'paired');
+  assert.ok(listBrowsers().find(b => b.n === reply.browser)?.online);
+  ext.ws.close();
+  await ext.closed;
+  removeBrowser(reply.browser);
+});
+
 test('removeBrowser closes the live socket and the token stops working', async () => {
   const p = await pair();
   removeBrowser(p.n);
