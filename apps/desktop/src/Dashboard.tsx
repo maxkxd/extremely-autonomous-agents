@@ -752,6 +752,21 @@ export function Dashboard({
   useEffect(() => {
     return every(refreshModels, 8000);
   }, []);
+  // What's connected, kept current too: one answer taken while a connection was
+  // briefly unreachable otherwise stood until the app was restarted, showing
+  // its models as "Not connected" and missing from the picker.
+  useEffect(
+    () =>
+      every(
+        () =>
+          getAvailableModels().then(
+            avail => (avail.length || !lastModels.available?.length) && setAvailable(avail),
+            () => {},
+          ),
+        15_000,
+      ),
+    [],
+  );
   // The moment a card's Setting up pill goes, its tailored models are there to show.
   const settingUp = AGENTS.filter(a => a.settingUp).map(a => a.id).join(',');
   const wasSettingUp = useRef(settingUp);

@@ -630,10 +630,15 @@ let claudeTask: ClaudeCodeStatus['task'];
 
 type ClaudeCodeFacts = Omit<ClaudeCodeStatus, 'task'>;
 
-async function checkClaudeCode(): Promise<ClaudeCodeFacts> {
+// unsure: Claude Code didn't answer (not found, timed out, nothing readable),
+// as opposed to answering that nobody is signed in.
+async function checkClaudeCode(): Promise<ClaudeCodeFacts & { unsure?: boolean }> {
   const bin = await claudeBin();
-  if (!bin) return { installed: false, loggedIn: false };
-  const version = (await run(quoted(bin), ['--version'], claudeOpts())).stdout.trim().split(' ')[0];
+  if (!bin) return { installed: false, loggedIn: false, unsure: true };
+  const version = await run(quoted(bin), ['--version'], claudeOpts()).then(
+    r => r.stdout.trim().split(' ')[0],
+    () => claudeLast?.facts.version,
+  );
   // Exits non-zero when nobody is signed in, but still prints its status.
   const out = await run(quoted(bin), ['auth', 'status', '--json'], claudeOpts()).then(
     r => r.stdout,
@@ -644,7 +649,7 @@ async function checkClaudeCode(): Promise<ClaudeCodeFacts> {
     const plan = !!s.loggedIn && !!s.authMethod && !/none|api.?key/i.test(s.authMethod);
     return { installed: true, version, loggedIn: plan, authMethod: s.authMethod };
   } catch {
-    return { installed: true, version, loggedIn: false };
+    return { installed: true, version, loggedIn: false, unsure: true };
   }
 }
 
@@ -656,9 +661,23 @@ async function checkClaudeCode(): Promise<ClaudeCodeFacts> {
 const CLAUDE_RECHECK_MS = 30_000;
 let claudeLast: { at: number; facts: ClaudeCodeFacts } | null = null;
 let claudeChecking: Promise<ClaudeCodeFacts> | null = null;
+// A check that couldn't get an answer (Claude Code slow to start on a busy
+// computer, so it timed out) isn't a sign-out: the last answer stands, until
+// that's happened a few times in a row and the loss is likely real. Without
+// this, Claude dropped out of every model picker for a while each time the
+// agency was busy.
+const CLAUDE_UNSURE_LIMIT = 4;
+let claudeUnsure = 0;
 const recheckClaudeCode = () =>
   (claudeChecking ??= checkClaudeCode()
-    .then(facts => ((claudeLast = { at: Date.now(), facts }), facts))
+    .then(facts => {
+      const lost = !facts.installed || !facts.loggedIn;
+      if (facts.unsure && lost && claudeLast?.facts.loggedIn && ++claudeUnsure < CLAUDE_UNSURE_LIMIT) return claudeLast.facts;
+      if (!facts.unsure) claudeUnsure = 0;
+      const { unsure: _, ...kept } = facts;
+      claudeLast = { at: Date.now(), facts: kept };
+      return kept;
+    })
     .finally(() => (claudeChecking = null)));
 
 export async function claudeCodeStatus(fresh = false): Promise<ClaudeCodeStatus> {
