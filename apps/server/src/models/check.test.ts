@@ -67,3 +67,11 @@ test('a dead sign-in is a failed check, so Auto-switch never moves agents onto i
   assert.deepEqual(thrownCheck(new ConnectError('ChatGPT sign-in failed (503).'), 1), { ok: true, unsure: true, reason: "Couldn't check: ChatGPT sign-in failed (503).", at: 1 });
   assert.deepEqual(thrownCheck(new TypeError('fetch failed'), 1), { ok: true, unsure: true, reason: "Couldn't check: fetch failed", at: 1 });
 });
+
+test('an unsure check is checked again after 10 minutes, so an old unsure result never stands as working', () => {
+  const stale = { ok: true, unsure: true, reason: "Couldn't check: That sign-in has expired. Start it again.", at: 0 };
+  assert.deepEqual(dueForRecheck({ 'chatgpt/gpt-6-luna': stale }, 10 * 60_000), [{ connection: 'chatgpt', model: 'gpt-6-luna' }]);
+  assert.deepEqual(dueForRecheck({ 'chatgpt/gpt-6-luna': stale }, 5 * 60_000), []);
+  // A check that passed is left alone.
+  assert.deepEqual(dueForRecheck({ 'claude-code/claude-haiku-5-5': { ok: true, at: 0 } }, 24 * 3_600_000), []);
+});

@@ -85,9 +85,12 @@ export function thrownCheck(e: unknown, at = Date.now()): Check {
 // Failed checks due again: a model out of its plan's limit, or a key fixed since,
 // works again without anyone opening a model picker. Nothing else checks again.
 export const RECHECK_MS = 60 * 60_000;
+// An unsure one is due too, once it's UNSURE_MS old: it counts as working, so
+// left alone it would stand for good - a sign-in that expired before anything
+// checked it again stayed "working" for Auto-switch to move agents onto.
 export function dueForRecheck(all: Record<string, Check>, now = Date.now()): { connection: string; model: string }[] {
   return Object.entries(all)
-    .filter(([, c]) => c.ok === false && now - c.at >= RECHECK_MS)
+    .filter(([, c]) => (c.ok === false && now - c.at >= RECHECK_MS) || (c.unsure && now - c.at >= UNSURE_MS))
     .map(([key]) => ({ connection: key.slice(0, key.indexOf('/')), model: key.slice(key.indexOf('/') + 1) }))
     .filter(x => x.connection && x.model);
 }
