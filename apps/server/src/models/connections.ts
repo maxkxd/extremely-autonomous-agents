@@ -666,17 +666,28 @@ let claudeChecking: Promise<ClaudeCodeFacts> | null = null;
 // that's happened a few times in a row and the loss is likely real. Without
 // this, Claude dropped out of every model picker for a while each time the
 // agency was busy.
-const CLAUDE_UNSURE_LIMIT = 4;
+// The kept answer counts as fresh, so the next check waits the usual 30
+// seconds and "a few in a row" spans about two minutes, not a burst.
+export const CLAUDE_UNSURE_LIMIT = 4;
+export function settleClaudeCheck(
+  facts: ClaudeCodeFacts & { unsure?: boolean },
+  last: ClaudeCodeFacts | null,
+  unsureInARow: number,
+): { facts: ClaudeCodeFacts; unsureInARow: number } {
+  const { unsure, ...answer } = facts;
+  if (!unsure) return { facts: answer, unsureInARow: 0 };
+  const n = unsureInARow + 1;
+  if (last?.loggedIn && n < CLAUDE_UNSURE_LIMIT) return { facts: last, unsureInARow: n };
+  return { facts: answer, unsureInARow: n };
+}
 let claudeUnsure = 0;
 const recheckClaudeCode = () =>
   (claudeChecking ??= checkClaudeCode()
-    .then(facts => {
-      const lost = !facts.installed || !facts.loggedIn;
-      if (facts.unsure && lost && claudeLast?.facts.loggedIn && ++claudeUnsure < CLAUDE_UNSURE_LIMIT) return claudeLast.facts;
-      if (!facts.unsure) claudeUnsure = 0;
-      const { unsure: _, ...kept } = facts;
-      claudeLast = { at: Date.now(), facts: kept };
-      return kept;
+    .then(found => {
+      const { facts, unsureInARow } = settleClaudeCheck(found, claudeLast?.facts ?? null, claudeUnsure);
+      claudeUnsure = unsureInARow;
+      claudeLast = { at: Date.now(), facts };
+      return facts;
     })
     .finally(() => (claudeChecking = null)));
 

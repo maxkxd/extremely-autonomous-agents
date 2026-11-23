@@ -759,10 +759,7 @@ export function Dashboard({
     () =>
       every(
         () =>
-          getAvailableModels().then(
-            avail => (avail.length || !lastModels.available?.length) && setAvailable(avail),
-            () => {},
-          ),
+          getAvailableModels().then(setAvailable, () => {}),
         15_000,
       ),
     [],
