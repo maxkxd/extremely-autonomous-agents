@@ -33,7 +33,8 @@ async function agency() {
     join(dataDir, 'browser-profiles', '1', 'Default', 'Cookies'),
     join(dataDir, 'browser-profiles', '1', 'Default', 'Preferences'),
     join(dataDir, 'browser-profiles', '1', 'Default', 'Service Worker', 'Database', 'd'),
-    join(dataDir, 'browser-profiles', 'person-1', 'Default', 'Cache', 'c'),
+    join(dataDir, 'browser-profiles', 'person-1', 'Default', 'Cookies'),
+    join(dataDir, 'browser-profiles', 'person-1', 'Local State'),
     join(root, 'other', 'x'),
     join(root, 'agency-notes', 'x'),
   ];
@@ -47,6 +48,8 @@ async function agency() {
   await put(join(one, 'Default', 'GPUCache', 'g'), 500);
   await put(join(one, 'Default', 'Service Worker', 'CacheStorage', 's'), 600);
   await put(join(one, 'GPUCache', 'r'), 50);
+  // A person's sign-in window that is closed: its caches go, its sign-in (above) stays.
+  await put(join(dataDir, 'browser-profiles', 'person-1', 'Default', 'Cache', 'c'), 10);
   await put(join(root, 'agency.replaced-1', 'old.db'), 10);
   await put(join(root, 'agency.replaced-2', 'old.db'), 20);
   // A profile whose browser is open.
@@ -59,11 +62,29 @@ test('only the caches and old agency copies go, and the bytes freed are counted'
   try {
     const open = (dir: string) => Promise.resolve(dir === join(a.dataDir, 'browser-profiles', '2'));
     const r = await sweepDisk({ dataDir: a.dataDir, programsDir: a.programsDir, now: Date.now() + (REPLACED_AFTER_DAYS + 7) * DAY, inUse: open });
-    assert.deepEqual(r, { freed: 300 + 1850 + 30, programs: 300, browsers: 1850, replaced: 30, keptOpen: [2] });
-    for (const gone of [join(a.programsDir, '.npm-cache'), join(a.programsDir, '.cache'), join(a.one, 'Default', 'Cache'), join(a.one, 'Default', 'Code Cache'), join(a.one, 'Default', 'GPUCache'), join(a.one, 'Default', 'Service Worker', 'CacheStorage'), join(a.one, 'GPUCache'), join(a.root, 'agency.replaced-1'), join(a.root, 'agency.replaced-2')])
+    assert.deepEqual(r, { freed: 300 + 1860 + 30, programs: 300, browsers: 1860, replaced: 30, keptOpen: [2] });
+    for (const gone of [join(a.programsDir, '.npm-cache'), join(a.programsDir, '.cache'), join(a.one, 'Default', 'Cache'), join(a.one, 'Default', 'Code Cache'), join(a.one, 'Default', 'GPUCache'), join(a.one, 'Default', 'Service Worker', 'CacheStorage'), join(a.one, 'GPUCache'), join(a.dataDir, 'browser-profiles', 'person-1', 'Default', 'Cache'), join(a.root, 'agency.replaced-1'), join(a.root, 'agency.replaced-2')])
       assert.equal(await exists(gone), false, `${gone} is cleared`);
     for (const kept of a.keep) assert.equal(await exists(kept), true, `${kept} is kept`);
     assert.equal(await exists(join(a.dataDir, 'browser-profiles', '2', 'Default', 'Cache', 'c')), true, 'an open browser keeps its caches');
+  } finally {
+    await rm(a.root, { recursive: true, force: true });
+  }
+});
+
+test("a person's sign-in window that is still open keeps its caches, and is named as left alone", async () => {
+  const a = await agency();
+  try {
+    const person = join(a.dataDir, 'browser-profiles', 'person-1');
+    const r = await sweepDisk({ dataDir: a.dataDir, programsDir: a.programsDir, now: Date.now(), inUse: dir => Promise.resolve(dir === person) });
+    assert.deepEqual(r.keptOpen, ['person-1']);
+    assert.equal(await exists(join(person, 'Default', 'Cache', 'c')), true, 'caches in use stay');
+    assert.equal(await exists(join(person, 'Default', 'Cookies')), true, 'the sign-in stays');
+    // Closed on a later sweep: now they go.
+    const later = await sweepDisk({ dataDir: a.dataDir, programsDir: a.programsDir, now: Date.now(), inUse: () => Promise.resolve(false) });
+    assert.deepEqual(later.keptOpen, []);
+    assert.equal(await exists(join(person, 'Default', 'Cache')), false);
+    assert.equal(await exists(join(person, 'Default', 'Cookies')), true);
   } finally {
     await rm(a.root, { recursive: true, force: true });
   }
