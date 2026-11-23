@@ -15,6 +15,8 @@ type Request = { id: number; method?: string; path?: string; headers?: Record<st
 type Channel = { session: Session | null; inbox: Promise<unknown>; outbox: Promise<unknown> };
 
 const MAX_BODY = 2 * 1024 * 1024;
+// A connection that held this long counts as a good one: the pause before the next try starts over.
+const STABLE_MS = 30_000;
 // The organization's agency: beside us on HOSTED_PORT, or (in the cloud, cloud.ts) this very process.
 // (A function: hosting.ts imports this file, so its values aren't there yet at load.)
 const agencyPort = () => (process.env.EAA_HOSTED_ORG ? Number(process.env.PORT ?? HOSTED_PORT) : HOSTED_PORT);
@@ -22,6 +24,12 @@ let sock: WebSocket | null = null;
 let stopped = true;
 let retry = 0;
 let state: 'off' | 'connecting' | 'online' = 'off';
+// When the current connection became ready (0: it isn't).
+let onlineAt = 0;
+// Connections in a row that dropped before STABLE_MS: logged once, not every time.
+let drops = 0;
+// Tries in a row that never got connected: logged once, not every time.
+let failing = false;
 export const relayState = () => state;
 
 const pemToDer = (pem: string): Bytes => fromB64(pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''));
@@ -56,7 +64,24 @@ export async function startRelay(h: Hosting) {
     } catch {
       return;
     }
-    if (m.t === 'ready') return void ((state = 'online'), (retry = 0), console.log(`[relay] ${h.orgName} is reachable by its members.`));
+    if (m.t === 'ready') {
+      state = 'online';
+      onlineAt = Date.now();
+      failing = false;
+      if (!drops) {
+        retry = 0;
+        console.log(`[relay] ${h.orgName} is reachable by its members.`);
+      } else {
+        // It has been dropping: say so again only once it has held, and not before.
+        setTimeout(() => {
+          if (sock !== ws || state !== 'online') return;
+          drops = 0;
+          retry = 0;
+          console.log(`[relay] ${h.orgName} is reachable by its members again (connection to ${url.host} is holding).`);
+        }, STABLE_MS).unref();
+      }
+      return;
+    }
     if (typeof m.c !== 'number') return;
     const c = m.c;
     if (m.t === 'open') return void channels.set(c, { session: null, inbox: Promise.resolve(), outbox: Promise.resolve() });
@@ -82,11 +107,32 @@ export async function startRelay(h: Hosting) {
       send({ t: 'close', c });
     });
   };
-  ws.onclose = () => {
+  ws.onclose = e => {
+    const was = state;
+    const stayed = onlineAt ? Date.now() - onlineAt : 0;
     sock = null;
     state = 'off';
+    onlineAt = 0;
     if (stopped) return;
+    // Growing pauses (up to a minute): a connection that keeps dropping right after it is
+    // ready (say, two hosts with the same secret replacing each other) no longer retries every second.
     const wait = Math.min(60_000, 1000 * 2 ** retry++);
+    const why = `code ${e.code}${e.reason ? `, "${String(e.reason).slice(0, 100)}"` : ''}`;
+    if (was === 'online') {
+      if (stayed >= STABLE_MS) {
+        drops = 0;
+        retry = 0;
+        console.log(`[relay] Connection to ${url.host} closed (${why}) after ${Math.round(stayed / 1000)}s; connecting again.`);
+      } else if (++drops === 1) {
+        console.log(
+          `[relay] Connection to ${url.host} dropped (${why}) ${Math.round(stayed / 1000)}s after it was ready; connecting again, ` +
+            `waiting longer if it keeps dropping. It is logged again once it holds.`,
+        );
+      }
+    } else if (!failing) {
+      failing = true;
+      console.log(`[relay] Could not connect to ${url.host} (${why}); trying again, waiting longer each time. Logged once until it connects.`);
+    }
     setTimeout(() => !stopped && void startRelay(current ?? h), wait);
   };
   ws.onerror = () => {}; // onclose follows
