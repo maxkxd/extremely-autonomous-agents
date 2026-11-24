@@ -46,8 +46,15 @@ const serverEnv = (() => {
 })();
 const fromEnv = name => (process.env[name] ?? new RegExp(`^${name}=(.*)$`, 'm').exec(serverEnv)?.[1] ?? '').trim().replace(/^["']|["']$/g, '');
 const google = fromEnv('EAA_GOOGLE_CLIENT_ID');
-if (google) fs.writeFileSync(path.join(server, 'shared-clients.json'), JSON.stringify({ google: { clientId: google, clientSecret: fromEnv('EAA_GOOGLE_CLIENT_SECRET') || undefined } }));
-else console.warn("No EAA_GOOGLE_CLIENT_ID: Gmail sign-in will ask for the person's own Google client.");
+const microsoft = fromEnv('EAA_MICROSOFT_CLIENT_ID');
+const shared = {
+  ...(google && { google: { clientId: google, clientSecret: fromEnv('EAA_GOOGLE_CLIENT_SECRET') || undefined } }),
+  // Microsoft's is a public client: an id and no secret.
+  ...(microsoft && { microsoft: { clientId: microsoft } }),
+};
+if (Object.keys(shared).length) fs.writeFileSync(path.join(server, 'shared-clients.json'), JSON.stringify(shared));
+if (!google) console.warn("No EAA_GOOGLE_CLIENT_ID: Gmail sign-in will ask for the person's own Google client.");
+if (!microsoft) console.warn("No EAA_MICROSOFT_CLIENT_ID: Outlook sign-in will ask for the person's own Microsoft app.");
 // Our backend, the one the app is built with: connection failures are reported
 // there as kinds only (apps/server/src/integrations/report.ts). None: nothing is sent.
 const envLocal = (() => {

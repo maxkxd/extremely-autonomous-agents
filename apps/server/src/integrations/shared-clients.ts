@@ -13,12 +13,14 @@ import { fileURLToPath } from 'node:url';
 // Only built-in definitions use one: our client is verified for the scopes we
 // registered with Google, and a definition someone wrote could ask for others.
 
-export type SharedProvider = 'google';
+export type SharedProvider = 'google' | 'microsoft';
 export type SharedClient = { clientId: string; clientSecret?: string };
 
 const FILE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'shared-clients.json');
 const ENV: Record<SharedProvider, { id: string; secret: string }> = {
   google: { id: 'EAA_GOOGLE_CLIENT_ID', secret: 'EAA_GOOGLE_CLIENT_SECRET' },
+  // A public client: no secret at all (PKCE only).
+  microsoft: { id: 'EAA_MICROSOFT_CLIENT_ID', secret: 'EAA_MICROSOFT_CLIENT_SECRET' },
 };
 
 let built: Partial<Record<SharedProvider, SharedClient>> | null = null;

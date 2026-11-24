@@ -45,6 +45,19 @@ for everything else.
    any organisation and personal accounts, as a public client with a loopback
    redirect. Publisher verification (needs a free Microsoft Partner Network ID)
    so people see our name; some organisations' admins must approve it once.
+   **Done for Outlook (2026-11-24):** app "EXTREMELY Autonomous Agents"
+   (a public client, no secret; its id is kept out of git like Google's) in
+   the World Asset Register Azure directory, any organisation plus personal
+   accounts, redirect `http://localhost` (Microsoft matches any port; it doesn't
+   take 127.0.0.1 from the portal, hence `loopback: localhost`). Delegated
+   Graph permissions: offline_access, User.Read, Mail.ReadWrite, Mail.Send,
+   MailboxSettings.ReadWrite, Calendars.ReadWrite. The id goes in at build time
+   as `EAA_MICROSOFT_CLIENT_ID` (GitHub variable, or apps/server/.env).
+   **Still to do:** publisher verification. Until then personal accounts
+   (outlook.com, hotmail) sign in fine with an "unverified" note, but Microsoft
+   blocks people in other organisations from consenting at all ("End users
+   cannot grant consent to newly registered multitenant apps without verified
+   publishers"), so work accounts need it or their admin's consent.
 4. **Slack**: one app, public distribution switched on (the App Directory
    listing is optional). Check whether its token swap still needs the client
    secret; if it does, our backend does it (above).

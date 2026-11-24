@@ -1,0 +1,44 @@
+# Outlook - email and calendar for Microsoft 365 work accounts and outlook.com /
+# hotmail / live accounts, through Microsoft Graph. Its tools are the agency's
+# standard email (gmail.*) and calendar (calendar.*) ones, so an agent built for
+# email works with Outlook or Gmail, whichever is connected. Code, not request
+# templates (src/integrations/modules/outlook.ts): Gmail-style searches are
+# turned into Graph's, replies are threaded, and changes are batched.
+# Docs: https://learn.microsoft.com/graph/api/resources/mail-api-overview
+kind: code
+id: outlook
+name: Outlook
+what: Read, search, draft, categorize and archive email, manage inbox rules and your calendar; sending and invitations need your approval
+module: outlook
+auth:
+  type: oauth2
+  # common: work and school accounts in any organization, and personal Microsoft accounts.
+  authorize_url: https://login.microsoftonline.com/common/oauth2/v2.0/authorize
+  token_url: https://login.microsoftonline.com/common/oauth2/v2.0/token
+  # Microsoft's desktop apps register "http://localhost" (any port), not 127.0.0.1.
+  loopback: localhost
+  # Mail.ReadWrite: reading, drafts, categories, moving to Archive - never Deleted
+  # Items or Junk. Mail.Send: sending. MailboxSettings.ReadWrite: inbox rules and the
+  # auto-reply (never forwarding: the tools refuse it). Calendars.ReadWrite: events
+  # on their own calendars. offline_access: a refresh token. Registered on our
+  # Microsoft app: a scope added here must be added to it first.
+  scopes:
+    - offline_access
+    - https://graph.microsoft.com/User.Read
+    - https://graph.microsoft.com/Mail.ReadWrite
+    - https://graph.microsoft.com/Mail.Send
+    - https://graph.microsoft.com/MailboxSettings.ReadWrite
+    - https://graph.microsoft.com/Calendars.ReadWrite
+  # Lets a person with more than one Microsoft account pick which.
+  params: { prompt: select_account }
+  # Signs in with our Microsoft app where the app has one: nothing to make.
+  # The steps below are for an organization using its own app registration.
+  shared: microsoft
+  client_url: https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade
+  client_help: |
+    1. In Microsoft Entra (entra.microsoft.com) -> App registrations -> New registration.
+    2. Supported account types: the one that fits (any organization plus personal accounts covers everyone).
+    3. Redirect URI: platform "Public client/native (mobile & desktop)", address http://localhost.
+    4. API permissions -> Add -> Microsoft Graph -> Delegated: offline_access, User.Read, Mail.ReadWrite, Mail.Send, MailboxSettings.ReadWrite, Calendars.ReadWrite.
+    5. Copy the Application (client) ID here. No secret: leave that empty.
+test: { tool: gmail.list_messages, args: { query: in:inbox, max: 1 } }

@@ -48,6 +48,7 @@ jobs:
           # Our Google client (apps/server/src/integrations/shared-clients.ts), so Gmail and Drive are just a sign-in.
           EAA_GOOGLE_CLIENT_ID: ${{ vars.EAA_GOOGLE_CLIENT_ID }}
           EAA_GOOGLE_CLIENT_SECRET: ${{ secrets.EAA_GOOGLE_CLIENT_SECRET }}
+          EAA_MICROSOFT_CLIENT_ID: ${{ vars.EAA_MICROSOFT_CLIENT_ID }}
         run: node scripts/stage.cjs
 
       - name: Install the packager
@@ -150,6 +151,7 @@ jobs:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
           EAA_GOOGLE_CLIENT_ID: ${{ vars.EAA_GOOGLE_CLIENT_ID }}
           EAA_GOOGLE_CLIENT_SECRET: ${{ secrets.EAA_GOOGLE_CLIENT_SECRET }}
+          EAA_MICROSOFT_CLIENT_ID: ${{ vars.EAA_MICROSOFT_CLIENT_ID }}
         run: node scripts/stage.cjs
 
       - name: Install the packager
@@ -189,6 +191,7 @@ jobs:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
           EAA_GOOGLE_CLIENT_ID: ${{ vars.EAA_GOOGLE_CLIENT_ID }}
           EAA_GOOGLE_CLIENT_SECRET: ${{ secrets.EAA_GOOGLE_CLIENT_SECRET }}
+          EAA_MICROSOFT_CLIENT_ID: ${{ vars.EAA_MICROSOFT_CLIENT_ID }}
           EAA_EXTRA_ARCHS: x64
         run: node scripts/stage.cjs
 

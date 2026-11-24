@@ -40,7 +40,7 @@ export const Auth = z.discriminatedUnion('type', [
     client_help: z.string().optional(), // how to make it, in steps
     // Signs in with our own client for that provider when the app has one
     // (shared-clients.ts) - nothing to make; client_help is for using your own.
-    shared: z.enum(['google']).optional(),
+    shared: z.enum(['google', 'microsoft']).optional(),
   }),
   // A remote MCP server's own sign-in (the MCP authorization spec): found and
   // registered with when the person signs in - no OAuth client to make.

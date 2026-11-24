@@ -387,6 +387,46 @@ application client refuses the loopback address), and an OAuth app left in **Tes
 every 7 days, so the steps say to publish it (it's for personal use, so it
 needs no review; Google shows an "unverified app" warning once).
 
+## Email and calendar (Outlook)
+
+`outlook.yaml` + `modules/outlook.ts`, through Microsoft Graph, for Microsoft
+365 work accounts and outlook.com / hotmail / live accounts. One sign-in covers
+mail and calendar, with our Microsoft app (`shared: microsoft`,
+shared-sign-ins.md). Its tools are the standard `gmail.*` and `calendar.*` ones,
+with Gmail's and Google Calendar's inputs and tiers (outlook.test.ts holds them
+to that), so an agent built for email works with whichever the person
+connected. With both connected, the first live one serves.
+
+How Outlook differs, all inside the module:
+
+- **Searches** are Gmail's syntax (`from:dana is:unread newer_than:7d`, `in:sent`,
+  `label:X`). Words, from, to and subject go to Graph's `$search`; read, flag,
+  importance, attachment, date and category become a `$filter` (date first, so
+  Graph can sort newest first), or are checked on the results when there's a
+  `$search`, since Graph can't mix the two.
+- **Labels** are categories (made in the person's category list if missing);
+  starred is a flag, important is high importance, removing inbox archives.
+- **Moves change ids on outlook.com.** Work accounts keep a message's id when it's
+  moved (we ask for immutable ids); personal accounts don't, so archiving and
+  moving say each new id. Tested live: an archived message read again by the id
+  it gave.
+- **Replies** are Graph's own reply drafts, so they thread and quote the original;
+  the agent's text goes above the quote.
+- **Filters** are inbox rules. Rules can't flag mail or keep it out of Junk, so
+  `star` and `never_spam` are refused, not dropped. Forwarding and redirecting
+  are never made; `read_settings` shows them in words if a person made one.
+- **No signature tool:** Graph can't set an Outlook signature, so
+  `gmail.set_signature` fails and says where the person sets it.
+- **Calendar:** events by `calendarView` (default the next 30 days), busy times
+  from the events not shown as free, times sent and shown in UTC. Creating or
+  changing an event that invites people is T2, as with Google.
+
+Tested live (2026-11-24) on a real outlook.com account: sign-in and refresh,
+every search shape, drafts (new and a threaded reply), send_to_me, categories,
+flag and importance on and off, archive and back, rules made and removed,
+auto-reply read, events listed, made, moved and removed. Not yet on a Microsoft
+365 work mailbox.
+
 ## Documents (Google Drive)
 
 `drive.yaml` + `modules/drive.ts`: Drive, Docs and Sheets through their APIs
