@@ -43,6 +43,8 @@ export const _testing = {
   setFirstFrameMs: (ms: number) => void (firstFrameMs = ms),
   setCodeTtlMs: (ms: number) => void (codeTtlMs = ms),
   setOpener: (fn: (url: string) => void) => void (opener = fn),
+  // A connection dropping with no goodbye (a network that went away).
+  drop: (n: number) => void live.get(n)?.ws.terminate(),
 };
 
 // paired: when it was last paired, so the app can tell a browser that paired again

@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
-import { _testing, browserConn, handleBrowserLinkUpgrade, listBrowsers, onBrowserOffline, onBrowserOnline, pairCode, removeBrowser, renameBrowser } from './browser-link.js';
+import { createHash } from 'node:crypto';
+import { getSecret } from '../vault.js';
+import { _testing, addManagedProfile, browserConn, handleBrowserLinkUpgrade, listBrowsers, onBrowserOffline, onBrowserOnline, pairCode, removeBrowser, renameBrowser } from './browser-link.js';
 
 // A real server with the upgrade handler, and Node's own WebSocket as a fake
 // extension. Test persona: Sam Rivera's work Chrome.
@@ -347,6 +349,174 @@ test('pairing with a token the agency does not know: a new browser', async () =>
   ext.ws.close();
   await ext.closed;
   removeBrowser(reply.browser);
+});
+
+// Pairing again, the cases around it: nothing else may move.
+
+async function pairAgain(token: string | undefined, opts: { browser?: number } = {}) {
+  const { code } = pairCode(opts.browser != null ? { browser: opts.browser, local: true } : 'http://agency.example.test');
+  const ext = new Ext();
+  await ext.open();
+  ext.send({ type: 'pair', code, protocol: 1, version: '0.2.1', browser: 'chrome', label: 'Chrome - Sam Rivera', ...(token ? { token } : {}) });
+  const reply = await ext.next();
+  assert.equal(reply.type, 'paired');
+  return { ext, token: reply.token as string, n: reply.browser as number };
+}
+const row = (n: number) => listBrowsers().find(b => b.n === n);
+const quiet = () => new Promise(r => setTimeout(r, 50));
+
+test('two browsers: each pairs again into its own number, and the other is left alone', async () => {
+  const work = await pair('Chrome - Sam work');
+  const home = await pair('Edge - Sam home');
+  const homeConn = browserConn(home.n);
+  const count = listBrowsers().length;
+
+  const work2 = await pairAgain(work.token);
+  assert.equal(work2.n, work.n);
+  assert.equal((await work.ext.next()).type, 'error'); // work's old connection replaced
+  await quiet();
+  assert.equal(home.ext.frames.length, 0, 'nothing sent to the other browser');
+  assert.equal(browserConn(home.n), homeConn, "the other browser's connection kept");
+  assert.ok(row(home.n)?.online);
+
+  const home2 = await pairAgain(home.token);
+  assert.equal(home2.n, home.n);
+  assert.ok(row(work.n)?.online, 'the first is still online');
+  assert.equal(listBrowsers().length, count, 'no new browsers');
+  // Each new token is its own browser's.
+  for (const x of [work2, home2]) x.ext.ws.close();
+  await Promise.all([work2.ext.closed, home2.ext.closed]);
+  const a = await hello(work2.token);
+  const b = await hello(home2.token);
+  assert.equal(a.reply.browser, work.n);
+  assert.equal(b.reply.browser, home.n);
+  for (const x of [a, b]) x.ext.ws.close();
+  await Promise.all([a.ext.closed, b.ext.closed]);
+  removeBrowser(work.n);
+  removeBrowser(home.n);
+});
+
+test('paired again, then the connection drops: it comes back on the new token, same number', async () => {
+  const p = await pair();
+  const again = await pairAgain(p.token);
+  let offline = 0;
+  const off = onBrowserOffline(n => n === p.n && offline++);
+  again.ext.ws.close(); // the laptop slept, the agency restarted, ...
+  await again.ext.closed;
+  await until(() => offline === 1);
+  assert.equal(row(p.n)?.online, false);
+  const back = await hello(again.token);
+  assert.equal(back.reply.type, 'hello-ok');
+  assert.equal(back.reply.browser, p.n);
+  assert.ok(row(p.n)?.online);
+  off();
+  back.ext.ws.close();
+  await back.ext.closed;
+  removeBrowser(p.n);
+});
+
+test('pairing again while it is offline: same number, online', async () => {
+  const p = await pair();
+  p.ext.ws.close();
+  await p.ext.closed;
+  await until(() => row(p.n)?.online === false);
+  const count = listBrowsers().length;
+  const again = await pairAgain(p.token);
+  assert.equal(again.n, p.n);
+  assert.ok(row(p.n)?.online);
+  assert.equal(listBrowsers().length, count);
+  again.ext.ws.close();
+  await again.ext.closed;
+  removeBrowser(p.n);
+});
+
+test('pairing again and again: the same number every time; only the newest token works', async () => {
+  const p = await pair();
+  let token = p.token;
+  const spent: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const again = await pairAgain(token);
+    assert.equal(again.n, p.n);
+    spent.push(token);
+    token = again.token;
+    again.ext.ws.close();
+    await again.ext.closed;
+  }
+  for (const old of spent) {
+    const h = await hello(old);
+    assert.equal(h.reply.type, 'error');
+    await h.ext.closed;
+  }
+  const h = await hello(token);
+  assert.equal(h.reply.browser, p.n);
+  h.ext.ws.close();
+  await h.ext.closed;
+  removeBrowser(p.n);
+});
+
+test('the new token is the one saved, so it still works after the agency restarts', async () => {
+  const p = await pair();
+  const again = await pairAgain(p.token);
+  const saved = await getSecret<{ browsers: { n: number; tokenHash: string }[] }>('browser-link');
+  const mine = saved?.browsers.find(b => b.n === p.n);
+  assert.equal(mine?.tokenHash, createHash('sha256').update(again.token).digest('hex'));
+  again.ext.ws.close();
+  await again.ext.closed;
+  removeBrowser(p.n);
+});
+
+test('extension removed and added back (it has no token): a new browser; the old one is left as it was', async () => {
+  const p = await pair('Chrome - Sam Rivera');
+  p.ext.ws.close();
+  await p.ext.closed;
+  await until(() => row(p.n)?.online === false);
+  const fresh = await pairAgain(undefined);
+  assert.notEqual(fresh.n, p.n);
+  assert.ok(row(fresh.n)?.online);
+  assert.equal(row(p.n)?.online, false, 'the old one is untouched, for the person to remove');
+  const old = await hello(p.token); // its old token is untouched too
+  assert.equal(old.reply.browser, p.n);
+  for (const x of [fresh.ext, old.ext]) x.ws.close();
+  await Promise.all([fresh.ext.closed, old.ext.closed]);
+  removeBrowser(p.n);
+  removeBrowser(fresh.n);
+});
+
+test('removed from EXTREMELY, then paired again with its old token: a browser of its own, nothing else taken', async () => {
+  const other = await pair('Edge - Sam home');
+  const p = await pair();
+  removeBrowser(p.n);
+  await p.ext.closed;
+  const again = await pairAgain(p.token);
+  assert.notEqual(again.n, other.n);
+  assert.ok(row(again.n)?.online);
+  assert.ok(row(other.n)?.online, 'the other browser is left alone');
+  for (const x of [again.ext, other.ext]) x.ws.close();
+  await Promise.all([again.ext.closed, other.ext.closed]);
+  removeBrowser(again.n);
+  removeBrowser(other.n);
+});
+
+test("an agents' profile's code goes to that profile, whatever token comes with it", async () => {
+  await addManagedProfile({ n: 40, dir: 'test-40', name: 'Agents 40', kind: 'chrome' });
+  const person = await pair('Chrome - Sam Rivera');
+  // A token for the person's browser, sent with the profile's code: the profile pairs, the person's browser keeps its own.
+  const prof = await pairAgain(person.token, { browser: 40 });
+  assert.equal(prof.n, 40);
+  await quiet();
+  assert.equal(person.ext.frames.length, 0);
+  assert.ok(row(person.n)?.online);
+  // And the profile, paired again with its own token, stays 40.
+  prof.ext.ws.close();
+  await prof.ext.closed;
+  const prof2 = await pairAgain(prof.token, { browser: 40 });
+  assert.equal(prof2.n, 40);
+  const p2 = await pairAgain(prof2.token); // even from a plain code
+  assert.equal(p2.n, 40);
+  for (const x of [person.ext, p2.ext]) x.ws.close();
+  await Promise.all([person.ext.closed, p2.ext.closed]);
+  removeBrowser(person.n);
+  removeBrowser(40);
 });
 
 test('removeBrowser closes the live socket and the token stops working', async () => {

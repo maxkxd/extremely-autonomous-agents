@@ -10,7 +10,7 @@ import { dirname, join, resolve } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { pageViewForTests as view } from './browser.js';
-import { browserConn, handleBrowserConnectPage, handleBrowserLinkUpgrade, listBrowsers, onBrowserOnline, pairCode } from './browser-link.js';
+import { _testing, browserConn, handleBrowserConnectPage, handleBrowserLinkUpgrade, listBrowsers, onBrowserOnline, pairCode } from './browser-link.js';
 import { CdpPage, type CdpConn } from './cdp.js';
 
 // The browser connector end to end, with nothing faked: a real Edge / Chrome /
@@ -383,6 +383,27 @@ test('pairing again from the connect page keeps the browser number, online', asy
   // Back online, the agency closes agent tabs no live run has (the connect page's
   // among them, here). The browser works on the new connection.
   await until(async () => !(await targets()).some(x => x.targetId === targetId), 5000, 'the connect tab to close');
+  page = await CdpPage.open(b!.conn, bounds, `http://127.0.0.1:${port}/site`, { eaaGroup: group });
+  assert.equal(await page.title(), 'Order form');
+});
+
+// After pairing again, the extension must still reconnect by itself: the older
+// connection's refusal ("connected again") must not leave it stopped, and it must say
+// hello with the new token.
+test('paired again, then the connection drops: the extension comes back by itself, same number', async t => {
+  if (!b) return t.skip(skipReason());
+  const count = listBrowsers().length;
+  for (let i = 0; i < 2; i++) {
+    let off = () => {};
+    const back = new Promise<{ n: number; conn: CdpConn }>(r => (off = onBrowserOnline((n, conn) => r({ n, conn }))));
+    _testing.drop(b!.n);
+    const got = await Promise.race([back, new Promise<null>(r => setTimeout(() => r(null), 15_000).unref())]);
+    off();
+    assert.ok(got, `back online by itself (drop ${i + 1})`);
+    assert.equal(got.n, b!.n, 'the same number');
+    b!.conn = got.conn;
+  }
+  assert.equal(listBrowsers().length, count, 'no second browser');
   page = await CdpPage.open(b!.conn, bounds, `http://127.0.0.1:${port}/site`, { eaaGroup: group });
   assert.equal(await page.title(), 'Order form');
 });

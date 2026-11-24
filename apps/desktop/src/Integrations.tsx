@@ -944,7 +944,8 @@ function BrowserCard() {
         setError(null);
         const w = waitRef.current;
         if (!w) return;
-        if (v.browsers.some(b => !w.known.has(b.n) || (b.online && w.known.get(b.n) !== b.paired))) {
+        // The person's own browsers only: an agents' profile the app opens meanwhile pairs too.
+        if (v.browsers.some(b => !b.managed && (!w.known.has(b.n) || (b.online && w.known.get(b.n) !== b.paired)))) {
           waitRef.current = null;
           setWaiting(null);
           setLink(null);
