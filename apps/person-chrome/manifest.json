@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "EXTREMELY Autonomous Agents",
   "short_name": "EXTREMELY",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Lets your EXTREMELY agents use this browser: they work in their own collapsed tab groups and hand you pages to finish.",
   "minimum_chrome_version": "125",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2CS+pTfTN7yRinr0gonG8QJIwxR8drs9F5u0lAc0YqNYR39IQzYQcmuHaujjn+aCfBtOb+TviRbUlT17zaZIfsiEIYoqZvthYWxasprQSIgyJIOIa5COAAsns3w8nArCfnmhmncSfrXElWIEDyjlp6oc1dwum6juUAVJTYduRf0huf6tQr0fsJS5EHQO0Yn/H9O4BQ+pp8CoHethh1qw7nE/dkDaiAJiTBU3RvhX8ys6/pDDD8P07ht+5bfXSwihiZUlXXDnq4OYYosenxxUpj6EBVaPbforh7SPKPvQrx/dWt21XnbyHiKPzwlcscTxjgZcCjAM18TDdYROHgqLXwIDAQAB",

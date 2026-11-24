@@ -10,9 +10,9 @@ The stores assign their own ids on the first upload. The app does not use the id
 - Edge Add-ons id: `lpnecgpodgaabojgddcjhchajceboild` (Store ID 0RDCKCMC0WBM). 0.2.0 submitted 2026-11-16, in review. Listing: https://microsoftedge.microsoft.com/addons/detail/lpnecgpodgaabojgddcjhchajceboild
 - Privacy policy URL: `https://extremely.agency/privacy#browser-extension` (section 6a of the site's privacy policy). Update that section to match `PRIVACY.md` before 0.2.0 is submitted.
 
-Version: 0.2.0
+Version: 0.2.1 (on extremely.agency/download since 2026-11-24; not submitted to either store yet)
 
-Make the upload with `node apps/person-chrome/pack.mjs`. It writes `apps/person-chrome/dist/extremely-0.2.0.zip` (not committed). That zip leaves out this file, `PRIVACY.md`, `test/`, `pack.mjs` and the development `key`. The folder you load unpacked keeps the key so the local id stays put.
+Make the upload with `node apps/person-chrome/pack.mjs`. It writes `apps/person-chrome/dist/extremely-<version>.zip` (not committed). That zip leaves out this file, `PRIVACY.md`, `test/`, `pack.mjs` and the development `key`. The folder you load unpacked keeps the key so the local id stays put.
 
 Tests: `node --test apps/person-chrome/test/`.
 
@@ -22,6 +22,10 @@ Tests: `node --test apps/person-chrome/test/`.
 2. Edge: [Partner Center, Edge extensions](https://partner.microsoft.com/dashboard/microsoftedge/overview). No fee. Upload the same zip, fill the same answers, Publish. Certification is usually within seven business days. Edge rejects a listing whose name or description says Chrome. This package says "this browser".
 
 On both, set visibility to Public when you want every customer to find it. Hidden or unlisted still needs the same review, and only people with the link can install it.
+
+## What changed in 0.2.1
+
+A browser that pairs again (Connect this browser in a browser that's paired already) sends the token it already has with the code, so the agency keeps its browser number instead of listing it twice, once offline. It needs an agency with the same change; an older one pairs it as a new browser, as 0.2.0 did. No new permissions.
 
 ## What changed from 0.1.0
 

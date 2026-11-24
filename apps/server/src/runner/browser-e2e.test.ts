@@ -1,7 +1,7 @@
 import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -26,6 +26,7 @@ import { CdpPage, type CdpConn } from './cdp.js';
 // when none of them loads the extension.
 
 const EXT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../person-chrome');
+const EXT_VERSION = JSON.parse(readFileSync(join(EXT, 'manifest.json'), 'utf8')).version as string;
 const CONNECT_MS = 30_000; // a first start of a browser (and its extension) can be slow on Windows
 
 function newestIn(dir: string, prefix: string, rel: string[]): string[] {
@@ -220,13 +221,13 @@ test('the browser paired itself from the connect page and is online', async t =>
   const listed = listBrowsers().find(x => x.n === b!.n);
   assert.ok(listed?.online, 'listed online');
   assert.equal(listed!.kind, /msedge|Microsoft Edge|microsoft-edge/i.test(b!.exe) ? 'edge' : 'chrome');
-  assert.equal(listed!.version, '0.2.0');
+  assert.equal(listed!.version, EXT_VERSION);
   assert.equal(browserConn(b!.n), b!.conn);
   // Paired and online on one connection: not online, offline and online again.
   assert.equal(b!.onlines, 1, 'went online once');
   const v = await b!.conn.send<{ protocolVersion: string; product: string; extensionVersion: string }>('Browser.getVersion');
   assert.equal(v.protocolVersion, '1.3');
-  assert.equal(v.extensionVersion, '0.2.0');
+  assert.equal(v.extensionVersion, EXT_VERSION);
   // The connect page the browser started on is the person's tab: never listed.
   assert.deepEqual(await targets(), []);
 });
