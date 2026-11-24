@@ -1,6 +1,6 @@
 import '../test-data-dir.js';
 import assert from 'node:assert/strict';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -11,6 +11,8 @@ import { bundledTools, BUNDLED_TOOLS_FILE } from './agency-mcp-bundle.js';
 import { all, one, resetDbForTests, run as exec } from './db.js';
 import { handleMcp } from './mcp.js';
 import { mcpDirectory } from './mcp-directory.js';
+import { loadPerson } from '../org.js';
+import { reportDefault } from './reports.js';
 
 // The tools the public MCP package (packages/agency-mcp) is mostly used for:
 // what agents did, approvals, requests and jobs, as the host computer's own
@@ -243,4 +245,38 @@ test('a build with no goal number is refused: every agent needs a goal', async (
   // With a number - or a per_day from before goals had periods - that complaint is gone.
   assert.doesNotMatch((await call(owner, 'check_build', build([{ id: 'web.web_search', label: 'searches', amount: 5, period: 'week' }]))).text, /It has no goal/);
   assert.doesNotMatch((await call(owner, 'check_build', build([{ id: 'web.web_search', label: 'searches', per_day: 20 }]))).text, /It has no goal/);
+});
+
+test("create_agent keeps what the app's builder keeps: the report place, the notes, and says when a floor was raised", async () => {
+  // One connected model, as saved by a key sign-in (models/connections.ts).
+  await writeFile(join(DATA, '..', 'connections.json'), JSON.stringify({ connections: { anthropic: { label: 'sk-ant-...test', models: ['claude-sonnet-5-5'], connectedAt: '2026-11-24T00:00:00Z' } } }));
+  const made = await call(owner, 'create_agent', {
+    name: 'Guest Researcher',
+    department: 'sales',
+    charter: '# CHARTER - Guest Researcher',
+    models: [{ connection: 'anthropic', model: 'claude-sonnet-5-5', effort: 'high' }],
+    tools: [
+      { id: 'web.web_search', tier: 'T0', why: 'finding guests' },
+      { id: 'docs.update_sheet', tier: 'T0', why: 'the sheet' },
+    ],
+    approval_hours: [],
+    new_tools: [],
+    events: [],
+    new_events: [],
+    kpi: [{ id: 'docs.update_sheet', label: 'companies researched', amount: 15, period: 'week' }],
+    max_runs_per_day: 20,
+    ferocity: { steady_every_hours: 24, driven_every_hours: 12, relentless_every_hours: 6, driven_soft_floor: 3, relentless_floor: 10, apocalyptic_floor: 20, counts: ['docs.update_sheet'], hint: 'x', extra_effort: 'x' },
+    natural_limits: [],
+    profile_notes: [],
+    person_notes: ['Signs his emails "Cheers," then his first name.'],
+    report_place: 'Google Drive folder "Partnerships" | docs.update_sheet',
+  });
+  assert.equal(made.error, false, made.text);
+  assert.match(made.text, /Apocalyptic floor raised to 30: it is always at least 3 times the Relentless floor \(10\)/);
+  assert.match(made.text, /Reports: "Google Drive folder "Partnerships"" is now .+'s default place/);
+  assert.match(made.text, /Notes kept: 1/);
+  const person = made.text.match(/ for (.+?)\. It's on the dashboard/)![1];
+  const d = reportDefault(person)!;
+  assert.deepEqual([d.where, d.tool], ['Google Drive folder "Partnerships"', 'docs.update_sheet']);
+  assert.ok((await loadPerson(person)).notes.includes('Signs his emails "Cheers," then his first name.'));
 });

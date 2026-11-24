@@ -4,9 +4,9 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { createAgent, deleteAgent } from '../agents.js';
-import { BuildSchema, builderGuide, hasGoalNumber, NEEDS_GOAL, type Build } from '../builder.js';
+import { BuildSchema, builderGuide, firstReportPlace, hasGoalNumber, NEEDS_GOAL, type Build } from '../builder.js';
 import { BASELINE, CATALOG_INDEX } from '../catalog.js';
-import { loadPerson, loadProfile } from '../org.js';
+import { addNotes, addPersonNotes, loadPerson, loadProfile } from '../org.js';
 import { compose, DATA, kpiLabels, listIds, readMeta, slug, writeMeta } from '../files.js';
 import { scanFleet } from '../fleet.js';
 import {
@@ -595,7 +595,18 @@ const TOOLS: Tool[] = [
       const owners = (await Promise.all([...taken].map(async x => (await readMeta(x))?.owner))).filter((o): o is string => !!o);
       const person = personFor(hostPerson() ?? owners[0] ?? 'The host');
       const asked = await createAgent({ person, org: hostOrg(), files });
-      const tools = parse(files.tools) as { tool_tiers: Record<string, string>; events?: string[]; new_tools?: { id: string }[]; new_events?: { id: string }[]; ferocity?: { every_hours: number[] } };
+      // What the app's builder keeps beside the files (POST /api/builder/build): the first
+      // place named for reports becomes the person's default, and the notes go to the
+      // organization's and the person's profiles. Dropped here before, without a word.
+      const reportsBefore = reportDefault(person);
+      firstReportPlace(b, person);
+      const reportsNow = reportDefault(person);
+      const org = hostOrg();
+      if (org) await addNotes(org, b.profile_notes ?? []);
+      await addPersonNotes(person, b.person_notes ?? []);
+      const tools = parse(files.tools) as { tool_tiers: Record<string, string>; events?: string[]; new_tools?: { id: string }[]; new_events?: { id: string }[]; ferocity?: { every_hours: number[]; floor: number; apocalyptic_floor: number } };
+      const raised = b.ferocity && tools.ferocity && tools.ferocity.apocalyptic_floor > Math.round(b.ferocity.apocalyptic_floor);
+      const said = (b.report_place ?? '').trim();
       return [
         `Created ${b.name} (${id}) for ${person}${hostOrg() ? ` at ${hostOrg()}` : ''}. It's on the dashboard.`,
         `Tools: ${Object.entries(tools.tool_tiers).map(([t, tier]) => `${t} [${tier}]`).join(', ')}`,
@@ -605,6 +616,15 @@ ${asked.map(w => `- ${w}`).join('\n')}` : 'Everything it uses exists already.',
         `Models: ${files.models.map(m => `${m.connection}/${m.model}`).join(', ') || 'none - give it some with set_agent_models'}`,
         `Goals: ${b.kpi.filter(k => k.amount >= 1).map(k => `${Math.floor(k.amount)} ${k.label} per ${k.period ?? 'day'}`).join(', ')} - the agency paces it to them`,
         tools.ferocity ? `Its ordinary schedule, once its goal is reached: every ${tools.ferocity.every_hours[0]} hours` : '',
+        raised ? `Apocalyptic floor raised to ${tools.ferocity!.apocalyptic_floor}: it is always at least 3 times the Relentless floor (${tools.ferocity!.floor}).` : '',
+        !said
+          ? ''
+          : !reportsBefore && reportsNow
+            ? `Reports: "${reportsNow.where}" is now ${person}'s default place for their agents' reports.`
+            : reportsBefore
+              ? `Reports: ${person} already has a default place (${reportsBefore.where}); this agent's place is whatever its Charter says.`
+              : `Reports: couldn't read a place and a delivering tool from "${said.slice(0, 120)}" - write it into the Charter.`,
+        b.profile_notes?.length || b.person_notes?.length ? `Notes kept: ${(b.profile_notes?.length ?? 0) + (b.person_notes?.length ?? 0)}.` : '',
       ]
         .filter(Boolean)
         .join('\n');
