@@ -6,11 +6,11 @@ Unpacked id, from the `key` in `manifest.json` (development only): `cakbmeciolcl
 
 The stores assign their own ids on the first upload. The app does not use the id to talk to the extension, so that is fine. Write the published ids here after each store accepts the package.
 
-- Chrome Web Store id: `akdfgnfhkbamelmmhlfkgebomokcdmim`. 0.2.0 submitted 2026-11-16, in-depth review (broad host access). Listing: https://chromewebstore.google.com/detail/akdfgnfhkbamelmmhlfkgebomokcdmim
-- Edge Add-ons id: `lpnecgpodgaabojgddcjhchajceboild` (Store ID 0RDCKCMC0WBM). 0.2.0 submitted 2026-11-16, in review. Listing: https://microsoftedge.microsoft.com/addons/detail/lpnecgpodgaabojgddcjhchajceboild
+- Chrome Web Store id: `akdfgnfhkbamelmmhlfkgebomokcdmim`. 0.2.0 live (published 2026-11-18). 0.2.1 not uploaded yet: the dashboard is done by hand. Listing: https://chromewebstore.google.com/detail/akdfgnfhkbamelmmhlfkgebomokcdmim
+- Edge Add-ons id: `lpnecgpodgaabojgddcjhchajceboild` (Store ID 0RDCKCMC0WBM). 0.2.0 live (published 2026-11-16). 0.2.1 submitted 2026-11-24, in review; 0.2.0 stays live until it passes. Listing: https://microsoftedge.microsoft.com/addons/detail/lpnecgpodgaabojgddcjhchajceboild
 - Privacy policy URL: `https://extremely.agency/privacy#browser-extension` (section 6a of the site's privacy policy). Update that section to match `PRIVACY.md` before 0.2.0 is submitted.
 
-Version: 0.2.1 (on extremely.agency/download since 2026-11-24; not submitted to either store yet)
+Version: 0.2.1 (on extremely.agency/download since 2026-11-24; submitted to Edge 2026-11-24, not yet to Chrome)
 
 Make the upload with `node apps/person-chrome/pack.mjs`. It writes `apps/person-chrome/dist/extremely-<version>.zip` (not committed). That zip leaves out this file, `PRIVACY.md`, `test/`, `pack.mjs` and the development `key`. The folder you load unpacked keeps the key so the local id stays put.
 
