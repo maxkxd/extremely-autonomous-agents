@@ -21,6 +21,15 @@ test('a public name that resolves to a private address is refused at connect tim
   await assert.rejects(() => safeFetch('http://localtest.me:5175/api/connections', { timeoutMs: 10_000 }), BlockedAddress);
 });
 
+test('an IPv4 address written inside IPv6 is judged as that IPv4 address', () => {
+  for (const ip of ['::ffff:7f00:1', '0:0:0:0:0:ffff:7f00:1', '::ffff:c0a8:101', '::ffff:a9fe:a9fe', '::7f00:1', '::127.0.0.1', '64:ff9b::7f00:1', '64:ff9b::10.0.0.1', 'FE80::1%eth0', 'ff02::1'])
+    assert.equal(isPrivateIp(ip), true, ip);
+  for (const ip of ['::ffff:808:808', '::ffff:8.8.8.8', '64:ff9b::808:808', '2001:4860:4860::8888']) assert.equal(isPrivateIp(ip), false, ip);
+  for (const url of ['http://[::ffff:127.0.0.1]:5175/', 'http://[::ffff:7f00:1]/', 'http://[0:0:0:0:0:ffff:7f00:1]/', 'http://[::ffff:192.168.1.1]/', 'http://[::ffff:169.254.169.254]/latest/meta-data/'])
+    assert.throws(() => checkUrl(url), BlockedAddress, url);
+  assert.equal(checkUrl('http://[::ffff:8.8.8.8]/').hostname, '[::ffff:808:808]');
+});
+
 test('only 192.0.0.x and 192.0.2.x of 192.0 are private: the rest is public (iana.org is 192.0.43.8)', () => {
   assert.equal(isPrivateIp('192.0.0.8'), true);
   assert.equal(isPrivateIp('192.0.2.10'), true);

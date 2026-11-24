@@ -28,11 +28,40 @@ export function isPrivateIp(ip: string): boolean {
       a >= 224
     );
   }
-  const v6 = ip.toLowerCase();
-  if (v6 === '::' || v6 === '::1') return true;
-  const mapped = v6.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isPrivateIp(mapped[1]);
-  return /^(fc|fd|fe8|fe9|fea|feb|ff)/.test(v6);
+  const h = ipv6Hextets(ip);
+  if (!h) return true; // not an address we can read: never treat it as public
+  const zeros = (n: number) => h.slice(0, n).every(x => x === 0);
+  if (zeros(8)) return true; // ::
+  if (zeros(7) && h[7] === 1) return true; // ::1
+  // An IPv4 address inside IPv6 is judged as that IPv4 address, however it is
+  // written: the URL parser turns [::ffff:127.0.0.1] into [::ffff:7f00:1].
+  const v4 = () => `${h[6] >> 8}.${h[6] & 255}.${h[7] >> 8}.${h[7] & 255}`;
+  if (zeros(5) && h[5] === 0xffff) return isPrivateIp(v4()); // ::ffff:a.b.c.d (mapped)
+  if (zeros(6)) return isPrivateIp(v4()); // ::a.b.c.d (old compatible form)
+  if (h[0] === 0x64 && h[1] === 0xff9b && h.slice(2, 6).every(x => x === 0)) return isPrivateIp(v4()); // NAT64
+  if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0xffff && h[5] === 0) return isPrivateIp(v4()); // ::ffff:0:a.b.c.d
+  return (h[0] & 0xfe00) === 0xfc00 || (h[0] & 0xffc0) === 0xfe80 || (h[0] & 0xffc0) === 0xfec0 || (h[0] & 0xff00) === 0xff00;
+}
+
+// The eight 16-bit groups of an IPv6 address, in any written form; null if it isn't one.
+function ipv6Hextets(ip: string): number[] | null {
+  let s = ip.toLowerCase().replace(/%.*$/, '');
+  const dotted = s.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) {
+    if (isIP(dotted[2]) !== 4) return null;
+    const [a, b, c, d] = dotted[2].split('.').map(Number);
+    s = `${dotted[1]}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const part = (x: string) => (x === '' ? [] : x.split(':'));
+  const head = part(halves[0]);
+  const tail = halves.length === 2 ? part(halves[1]) : [];
+  const fill = 8 - head.length - tail.length;
+  if (halves.length === 2 ? fill < 1 : fill !== 0) return null;
+  const groups = [...head, ...Array(halves.length === 2 ? fill : 0).fill('0'), ...tail];
+  if (!groups.every(g => /^[0-9a-f]{1,4}$/.test(g))) return null;
+  return groups.map(g => parseInt(g, 16));
 }
 
 const BLOCKED_HOSTS = /^(localhost|.*\.localhost|.*\.local|.*\.internal|metadata\.google\.internal)$/i;
