@@ -627,13 +627,13 @@ const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt
 // The extension's content script (on loopback only) reads the link from the address's
 // hash and pairs, then sets body[data-eaa] to "paired" or "error:<message>" and posts
 // {eaa: 'paired' | 'error', error?}. Any other data-eaa value means it's there and
-// working. Nothing within 4 s: no extension in this browser.
+// working. Nothing within 4 s: no extension in this browser (or it's turned off), so
+// the page offers this browser's store and keeps the code in the address. Content
+// scripts only reach pages loaded after an install, so coming back from the store tab
+// reloads the page, and the extension pairs then. The code lasts 10 minutes.
 function connectPage(): string {
   const links = storeLinks();
-  const stores = [links.chrome && `<a href="${esc(links.chrome)}">Chrome Web Store</a>`, links.edge && `<a href="${esc(links.edge)}">Edge Add-ons</a>`].filter(Boolean);
-  const install = stores.length
-    ? `The EXTREMELY extension isn't installed in this browser. Get it from the ${stores.join(' or ')}, then press Connect a browser again.`
-    : `Install the <a href="https://extremely.agency/extension">EXTREMELY extension</a>, then press Connect a browser again.`;
+  const fallback = 'https://extremely.agency/extension';
   const heading = 'Connecting';
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -643,30 +643,49 @@ function connectPage(): string {
 <style>
 ${PAGE_CSS}
   .card { max-width: 30rem; }
-  #install { margin-top: 20px; color: #a8a8a8; font-size: 14px; line-height: 1.5; }
+  #install { margin-top: 22px; display: grid; gap: 14px; justify-items: center; }
   #install[hidden] { display: none; }
+  #install p { color: #a8a8a8; line-height: 1.5; }
   #install a { color: inherit; }
+  #add {
+    display: inline-block; padding: 12px 26px; border-radius: 12px; background: #e6e6e6; color: #141414 !important;
+    font-size: 16px; font-weight: 600; text-decoration: none; transition: transform 0.15s;
+  }
+  #add:hover { transform: translateY(-2px); }
+  h1.ask span { animation: land 0.45s ease-out both; }
+  .small { font-size: 13px; color: #7a7a7a; }
+  .small button { all: unset; cursor: pointer; text-decoration: underline; }
 </style></head>
 <body><div class="card">
 <img class="logo" src="${LOGO}" alt="">
 <h1 id="h" class="wave">${letters(heading)}</h1>
 <p id="status">Connecting this browser to EXTREMELY…</p>
-<p id="install" hidden>${install}</p>
+<div id="install" hidden>
+  <a id="add" target="_blank" rel="noopener"></a>
+  <p>Then come back to this tab: it connects by itself.</p>
+  <p class="small"><span id="other"></span>Added already? Turn it on in your extensions page, then <button id="again">try again</button>.</p>
+</div>
 </div>
 <script>
+const STORES = ${JSON.stringify({ chrome: links.chrome ?? '', edge: links.edge ?? '', fallback }).replace(/</g, '\u003c')};
 const letters = t => [...t].map((c, i) => '<span style="--i:' + i + '">' + (c === ' ' ? '&nbsp;' : c.replace(/[&<>"]/g, x => '&#' + x.charCodeAt(0) + ';')) + '</span>').join('');
 const h = document.getElementById('h'), p = document.getElementById('status'), install = document.getElementById('install');
-let settled = false, seen = false;
+let settled = false, seen = false, waitingForInstall = false;
+function heading(word, cls) {
+  document.title = word + ' · EXTREMELY';
+  h.classList.add('swap');
+  setTimeout(() => { h.className = cls; h.innerHTML = letters(word); }, 300);
+}
 function settle(ok, text) {
   if (settled) return;
   settled = true;
+  waitingForInstall = false;
+  install.hidden = true;
+  p.hidden = false;
   // The code is spent either way; keep it out of the address bar and history.
   history.replaceState(null, '', location.pathname);
-  const word = ok ? 'Connected' : 'Not connected';
-  document.title = word + ' · EXTREMELY';
   p.textContent = text;
-  h.classList.add('swap');
-  setTimeout(() => { h.className = ok ? 'float' : 'still'; h.innerHTML = letters(word); }, 300);
+  heading(ok ? 'Connected' : 'Not connected', ok ? 'float' : 'still');
 }
 function check() {
   const v = document.body.dataset.eaa || '';
@@ -684,11 +703,34 @@ addEventListener('message', e => {
 });
 if (!location.hash.startsWith('#eaa1:')) settle(false, 'This page has no pairing code. Press Connect a browser again.');
 check();
-setTimeout(() => {
-  if (seen || settled) return;
-  settle(false, '');
+// No extension: this browser's store (Edge has its own; other Chromium browsers use
+// Chrome's), and the other one for anyone it guessed wrong.
+function offerInstall() {
+  const edge = navigator.userAgent.includes('Edg/');
+  const mine = edge ? STORES.edge : STORES.chrome, theirs = edge ? STORES.chrome : STORES.edge;
+  const add = document.getElementById('add');
+  add.href = mine || STORES.fallback;
+  add.textContent = mine ? 'Add EXTREMELY to ' + (edge ? 'Edge' : 'Chrome') : 'Get the EXTREMELY extension';
+  if (mine && theirs) {
+    const other = document.getElementById('other');
+    const a = document.createElement('a');
+    a.href = theirs; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = edge ? 'Chrome Web Store' : 'Edge Add-ons';
+    other.append('Or get it from the ', a, '. ');
+  }
   p.hidden = true;
   install.hidden = false;
+  waitingForInstall = true;
+  heading('Add the extension', 'ask');
+}
+document.getElementById('again').onclick = () => location.reload();
+// Back from the store tab: load again, so a just-added extension sees this page.
+addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && waitingForInstall && !seen && !settled) location.reload();
+});
+setTimeout(() => {
+  if (seen || settled) return;
+  offerInstall();
 }, 4000);
 </script></body></html>`;
 }

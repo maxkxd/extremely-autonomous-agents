@@ -471,6 +471,25 @@ function ConnectGroup({ name, members, row, refs, focus }: { name: string; membe
   // The latest steps from the Agency Engineer, on any of them.
   const latest = members.flatMap(m => (m.liveThread ?? []).filter(t => t.from === 'engineer').slice(-1).map(t => ({ text: t.text, live: m.live })))[0];
   const steps = latest?.text ?? '';
+  // A reply goes to the request holding the Engineer's latest steps (else the first one
+  // that isn't folded into another): the others for this connection ride on it.
+  const target = latest?.live ?? (members.find(m => !m.joinedTo) ?? members[0])?.live;
+  const off = useOffline() ?? (owners ? `Only ${owners} or an admin can answer these requests` : null);
+  const [draft, setDraft] = useState('');
+  const [sent, setSent] = useState<string[]>([]);
+  // The Engineer answered: its new steps replace what you sent.
+  useEffect(() => setSent([]), [steps]);
+  const send = () => {
+    const mine = draft.trim();
+    if (!mine || off || target == null) return;
+    setSent(s => [...s, mine]);
+    setDraft('');
+    sendRequestMessage(target, mine).catch(e => {
+      setSent(s => s.filter(x => x !== mine));
+      setDraft(mine);
+      notifyError(e);
+    });
+  };
   return (
     <div className="request-wrap">
       <article className={`request connect-group${open ? ' open' : ''}`}>
@@ -489,6 +508,42 @@ function ConnectGroup({ name, members, row, refs, focus }: { name: string; membe
               {steps && (
                 <div className="request-detail">
                   <RichText text={steps} {...refs} request={latest?.live} />
+                </div>
+              )}
+              {sent.length > 0 && (
+                <div className="eng-chat">
+                  {sent.map((t, i) => (
+                    <div key={i} className="eng-msg you">
+                      <div className="eng-text">{t}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {open && (
+                <div className="eng-composer">
+                  <textarea
+                    className="reject-reason"
+                    rows={2}
+                    placeholder="Reply to the Agency Engineer"
+                    disabled={!!off}
+                    title={off ?? undefined}
+                    value={draft}
+                    onChange={e => setDraft(e.target.value)}
+                    onKeyDown={e => {
+                      // Enter sends, Shift+Enter is a new line.
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        send();
+                      }
+                    }}
+                  />
+                  <div className="reject-actions">
+                    <span className="drawer-hint">Don't paste API keys or passwords here - they go in Settings &gt; Connectors.</span>
+                    <button className="ap-btn confirm-engineer" onClick={send} disabled={!draft.trim() || !!off} title={off ?? (!draft.trim() ? 'Type your reply first' : undefined)}>
+                      <SendHorizontal size={14} strokeWidth={1.9} />
+                      Send
+                    </button>
+                  </div>
                 </div>
               )}
               <button className="sbtn connect-group-list" onClick={() => setList(l => !l)}>
