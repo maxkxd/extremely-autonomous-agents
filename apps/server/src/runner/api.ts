@@ -163,6 +163,23 @@ function turnedDown(id: number, note?: string | null) {
   );
 }
 
+// The dashboard's Resume / Standby / Stop agency, shared with the MCP's set_agency_state.
+export function setAgencyState(state: AgencyState): AgencyState {
+  if (!['active', 'standby', 'stopped'].includes(state)) throw new Error('The agency state is active, standby or stopped.');
+  setSetting('agency_state', state);
+  if (state === 'stopped') abortAll();
+  // Pack set-up waits while stopped (jobs.ts); it carries on now.
+  else void resumeJobs().catch(() => {});
+  return agencyState();
+}
+
+// Why an agent that was asked to be active isn't: the whole agency is on standby or stopped.
+export function agencyHoldNote(): string {
+  const s = agencyState();
+  if (s === 'active') return '';
+  return ` The whole agency is ${s === 'stopped' ? 'stopped' : 'on standby'}, which holds every agent: set_agency_state with state active resumes it (the dashboard's Resume agency).`;
+}
+
 export async function answerRequest(id: number, status: 'done' | 'rejected', answer?: string | null): Promise<boolean> {
   if (status !== 'done' && status !== 'rejected') throw new Error('Answer with done or rejected.');
   const changed = exec(
@@ -300,12 +317,7 @@ export const runnerRoutes: Record<string, Route> = {
   'GET /api/runner/setup': async () => setups(),
   'POST /api/runner/agency': async (_req, _q, body) => {
     const { state } = await body<{ state: AgencyState }>();
-    if (!['active', 'standby', 'stopped'].includes(state)) throw new Error('active, standby or stopped.');
-    setSetting('agency_state', state);
-    if (state === 'stopped') abortAll();
-    // Pack set-up waits while stopped (jobs.ts); it carries on now.
-    else void resumeJobs().catch(() => {});
-    return { state: agencyState() };
+    return { state: setAgencyState(state) };
   },
 
   // Its goals, Drain/Stop, a per-agent spend cap. Nobody sets a level any more: a

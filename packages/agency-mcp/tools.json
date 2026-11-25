@@ -430,6 +430,33 @@
     }
   },
   {
+    "name": "set_agency_state",
+    "title": "Resume, pause or stop the whole agency",
+    "description": "The whole agency's state, as the dashboard's Resume agency / Standby / Stop agency: active (agents work), standby (nothing starts by itself; people are still answered), stopped (every run cut short, nothing runs, built-ins included). It holds every agent over its own state, so an agent set active stays on standby while the agency is. Leave state out to see it. Needs an admin.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "active",
+            "standby",
+            "stopped"
+          ],
+          "description": "Optional: the new state; left out, the current one"
+        }
+      },
+      "required": []
+    },
+    "annotations": {
+      "title": "Resume, pause or stop the whole agency",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "builder_guide",
     "title": "Agent builder guide",
     "description": "Read this first when making an agent: the agent builder's whole brief - how agents work here, the tool catalogue and default tiers, the tools every agent gets, this organization and the person, the fleet, connected services and their tools and events, the connected models, how to interview the person, and how to tier. create_agent's fields carry the rest.",

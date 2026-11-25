@@ -182,7 +182,8 @@ apps use to decide what to auto-allow (`HINTS` in `runner/agency-mcp.ts`).
 | `answer_request` | Logged | Close as done or rejected | exists |
 | `give_task` | Logged | Give an agent a job (`tasks`, `from_agent` null = a person), and it runs | new |
 | `run_agent` | Logged | Run now, or message it | exists |
-| `set_agent` | Logged | Ferocity, pause, stop or resume | exists |
+| `set_agent` | Logged | An agent's goal, or its pause, stop or resume; when the whole agency holds it, says so | exists |
+| `set_agency_state` | Logged | The whole agency's Resume / Standby / Stop, as on the dashboard; no state reads it. Admins only | new (2026-11-25) |
 
 ### The builder set
 

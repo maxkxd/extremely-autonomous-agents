@@ -53,7 +53,7 @@ ${thread.length ? `## The conversation so far (the Agency Engineer and ${owner})
 You have the whole agency through its MCP server ("agency", already set up for this folder - approve it when asked). It acts for ${owner}, so changes apply straight away:
 
 - Requests: \`list_requests\`, \`answer_request\` (done or rejected - say what you did).
-- Agents: \`list_agents\`, \`read_agent\`, \`write_agent_file\` (CHARTER.md, TOOLS.yaml, KPI.yaml), \`set_agent_models\` (\`list_models\`), \`set_agent\`, \`create_agent\`, \`delete_agent\`, \`run_agent\`, \`give_tools\`.
+- Agents: \`list_agents\`, \`read_agent\`, \`write_agent_file\` (CHARTER.md, TOOLS.yaml, KPI.yaml), \`set_agent_models\` (\`list_models\`), \`set_agent\`, \`set_agency_state\` (the whole agency's Resume / Standby / Stop), \`create_agent\`, \`delete_agent\`, \`run_agent\`, \`give_tools\`.
 - Integrations: \`list_integrations\`, \`read_integration\` (\`brave-search\`, \`github\`, \`gmail\` show the format), \`write_integration\` and \`write_plugin\` (drafts), \`test_integration\`, \`publish_integration\`, \`discard_integration\`.
 - \`list_approvals\`: what's waiting on ${owner} in the app.
 

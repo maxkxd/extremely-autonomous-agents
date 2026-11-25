@@ -27,7 +27,7 @@ import { allChoices, setChoices } from '../models/choice.js';
 import { availableModels } from '../models/connections.js';
 import type { Tier } from '../catalog.js';
 import { FLEET_ENGINEER, loadAgent, type AgentDef } from './agent.js';
-import { answerRequest, personWrites } from './api.js';
+import { agencyHoldNote, answerRequest, personWrites, setAgencyState } from './api.js';
 import { decideApproval } from './approvals.js';
 import { startOfDay } from './clock.js';
 import { DOCTOR } from './doctor.js';
@@ -41,9 +41,9 @@ import { PERIODS } from './clock.js';
 import { checkGoal, goalsOf, hasGoal, paceFor, periodNow, setGoal, type Goal } from './goals.js';
 import { openBridge, rpc, type Rpc } from './mcp.js';
 import { selfMember, SELF_HOSTED } from '../selfhost.js';
-import { accessConfig, asActor, currentActor, localActor, personFor, recordAction, requireMakerOrAdmin, type Actor, type Role } from '../access.js';
+import { accessConfig, asActor, currentActor, localActor, personFor, recordAction, requireAdmin, requireMakerOrAdmin, type Actor, type Role } from '../access.js';
 import { registeredToolIds } from './tools.js';
-import { stateOf } from './run.js';
+import { agencyState, stateOf, type AgencyState } from './run.js';
 import { abortRun, book, queueRunNow } from './scheduler.js';
 import { clock, mins, paceMine, scheduledRows, scheduleMine, type Pace, type QueuedRow } from './action-queue.js';
 import {
@@ -299,7 +299,10 @@ const TOOLS: Tool[] = [
       if (meta.builtIn || meta.service) throw new Error(`${meta.name} is built in and takes no jobs. Requests and its DM channel reach the Agency Engineer.`);
       await requireMakerOrAdmin(agentId, null, currentActor(), 'give it a job');
       const st = stateOf(agentId).state;
-      if (st === 'stopped' || st === 'draining') throw new Error(`${meta.name} is ${st === 'stopped' ? 'stopped' : 'on standby'}, so it wouldn't start on it. Turn it back on first (set_agent, state: active).`);
+      if (st === 'stopped' || st === 'draining') {
+        const hold = agencyHoldNote();
+        throw new Error(`${meta.name} is ${st === 'stopped' ? 'stopped' : 'on standby'}, so it wouldn't start on it.${hold || ' Turn it back on first (set_agent, state: active).'}`);
+      }
       const task = scrub(String(a.task ?? '')).trim().slice(0, 6000);
       if (!task) throw new Error('No task given.');
       const by = currentActor();
@@ -536,7 +539,20 @@ const TOOLS: Tool[] = [
       }
       const st = stateOf(agentId);
       const goals = await goalLine(agentId, false);
-      return `${meta.name}: ${st.state}.${goals ? ` ${goals}` : ''}`;
+      return `${meta.name}: ${st.state}.${goals ? ` ${goals}` : ''}${st.state !== 'active' ? agencyHoldNote() : ''}`;
+    },
+  },
+  {
+    name: 'set_agency_state',
+    description:
+      "The whole agency's state, as the dashboard's Resume agency / Standby / Stop agency: active (agents work), standby (nothing starts by itself; people are still answered), stopped (every run cut short, nothing runs, built-ins included). It holds every agent over its own state, so an agent set active stays on standby while the agency is. Leave state out to see it. Needs an admin.",
+    schema: obj({ state: { type: 'string', enum: ['active', 'standby', 'stopped'], description: 'Optional: the new state; left out, the current one' } }, []),
+    run: async a => {
+      if (a.state === undefined) return `The agency is ${agencyState()}.`;
+      requireAdmin(currentActor(), 'Changing the whole agency');
+      const was = agencyState();
+      const now = setAgencyState(String(a.state) as AgencyState);
+      return was === now ? `The agency was already ${now}.` : `The agency is now ${now} (was ${was}).`;
     },
   },
   {
@@ -1245,6 +1261,7 @@ export const HINTS: Record<string, Hint> = {
   list_models: { title: 'List AI models', read: true },
   set_agent_models: { title: "Set an agent's models", idempotent: true },
   set_agent: { title: "Set an agent's goal or state", idempotent: true },
+  set_agency_state: { title: 'Resume, pause or stop the whole agency', destructive: true, idempotent: true },
   builder_guide: { title: 'Agent builder guide', read: true },
   check_build: { title: 'Check an agent build', read: true },
   create_agent: { title: 'Create an agent' },

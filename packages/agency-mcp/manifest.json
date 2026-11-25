@@ -68,7 +68,11 @@
     },
     {
       "name": "set_agent",
-      "description": "Set an agent's ferocity or state"
+      "description": "Set an agent's goal or state"
+    },
+    {
+      "name": "set_agency_state",
+      "description": "Resume, pause or stop the whole agency"
     },
     {
       "name": "builder_guide",

@@ -52,7 +52,7 @@ Everything your role allows in the app, 36 tools:
 | What it cost | `usage` (by agent, day, model, connection or trigger, with each spend limit) |
 | Waiting on you | `list_approvals`, `decide_approval`, `decide_approvals`, `list_requests`, `reply_to_request`, `answer_request` |
 | Sending pace | `list_queue`, `set_pace`, `schedule_queue` |
-| Put agents to work | `give_task`, `run_agent`, `set_agent` |
+| Put agents to work | `give_task`, `run_agent`, `set_agent`, `set_agency_state` |
 | Build | `create_agent`, `edit_agent_file`, `write_agent_file`, `set_agent_models`, integrations (owners and admins) |
 | Organizations | `list_agencies`; then `agency: "<name>"` on any tool |
 

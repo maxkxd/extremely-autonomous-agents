@@ -85,6 +85,22 @@ test('give_task: a job from a person, booked; agent_activity shows it; a member 
   assert.ok(all<{ route: string }>('SELECT route FROM person_actions').some(a => a.route === 'MCP give_task'));
 });
 
+test('set_agency_state: the dashboard’s Resume / Standby from the MCP; set_agent and give_task say when the agency holds an agent', async () => {
+  assert.match((await call(owner, 'set_agency_state', {})).text, /The agency is active/);
+  assert.match((await call(owner, 'set_agency_state', { state: 'standby' })).text, /now standby \(was active\)/);
+  // An agent set active still waits while the whole agency is on standby, and is told why.
+  assert.match((await call(owner, 'set_agent', { agent_id: 'sales', state: 'active' })).text, /draining\..*whole agency is on standby.*set_agency_state/);
+  const held = await call(owner, 'give_task', { agent_id: 'sales', task: 'x' });
+  assert.equal(held.error, true);
+  assert.match(held.text, /whole agency is on standby/);
+  // Only an admin changes the whole agency; anyone can read it.
+  const refused = await call(priya, 'set_agency_state', { state: 'active' });
+  assert.equal(refused.error, true);
+  assert.match((await call(priya, 'set_agency_state', {})).text, /standby/);
+  assert.match((await call(owner, 'set_agency_state', { state: 'active' })).text, /now active/);
+  assert.match((await call(owner, 'set_agent', { agent_id: 'sales', state: 'active' })).text, /^Sales Agent: active\./);
+});
+
 test('agency_today and latest_report: what ran today, and its write-up', async () => {
   const now = Date.now();
   exec("INSERT INTO runs (id, agent_id, trigger, ferocity, status, started_at, acts, summary) VALUES ('r1', 'sales', 'scheduled', 1, 'succeeded', ?, 3, 'Queued 3 leads.')", now);
