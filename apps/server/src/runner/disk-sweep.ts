@@ -5,17 +5,19 @@ import { programsRoot } from '../integrations/programs.js';
 import { DATA_DIR } from '../paths.js';
 
 // The disk the agency keeps filling with things it can make again. On the cloud
-// host the volume reached 86%: programs' download caches, the disk caches of the
-// browser profiles the app used to run, and the old copies a move left beside the agency. Cleared at
-// start, once a day, and whenever the volume is 80% full (checked every 10
-// minutes, at most once an hour), and only these - never a sign-in or cookie, the
-// database, the vault, an installed program, a render, or a plugin's output:
+// host the volume reached 86%, then 99%: programs' download caches, the disk caches of the
+// browser profiles the app used to run, the old copies a move left beside the agency, and a studio's
+// renders. Cleared at start, once a day, and whenever the volume is 80% full (checked every 10
+// minutes, at most once an hour). Always, and only these - never a sign-in or cookie, the
+// database, the vault, an installed program, or a plugin's models:
 //
 //   <data>/programs/.npm-cache and /.cache   npm's and the programs' caches (programs.ts programEnv)
-//   <data>/browser-profiles/<n>/             Cache, Code Cache, GPUCache, Service Worker/CacheStorage and the
-//                                            shader caches (Dawn, Gr, Shader), and Chrome's component_crx_cache,
-//                                            in the profile's folder and in its Default. These are the agents'
-//                                            profiles (agent-profiles.ts), which the app opens with the extension.
+//   <data>/browser-profiles/<n>/             Cache, Code Cache, GPUCache, Service Worker/CacheStorage and
+//                                            /ScriptCache, the shader caches (Dawn, Gr, Shader), and Chrome's
+//                                            component_crx_cache, optimization_guide_model_store,
+//                                            WasmTtsEngine and Safe Browsing downloads, in the profile's folder and
+//                                            in its Default. These are the agents' profiles (agent-profiles.ts),
+//                                            which the app opens with the extension.
 //   <data>/browser-profiles/person-<n>/      the same caches of a person's sign-in window, once that window is closed
 //   <data's folder>/<data>.replaced-*        a replaced agency's folder, once it's a few days old
 //   <tmp>/eaa-upload-* and <tmp>/eaa-run-*   a run's uploaded file and its scratch folder, once two days old
@@ -23,6 +25,14 @@ import { DATA_DIR } from '../paths.js';
 //                                            since anything in it changed. The tmp folder itself stays.
 //
 // A profile still open in a browser (one from before, left running) is left alone: its caches are in use.
+//
+// When the volume is FULL_AT (80%) or more full after that, a studio's old output goes too, oldest first,
+// and only until the volume is under RELIEVED_AT (75%) (RETAIN_FULL: generated clips after 3 days, renders
+// after 7 days keeping the newest 5, projects after 21 days keeping the newest 5). Still ESCALATE_AT (90%)
+// or more full: a tighter rule (RETAIN_TIGHT: clips after 1 day, renders after 2 days keeping the newest 2,
+// projects after 7 days keeping the newest 3), and an open browser's downloaded data (component_crx_cache,
+// optimization_guide_model_store, WasmTtsEngine) goes too. Anything changed in the last day is never
+// pruned, nor are models (kokoro), a studio's own programs (bin), or anything not named above.
 //
 // Each sweep also logs how big each folder is, and how full the volume is, before and after
 // (diskReport), so what fills the disk shows in the host's logs without a shell. Once a day the
@@ -33,7 +43,9 @@ const HOUR = 3_600_000;
 export const REPLACED_AFTER_DAYS = 3;
 export const TEMP_AFTER_DAYS = 2;
 export const SCRATCH_AFTER_DAYS = 1;
-export const FULL_AT = 0.8; // the volume's share in use that starts a sweep between the daily ones
+export const FULL_AT = 0.8; // the volume's share in use that starts a sweep between the daily ones, and the first prune of old output
+export const ESCALATE_AT = 0.9; // still this full: the tighter prune, and an open browser's downloaded data
+export const RELIEVED_AT = 0.75; // a prune of old output stops once the volume is under this
 export const FULL_CHECK_MS = 10 * 60_000;
 export const FULL_SWEEP_EVERY_MS = HOUR;
 export const REPORT_MIN_BYTES = 10e6; // folders smaller than this are left out of the size report
@@ -42,15 +54,36 @@ const PROFILE_CACHES = [
   'Code Cache',
   'GPUCache',
   join('Service Worker', 'CacheStorage'),
+  join('Service Worker', 'ScriptCache'),
   'DawnCache',
   'GraphiteDawnCache',
   'GrShaderCache',
   'ShaderCache',
   'component_crx_cache',
+  'optimization_guide_model_store',
+  'WasmTtsEngine',
+  'Safe Browsing',
 ];
+// What is cleared even from a profile that is open, once the volume is ESCALATE_AT full: data Chrome downloaded
+// and only reads at start. (Space of a file Chrome holds open comes back when it lets go.)
+const OPEN_PROFILE_CACHES = ['component_crx_cache', 'optimization_guide_model_store', 'WasmTtsEngine'];
 const TEMP_FOLDERS = /^eaa-(upload|run)-/;
 // The agents' profiles are the numbered folders; a person's sign-in window has its own (person-<n>).
 const PROFILE_FOLDERS = /^(\d+|person-\d+)$/;
+
+// What a studio keeps on the volume that is pruned when the volume fills: the folder (in <keep>/<app>/), how
+// old an item is before it can go, and how many of the newest items always stay.
+export type Retention = { folder: string; days: number; keepNewest: number };
+export const RETAIN_FULL: Retention[] = [
+  { folder: 'veo-clips', days: 3, keepNewest: 0 },
+  { folder: 'renders', days: 7, keepNewest: 5 },
+  { folder: 'projects', days: 21, keepNewest: 5 },
+];
+export const RETAIN_TIGHT: Retention[] = [
+  { folder: 'veo-clips', days: 1, keepNewest: 0 },
+  { folder: 'renders', days: 2, keepNewest: 2 },
+  { folder: 'projects', days: 7, keepNewest: 3 },
+];
 
 async function bytesIn(path: string): Promise<number> {
   const s = await lstat(path).catch(() => null);
@@ -94,7 +127,8 @@ export async function profileInUse(dir: string): Promise<boolean> {
 
 export type SweepResult = { freed: number; programs: number; browsers: number; replaced: number; keptOpen: (number | string)[] };
 
-export async function sweepDisk(o: { dataDir: string; programsDir: string; now?: number; inUse?: (profileDir: string) => Promise<boolean> }): Promise<SweepResult> {
+// openToo: also clear an open profile's downloaded data (OPEN_PROFILE_CACHES), for a volume that is nearly full.
+export async function sweepDisk(o: { dataDir: string; programsDir: string; now?: number; inUse?: (profileDir: string) => Promise<boolean>; openToo?: boolean }): Promise<SweepResult> {
   const now = o.now ?? Date.now();
   const inUse = o.inUse ?? profileInUse;
   const r: SweepResult = { freed: 0, programs: 0, browsers: 0, replaced: 0, keptOpen: [] };
@@ -105,11 +139,10 @@ export async function sweepDisk(o: { dataDir: string; programsDir: string; now?:
   for (const e of await readdir(profiles, { withFileTypes: true }).catch(() => [])) {
     if (!e.isDirectory() || !PROFILE_FOLDERS.test(e.name)) continue;
     const dir = join(profiles, e.name);
-    if (await inUse(dir)) {
-      r.keptOpen.push(/^\d+$/.test(e.name) ? Number(e.name) : e.name);
-      continue;
-    }
-    for (const root of [dir, join(dir, 'Default')]) for (const cache of PROFILE_CACHES) r.browsers += await clear(join(root, cache));
+    const open = await inUse(dir);
+    if (open) r.keptOpen.push(/^\d+$/.test(e.name) ? Number(e.name) : e.name);
+    if (open && !o.openToo) continue;
+    for (const root of [dir, join(dir, 'Default')]) for (const cache of open ? OPEN_PROFILE_CACHES : PROFILE_CACHES) r.browsers += await clear(join(root, cache));
   }
 
   // A folder's change time moves when it is renamed, which its modified time doesn't: the later of the two
@@ -177,6 +210,36 @@ export async function sweepScratch(o: { keepDir: string; now?: number }): Promis
   return freed;
 }
 
+// A studio's old output: for each rule, each item directly inside <keep>/<app>/<folder> that is older than the
+// rule's days (nothing in it changed since) and is not one of its newest `keepNewest` items, oldest first.
+// `enough` is asked before each removal: once it says yes (the volume has room again) nothing more goes.
+// The folder itself, a folder that is a link, and everything not named by a rule are never touched.
+// Returns the bytes freed.
+export async function sweepRetention(o: { keepDir: string; rules: Retention[]; now?: number; enough?: () => Promise<boolean> }): Promise<number> {
+  const now = o.now ?? Date.now();
+  let freed = 0;
+  for (const rule of o.rules) {
+    for (const app of await readdir(o.keepDir, { withFileTypes: true }).catch(() => [])) {
+      if (!app.isDirectory()) continue;
+      const dir = join(o.keepDir, app.name, rule.folder);
+      // A link is not the studio's own folder: it could point anywhere.
+      const d = await lstat(dir).catch(() => null);
+      if (!d || !d.isDirectory()) continue;
+      const items: { full: string; at: number }[] = [];
+      for (const name of await readdir(dir).catch(() => [] as string[])) items.push({ full: join(dir, name), at: await newestChange(join(dir, name)) });
+      items.sort((a, b) => b.at - a.at);
+      const old = items.slice(rule.keepNewest).filter(i => now - i.at >= rule.days * DAY).reverse();
+      for (const i of old) {
+        if (o.enough && (await o.enough())) return freed;
+        const bytes = await clear(i.full);
+        if (bytes > 0) console.log(`[sweep] Removed old ${app.name}/${rule.folder}/${basename(i.full)} (${size(bytes)}, untouched for ${Math.floor((now - i.at) / DAY)} days)`);
+        freed += bytes;
+      }
+    }
+  }
+  return freed;
+}
+
 type Statfs = (path: string) => Promise<{ blocks: number; bfree: number; bavail: number }>;
 
 // How full the volume holding `path` is, the way df shows it (null when it can't be read).
@@ -216,6 +279,7 @@ const listed = (items: [string, number][]) =>
 // How big each folder is, one line per area, so the host's logs show what fills the disk (nothing is
 // read but folder and file sizes). Only items of 10 MB or more are named; each line starts with its total.
 //   data folder (the database and everything not listed below), programs (with .cache and .npm-cache),
+//   and, for a program of 100 MB or more, what is inside it (version folders, and their folders),
 //   each browser profile (and its Default), the video folders kept on the volume (per subfolder),
 //   old agency copies, and the temp folders runs leave behind.
 export async function diskReport(o: { dataDir: string; programsDir?: string; keepDir?: string; tmpDir?: string }): Promise<string[]> {
@@ -230,8 +294,19 @@ export async function diskReport(o: { dataDir: string; programsDir?: string; kee
   }
   lines.push(`data folder (not programs or browser profiles) ${size(total(topLevel))}: ${listed(topLevel)}`);
 
-  const programs = await childSizes(o.programsDir ?? programsRoot());
+  const programsDir = o.programsDir ?? programsRoot();
+  const programs = await childSizes(programsDir);
   lines.push(`programs ${size(total(programs))}: ${listed(programs)}`);
+  // A big program: which version folders, and what is in them (a second copy of a version, a big docs folder...).
+  const inside: [string, number][] = [];
+  for (const [name, b] of programs) {
+    if (b < 100e6) continue;
+    for (const [version, vb] of await childSizes(join(programsDir, name), `${name}/`)) {
+      inside.push([version, vb]);
+      if (vb >= 100e6) inside.push(...(await childSizes(join(programsDir, version), `${version}/`)));
+    }
+  }
+  if (inside.length) lines.push(`inside the big programs: ${listed(inside)}`);
 
   const profiles = join(o.dataDir, 'browser-profiles');
   for (const e of await readdir(profiles, { withFileTypes: true }).catch(() => [])) {
@@ -274,14 +349,31 @@ let lastSweepAt = 0;
 
 async function sweepAndLog(when: string) {
   lastSweepAt = Date.now();
+  const keepDir = join(dirname(DATA_DIR), 'keep');
   await logReport(when, 'before');
-  const r = await sweepDisk({ dataDir: DATA_DIR, programsDir: programsRoot() });
+  const start = await diskFraction(DATA_DIR);
+  // Caches first (they are only ever remade), then the studios' scratch.
+  const r = await sweepDisk({ dataDir: DATA_DIR, programsDir: programsRoot(), openToo: start != null && start >= ESCALATE_AT });
   const temp = await sweepTemp();
-  const scratch = await sweepScratch({ keepDir: join(dirname(DATA_DIR), 'keep') });
+  const scratch = await sweepScratch({ keepDir });
+  // Still full: a studio's old output goes, oldest first, only until there is room; and if it is still
+  // ESCALATE_AT full after that, by the tighter rule.
+  const roomAgain = async () => {
+    const f = await diskFraction(DATA_DIR);
+    return f != null && f < RELIEVED_AT;
+  };
+  let pruned = 0;
+  const afterCaches = await diskFraction(DATA_DIR);
+  if (afterCaches != null && afterCaches >= FULL_AT) pruned += await sweepRetention({ keepDir, rules: RETAIN_FULL, enough: roomAgain });
+  const afterPrune = await diskFraction(DATA_DIR);
+  if (afterPrune != null && afterPrune >= ESCALATE_AT) pruned += await sweepRetention({ keepDir, rules: RETAIN_TIGHT, enough: roomAgain });
   console.log(
-    `[sweep] ${when}: freed ${size(r.freed + temp + scratch)} (programs' caches ${size(r.programs)}, browsers' caches ${size(r.browsers)}, old agency copies ${size(r.replaced)}, temporary folders ${size(temp)}, studios' scratch ${size(scratch)})${r.keptOpen.length ? `; left alone, browser open: profile${r.keptOpen.length === 1 ? '' : 's'} ${r.keptOpen.join(', ')}` : ''}.`,
+    `[sweep] ${when}: freed ${size(r.freed + temp + scratch + pruned)} (programs' caches ${size(r.programs)}, browsers' caches ${size(r.browsers)}, old agency copies ${size(r.replaced)}, temporary folders ${size(temp)}, studios' scratch ${size(scratch)}, studios' old renders, clips and projects ${size(pruned)})${r.keptOpen.length ? `; browser open: profile${r.keptOpen.length === 1 ? '' : 's'} ${r.keptOpen.join(', ')} ${start != null && start >= ESCALATE_AT ? '(only its downloaded data cleared)' : '(left alone)'}` : ''}.`,
   );
   await logReport(when, 'after');
+  const end = await diskFraction(DATA_DIR);
+  // Nothing left to clear: what fills it now is data (the database, kept renders, models, programs). Said as an error so host.health shows it.
+  if (end != null && end >= ESCALATE_AT) console.error(`[sweep] The volume is still ${Math.round(end * 100)}% full after clearing the caches and the old renders, clips and projects: what is left is data the sweep never touches (see the sizes above).`);
 }
 
 async function logVolume() {
@@ -309,9 +401,6 @@ export function startDiskSweep() {
         const before = await diskFraction(DATA_DIR);
         if (!sweepDue(before, lastSweepAt, Date.now())) return;
         await sweepAndLog(`Volume ${Math.round(before! * 100)}% full`);
-        const after = await diskFraction(DATA_DIR);
-        // Nothing left to clear: what fills it now is data (the database, plugins' output, sign-ins). Said as an error so host.health shows it.
-        if (after != null && after >= 0.9) console.error(`[sweep] The volume is still ${Math.round(after * 100)}% full after clearing the caches: what is left is data the sweep never touches.`);
       })().catch(failed),
     FULL_CHECK_MS,
   ).unref();
