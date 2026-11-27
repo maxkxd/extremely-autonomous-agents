@@ -29,7 +29,13 @@ export async function startCloudHost() {
   void connectClaudePlan().catch(e => console.error('[cloud] Connecting the Claude plan:', (e as Error).message));
   const issuer = process.env.EAA_TOKEN_ISSUER ?? '';
   if (!/^https:\/\//.test(issuer)) return void console.error('[cloud] EAA_TOKEN_ISSUER is our backend’s https address: not set, so members can’t reach this agency.');
-  const secret = await getSecret<string>(`hosting:${HOSTED_ORG}:secret`);
+  let secret: string | null;
+  try {
+    secret = await getSecret<string>(`hosting:${HOSTED_ORG}:secret`);
+  } catch (e) {
+    // Unreadable isn't missing: said as itself, and the server stays up.
+    return void console.error('[cloud] Couldn’t read the vault, so members can’t reach this agency until a restart reads it:', (e as Error).message);
+  }
   if (!secret) return void console.error('[cloud] No host secret in the vault: move the organization in first (scripts/move-org.ts).');
   // What it asks our backend about members with (agency MCP addresses).
   process.env.EAA_HOST_SECRET ||= secret;

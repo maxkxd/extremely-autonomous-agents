@@ -33,8 +33,17 @@ export async function startRelay(h: Hosting) {
   stopped = false;
   current = h;
   if (sock) return;
-  const secret = await getSecret<string>(`hosting:${h.orgId}:secret`);
-  const key = await getSecret<{ publicKey: string; privateKey: string }>(`hosting:${h.orgId}:key`);
+  let secret: string | null;
+  let key: { publicKey: string; privateKey: string } | null;
+  try {
+    secret = await getSecret<string>(`hosting:${h.orgId}:secret`);
+    key = await getSecret<{ publicKey: string; privateKey: string }>(`hosting:${h.orgId}:key`);
+  } catch (e) {
+    // The vault couldn't be read (it says so, rather than seem empty): tried again.
+    console.error('[relay] Couldn’t read the vault; trying again in a minute:', (e as Error).message);
+    setTimeout(() => !stopped && void startRelay(current ?? h), 60_000);
+    return;
+  }
   // Not registered yet (the app finishes that): tried again when it is.
   if (!secret || !key) return;
   const staticPrivate = pemToDer(key.privateKey);
