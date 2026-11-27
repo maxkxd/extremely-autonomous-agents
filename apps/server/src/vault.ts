@@ -74,9 +74,15 @@ async function readAll(): Promise<Record<string, Sealed>> {
 // Writes go one at a time, so two saves can't lose each other. A save that fails is
 // its own caller's error: the ones after it still go ahead.
 let writing = Promise.resolve();
+// Renewed sign-ins not saved yet (keepSecret): read from here, and written along
+// with the next save that works.
+const unsaved = new Map<string, Sealed>();
 function writeAll(update: (all: Record<string, Sealed>) => void) {
   const save = writing.then(async () => {
     const all = await readAll();
+    const held = [...unsaved];
+    for (const [id, sealed] of held) all[id] = sealed;
+    // After the held ones, so a save or a sign-out of the same one wins over it.
     update(all);
     await mkdir(DATA, { recursive: true });
     // A name of its own, so a file left from another save can't get in this one's way.
@@ -88,6 +94,8 @@ function writeAll(update: (all: Record<string, Sealed>) => void) {
       await rm(tmp, { force: true }).catch(() => {});
       throw e;
     }
+    // Saved now, unless it was renewed again while this was being written.
+    for (const [id, sealed] of held) if (unsaved.get(id) === sealed) unsaved.delete(id);
     await chmod(VAULT, 0o600).catch(() => {});
   });
   writing = save.catch(() => {});
@@ -95,7 +103,7 @@ function writeAll(update: (all: Record<string, Sealed>) => void) {
 }
 
 export async function getSecret<T>(id: string): Promise<T | null> {
-  const sealed = (await readAll())[id];
+  const sealed = unsaved.get(id) ?? (await readAll())[id];
   if (!sealed) return null;
   const d = createDecipheriv('aes-256-gcm', await key(), Buffer.from(sealed.iv, 'base64'));
   d.setAuthTag(Buffer.from(sealed.tag, 'base64'));
@@ -103,14 +111,46 @@ export async function getSecret<T>(id: string): Promise<T | null> {
   return JSON.parse(plain.toString('utf8')) as T;
 }
 
-export async function setSecret(id: string, value: unknown) {
+async function seal(value: unknown): Promise<Sealed> {
   const iv = randomBytes(12);
   const c = createCipheriv('aes-256-gcm', await key(), iv);
   const data = Buffer.concat([c.update(JSON.stringify(value), 'utf8'), c.final()]);
-  const sealed: Sealed = { iv: iv.toString('base64'), tag: c.getAuthTag().toString('base64'), data: data.toString('base64') };
+  return { iv: iv.toString('base64'), tag: c.getAuthTag().toString('base64'), data: data.toString('base64') };
+}
+
+// Renewed sign-ins known by their name: the ChatGPT plan's tokens, and the token a
+// fields sign-in is swapped for. (A connector's OAuth renewal calls keepSecret itself.)
+const renewedSignIn = (id: string) => id === 'chatgpt' || id.startsWith('integration-token:');
+
+export async function setSecret(id: string, value: unknown) {
+  if (renewedSignIn(id)) return keepSecret(id, value);
+  const sealed = await seal(value);
   await writeAll(all => {
     all[id] = sealed;
   });
+}
+
+// For a renewed sign-in. The service may already have ended the one it replaces, so a
+// vault that can't be saved just now mustn't lose it, or fail the call that renewed
+// it: it's held in memory, used from there, and tried again until it's saved.
+// (Stopping the app before then still loses it.)
+export async function keepSecret(id: string, value: unknown) {
+  unsaved.set(id, await seal(value));
+  await writeAll(() => {}).catch((e: Error) => {
+    console.error(`[vault] Couldn't save ${id} yet; using it from memory and trying again:`, e.message);
+    saveLater();
+  });
+}
+
+const RETRY_MS = 30_000;
+let retry: NodeJS.Timeout | undefined;
+function saveLater() {
+  if (retry) return;
+  retry = setTimeout(() => {
+    retry = undefined;
+    if (unsaved.size) void writeAll(() => {}).catch(saveLater);
+  }, RETRY_MS);
+  retry.unref();
 }
 
 export const deleteSecret = (id: string) =>
