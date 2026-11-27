@@ -9,25 +9,30 @@ import { DATA_DIR } from '../paths.js';
 // browser profiles the app used to run, and the old copies a move left beside the agency. Cleared at
 // start, once a day, and whenever the volume is 80% full (checked every 10
 // minutes, at most once an hour), and only these - never a sign-in or cookie, the
-// database, the vault, an installed program, or a plugin's output:
+// database, the vault, an installed program, a render, or a plugin's output:
 //
 //   <data>/programs/.npm-cache and /.cache   npm's and the programs' caches (programs.ts programEnv)
 //   <data>/browser-profiles/<n>/             Cache, Code Cache, GPUCache, Service Worker/CacheStorage and the
 //                                            shader caches (Dawn, Gr, Shader), and Chrome's component_crx_cache,
 //                                            in the profile's folder and in its Default. These are the agents'
 //                                            profiles (agent-profiles.ts), which the app opens with the extension.
+//   <data>/browser-profiles/person-<n>/      the same caches of a person's sign-in window, once that window is closed
 //   <data's folder>/<data>.replaced-*        a replaced agency's folder, once it's a few days old
 //   <tmp>/eaa-upload-* and <tmp>/eaa-run-*   a run's uploaded file and its scratch folder, once two days old
+//   <keep>/<app>/tmp/*                       a studio's scratch (VideoStudio, LaunchStudio), once a day has passed
+//                                            since anything in it changed. The tmp folder itself stays.
 //
 // A profile still open in a browser (one from before, left running) is left alone: its caches are in use.
 //
 // Each sweep also logs how big each folder is, and how full the volume is, before and after
-// (diskReport), so what fills the disk shows in the host's logs without a shell.
+// (diskReport), so what fills the disk shows in the host's logs without a shell. Once a day the
+// volume's share in use is also logged on a line of its own (logVolume), to follow the trend.
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 export const REPLACED_AFTER_DAYS = 3;
 export const TEMP_AFTER_DAYS = 2;
+export const SCRATCH_AFTER_DAYS = 1;
 export const FULL_AT = 0.8; // the volume's share in use that starts a sweep between the daily ones
 export const FULL_CHECK_MS = 10 * 60_000;
 export const FULL_SWEEP_EVERY_MS = HOUR;
@@ -44,6 +49,8 @@ const PROFILE_CACHES = [
   'component_crx_cache',
 ];
 const TEMP_FOLDERS = /^eaa-(upload|run)-/;
+// The agents' profiles are the numbered folders; a person's sign-in window has its own (person-<n>).
+const PROFILE_FOLDERS = /^(\d+|person-\d+)$/;
 
 async function bytesIn(path: string): Promise<number> {
   const s = await lstat(path).catch(() => null);
@@ -85,7 +92,7 @@ export async function profileInUse(dir: string): Promise<boolean> {
   }
 }
 
-export type SweepResult = { freed: number; programs: number; browsers: number; replaced: number; keptOpen: number[] };
+export type SweepResult = { freed: number; programs: number; browsers: number; replaced: number; keptOpen: (number | string)[] };
 
 export async function sweepDisk(o: { dataDir: string; programsDir: string; now?: number; inUse?: (profileDir: string) => Promise<boolean> }): Promise<SweepResult> {
   const now = o.now ?? Date.now();
@@ -96,11 +103,10 @@ export async function sweepDisk(o: { dataDir: string; programsDir: string; now?:
 
   const profiles = join(o.dataDir, 'browser-profiles');
   for (const e of await readdir(profiles, { withFileTypes: true }).catch(() => [])) {
-    // The agents' profiles are the numbered folders (a person's sign-in window has its own).
-    if (!e.isDirectory() || !/^\d+$/.test(e.name)) continue;
+    if (!e.isDirectory() || !PROFILE_FOLDERS.test(e.name)) continue;
     const dir = join(profiles, e.name);
     if (await inUse(dir)) {
-      r.keptOpen.push(Number(e.name));
+      r.keptOpen.push(/^\d+$/.test(e.name) ? Number(e.name) : e.name);
       continue;
     }
     for (const root of [dir, join(dir, 'Default')]) for (const cache of PROFILE_CACHES) r.browsers += await clear(join(root, cache));
@@ -138,6 +144,39 @@ export async function sweepTemp(o: { tmpDir?: string; now?: number } = {}): Prom
   return freed;
 }
 
+// When anything in a file or folder last changed (modified time, the newest of everything inside a
+// folder). A folder's own time only moves when something is added or removed directly in it, so a
+// scratch folder a render is still writing into would look old without this.
+async function newestChange(path: string): Promise<number> {
+  const s = await lstat(path).catch(() => null);
+  if (!s) return 0;
+  if (!s.isDirectory()) return s.mtimeMs;
+  let newest = s.mtimeMs;
+  for (const name of await readdir(path).catch(() => [] as string[])) newest = Math.max(newest, await newestChange(join(path, name)));
+  return newest;
+}
+
+// The scratch a studio leaves on the volume: each item directly inside <keep>/<app>/tmp (VideoStudio and
+// LaunchStudio keep one), once nothing in it has changed for SCRATCH_AFTER_DAYS. The tmp folder itself and
+// everything beside it (renders, clips, models) are never touched. Returns the bytes freed.
+export async function sweepScratch(o: { keepDir: string; now?: number }): Promise<number> {
+  const now = o.now ?? Date.now();
+  let freed = 0;
+  for (const app of await readdir(o.keepDir, { withFileTypes: true }).catch(() => [])) {
+    if (!app.isDirectory()) continue;
+    const tmp = join(o.keepDir, app.name, 'tmp');
+    // A link is not scratch: it could point anywhere.
+    const t = await lstat(tmp).catch(() => null);
+    if (!t || !t.isDirectory()) continue;
+    for (const name of await readdir(tmp).catch(() => [] as string[])) {
+      const full = join(tmp, name);
+      if (now - (await newestChange(full)) < SCRATCH_AFTER_DAYS * DAY) continue;
+      freed += await clear(full);
+    }
+  }
+  return freed;
+}
+
 type Statfs = (path: string) => Promise<{ blocks: number; bfree: number; bavail: number }>;
 
 // How full the volume holding `path` is, the way df shows it (null when it can't be read).
@@ -156,6 +195,9 @@ export async function diskFraction(path: string, read: Statfs = p => statfs(p)):
 export const sweepDue = (fraction: number | null, lastSweepAt: number, now: number) => fraction != null && fraction >= FULL_AT && now - lastSweepAt >= FULL_SWEEP_EVERY_MS;
 
 const size = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`);
+
+// The line logged once a day to follow how full the volume is.
+export const volumeLine = (fraction: number | null) => (fraction == null ? '[volume] could not be read' : `[volume] ${Math.round(fraction * 100)}% full, ${Math.round((1 - fraction) * 100)}% free`);
 
 async function childSizes(dir: string, label = ''): Promise<[string, number][]> {
   const out: [string, number][] = [];
@@ -235,10 +277,15 @@ async function sweepAndLog(when: string) {
   await logReport(when, 'before');
   const r = await sweepDisk({ dataDir: DATA_DIR, programsDir: programsRoot() });
   const temp = await sweepTemp();
+  const scratch = await sweepScratch({ keepDir: join(dirname(DATA_DIR), 'keep') });
   console.log(
-    `[sweep] ${when}: freed ${size(r.freed + temp)} (programs' caches ${size(r.programs)}, browsers' caches ${size(r.browsers)}, old agency copies ${size(r.replaced)}, temporary folders ${size(temp)})${r.keptOpen.length ? `; left alone, browser open: profile${r.keptOpen.length === 1 ? '' : 's'} ${r.keptOpen.join(', ')}` : ''}.`,
+    `[sweep] ${when}: freed ${size(r.freed + temp + scratch)} (programs' caches ${size(r.programs)}, browsers' caches ${size(r.browsers)}, old agency copies ${size(r.replaced)}, temporary folders ${size(temp)}, studios' scratch ${size(scratch)})${r.keptOpen.length ? `; left alone, browser open: profile${r.keptOpen.length === 1 ? '' : 's'} ${r.keptOpen.join(', ')}` : ''}.`,
   );
   await logReport(when, 'after');
+}
+
+async function logVolume() {
+  console.log(volumeLine(await diskFraction(DATA_DIR)));
 }
 
 const FIRST_SWEEP_MS = 60_000; // not while the agency is still starting
@@ -252,6 +299,9 @@ export function startDiskSweep() {
     () => void sweepAndLog('Daily').catch(failed),
     DAY,
   ).unref();
+  // The volume's share in use, once at start and then once a day, on a line of its own to follow the trend.
+  setTimeout(() => void logVolume().catch(failed), FIRST_SWEEP_MS / 2).unref();
+  setInterval(() => void logVolume().catch(failed), DAY).unref();
   // Between the daily sweeps: the volume went from nothing to 86% in a day, so a full one doesn't wait.
   setInterval(
     () =>
