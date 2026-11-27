@@ -125,6 +125,9 @@ const renewedSignIn = (id: string) => id === 'chatgpt' || id.startsWith('integra
 export async function setSecret(id: string, value: unknown) {
   if (renewedSignIn(id)) return keepSecret(id, value);
   const sealed = await seal(value);
+  // This replaces a value still held: even if it can't be saved, a later save mustn't
+  // write the held one.
+  unsaved.delete(id);
   await writeAll(all => {
     all[id] = sealed;
   });
@@ -153,10 +156,14 @@ function saveLater() {
   retry.unref();
 }
 
-export const deleteSecret = (id: string) =>
-  writeAll(all => {
+// A held value is dropped first: even if the sign-out can't be saved, a later save
+// mustn't write it back.
+export const deleteSecret = (id: string) => {
+  unsaved.delete(id);
+  return writeAll(all => {
     delete all[id];
   });
+};
 
 // "sk-ant-...abcd": enough to recognise a key, never enough to use it.
 export const mask = (s: string) => (s.length <= 10 ? '••••' : `${s.slice(0, 6)}…${s.slice(-4)}`);

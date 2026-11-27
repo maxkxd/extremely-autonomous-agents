@@ -66,3 +66,26 @@ test("a renewed sign-in that can't be saved is used from memory, and saved once 
   await deleteSecret('signin');
   assert.equal(await getSecret('signin'), null);
 });
+
+test("a held value isn't written back after a sign-out or a replacement that couldn't be saved", async () => {
+  await setSecret('kept', 'one');
+  const good = await readFile(VAULT, 'utf8');
+  const damaged = good.slice(0, 20);
+
+  // The sign-out fails; once the file can be read, another save mustn't bring it back.
+  await writeFile(VAULT, damaged);
+  await keepSecret('signed-out', 'renewed');
+  await assert.rejects(deleteSecret('signed-out'), /can't be read/);
+  await writeFile(VAULT, good);
+  await setSecret('other', 'y');
+  assert.equal(await getSecret('signed-out'), null);
+
+  // The same for a replacement that fails.
+  await writeFile(VAULT, damaged);
+  await keepSecret('replaced', 'renewed');
+  await assert.rejects(setSecret('replaced', 'newer'), /can't be read/);
+  await writeFile(VAULT, good);
+  await setSecret('other', 'z');
+  assert.equal(await getSecret('replaced'), null);
+  assert.equal(await getSecret('kept'), 'one');
+});
