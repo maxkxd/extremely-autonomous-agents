@@ -4,8 +4,17 @@
 set -e
 ROOT="$(dirname "$EAA_DATA_DIR")"
 mkdir -p "$ROOT"
-# A new volume comes owned by root.
-[ "$(stat -c %U "$ROOT")" = node ] || chown -R node:node "$ROOT"
+# Everything on the volume must belong to the agency. A new volume comes owned by
+# root, and files an earlier run left as another user (root: a command run by hand in
+# the container, an older image) stay theirs, so the agency ("node") can't open them -
+# "EACCES ... browser-profiles/1/Default/Preferences" - nor can the disk sweep clear
+# them. So this is checked at every start, not only when the volume's top folder
+# isn't node's. Quiet when nothing is wrong.
+NOT_NODE="$(find "$ROOT" -xdev ! -user node 2>/dev/null | wc -l)"
+if [ "$NOT_NODE" -gt 0 ]; then
+  find "$ROOT" -xdev ! -user node -exec chown -h node:node {} + 2>/dev/null || echo "start.sh: could not change the owner of some files on $ROOT" >&2
+  echo "start.sh: gave $NOT_NODE file(s) and folder(s) on $ROOT back to the agency (they belonged to another user)"
+fi
 # The video plugins keep their work in ~/VideoStudio and ~/LaunchStudio, and the
 # home folder is on the container's disk, which a redeploy wipes. Keep those two
 # folders on the volume and link them into the home folder, so the plugins keep

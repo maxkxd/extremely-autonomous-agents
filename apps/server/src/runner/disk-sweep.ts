@@ -176,10 +176,19 @@ const listed = (items: [string, number][]) =>
 //   data folder (the database and everything not listed below), programs (with .cache and .npm-cache),
 //   each browser profile (and its Default), the video folders kept on the volume (per subfolder),
 //   old agency copies, and the temp folders runs leave behind.
-export async function diskReport(o: { dataDir: string; programsDir?: string; keepDir?: string; tmpDir?: string }): Promise<string[]> {
+// volume: true adds a first line for the whole volume (the data folder's parent: agency, keep, incoming,
+// sidecars...), for what fills it outside the agency's own folder. It walks everything once more, so the
+// sweep asks for it only in its "before" report.
+export async function diskReport(o: { dataDir: string; programsDir?: string; keepDir?: string; tmpDir?: string; volume?: boolean }): Promise<string[]> {
   const keepDir = o.keepDir ?? join(dirname(o.dataDir), 'keep');
   const tmp = o.tmpDir ?? tmpdir();
   const lines: string[] = [];
+
+  if (o.volume) {
+    const root = dirname(o.dataDir);
+    const items = await childSizes(root);
+    lines.push(`volume folder ${root} ${size(total(items))}: ${listed(items)}`);
+  }
 
   const topLevel: [string, number][] = [];
   for (const name of await readdir(o.dataDir).catch(() => [] as string[])) {
@@ -222,7 +231,7 @@ export async function diskReport(o: { dataDir: string; programsDir?: string; kee
 
 async function logReport(when: string, stage: 'before' | 'after') {
   try {
-    for (const line of await diskReport({ dataDir: DATA_DIR })) console.log(`[sweep] ${when}, ${stage}: ${line}`);
+    for (const line of await diskReport({ dataDir: DATA_DIR, volume: stage === 'before' })) console.log(`[sweep] ${when}, ${stage}: ${line}`);
   } catch (e) {
     console.error(`[sweep] Couldn't measure the disk: ${(e as Error).message}`);
   }
