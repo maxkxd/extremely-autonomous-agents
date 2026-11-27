@@ -8,6 +8,15 @@ import { every } from './poll';
 // focus: something in that section to bring into view (Tools: a tool id).
 export const openSettings = (section: SettingsSection, focus?: string) => window.dispatchEvent(new CustomEvent('eaa:settings', { detail: { section, focus } }));
 
+// An AI connection was made, changed or removed (Settings, onboarding): what
+// shows which models are connected asks again now, not at its next poll.
+const MODELS_CHANGED = 'eaa:models-changed';
+export const modelsChanged = () => window.dispatchEvent(new Event(MODELS_CHANGED));
+export const onModelsChanged = (fn: () => void) => {
+  window.addEventListener(MODELS_CHANGED, fn);
+  return () => window.removeEventListener(MODELS_CHANGED, fn);
+};
+
 // Whether any AI model is connected: null until known. Checked again while there
 // are none (a connection made in Settings lifts what was waiting on it).
 export function useHasModels() {
@@ -17,9 +26,11 @@ export function useHasModels() {
     const check = () => getAvailableModels().then(a => live && setHas(a.some(c => c.models.length > 0)), () => {});
     check();
     const stopPoll = every(() => has !== true && check(), 3000);
+    const stopListen = onModelsChanged(check);
     return () => {
       live = false;
       stopPoll();
+      stopListen();
     };
   }, [has]);
   return has;

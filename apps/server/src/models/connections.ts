@@ -590,15 +590,19 @@ export const hasClaudeToken = () => !!planToken;
 // Where Claude Code is: its own installer's folder and npm's global one by full
 // path first - the app's PATH is fixed when it starts, so one installed while
 // it's open isn't on it - then the PATH.
-async function claudeBin(): Promise<string | null> {
+function claudeCandidates(): string[] {
   const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
   const win = process.platform === 'win32';
-  const candidates = [
+  return [
     win ? join(home, '.local', 'bin', 'claude.exe') : join(home, '.local', 'bin', 'claude'),
     ...(win && process.env.APPDATA ? [join(process.env.APPDATA, 'npm', 'claude.cmd')] : []),
     'claude',
   ];
-  for (const bin of candidates) {
+}
+// Claude Code's program is on disk (whether or not it answered in time).
+const claudeOnDisk = () => claudeCandidates().some(bin => bin !== 'claude' && existsSync(bin));
+async function claudeBin(): Promise<string | null> {
+  for (const bin of claudeCandidates()) {
     if (bin !== 'claude' && !existsSync(bin)) continue;
     try {
       await run(quoted(bin), ['--version'], claudeOpts());
@@ -634,7 +638,8 @@ type ClaudeCodeFacts = Omit<ClaudeCodeStatus, 'task'>;
 // as opposed to answering that nobody is signed in.
 async function checkClaudeCode(): Promise<ClaudeCodeFacts & { unsure?: boolean }> {
   const bin = await claudeBin();
-  if (!bin) return { installed: false, loggedIn: false, unsure: true };
+  // Its program is there but didn't answer in time (a busy computer): installed, no answer.
+  if (!bin) return { installed: claudeOnDisk(), version: claudeLast?.facts.version, loggedIn: false, unsure: true };
   const version = await run(quoted(bin), ['--version'], claudeOpts()).then(
     r => r.stdout.trim().split(' ')[0],
     () => claudeLast?.facts.version,
@@ -660,12 +665,12 @@ async function checkClaudeCode(): Promise<ClaudeCodeFacts & { unsure?: boolean }
 // Connecting and waiting for a sign-in ask fresh.
 const CLAUDE_RECHECK_MS = 30_000;
 let claudeLast: { at: number; facts: ClaudeCodeFacts } | null = null;
-let claudeChecking: Promise<ClaudeCodeFacts> | null = null;
 // A check that couldn't get an answer (Claude Code slow to start on a busy
-// computer, so it timed out) isn't a sign-out: the last answer stands, until
-// that's happened a few times in a row and the loss is likely real. Without
-// this, Claude dropped out of every model picker for a while each time the
-// agency was busy.
+// computer, so it timed out) isn't a sign-out: the last answer stands for as
+// long as Claude Code is still there. Only an answer saying nobody is signed
+// in, or Claude Code gone from the computer a few checks in a row, signs it
+// out. Without this, "No AI model is connected" came up whenever the agency
+// was busy.
 // The kept answer counts as fresh, so the next check waits the usual 30
 // seconds and "a few in a row" spans about two minutes, not a burst.
 export const CLAUDE_UNSURE_LIMIT = 4;
@@ -677,22 +682,26 @@ export function settleClaudeCheck(
   const { unsure, ...answer } = facts;
   if (!unsure) return { facts: answer, unsureInARow: 0 };
   const n = unsureInARow + 1;
-  if (last?.loggedIn && n < CLAUDE_UNSURE_LIMIT) return { facts: last, unsureInARow: n };
+  if (last?.loggedIn && (answer.installed || n < CLAUDE_UNSURE_LIMIT)) return { facts: last, unsureInARow: n };
   return { facts: answer, unsureInARow: n };
 }
 let claudeUnsure = 0;
+// Just after the app starts there's no last answer to keep: a saved Claude
+// connection stands in for one, so one slow first check doesn't say it's gone.
 const recheckClaudeCode = () =>
   (claudeChecking ??= checkClaudeCode()
-    .then(found => {
-      const { facts, unsureInARow } = settleClaudeCheck(found, claudeLast?.facts ?? null, claudeUnsure);
+    .then(async found => {
+      const last = claudeLast?.facts ?? ((await load()).connections['claude-code'] ? { installed: true, loggedIn: true } : null);
+      const { facts, unsureInARow } = settleClaudeCheck(found, last, claudeUnsure);
       claudeUnsure = unsureInARow;
       claudeLast = { at: Date.now(), facts };
-      return facts;
+      return { facts, found };
     })
     .finally(() => (claudeChecking = null)));
+let claudeChecking: Promise<{ facts: ClaudeCodeFacts; found: Awaited<ReturnType<typeof checkClaudeCode>> }> | null = null;
 
 export async function claudeCodeStatus(fresh = false): Promise<ClaudeCodeStatus> {
-  if (fresh || !claudeLast) return withNeeds({ ...(await recheckClaudeCode()), task: claudeTask });
+  if (fresh || !claudeLast) return withNeeds({ ...(await recheckClaudeCode()).facts, task: claudeTask });
   if (claudeTask || Date.now() - claudeLast.at > CLAUDE_RECHECK_MS) void recheckClaudeCode().catch(() => {});
   return withNeeds({ ...claudeLast.facts, task: claudeTask });
 }
@@ -700,8 +709,10 @@ export async function claudeCodeStatus(fresh = false): Promise<ClaudeCodeStatus>
 const CLAUDE_CODE_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 
 export async function claudeCodeConnect() {
-  const s = await claudeCodeStatus(true);
+  // Connect goes by this check's own answer, not the kept one.
+  const { found: s } = await recheckClaudeCode();
   if (!s.installed) throw new ConnectError("Claude Code isn't installed on this computer.");
+  if (s.unsure) throw new ConnectError('Claude Code took too long to answer. Your computer may be busy: try Connect again in a moment.');
   if (!s.loggedIn) throw new ConnectError("Claude Code isn't signed in to a Claude account yet.");
   await connected('claude-code', `Claude Code ${s.version ?? ''}`.trim(), CLAUDE_CODE_MODELS.map(id => knownModel('claude-code', id)));
 }

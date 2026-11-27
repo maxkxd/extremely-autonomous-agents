@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useId, useRef, useState } from 'r
 import { AlertTriangle, Cpu, ExternalLink } from 'lucide-react';
 import { useOffline } from './offline';
 import { useLastSeen } from './lastSeen';
+import { modelsChanged } from './NoModels';
 import {
   siAnthropic,
   siClaude,
@@ -249,6 +250,7 @@ function useAction(refresh: () => Promise<unknown>) {
     try {
       await fn();
       await refresh();
+      modelsChanged();
       return true;
     } catch (e) {
       setError((e as Error).message);

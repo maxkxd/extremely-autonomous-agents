@@ -11,7 +11,7 @@ import { ACCOUNT, AGENTS, rangeDays, rangeLabel, scaleTo, type Decisions, type A
 import { DEPARTMENT_ICON, type View } from './Sidebar';
 import { currentOrg, isAdmin, myAccountId, scoped } from './account';
 import { Skel } from './Skeleton';
-import { ConnectModel } from './NoModels';
+import { ConnectModel, onModelsChanged } from './NoModels';
 import { useOffline } from './offline';
 import { Spinner } from './Busy';
 import { every } from './poll';
@@ -755,15 +755,16 @@ export function Dashboard({
   // What's connected, kept current too: one answer taken while a connection was
   // briefly unreachable otherwise stood until the app was restarted, showing
   // its models as "Not connected" and missing from the picker.
-  useEffect(
-    () =>
-      every(
-        () =>
-          getAvailableModels().then(setAvailable, () => {}),
-        15_000,
-      ),
-    [],
-  );
+  useEffect(() => {
+    const look = () => void getAvailableModels().then(setAvailable, () => {});
+    const stopPoll = every(look, 15_000);
+    // Connected in Settings (open over this page): the banner goes at once.
+    const stopListen = onModelsChanged(look);
+    return () => {
+      stopPoll();
+      stopListen();
+    };
+  }, []);
   // The moment a card's Setting up pill goes, its tailored models are there to show.
   const settingUp = AGENTS.filter(a => a.settingUp).map(a => a.id).join(',');
   const wasSettingUp = useRef(settingUp);
