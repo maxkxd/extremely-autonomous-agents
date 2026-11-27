@@ -2,7 +2,33 @@
 # The container's start (Dockerfile): the volume made the agency's, then the
 # agency (scripts/cloud-host.ts) as the unprivileged "node" user.
 set -e
+# EAA_DATA_DIR set from Git Bash on Windows arrives as "C:/Program Files/Git/data/agency"
+# (Git Bash rewrites a leading "/"): a relative path here, so the volume was never found.
+# The Git Bash prefix is taken off; any other Windows path is refused for the default.
+# (The same check is in src/data-dir.ts, which scripts/cloud-host.ts uses.)
+DEFAULT_DATA_DIR=/data/agency
+RAW_DATA_DIR="${EAA_DATA_DIR:-$DEFAULT_DATA_DIR}"
+case "$RAW_DATA_DIR" in
+  [A-Za-z]:[/\\]* | [A-Za-z]:)
+    FIXED="$(printf '%s' "$RAW_DATA_DIR" | sed -E 's#\\#/#g; s#^[A-Za-z]:/Program Files( \(x86\))?/Git(/|$)#/#I')"
+    case "$FIXED" in
+      /?*)
+        case "$FIXED" in
+          [A-Za-z]:*) FIXED="" ;;
+        esac ;;
+      *) FIXED="" ;;
+    esac
+    if [ -n "$FIXED" ]; then
+      echo "start.sh: EAA_DATA_DIR is \"$RAW_DATA_DIR\", a Windows path (Git Bash turns a leading / into its install folder): using \"$FIXED\". Set the variable to \"$FIXED\"." >&2
+    else
+      FIXED="$DEFAULT_DATA_DIR"
+      echo "start.sh: EAA_DATA_DIR is \"$RAW_DATA_DIR\", a Windows path that is not a folder here: using \"$FIXED\". Set the variable to a path inside the container." >&2
+    fi
+    RAW_DATA_DIR="$FIXED" ;;
+esac
+export EAA_DATA_DIR="$RAW_DATA_DIR"
 ROOT="$(dirname "$EAA_DATA_DIR")"
+echo "start.sh: the agency's folder is $EAA_DATA_DIR, on $ROOT"
 mkdir -p "$ROOT"
 # A new volume comes owned by root.
 [ "$(stat -c %U "$ROOT")" = node ] || chown -R node:node "$ROOT"

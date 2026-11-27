@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
+import { normaliseDataDir } from '../src/data-dir.js';
 import { startLinkFront } from '../src/link-forward.js';
 import { openSealed, unpackBundle, vaultKeyBytes } from '../src/move.js';
 
@@ -21,7 +22,10 @@ import { openSealed, unpackBundle, vaultKeyBytes } from '../src/move.js';
 // that is its host (its vault has the host secret) is never overwritten. With neither, it waits for a bundle
 // (EAA_START_EMPTY=1: starts an empty agency instead).
 
-const DATA = resolve(process.env.EAA_DATA_DIR ?? '/data/agency');
+// start.sh has already repaired EAA_DATA_DIR when Git Bash had turned it into a Windows path
+// (src/data-dir.ts); this is the same check for a host started without it.
+const dataDir = normaliseDataDir(process.env.EAA_DATA_DIR);
+const DATA = resolve(dataDir.dir);
 const ROOT = dirname(DATA);
 const INCOMING = join(ROOT, 'incoming');
 const SIDECARS = join(ROOT, 'sidecars');
@@ -32,6 +36,8 @@ const PORT = Number(process.env.PORT ?? 5185);
 const AGENCY_PORT = Number(process.env.EAA_AGENCY_PORT || (PORT === 5195 ? 5196 : 5195));
 const SERVER = fileURLToPath(new URL('../src/index.ts', import.meta.url));
 const log = (m: string) => console.log(`[cloud] ${m}`);
+if (dataDir.note) console.error(`[cloud] ${dataDir.note}`);
+log(`The agency's folder is ${DATA}; a bundle is looked for in ${INCOMING}.`);
 
 // Already this organisation's host: its vault has the host secret (a bundle brings it).
 // An agency without one - started empty - may still be replaced by a bundle.
