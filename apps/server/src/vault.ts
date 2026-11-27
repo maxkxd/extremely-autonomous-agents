@@ -14,23 +14,44 @@ const KEY_FILE = join(DATA, 'vault.key');
 
 type Sealed = { iv: string; tag: string; data: string };
 
+async function readKeyFile(): Promise<Buffer> {
+  const k = Buffer.from(await readFile(KEY_FILE, 'utf8'), 'base64');
+  if (k.length !== 32) throw new Error("The saved sign-ins key file (vault.key) is damaged and can't be used, so nothing was changed.");
+  return k;
+}
+
+// Only a key file that isn't there yet is made. One that can't be read is an error:
+// a new key written over it would leave every saved secret unreadable for good.
+async function loadKey(): Promise<Buffer> {
+  if (process.env.EAA_VAULT_KEY) {
+    const k = Buffer.from(process.env.EAA_VAULT_KEY, 'base64');
+    if (k.length !== 32) throw new Error('EAA_VAULT_KEY must be 32 bytes, base64-encoded.');
+    return k;
+  }
+  try {
+    return await readKeyFile();
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
+  const k = randomBytes(32);
+  await mkdir(DATA, { recursive: true });
+  try {
+    // 'wx': one made in the meantime is used, not written over.
+    await writeFile(KEY_FILE, k.toString('base64'), { mode: 0o600, flag: 'wx' });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    return readKeyFile();
+  }
+  return k;
+}
+
 let keyPromise: Promise<Buffer> | null = null;
 function key(): Promise<Buffer> {
-  keyPromise ??= (async () => {
-    if (process.env.EAA_VAULT_KEY) {
-      const k = Buffer.from(process.env.EAA_VAULT_KEY, 'base64');
-      if (k.length !== 32) throw new Error('EAA_VAULT_KEY must be 32 bytes, base64-encoded.');
-      return k;
-    }
-    try {
-      return Buffer.from(await readFile(KEY_FILE, 'utf8'), 'base64');
-    } catch {
-      const k = randomBytes(32);
-      await mkdir(DATA, { recursive: true });
-      await writeFile(KEY_FILE, k.toString('base64'), { mode: 0o600 });
-      return k;
-    }
-  })();
+  // A failure isn't kept: the next call tries again, with no restart.
+  keyPromise ??= loadKey().catch(e => {
+    keyPromise = null;
+    throw e;
+  });
   return keyPromise;
 }
 
