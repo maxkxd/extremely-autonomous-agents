@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DATA_DIR } from './paths.js';
 
@@ -34,45 +34,76 @@ function key(): Promise<Buffer> {
   return keyPromise;
 }
 
-async function readAll(): Promise<Record<string, Sealed>> {
-  try {
-    return JSON.parse(await readFile(VAULT, 'utf8')) as Record<string, Sealed>;
-  } catch {
-    return {};
-  }
-}
-
-// Replaces the vault with the new copy. On Windows that's refused while anything
-// has the file open (a read of a key at the same moment): tried again briefly.
-async function swapIn(tmp: string, to: string) {
+// On Windows, reading or replacing the vault is refused while something else has the
+// file open (a read of a key at the same moment, a virus scanner): tried again after
+// each of these pauses (ms). A read briefly (about 1.5 s in all); a save for longer
+// (about 15 s), since giving up loses what was being saved.
+const pauses = (tries: number) => Array.from({ length: tries }, (_, i) => Math.min(500, 25 + i * 25));
+const READ_PAUSES = pauses(10);
+const SAVE_PAUSES = pauses(40);
+async function whileHeld<T>(waits: number[], op: () => Promise<T>): Promise<T> {
   for (let i = 0; ; i++) {
     try {
-      return await rename(tmp, to);
+      return await op();
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
-      if (i >= 20 || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw e;
-      await new Promise(r => setTimeout(r, 25 + i * 25));
+      if (i >= waits.length || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw e;
+      await new Promise(r => setTimeout(r, waits[i]));
     }
   }
 }
 
-// Writes go one at a time, so two saves can't lose each other.
+// Only a vault that isn't there yet is empty. One that can't be read is an error:
+// taken for empty, the next save would write over every secret in it.
+async function readAll(): Promise<Record<string, Sealed>> {
+  let text: string;
+  try {
+    text = await whileHeld(READ_PAUSES, () => readFile(VAULT, 'utf8'));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw e;
+  }
+  try {
+    return JSON.parse(text) as Record<string, Sealed>;
+  } catch {
+    // Not the parser's own message: that quotes the file.
+    throw new Error("The saved sign-ins file (vault.json) is damaged and can't be read, so nothing was changed.");
+  }
+}
+
+// Writes go one at a time, so two saves can't lose each other. A save that fails is
+// its own caller's error: the ones after it still go ahead.
 let writing = Promise.resolve();
+// Renewed sign-ins not saved yet (keepSecret): read from here, and written along
+// with the next save that works.
+const unsaved = new Map<string, Sealed>();
 function writeAll(update: (all: Record<string, Sealed>) => void) {
-  writing = writing.then(async () => {
+  const save = writing.then(async () => {
     const all = await readAll();
+    const held = [...unsaved];
+    for (const [id, sealed] of held) all[id] = sealed;
+    // After the held ones, so a save or a sign-out of the same one wins over it.
     update(all);
     await mkdir(DATA, { recursive: true });
-    const tmp = `${VAULT}.tmp`;
-    await writeFile(tmp, JSON.stringify(all), { mode: 0o600 });
-    await swapIn(tmp, VAULT);
+    // A name of its own, so a file left from another save can't get in this one's way.
+    const tmp = `${VAULT}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+    try {
+      await writeFile(tmp, JSON.stringify(all), { mode: 0o600 });
+      await whileHeld(SAVE_PAUSES, () => rename(tmp, VAULT));
+    } catch (e) {
+      await rm(tmp, { force: true }).catch(() => {});
+      throw e;
+    }
+    // Saved now, unless it was renewed again while this was being written.
+    for (const [id, sealed] of held) if (unsaved.get(id) === sealed) unsaved.delete(id);
     await chmod(VAULT, 0o600).catch(() => {});
   });
-  return writing;
+  writing = save.catch(() => {});
+  return save;
 }
 
 export async function getSecret<T>(id: string): Promise<T | null> {
-  const sealed = (await readAll())[id];
+  const sealed = unsaved.get(id) ?? (await readAll())[id];
   if (!sealed) return null;
   const d = createDecipheriv('aes-256-gcm', await key(), Buffer.from(sealed.iv, 'base64'));
   d.setAuthTag(Buffer.from(sealed.tag, 'base64'));
@@ -80,20 +111,59 @@ export async function getSecret<T>(id: string): Promise<T | null> {
   return JSON.parse(plain.toString('utf8')) as T;
 }
 
-export async function setSecret(id: string, value: unknown) {
+async function seal(value: unknown): Promise<Sealed> {
   const iv = randomBytes(12);
   const c = createCipheriv('aes-256-gcm', await key(), iv);
   const data = Buffer.concat([c.update(JSON.stringify(value), 'utf8'), c.final()]);
-  const sealed: Sealed = { iv: iv.toString('base64'), tag: c.getAuthTag().toString('base64'), data: data.toString('base64') };
+  return { iv: iv.toString('base64'), tag: c.getAuthTag().toString('base64'), data: data.toString('base64') };
+}
+
+// Renewed sign-ins known by their name: the ChatGPT plan's tokens, and the token a
+// fields sign-in is swapped for. (A connector's OAuth renewal calls keepSecret itself.)
+const renewedSignIn = (id: string) => id === 'chatgpt' || id.startsWith('integration-token:');
+
+export async function setSecret(id: string, value: unknown) {
+  if (renewedSignIn(id)) return keepSecret(id, value);
+  const sealed = await seal(value);
+  // This replaces a value still held: even if it can't be saved, a later save mustn't
+  // write the held one.
+  unsaved.delete(id);
   await writeAll(all => {
     all[id] = sealed;
   });
 }
 
-export const deleteSecret = (id: string) =>
-  writeAll(all => {
+// For a renewed sign-in. The service may already have ended the one it replaces, so a
+// vault that can't be saved just now mustn't lose it, or fail the call that renewed
+// it: it's held in memory, used from there, and tried again until it's saved.
+// (Stopping the app before then still loses it.)
+export async function keepSecret(id: string, value: unknown) {
+  unsaved.set(id, await seal(value));
+  await writeAll(() => {}).catch((e: Error) => {
+    console.error(`[vault] Couldn't save ${id} yet; using it from memory and trying again:`, e.message);
+    saveLater();
+  });
+}
+
+const RETRY_MS = 30_000;
+let retry: NodeJS.Timeout | undefined;
+function saveLater() {
+  if (retry) return;
+  retry = setTimeout(() => {
+    retry = undefined;
+    if (unsaved.size) void writeAll(() => {}).catch(saveLater);
+  }, RETRY_MS);
+  retry.unref();
+}
+
+// A held value is dropped first: even if the sign-out can't be saved, a later save
+// mustn't write it back.
+export const deleteSecret = (id: string) => {
+  unsaved.delete(id);
+  return writeAll(all => {
     delete all[id];
   });
+};
 
 // "sk-ant-...abcd": enough to recognise a key, never enough to use it.
 export const mask = (s: string) => (s.length <= 10 ? '••••' : `${s.slice(0, 6)}…${s.slice(-4)}`);

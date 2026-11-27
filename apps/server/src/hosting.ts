@@ -75,7 +75,12 @@ async function shareAi(orgId: string) {
 }
 
 async function launch(h: Hosting) {
-  const hostSecret = (await getSecret<string>(`hosting:${h.orgId}:secret`)) ?? '';
+  // A vault that can't be read now: it starts without the secret, and this server stays up.
+  const hostSecret =
+    (await getSecret<string>(`hosting:${h.orgId}:secret`).catch((e: Error) => {
+      console.error(`[${h.orgName}] couldn't read the host secret from the vault:`, e.message);
+      return null;
+    })) ?? '';
   const server = fileURLToPath(new URL('./index.ts', import.meta.url));
   child = spawn(process.execPath, ['--import', 'tsx', server], {
     env: {

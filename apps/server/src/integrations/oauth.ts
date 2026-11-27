@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { ConnectError } from '../models/providers.js';
 import { safeFetch } from '../runner/net.js';
-import { deleteSecret, getSecret, setSecret } from '../vault.js';
+import { deleteSecret, getSecret, keepSecret, setSecret } from '../vault.js';
 import type { OAuthDef } from './schema.js';
 import { sharedClient, type SharedProvider } from './shared-clients.js';
 
@@ -209,7 +209,8 @@ export async function oauthAccessToken(id: string, auth: OAuthDef, fresh = false
       if (/expired or was revoked/.test((e as Error).message)) onEnded?.(id, (e as Error).message);
       throw e;
     }
-    await setSecret(secretKey(id), {
+    // Kept even if it can't be saved now: the old refresh token may no longer work.
+    await keepSecret(secretKey(id), {
       ...current,
       accessToken: t.access_token,
       refreshToken: t.refresh_token ?? current.refreshToken,
