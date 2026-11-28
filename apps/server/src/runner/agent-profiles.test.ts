@@ -279,3 +279,61 @@ test('no Edge or Chromium: it says so, and nothing starts', async () => {
   assert.equal(starts.length, 0);
   assert.equal(one<{ n: number }>("SELECT COUNT(*) AS n FROM passwords WHERE profile = 6")?.n, 0);
 });
+
+test('one already open with the extension switched off is closed and opened again with it on, not given more connect pages', async () => {
+  _testing.setBrowser({ exe: 'C:/fake/msedge.exe', kind: 'edge' });
+  _testing.setSpawn(fakeSpawn);
+  starts.length = 0;
+  _testing.setWaits(3000, 1000);
+  const n = createProfile();
+  const dir = join(PROFILES_DIR, String(n));
+  const p = await pairWith(pairCode({ browser: n, local: true }).link);
+  p.ws.close();
+  await new Promise(r => setTimeout(r, 100));
+  // Left open by an earlier version, which let Edge switch the extension off:
+  mkdirSync(join(dir, 'Default'), { recursive: true });
+  const prefsFile = join(dir, 'Default', 'Secure Preferences');
+  writeFileSync(prefsFile, JSON.stringify({ extensions: { settings: { eaa: { location: 8, disable_reasons: [1 << 24] } } }, protection: { macs: { extensions: { settings: { eaa: 'X' } } } } }));
+  let running = true;
+  const closed: string[] = [];
+  _testing.setRunning(async () => running);
+  _testing.setCloser(async d => (closed.push(d), (running = false), true));
+  onStart = () => void pairWith(pairCode({ browser: n, local: true }).link); // on again: it connects
+  try {
+    await openProfile(n);
+    assert.deepEqual(closed, [dir], 'closed once');
+    assert.equal(starts.length, 1, 'then started once');
+    assert.equal(connectLink(starts[0]), null, 'paired: no connect page');
+    assert.deepEqual(JSON.parse(readFileSync(prefsFile, 'utf8')).extensions.settings, {}, 'the switched-off record is gone before the start');
+    assert.ok(browserConn(n));
+  } finally {
+    _testing.setRunning(null);
+    _testing.reset();
+  }
+});
+
+test('one already open with the extension on is left open (only waited for)', async () => {
+  _testing.setBrowser({ exe: 'C:/fake/msedge.exe', kind: 'edge' });
+  starts.length = 0;
+  _testing.setWaits(300, 100);
+  const n = createProfile();
+  const p = await pairWith(pairCode({ browser: n, local: true }).link);
+  p.ws.close();
+  await new Promise(r => setTimeout(r, 100));
+  const closed: string[] = [];
+  _testing.setRunning(async () => true);
+  _testing.setCloser(async d => (closed.push(d), true));
+  onStart = s => {
+    const link = connectLink(s);
+    if (link) void pairWith(link);
+  };
+  try {
+    await openProfile(n);
+    assert.deepEqual(closed, [], 'never closed');
+    assert.equal(starts.length, 1, 'only its connect page, once');
+    assert.ok(connectLink(starts[0]));
+  } finally {
+    _testing.setRunning(null);
+    _testing.reset();
+  }
+});

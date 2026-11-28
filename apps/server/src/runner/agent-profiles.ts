@@ -45,11 +45,15 @@ let testExe: ProfileBrowser | null = null;
 let extraArgs: string[] = [];
 let openMs = OPEN_MS;
 let pairedWaitMs = PAIRED_WAIT_MS;
+let runningFn: ((dir: string) => Promise<boolean>) | null = null;
 export const _testing = {
   setSpawn: (fn: Spawn) => void (spawnFn = fn),
   setBrowser: (b: ProfileBrowser | null) => void (testExe = b),
   setExtraArgs: (args: string[]) => void (extraArgs = args),
   setWaits: (open: number, paired: number) => void ((openMs = open), (pairedWaitMs = paired)),
+  setCloser: (fn: (dir: string) => Promise<boolean>) => void (closeFn = fn),
+  close: (dir: string) => closeBrowserIn(dir),
+  setRunning: (fn: ((dir: string) => Promise<boolean>) | null) => void (runningFn = fn),
   reset: () => void (failed.clear(), opening.clear()),
 };
 
@@ -315,17 +319,28 @@ const UNSUPPORTED_DEVELOPER_EXTENSION = 1 << 24; // Chromium's disable_reason.h
 const offAsDeveloper = (reasons: unknown) =>
   (Array.isArray(reasons) ? reasons : [reasons]).some(r => (Number(r) & UNSUPPORTED_DEVELOPER_EXTENSION) !== 0);
 
-export async function forgetDisabledExtension(dir: string) {
+async function securePrefs(dir: string): Promise<{ file: string; prefs: Record<string, any>; off: string[] } | null> {
   const file = join(dir, 'Default', 'Secure Preferences');
   let prefs: Record<string, any>;
   try {
     prefs = JSON.parse(await readFile(file, 'utf8'));
   } catch {
-    return; // none yet, or unreadable: left to the browser
+    return null; // none yet, or unreadable: left to the browser
   }
   const settings: Record<string, any> = prefs.extensions?.settings ?? {};
-  const off = Object.keys(settings).filter(id => settings[id]?.location === COMMAND_LINE && offAsDeveloper(settings[id]?.disable_reasons));
-  if (!off.length) return;
+  return { file, prefs, off: Object.keys(settings).filter(id => settings[id]?.location === COMMAND_LINE && offAsDeveloper(settings[id]?.disable_reasons)) };
+}
+
+// Whether the browser has the extension switched off (read while it runs: it writes this at once).
+export async function extensionSwitchedOff(dir: string): Promise<boolean> {
+  return !!(await securePrefs(dir))?.off.length;
+}
+
+export async function forgetDisabledExtension(dir: string) {
+  const got = await securePrefs(dir);
+  if (!got?.off.length) return;
+  const { file, prefs, off } = got;
+  const settings: Record<string, any> = prefs.extensions.settings;
   for (const id of off) {
     delete settings[id];
     delete prefs.protection?.macs?.extensions?.settings?.[id];
@@ -371,6 +386,77 @@ function start(n: number, exe: string, dir: string, ext: string, url?: string): 
   return proc;
 }
 const alive = (p?: ChildProcess) => !!p && p.exitCode === null && p.signalCode === null;
+
+// --- Closing one that's open with the extension switched off ------------------------------------
+
+// A browser left open by an earlier version of the app (or Edge before FLAGS) can have
+// the extension switched off: its connect page only ever says "Not connected", and
+// opening it again would just add another. It's closed (asked first, as a person
+// closing it would; forced after CLOSE_MS) and opened again with the extension on.
+const CLOSE_MS = 15_000;
+const runQuiet = (exe: string, args: string[]) =>
+  new Promise<string>(done => {
+    let out = '';
+    const p = nodeSpawn(exe, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    p.stdout?.on('data', d => (out += d));
+    p.on('error', () => done(''));
+    p.on('exit', () => done(out));
+  });
+
+// The browser processes (not their helpers) running on this folder.
+async function browserPids(dir: string, child?: ChildProcess): Promise<number[]> {
+  const pids = new Set<number>();
+  if (child?.pid && alive(child)) pids.add(child.pid);
+  if (process.platform === 'win32') {
+    const json = await runQuiet('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe' or Name='msedge.exe' or Name='chromium.exe'\" | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress",
+    ]);
+    let list: { ProcessId: number; CommandLine: string | null }[] = [];
+    try {
+      const parsed = JSON.parse(json || '[]');
+      list = Array.isArray(parsed) ? parsed : [parsed];
+    } catch {}
+    const want = `--user-data-dir=${resolve(dir)}`.toLowerCase();
+    for (const p of list) {
+      // Edge starts itself again with the folder written --user-data-dir="...".
+      const cmd = (p.CommandLine ?? '').toLowerCase().replaceAll('--user-data-dir="', '--user-data-dir=');
+      if (cmd.includes('--type=')) continue;
+      const at = cmd.indexOf(want);
+      const next = at < 0 ? '' : cmd.charAt(at + want.length);
+      if (at >= 0 && (next === '' || next === '"' || next === ' ')) pids.add(p.ProcessId);
+    }
+  } else {
+    const link = await readlink(join(dir, 'SingletonLock')).catch(() => '');
+    const pid = Number(link.slice(link.lastIndexOf('-') + 1));
+    if (pid > 0) pids.add(pid);
+  }
+  return [...pids];
+}
+
+async function closeBrowserIn(dir: string, child?: ChildProcess): Promise<boolean> {
+  const pids = await browserPids(dir, child);
+  if (!pids.length) return false;
+  const signal = async (force: boolean) => {
+    for (const pid of pids)
+      if (process.platform === 'win32') await runQuiet('taskkill', ['/PID', String(pid), ...(force ? ['/T', '/F'] : [])]);
+      else
+        try {
+          process.kill(pid, force ? 'SIGKILL' : 'SIGTERM');
+        } catch {}
+  };
+  const closed = async (ms: number) => {
+    for (const end = Date.now() + ms; Date.now() < end; await new Promise(r => setTimeout(r, 500))) if (!(await profileRunning(dir))) return true;
+    return !(await profileRunning(dir));
+  };
+  await signal(false);
+  if (await closed(CLOSE_MS)) return true;
+  await signal(true);
+  return closed(5000);
+}
+let closeFn: (dir: string, child?: ChildProcess) => Promise<boolean> = closeBrowserIn;
 
 // --- Opening one, and waiting for it to come online -------------------------------------------
 
@@ -451,7 +537,17 @@ async function openNow(n: number): Promise<void> {
   const deadline = Date.now() + openMs;
   const connectUrl = () => connectPageUrl(pairCode({ browser: n, local: true }).link);
 
-  const running = alive(children.get(n)) || (await profileRunning(dir));
+  const isRunning = async () => alive(children.get(n)) || (await (runningFn ?? profileRunning)(dir));
+  // Open with the extension switched off: closed, to open again with it on.
+  const closeIfSwitchedOff = async () => {
+    if (!(await extensionSwitchedOff(dir))) return false;
+    log(`browser ${n} is open with the EXTREMELY extension switched off; closing it to open it again with the extension on`);
+    if (await closeFn(dir, children.get(n))) return true;
+    logError(`browser ${n} couldn't be closed; its extension stays off until it's closed`);
+    return false;
+  };
+  let running = await isRunning();
+  if (running && (await closeIfSwitchedOff())) running = false;
   let paired = m.paired;
   let proc: ChildProcess | undefined;
   if (!running) {
@@ -471,6 +567,12 @@ async function openNow(n: number): Promise<void> {
     // Its pairing may be gone from the extension: the connect page pairs it again.
     log(`browser ${n} didn't say hello in ${Math.round(pairedWaitMs / 1000)} s; pairing it again`);
     paired = false;
+    // Switched off since it started (or by a browser started before this app): closed and
+    // opened afresh, not given another connect page that can only say "Not connected".
+    if ((await isRunning()) && (await closeIfSwitchedOff())) {
+      await tidyPreferences(dir);
+      await forgetDisabledExtension(dir);
+    }
     start(n, exe, dir, ext, connectUrl());
     if (await waitOnline(n, deadline - Date.now(), failedEarly)) return;
   }
