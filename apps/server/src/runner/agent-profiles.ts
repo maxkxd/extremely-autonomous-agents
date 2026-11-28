@@ -117,6 +117,24 @@ export function madeByEdge(dir: string): boolean {
   }
 }
 
+// Chromium's sandbox runs its network service as an app container, which reads the
+// browser's own folder as "ALL APPLICATION PACKAGES". Program Files lets it; a per-user
+// install folder doesn't, and then the network service crashes over and over and the
+// extension never connects. Chrome's own installer grants it; so does this, for the
+// shipped browser, once each time the app starts (refused in Program Files without
+// admin rights, where it's already allowed).
+const sandboxReadable = new Set<string>();
+async function letSandboxRead(exe: string) {
+  const shipped = process.env.EAA_BROWSER_DIR?.trim();
+  if (process.platform !== 'win32' || process.env.NODE_TEST_CONTEXT || !shipped || sandboxReadable.has(shipped) || !resolve(exe).startsWith(resolve(shipped))) return;
+  sandboxReadable.add(shipped);
+  await new Promise<void>(done => {
+    const p = nodeSpawn('icacls', [shipped, '/grant', '*S-1-15-2-1:(OI)(CI)(RX)', '*S-1-15-2-2:(OI)(CI)(RX)', '/T', '/C', '/Q'], { stdio: 'ignore', windowsHide: true });
+    p.on('error', e => (logError('could not let the browser sandbox read its folder:', e.message), done()));
+    p.on('exit', () => done());
+  });
+}
+
 function browserFor(dir: string): { found: ProfileBrowser } | { none: string } {
   if (!process.env.NODE_TEST_CONTEXT && madeByEdge(dir)) {
     const edge = edgePaths().find(p => existsSync(p));
@@ -428,6 +446,7 @@ async function openNow(n: number): Promise<void> {
   const ext = extensionDir();
   if (!ext) throw new Error("The EXTREMELY extension isn't with the app (reinstall it), so the agents' own profiles can't open.");
   const { exe, kind } = b.found;
+  await letSandboxRead(exe);
   const name = kind === 'edge' ? 'Edge' : 'Chromium';
   const deadline = Date.now() + openMs;
   const connectUrl = () => connectPageUrl(pairCode({ browser: n, local: true }).link);
