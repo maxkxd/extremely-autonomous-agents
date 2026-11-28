@@ -25,7 +25,7 @@ import { answerRemoteMcp, remoteMcpUrl, takeRemoteMcp } from './remote-mcp.js';
 import type { Rpc } from './mcp.js';
 import { pluginsAllowed } from '../integrations/plugins.js';
 import { decideApproval, pendingApprovals, recentlyWithdrawn, runApprovedNow, scheduledApprovals } from './approvals.js';
-import { accountAskAnswered, agentTabCount, doneWithKeptPage, hasKeptPage, keptCaptcha, onPersonDone, releaseKeptFor, showKeptPage } from './browser.js';
+import { accountAskAnswered, agentTabCount, doneWithKeptPage, hasKeptPage, keptCaptcha, onPersonDone, profileRequestClosed, releaseKeptFor, showKeptPage } from './browser.js';
 import { isAccountAsk } from './accounts.js';
 import { listBrowsers, openConnectPage, pairCode, removeBrowser, renameBrowser, storeLinks } from './browser-link.js';
 import { createProfile, openProfile, profilesAvailable } from './agent-profiles.js';
@@ -191,6 +191,7 @@ export async function answerRequest(id: number, status: 'done' | 'rejected', ans
   ).changes;
   if (!changed) return false;
   void releaseKeptFor(id).catch(e => console.error(`Closing the page kept for request #${id}:`, e));
+  profileRequestClosed(id);
   // Its agent hears now, as when the Agency Engineer settles one - not at its next
   // scheduled run (a weekly agent waited a week for the price list it asked for).
   const asker = one<{ agent_id: string }>('SELECT agent_id FROM requests WHERE id = ?', id)?.agent_id;

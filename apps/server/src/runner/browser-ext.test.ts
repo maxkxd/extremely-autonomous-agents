@@ -23,6 +23,7 @@ import {
   onPersonDone,
   pageViewForTests,
   PROFILE_DIDNT_OPEN,
+  profileRequestClosed,
   reconcileAccounts,
   showKeptPage,
   SIGNED_IN_TOOLS,
@@ -430,6 +431,9 @@ test("an offline agents' profile opens by itself, and the tool goes on once it's
 });
 
 test("one that won't come online: a plain answer and one request; not started again for a while", async () => {
+  // The person's own browsers from the tests above are closed now: nothing else is online.
+  await __setBrowserConnForTest(1, null, 'Chrome - Work');
+  await __setBrowserConnForTest(2, null, 'Edge - Agents');
   await agentsProfile(22);
   profilesTesting.setWaits(200, 100);
   started = () => {}; // Edge refused the extension: nothing connects
@@ -445,6 +449,46 @@ test("one that won't come online: a plain answer and one request; not started ag
   await __setBrowserConnForTest(22, new FakeBrowser(), "Agents' profile 22");
   assert.ok(done.some(d => d.request === asks[0].id && /online now/.test(d.text)));
   await __setBrowserConnForTest(22, null);
+  profilesTesting.reset();
+  profilesTesting.setBrowser(null);
+});
+
+test("with another browser online, a profile that won't open sends the agent there and asks nobody; a profile whose request a person closed isn't chosen again", async () => {
+  await agentsProfile(25);
+  profilesTesting.setBrowser({ exe: 'C:/fake/msedge.exe', kind: 'edge' });
+  profilesTesting.setSpawn(fakeSpawn);
+  profilesTesting.setWaits(200, 100);
+  started = () => {};
+  const edge = new FakeBrowser();
+  await __setBrowserConnForTest(26, edge, 'Edge');
+  const c = ctx('r-prof-fb1', agent('zz-ext-p5', 'Profile Five'));
+  await assert.rejects(call('open', { url: 'https://example.com/', browser: 25 }, c), (e: Error) => /Browser 26 \(Edge\) is online: carry on there/.test(e.message) && !/Request #/.test(e.message));
+  assert.equal(all("SELECT id FROM requests WHERE what = ? AND status = 'open'", PROFILE_DIDNT_OPEN(25)).length, 0, 'nobody asked');
+  await call('open', { url: 'https://example.com/' }, c);
+  assert.equal(edge.of('Target.createTarget').length, 1, 'carried on in Edge');
+  await runEnded('r-prof-fb1');
+  await __setBrowserConnForTest(26, null);
+
+  // With nothing else online the request is filed; the person closes it (they'll pair
+  // their own browser instead). A new agent then never starts on that profile while
+  // another browser is usable - not even after the back-off.
+  profilesTesting.reset();
+  const c2 = ctx('r-prof-fb2', agent('zz-ext-p6', 'Profile Six'));
+  await assert.rejects(call('open', { url: 'https://example.com/', browser: 25 }, c2), /Request #\d+/);
+  const ask = one<{ id: number }>("SELECT id FROM requests WHERE what = ? AND status = 'open'", PROFILE_DIDNT_OPEN(25))!;
+  exec("UPDATE requests SET status = 'done' WHERE id = ?", ask.id);
+  profileRequestClosed(ask.id);
+  await runEnded('r-prof-fb2');
+  profilesTesting.reset(); // the back-off is over
+  const edge2 = new FakeBrowser();
+  await __setBrowserConnForTest(26, edge2, 'Edge');
+  starts.length = 0;
+  const c3 = ctx('r-prof-fb3', agent('zz-ext-p7', 'Profile Seven'));
+  await call('open', { url: 'https://example.com/' }, c3);
+  assert.equal(edge2.of('Target.createTarget').length, 1, 'Edge, not the profile the person passed over');
+  assert.equal(starts.length, 0, 'the profile was not started');
+  await runEnded('r-prof-fb3');
+  await __setBrowserConnForTest(26, null);
   profilesTesting.reset();
   profilesTesting.setBrowser(null);
 });

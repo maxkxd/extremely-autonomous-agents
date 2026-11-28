@@ -196,6 +196,12 @@ function noBrowser(ctx?: RunCtx): Error {
 export const PROFILE_DIDNT_OPEN = (n: number) => `Agents' profile ${n} didn't open`;
 function profileFailed(ctx: RunCtx | undefined, n: number, e: unknown): Error {
   const why = (e as Error)?.message ?? String(e);
+  // Another browser is online: the agent carries on there, and the person isn't asked.
+  const other = pairedBrowsers().find(b => b.n !== n && connOf(b.n));
+  if (other) {
+    if (ctx) lastUsed.set(ctx.agent.id, other.n);
+    return new Error(`Browser ${n} (the agents' profile ${n}) couldn't be opened: ${why} Browser ${other.n} (${other.name}) is online: carry on there (leave browser out, or pass browser: ${other.n}). It may not be signed in everywhere browser ${n} was.`);
+  }
   let id: number | null = null;
   try {
     id = ctx ? profileRequest(ctx, n, why) : null;
@@ -242,7 +248,18 @@ function connectRequest(ctx: RunCtx): number | null {
   exec("UPDATE requests SET stage = 'person' WHERE id = ? AND joined_to IS NULL", id);
   return id;
 }
+// Agents' profiles a person closed a "didn't open" request for while it stayed offline
+// (they connected another browser instead, say): agents aren't sent to it by default
+// again - and so don't file the same request again - until it's online.
+const passedOver = new Set<number>();
+export function profileRequestClosed(id: number) {
+  const r = one<{ what: string }>('SELECT what FROM requests WHERE id = ?', id);
+  const n = Number(/^Agents' profile (\d+) didn't open$/.exec(r?.what ?? '')?.[1]);
+  if (n && !connOf(n)) passedOver.add(n);
+}
+
 function answerConnectRequests(n: number) {
+  passedOver.delete(n);
   try {
     for (const r of all<{ id: number }>("SELECT id FROM requests WHERE status = 'open' AND what IN (?, ?)", CONNECT_A_BROWSER, PROFILE_DIDNT_OPEN(n))) personDone(r.id, `Browser ${n} is online now: you can browse again.`);
   } catch (e) {
@@ -280,8 +297,11 @@ function whichBrowser(ctx: RunCtx, raw: unknown): number {
     if (!usable.length) throw none();
     throw new Error(`Browser ${found.n} (${found.name}) isn't online right now${found.managed ? ` and can't be opened (${cantOpen(found.n)})` : ''}. Usable now: ${listed(usable)}. Use one of those, or do other work and come back to it.`);
   }
+  // Not named: never a profile a person passed over while there's anything else.
+  const preferred = usable.filter(b => !passedOver.has(b.n));
   const last = lastUsed.get(ctx.agent.id);
-  if (last != null && usable.some(b => b.n === last)) return last;
+  if (last != null && preferred.some(b => b.n === last)) return last;
+  if (preferred.length) return preferred[0].n;
   if (usable.length) return usable[0].n;
   // No browser at all yet: the agents' first profile, made here (it opens on first use).
   if (!paired.length && profilesAvailable().ok) {
