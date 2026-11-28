@@ -17,6 +17,12 @@ type Channel = { session: Session | null; inbox: Promise<unknown>; outbox: Promi
 const MAX_BODY = 2 * 1024 * 1024;
 // A connection that held this long counts as a good one: the pause before the next try starts over.
 const STABLE_MS = 30_000;
+// One host per organization: the relay closes a host's connection with this when a newer one signs in as that host.
+const REPLACED = 4000;
+// How long a replaced host waits before it takes the place back: a minute, doubling to a
+// quarter of an hour while it keeps being replaced.
+const REPLACED_MAX_MS = 15 * 60_000;
+export const replacedPause = (times: number) => Math.min(REPLACED_MAX_MS, 60_000 * 2 ** (times - 1));
 // The organization's agency: beside us on HOSTED_PORT, or (in the cloud, cloud.ts) this very process.
 // (A function: hosting.ts imports this file, so its values aren't there yet at load.)
 const agencyPort = () => (process.env.EAA_HOSTED_ORG ? Number(process.env.PORT ?? HOSTED_PORT) : HOSTED_PORT);
@@ -30,6 +36,10 @@ let onlineAt = 0;
 let drops = 0;
 // Tries in a row that never got connected: logged once, not every time.
 let failing = false;
+// Times running that another host has replaced this one.
+let replaced = 0;
+// The next try, while one is waiting.
+let next: ReturnType<typeof setTimeout> | undefined;
 export const relayState = () => state;
 
 const pemToDer = (pem: string): Bytes => fromB64(pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''));
@@ -45,9 +55,13 @@ export async function startRelay(h: Hosting) {
   const key = await getSecret<{ publicKey: string; privateKey: string }>(`hosting:${h.orgId}:key`);
   // Not registered yet (the app finishes that): tried again when it is.
   if (!secret || !key) return;
+  // Called again while those were read, or stopped meanwhile. One connection only:
+  // a second one would replace this host's own at the relay.
+  if (sock || stopped) return;
+  clearTimeout(next);
   const staticPrivate = pemToDer(key.privateKey);
   const staticPublic = fromB64url(key.publicKey);
-  const url = new URL('/relay/host', h.issuer);
+  const url = new URL('/relay/host', (current ?? h).issuer);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 
   state = 'connecting';
@@ -114,8 +128,23 @@ export async function startRelay(h: Hosting) {
     state = 'off';
     onlineAt = 0;
     if (stopped) return;
+    const again = (ms: number) => void (next = setTimeout(() => !stopped && void startRelay(current ?? h), ms));
+    // It held for longer than another host would have waited: that one has gone.
+    if (stayed > REPLACED_MAX_MS + STABLE_MS) replaced = 0;
+    if (e.code === REPLACED) {
+      // Straight back would only push the other host off, and it would push back.
+      const wait = replacedPause(++replaced);
+      drops = 0;
+      retry = 0;
+      console.warn(
+        `[relay] Another host took this one's place: a newer connection signed in to ${url.host} as the host of ${h.orgName}, ` +
+          `so members reach that one now. If this agency is running in two places, stop one (this one still runs its schedule). ` +
+          `Trying again in ${wait / 60_000} min; restarting this one takes the place back at once.`,
+      );
+      return again(wait);
+    }
     // Growing pauses (up to a minute): a connection that keeps dropping right after it is
-    // ready (say, two hosts with the same secret replacing each other) no longer retries every second.
+    // ready no longer retries every second.
     const wait = Math.min(60_000, 1000 * 2 ** retry++);
     const why = `code ${e.code}${e.reason ? `, "${String(e.reason).slice(0, 100)}"` : ''}`;
     if (was === 'online') {
@@ -133,7 +162,7 @@ export async function startRelay(h: Hosting) {
       failing = true;
       console.log(`[relay] Could not connect to ${url.host} (${why}); trying again, waiting longer each time. Logged once until it connects.`);
     }
-    setTimeout(() => !stopped && void startRelay(current ?? h), wait);
+    again(wait);
   };
   ws.onerror = () => {}; // onclose follows
 }
@@ -148,6 +177,8 @@ export function moveRelay(h: Hosting) {
 
 export function stopRelay() {
   stopped = true;
+  clearTimeout(next);
+  replaced = 0;
   sock?.close();
 }
 
