@@ -87,9 +87,9 @@ const NO_ANSWER_MS = 10 * 60_000;
 // What to do for an agent none of whose own models works. It's only moved onto
 // models that have just answered a check. A model nothing had checked counted as
 // working, so with every AI failing at once each tick moved every agent three
-// further down the lists, onto older and older ones. ask: models to check first
-// (a later tick sees the answers). next: its new models, once those are in.
-// Neither: nothing to move to, so it keeps what it has.
+// further down the lists, onto older and older ones. ask: models to check (a
+// later tick sees the answers). next: its new models. null: nothing to move to
+// yet, so it keeps what it has.
 export function moveTo(
   mine: ModelChoice[],
   working: { connection: string; models: string[] }[],
@@ -109,8 +109,12 @@ export function moveTo(
     const k = checks[choiceKey(c)];
     return !!k?.ok && !k.unsure && now - k.at < RECHECK_MS;
   };
+  // An AI that has just failed a check, or not answered one, doesn't hold the move
+  // up: with a long list its next model would, one at a time.
+  const failing = (connection: string) => Object.entries(checks).some(([key, k]) => key.startsWith(`${connection}/`) && (!k.ok || !!k.unsure) && now - k.at < RECHECK_MS);
   const ask = pickDefaults(only(c => !noAnswer(c)), want).filter(c => !answered(c));
-  return ask.length ? { next: null, ask } : { next: rescued(mine, only(answered), works, want), ask };
+  if (ask.some(c => !failing(c.connection))) return { next: null, ask };
+  return { next: rescued(mine, only(answered), works, want), ask };
 }
 
 // A provider's words in a log line: one line, short, anything shaped like a key taken out.
