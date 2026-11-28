@@ -12,6 +12,14 @@ import { claudeCodeConnect, claudeCodeStatus, list as listConnections, loadClaud
 
 export const CLOUD_HOST = !!process.env.EAA_CLOUD_HOST && !!HOSTED_ORG;
 
+// An error as a line that helps: Node's fetch only says "fetch failed"; what failed (the
+// address, the reason) is in its cause.
+const why = (e: unknown) => {
+  const err = e as Error & { cause?: { code?: string; hostname?: string; message?: string } };
+  const cause = err.cause ? [err.cause.code, err.cause.hostname, err.cause.code ? '' : err.cause.message].filter(Boolean).join(' ') : '';
+  return cause ? `${err.message} (${cause})` : err.message;
+};
+
 // A Claude plan token (Connectors, or CLAUDE_CODE_OAUTH_TOKEN on the container) signs
 // Claude Code in, but nobody presses Connect in a container: a container that started
 // before it was given one had its agents moved to another AI meanwhile, and they only
@@ -26,7 +34,7 @@ async function connectClaudePlan() {
 
 export async function startCloudHost() {
   if (!CLOUD_HOST || !HOSTED_ORG) return;
-  void connectClaudePlan().catch(e => console.error('[cloud] Connecting the Claude plan:', (e as Error).message));
+  void connectClaudePlan().catch(e => console.error('[cloud] Connecting the Claude plan:', why(e)));
   const issuer = process.env.EAA_TOKEN_ISSUER ?? '';
   if (!/^https:\/\//.test(issuer)) return void console.error('[cloud] EAA_TOKEN_ISSUER is our backend’s https address: not set, so members can’t reach this agency.');
   const secret = await getSecret<string>(`hosting:${HOSTED_ORG}:secret`);
