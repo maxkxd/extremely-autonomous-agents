@@ -150,7 +150,9 @@ export async function applyOutputMoves(agentId: string, moves: OutputMove[]): Pr
 
 // A new output for an agent, so it can be given a goal (engineer.set_goal): the label as
 // its person says it, and the tools it holds whose calls are that output. A label it
-// already has gains any tools named that it lacked.
+// already has gains any tools named that it lacked. A tool counts toward one label, so a
+// new label whose tools all count toward others is refused: with no row in the KPI it is
+// no goal (goals.ts), and a number set on it would never show.
 export async function addOutput(agentId: string, label: string, actions: string[]): Promise<void> {
   const dir = join(DATA, slug(agentId));
   const { output, counts, held } = await readCounted(agentId);
@@ -159,7 +161,13 @@ export async function addOutput(agentId: string, label: string, actions: string[
     if (!held.has(id) && !servedHere(id)) throw new Error(`${id} isn't a tool ${agentId} holds. Give it the tool first (engineer.give_tools).`);
   }
   const fresh = actions.filter(id => !output.some(o => o.action === id));
-  if (!fresh.length) return;
+  if (!fresh.length) {
+    if (output.some(o => o.label === label)) return;
+    const taken = [...new Set(actions)].map(id => `${id} already counts toward "${output.find(o => o.action === id)?.label}"`);
+    throw new Error(
+      `Not added: ${taken.join('; ')}. A tool counts toward one goal, so "${label}" needs one of its own: set the number on the goal that has it, name another tool, or move the tool to the new name (engineer.retarget_output, from and to the same tool, with the label).`,
+    );
+  }
   const kpiDoc = parseDocument(await readFile(join(dir, 'KPI.yaml'), 'utf8'));
   kpiDoc.set('output', [...output, ...fresh.map(action => ({ action, label }))]);
   await writeFile(join(dir, 'KPI.yaml'), kpiDoc.toString());
