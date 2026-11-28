@@ -128,7 +128,7 @@ test('decide_approval: as on the Approvals screen, by whoever may decide it', as
   const r = await call(owner, 'decide_approval', { approval_id: 'a1', decision: 'rejected', note: 'Not yet' });
   assert.deepEqual([r.error, r.text], [false, 'Rejected; the agent is told.']);
   // The standing address acts as the host computer's own person.
-  assert.deepEqual({ ...one("SELECT status, decided_by FROM approvals WHERE id = 'a1'") }, { status: 'rejected', decided_by: 'The host' });
+  assert.deepEqual({ ...one<object>("SELECT status, decided_by FROM approvals WHERE id = 'a1'") }, { status: 'rejected', decided_by: 'The host' });
   assert.match((await call(owner, 'decide_approval', { approval_id: 'a1', decision: 'approved' })).text, /already rejected/);
 });
 
@@ -136,7 +136,7 @@ test('reply_to_request: in the thread, and the Agency Engineer woken', async () 
   exec("INSERT INTO requests (id, agent_id, what, why, created_at) VALUES (9, 'sales', 'A CRM key', 'To queue leads', 0)");
   const r = await call(owner, 'reply_to_request', { request_id: 9, text: 'Use the sandbox account' });
   assert.equal(r.error, false);
-  assert.deepEqual({ ...one('SELECT from_who, text FROM request_messages WHERE request_id = 9') }, { from_who: 'you', text: 'Use the sandbox account' });
+  assert.deepEqual({ ...one<object>('SELECT from_who, text FROM request_messages WHERE request_id = 9') }, { from_who: 'you', text: 'Use the sandbox account' });
   assert.ok(one("SELECT id FROM bookings WHERE trigger = 'request reply'"));
 });
 

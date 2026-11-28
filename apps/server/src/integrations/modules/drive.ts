@@ -252,8 +252,19 @@ export function sheetRows(raw: unknown, formulas: boolean): (string | number | b
 }
 
 async function writeRows(token: string | undefined, id: string, rows: (string | number | boolean)[][], where: { tab?: string; start?: string }): Promise<string> {
-  if (where.tab && !(await tabs(token, id)).includes(where.tab))
-    await api(token, `${SHEETS}/${id}:batchUpdate`, { method: 'POST', body: { requests: [{ addSheet: { properties: { title: where.tab } } }] } });
+  if (where.tab && !(await tabs(token, id)).includes(where.tab)) {
+    const requests: object[] = [{ addSheet: { properties: { title: where.tab } } }];
+    // A new sheet's own blank first tab ("Sheet1") goes when the agent's first named tab
+    // comes: nobody can remove it otherwise, and a reviewer would see it. Only a lone,
+    // empty tab - never one with anything in it.
+    const got = await api<{ sheets?: { properties: { sheetId: number; title: string } }[] }>(token, `${SHEETS}/${id}?fields=sheets.properties(sheetId,title)`);
+    const only = got.sheets?.length === 1 && /^\S+ ?1$/.test(got.sheets[0].properties.title) ? got.sheets[0].properties : null; // "Sheet1", "Hoja 1"...
+    if (only) {
+      const values = await api<{ values?: unknown[][] }>(token, `${SHEETS}/${id}/values/${encodeURIComponent(tabRange(only.title))}`).catch(() => ({ values: [[1]] }));
+      if (!values.values?.length) requests.push({ deleteSheet: { sheetId: only.sheetId } });
+    }
+    await api(token, `${SHEETS}/${id}:batchUpdate`, { method: 'POST', body: { requests } });
+  }
   const prefix = where.tab ? `${tabRange(where.tab)}!` : '';
   if (where.start) {
     if (!/^[A-Z]{1,3}[1-9][0-9]{0,6}$/i.test(where.start)) throw new Error(`"${where.start}" isn't a cell like A1 or C12.`);

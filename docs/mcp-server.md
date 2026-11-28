@@ -42,7 +42,11 @@ obvious which agency something is for, the AI asks the person.
     `extremely`.
   - Claude Code: `claude mcp add --transport http --scope user extremely
     <address>`, found on PATH or in `~/.local/bin`. It shows in sessions
-    started after. Not installed: the error gives the command.
+    started after. Not installed: the error gives the command. The address
+    is the app's, so it only answers while the app is open: a Claude Code
+    session started before the app finds it closed and doesn't try again on
+    its own. Open the app first, or reconnect `extremely` with `/mcp` in that
+    session.
   - Cursor and VS Code: their install links (`cursor://...`,
     `vscode:mcp/install?...`), which ask the person to click Install.
 - **The package** passes everything to this address when the directory file

@@ -23,7 +23,53 @@ const HOW_MORE: Record<string, string> = {
 };
 export function capResult(tool: string, text: string): string {
   if (UNCAPPED.has(tool) || text.length <= MAX_RESULT_CHARS) return text;
+  const json = shrinkJson(tool, text);
+  if (json) return json;
   return `${text.slice(0, MAX_RESULT_CHARS)}\n\n[Cut at ${MAX_RESULT_CHARS.toLocaleString('en')} of ${text.length.toLocaleString('en')} characters. For the rest, ${HOW_MORE[tool] ?? 'narrow the call'}.]`;
+}
+
+// A JSON answer stays JSON when it's cut (cut mid-string, an app couldn't read any of
+// it): long texts are shortened first, then whole items go - the oldest of a list in an
+// object (posts, tasks), the last of a list on its own - and "cut" says how to get the rest.
+function shrinkJson(tool: string, text: string): string | null {
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!v || typeof v !== 'object') return null;
+  const indent = /^[[{]\n /.test(text) ? 2 : 0;
+  const how = HOW_MORE[tool] ?? 'narrow the call';
+  let dropped = 0;
+  const postsBefore = Array.isArray((v as { posts?: unknown }).posts) ? (v as { posts: unknown[] }).posts.length : 0;
+  const finish = (x: unknown) => {
+    const note = `Cut to fit ${MAX_RESULT_CHARS.toLocaleString('en')} characters${dropped ? ` (${dropped} item${dropped === 1 ? '' : 's'} left out)` : ''}. For the rest, ${how}.`;
+    if (Array.isArray(x)) return [...x, note];
+    const o = x as Record<string, unknown>;
+    // agent_activity: the oldest posts went, so older ones start before the first left.
+    if (Array.isArray(o.posts) && o.posts.length < postsBefore) o.older_until = (o.posts[0] as { at?: string } | undefined)?.at ?? o.older_until;
+    return { ...o, cut: note };
+  };
+  const fits = (x: unknown) => JSON.stringify(finish(x), null, indent).length <= MAX_RESULT_CHARS;
+  const clip = (x: unknown, max: number): unknown =>
+    typeof x === 'string' ? (x.length > max ? `${x.slice(0, max)} …[cut]` : x) : Array.isArray(x) ? x.map(y => clip(y, max)) : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).map(([k, y]) => [k, clip(y, max)])) : x;
+  for (const max of [4000, 1500, 500]) {
+    if (fits(v)) break;
+    v = clip(v, max);
+  }
+  while (!fits(v)) {
+    if (Array.isArray(v)) {
+      if (!v.length) return null;
+      v.pop();
+    } else {
+      const lists = Object.values(v as Record<string, unknown>).filter((x): x is unknown[] => Array.isArray(x) && x.length > 0);
+      if (!lists.length) return null;
+      lists.sort((a, b) => JSON.stringify(b).length - JSON.stringify(a).length)[0].shift();
+    }
+    dropped++;
+  }
+  return JSON.stringify(finish(v), null, indent);
 }
 
 // --- Markdown sections ----------------------------------------------------------
@@ -162,8 +208,10 @@ export const matchesAccount = (args: Record<string, unknown>, wanted: string | n
 export function approvalLine(r: PendingRow, agentName: string) {
   const args = JSON.parse(r.args) as Record<string, unknown>;
   const f = flatArgs(args);
-  const to = firstString(f, ['toAddress', 'to', 'to_address', 'recipient', 'email', 'channel', 'channel_id', 'company', 'name']);
-  const what = firstString(f, ['subject', 'title', 'text', 'content', 'message', 'body']);
+  const to = firstString(f, ['toAddress', 'to', 'to_address', 'recipient', 'email', 'with', 'channel', 'channel_id', 'company', 'name']);
+  // A share has no subject: what's shared, and how (docs.share_document: id, role).
+  const shared = /share/.test(r.tool) && typeof f.id === 'string' ? `${typeof f.role === 'string' ? f.role : 'reader'} access to ${f.id}` : null;
+  const what = shared ?? firstString(f, ['subject', 'title', 'text', 'content', 'message', 'body']);
   const why = typeof args._why === 'string' ? args._why : null;
   return {
     id: r.id,

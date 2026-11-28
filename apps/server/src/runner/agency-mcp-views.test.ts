@@ -1,7 +1,7 @@
 import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyEdits, approvalAccount, capResult, diffLine, editSection, findHeading, headingsOf, MAX_RESULT_CHARS, matchesAccount, senderOf, windowOf } from './agency-mcp-views.js';
+import { applyEdits, approvalAccount, approvalLine, capResult, diffLine, editSection, findHeading, headingsOf, MAX_RESULT_CHARS, matchesAccount, senderOf, windowOf } from './agency-mcp-views.js';
 
 const MD = '# Media\n\nIntro.\n\n## Pitches\n\nOne a day.\n\n### Shape\n\nShort.\n\n```\n# not a heading\n```\n\n## Follow-ups\n\nAfter 5 days.\n';
 
@@ -50,4 +50,30 @@ test("accounts: the runner's queue account, and the sender a person reads", () =
   assert.equal(senderOf(zoho), 'team@example.test');
   assert.ok(matchesAccount(zoho, 'team@example.test'));
   assert.equal(approvalAccount({ from: 'Sales@Example.test', to: 'x' }), 'sales@example.test');
+});
+
+test('a long JSON answer is cut by whole items and stays JSON: the oldest posts go, older_until follows, and it says how to get the rest', () => {
+  const posts = Array.from({ length: 40 }, (_, i) => ({ at: new Date(Date.UTC(2026, 10, 1, i)).toISOString(), from: 'Sam Rivera', text: `Post ${i} \u0007 ${'y'.repeat(900)}` }));
+  const tasks = Array.from({ length: 14 }, (_, i) => ({ id: i, task: 'z'.repeat(9000), status: 'open' }));
+  const text = JSON.stringify({ agent: 'Researcher (researcher)', posts, older_until: undefined, tasks }, null, 2);
+  assert.ok(text.length > MAX_RESULT_CHARS);
+  const capped = capResult('agent_activity', text);
+  assert.ok(capped.length <= MAX_RESULT_CHARS);
+  const v = JSON.parse(capped);
+  assert.match(v.cut, /left out\)\. For the rest, pass a smaller limit/);
+  assert.ok(v.posts.length > 0 && v.posts.length < 40);
+  assert.equal(v.posts.at(-1).text.slice(0, 7), 'Post 39', 'the newest kept');
+  assert.equal(v.older_until, v.posts[0].at);
+  assert.ok(v.tasks.every((t: { task: string }) => t.task.length < 5000), 'long texts shortened');
+  const list = JSON.stringify(Array.from({ length: 100 }, (_, i) => ({ id: i, what: 'w'.repeat(500) })));
+  const cl = JSON.parse(capResult('list_agents', list));
+  assert.equal(cl[0].id, 0);
+  assert.match(cl.at(-1), /^Cut to fit/);
+});
+
+test("a share waiting for approval says which file, how, and with whom", () => {
+  const row = { id: 'a9', agent_id: 'writer', tool: 'docs.share_document', args: JSON.stringify({ id: '1AbCdEf', with: 'jo@northside.test', role: 'commenter', message: 'For your review', _why: 'Jo reviews the draft' }), created_at: 0, expires_at: 0 };
+  const l = approvalLine(row as never, 'Writer');
+  assert.equal(l.what, 'commenter access to 1AbCdEf');
+  assert.equal(l.to, 'jo@northside.test');
 });

@@ -42,6 +42,10 @@ Cursor, VS Code and Claude Desktop (`mcpServers` in their MCP settings):
 
 (VS Code's `.vscode/mcp.json` calls the list `servers` instead of `mcpServers`.)
 
+The agency answers through the Extremely Autonomous Agents app, so have the app
+open. If your AI app started while it was closed and says it can't reach the
+agency, open the app and reconnect the server (in Claude Code, `/mcp`).
+
 ## What it can do
 
 Everything your role allows in the app, 36 tools:

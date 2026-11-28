@@ -46,7 +46,8 @@ test('the launcher passes output and exit code through, and gives the program it
     true,
   )!;
   delete (opts.env as Record<string, unknown>).ELECTRON_RUN_AS_NODE; // plain Node here, not Electron
-  const r = spawnSync(runtime, args, { ...opts, detached: false, encoding: 'utf8' });
+  const { detached: _detached, ...rest } = opts;
+  const r = spawnSync(runtime, args, { ...rest, encoding: 'utf8' });
   assert.equal(r.stdout, 'undefined');
   assert.equal(r.status, 4);
 });
