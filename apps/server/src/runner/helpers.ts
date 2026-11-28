@@ -5,8 +5,8 @@ import { FLEET_ENGINEER } from './agent.js';
 import { all, getSetting, one, run as exec, setSetting } from './db.js';
 import { fileRequest } from './tools.js';
 import { availableModels } from '../models/connections.js';
-import { allChecks, checkModel, dueForRecheck, type Check } from '../models/check.js';
-import { brokenModel, choiceKey, type Health } from '../models/health.js';
+import { allChecks, checkModel, dueForRecheck, RECHECK_MS, type Check } from '../models/check.js';
+import { brokenModel, choiceKey, lastFailedAt, type Health } from '../models/health.js';
 import { pickDefaults, type Want } from './defaults.js';
 import { DOCTOR } from './doctor.js';
 
@@ -80,13 +80,87 @@ export function rescued(
   return [...fresh, ...mine.filter(c => !fresh.some(f => choiceKey(f) === choiceKey(c)))].slice(0, 3);
 }
 
+// How long a check that got no answer (busy, unreachable) passes its model over
+// here: models/check.ts asks it again after the same time.
+const NO_ANSWER_MS = 10 * 60_000;
+
+// What to do for an agent none of whose own models works. It's only moved onto
+// models that have just answered a check. A model nothing had checked counted as
+// working, so with every AI failing at once each tick moved every agent three
+// further down the lists, onto older and older ones. ask: models to check first
+// (a later tick sees the answers). next: its new models, once those are in.
+// Neither: nothing to move to, so it keeps what it has.
+export function moveTo(
+  mine: ModelChoice[],
+  working: { connection: string; models: string[] }[],
+  works: (c: Pick<ModelChoice, 'connection' | 'model'>) => boolean,
+  want: Want,
+  checks: Record<string, Check>,
+  now: number,
+): { next: ModelChoice[] | null; ask: ModelChoice[] } {
+  if (mine.some(works)) return { next: null, ask: [] };
+  const only = (keep: (c: Pick<ModelChoice, 'connection' | 'model'>) => boolean) =>
+    working.map(a => ({ connection: a.connection, models: a.models.filter(model => keep({ connection: a.connection, model })) })).filter(a => a.models.length);
+  const noAnswer = (c: Pick<ModelChoice, 'connection' | 'model'>) => {
+    const k = checks[choiceKey(c)];
+    return !!k?.unsure && now - k.at < NO_ANSWER_MS;
+  };
+  const answered = (c: Pick<ModelChoice, 'connection' | 'model'>) => {
+    const k = checks[choiceKey(c)];
+    return !!k?.ok && !k.unsure && now - k.at < RECHECK_MS;
+  };
+  const ask = pickDefaults(only(c => !noAnswer(c)), want).filter(c => !answered(c));
+  return ask.length ? { next: null, ask } : { next: rescued(mine, only(answered), works, want), ask };
+}
+
+// A provider's words in a log line: one line, short, anything shaped like a key taken out.
+export const forLog = (s: string) =>
+  s
+    .replace(/\b(?:Bearer\s+|sk-|gsk_|xai-|AIza|AQ\.|gh[opsu]_|github_pat_|eyJ)[\w*.\-]{6,}/g, '[key]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+
+// Why a model doesn't work, for the log. lastError: what the last run to fail on it said.
+export function whyNot(
+  c: Pick<ModelChoice, 'connection' | 'model'>,
+  avail: { connection: string; models: string[] }[],
+  spent: Set<string>,
+  checks: Record<string, Check>,
+  health: Health,
+  lastError?: string,
+): string {
+  const on = avail.find(a => a.connection === c.connection);
+  if (!on) return 'not connected';
+  if (!on.models.includes(c.model)) return "not in the connection's models";
+  if (spent.has(c.connection)) return 'out of allowance';
+  const check = checks[choiceKey(c)];
+  if (check?.ok === false) return `check failed: ${forLog(check.reason ?? 'no reason kept')}`;
+  const failed = health[choiceKey(c)];
+  if (!failed) return 'no failure recorded';
+  return `${failed.failures} failures in a row, kind ${failed.kind ?? 'unknown'}${lastError ? `: ${forLog(lastError)}` : ''}`;
+}
+
+// When each model was last asked from here: a check whose answer can't be saved
+// (a full disk) isn't sent again on every tick.
+const asked = new Map<string, number>();
+function askModel(c: Pick<ModelChoice, 'connection' | 'model'>) {
+  const key = choiceKey(c);
+  if (Date.now() - (asked.get(key) ?? 0) < NO_ANSWER_MS) return;
+  asked.set(key, Date.now());
+  void checkModel(c.connection, c.model, true).catch(e => console.error(`Couldn't check ${key}:`, (e as Error).message));
+}
+// Agents already logged as kept on models that don't work: once, not every tick.
+const kept = new Set<string>();
+
 // An agent none of whose models works gets working ones - at start and on every
 // tick, so connecting the first AI model sets the built-ins straight away, and
 // a broken one (a key revoked, Claude Code signed out, a model gone) moves every
 // agent on it to what still works, without anyone switching each by hand. A
 // model "doesn't work" when its connection is gone, its check failed, or it has
 // failed 3 times in a row other than busy; one that recovers is kept behind the new ones while
-// there's room. While any of an agent's models works, they're left alone.
+// there's room. While any of an agent's models works, they're left alone. An agent
+// that has models is moved only onto ones that have just answered a check (moveTo).
 export const ALLOWANCE_WHAT = 'Your AI has run out of its allowance';
 const MOVED_OFF = 'models_moved_off';
 export async function fillBuiltInModels() {
@@ -115,16 +189,32 @@ export async function fillBuiltInModels() {
     return k?.ok && !k.unsure ? k.at : 0;
   };
   const works = (c: Pick<ModelChoice, 'connection' | 'model'>) => has(c) && !spent.has(c.connection) && checks[choiceKey(c)]?.ok !== false && !brokenModel(health, c, passedAt(c));
+  // What the last run to fail on a model said.
+  const lastError = (c: Pick<ModelChoice, 'connection' | 'model'>) => {
+    const key = choiceKey(c);
+    const failed = health[key];
+    if (!failed) return undefined;
+    const error = one<{ error: string }>('SELECT error FROM runs WHERE ended_at >= ? AND instr(error, ?) > 0 ORDER BY ended_at DESC LIMIT 1', lastFailedAt(failed), `${key}: `)?.error;
+    return error?.slice(error.indexOf(`${key}: `) + key.length + 2);
+  };
+  const said = (cs: ModelChoice[]) => cs.map(c => `${choiceKey(c)} [${whyNot(c, avail, spent, checks, health, lastError(c))}]`).join(', ');
   // One that's back: its notice closes.
   for (const r of openLost())
     if (avail.some(a => a.connection === r.service))
       exec("UPDATE requests SET status = 'done', answer = ?, answered_at = ?, stage = NULL WHERE id = ?", `${nameOf(r.service)} is connected again.`, Date.now(), r.id);
   const working = avail.map(a => ({ ...a, models: a.models.filter(m => works({ connection: a.connection, model: m })) })).filter(a => a.models.length);
-  if (!working.length) return;
   const chosen = await allChoices();
   const moved = new Map<string, Set<string>>(); // a connection that went -> where its agents went
   // Agents moved off their own models, with what they had and what they were moved to.
   const movedOff = getSetting<Record<string, { had: ModelChoice[]; to: string }>>(MOVED_OFF, {});
+  // One of those left broken by failed runs after its check had passed: no check
+  // was due again, and no run tries it while its agent is elsewhere. Asked hourly,
+  // so a pass brings the agent back.
+  for (const c of Object.values(movedOff).flatMap(m => m.had)) {
+    const failed = health[choiceKey(c)];
+    const check = checks[choiceKey(c)];
+    if (failed && has(c) && check?.ok !== false && brokenModel(health, c, passedAt(c)) && Date.now() - Math.max(lastFailedAt(failed), check?.at ?? 0) >= RECHECK_MS) askModel(c);
+  }
   const sig = (cs: ModelChoice[]) => cs.map(choiceKey).join('|');
   for (const id of await listIds()) {
     const mine = chosen[id] ?? [];
@@ -141,13 +231,28 @@ export async function fillBuiltInModels() {
         continue;
       }
     }
-    const next = rescued(mine, working, works, WANTS[id] ?? 'strong');
-    if (!next) continue;
+    if (mine.some(works)) {
+      kept.delete(id);
+      continue;
+    }
     const meta = await readMeta(id);
     if (!meta || meta.status === 'setting-up') continue;
+    const want = WANTS[id] ?? 'strong';
+    // One with no models yet takes what's connected straight away.
+    const move = mine.length ? moveTo(mine, working, works, want, checks, Date.now()) : { next: rescued(mine, working, works, want), ask: [] };
+    for (const c of move.ask) askModel(c);
+    const next = move.next;
+    if (!next) {
+      if (mine.length && !kept.has(id)) {
+        kept.add(id);
+        console.log(`${id}: none of its models works (${said(mine)}); it keeps them until another model answers a check`);
+      }
+      continue;
+    }
+    kept.delete(id);
     await setChoices(id, next);
     if (mine.length) movedOff[id] = { had: movedOff[id]?.had ?? mine, to: sig(next) };
-    if (mine.length) console.log(`${id}: none of its models worked (${mine.map(choiceKey).join(', ')}); now ${next.map(choiceKey).join(', ')}`);
+    if (mine.length) console.log(`${id}: none of its models worked (${said(mine)}); now ${next.map(choiceKey).join(', ')}`);
     const to = next.map(n => avail.find(a => a.connection === n.connection)?.name ?? n.connection);
     for (const c of mine) if (!avail.some(a => a.connection === c.connection)) moved.set(c.connection, new Set([...(moved.get(c.connection) ?? []), ...to]));
   }
