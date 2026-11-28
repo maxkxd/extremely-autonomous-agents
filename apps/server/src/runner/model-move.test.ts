@@ -20,6 +20,7 @@ const move = async (checks: Record<string, Check>) => {
   const working = avail.map(a => ({ ...a, models: a.models.filter(model => works({ connection: a.connection, model })) })).filter(a => a.models.length);
   return moveTo(mine, working, works, 'strong', checks, NOW);
 };
+const pass: Check = { ok: true, at: NOW };
 const fail: Check = { ok: false, reason: 'x', at: NOW };
 
 test('every AI failing at once: models are asked, and the agent is never moved', async () => {
@@ -35,17 +36,23 @@ test('every AI failing at once: models are asked, and the agent is never moved',
   assert.deepEqual(m, { next: null, ask: [] });
 });
 
-test('moved once another AI has answered, not held up by the rest of a failing one', async () => {
+test('moved onto the AI that answered, after three failed checks of the other and not its whole list', async () => {
   const checks: Record<string, Check> = {};
-  for (const c of (await move(checks)).ask) checks[key(c)] = c.connection === 'chatgpt' ? { ok: true, at: NOW } : fail;
-  const m = await move(checks);
+  let m = await move(checks);
+  let rounds = 0;
+  while (!m.next && rounds < 10) {
+    for (const c of m.ask) checks[key(c)] = c.connection === 'chatgpt' ? pass : fail;
+    m = await move(checks);
+    rounds++;
+  }
+  assert.equal(rounds, 3);
   assert.deepEqual(m.next!.map(key), ['chatgpt/gpt-6-luna', 'chatgpt/gpt-5.6-luna', 'claude-code/claude-opus-5-5']);
 });
 
-test('waits for an AI that has not been asked yet, even when another has answered', async () => {
-  const m = await move({ 'chatgpt/gpt-6-luna': { ok: true, at: NOW }, 'chatgpt/gpt-5.6-luna': { ok: true, at: NOW } });
+test('one failed model is not enough to move without waiting for the rest of its AI', async () => {
+  const m = await move({ 'chatgpt/gpt-6-luna': pass, 'chatgpt/gpt-5.6-luna': pass, 'anthropic/claude-sonnet-5': fail });
   assert.equal(m.next, null);
-  assert.deepEqual(m.ask.map(key), ['anthropic/claude-sonnet-5']);
+  assert.deepEqual(m.ask.map(key), ['anthropic/claude-opus-5']);
 });
 
 test('a pass over an hour old is asked again; one with no answer is passed over for a while', async () => {

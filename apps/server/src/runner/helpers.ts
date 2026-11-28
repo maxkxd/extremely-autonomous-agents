@@ -109,9 +109,12 @@ export function moveTo(
     const k = checks[choiceKey(c)];
     return !!k?.ok && !k.unsure && now - k.at < RECHECK_MS;
   };
-  // An AI that has just failed a check, or not answered one, doesn't hold the move
-  // up: with a long list its next model would, one at a time.
-  const failing = (connection: string) => Object.entries(checks).some(([key, k]) => key.startsWith(`${connection}/`) && (!k.ok || !!k.unsure) && now - k.at < RECHECK_MS);
+  // An AI with three checks or more in the last hour and none passed doesn't hold
+  // the move up: with a long list its next model would, one at a time.
+  const failing = (connection: string) => {
+    const lately = Object.entries(checks).filter(([key, k]) => key.startsWith(`${connection}/`) && now - k.at < RECHECK_MS);
+    return lately.length >= 3 && !lately.some(([, k]) => k.ok && !k.unsure);
+  };
   const ask = pickDefaults(only(c => !noAnswer(c)), want).filter(c => !answered(c));
   if (ask.some(c => !failing(c.connection))) return { next: null, ask };
   return { next: rescued(mine, only(answered), works, want), ask };
