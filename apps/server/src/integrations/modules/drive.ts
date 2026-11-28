@@ -87,12 +87,21 @@ export function driveQuery(a: { words?: string; kind?: string; folder?: string }
   return q.join(' and ');
 }
 
-async function listFiles(token: string | undefined, q: string, max: number, pageToken?: string) {
-  const params = new URLSearchParams({ q, pageSize: String(max), fields: `nextPageToken,files(${FIELDS})`, supportsAllDrives: 'true', includeItemsFromAllDrives: 'true', corpora: 'allDrives' });
+async function listFiles(token: string | undefined, q: string, max: number, pageToken?: string, corpora = 'allDrives'): Promise<{ files?: File[]; nextPageToken?: string }> {
+  const params = new URLSearchParams({ q, pageSize: String(max), fields: `nextPageToken,incompleteSearch,files(${FIELDS})`, supportsAllDrives: 'true', includeItemsFromAllDrives: 'true', corpora });
   // Google sorts a text search by relevance and refuses any other order for it.
   if (!q.includes('fullText')) params.set('orderBy', 'modifiedTime desc');
   if (pageToken) params.set('pageToken', pageToken);
-  return api<{ files?: File[]; nextPageToken?: string }>(token, `${DRIVE}/files?${params}`);
+  const got = await api<{ files?: File[]; nextPageToken?: string; incompleteSearch?: boolean }>(token, `${DRIVE}/files?${params}`);
+  // Across every drive Google may answer from only some of them (incompleteSearch),
+  // and a file another agent just made was missing from its folder's listing. The
+  // account's own Drive is searched as well then, and anything missing added.
+  if (got.incompleteSearch && corpora === 'allDrives' && !pageToken) {
+    const mine = await listFiles(token, q, max, undefined, 'user').catch(() => ({ files: [] as File[] }));
+    const seen = new Set((got.files ?? []).map(f => f.id));
+    got.files = [...(got.files ?? []), ...(mine.files ?? []).filter(f => !seen.has(f.id))].slice(0, max);
+  }
+  return got;
 }
 
 const when = (iso?: string) => (iso ? iso.slice(0, 16).replace('T', ' ') : '');
