@@ -12,7 +12,7 @@
     "start": "node --import tsx src/index.ts",
     "keygen": "node --import tsx src/keygen.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "jose": "6.2.12",
