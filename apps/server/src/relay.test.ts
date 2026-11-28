@@ -1,6 +1,5 @@
 import './test-data-dir.js';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { after, test } from 'node:test';
 import { WebSocketServer, type WebSocket as HostConnection } from 'ws';
@@ -35,12 +34,9 @@ test('a replaced host waits a minute, then longer, never more than 15 minutes', 
 test('a dropped connection is made again; a replaced one says so and waits', async t => {
   const warn = t.mock.method(console, 'warn', () => {});
   await listening;
-  const pair = generateKeyPairSync('x25519');
   await setSecret('hosting:org-test:secret', 'not-a-real-secret');
-  await setSecret('hosting:org-test:key', {
-    publicKey: (pair.publicKey.export({ format: 'jwk' }) as { x: string }).x,
-    privateKey: pair.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
-  });
+  // Placeholders: the keys are only used once a member's app opens a channel, and none does here.
+  await setSecret('hosting:org-test:key', { publicKey: 'AAAA', privateKey: 'AAAA' });
   const h = { orgId: 'org-test', orgName: 'Test org', issuer: `http://127.0.0.1:${(relay.address() as AddressInfo).port}` };
 
   // Started twice at once: one connection, or it would replace itself.
