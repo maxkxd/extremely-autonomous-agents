@@ -22,6 +22,15 @@ exports.default = async function afterPack(context) {
   // destination for symbolic link"), and cpSync would make every relative link
   // absolute - so links are kept as written (verbatimSymlinks).
   fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true, filter: src => path.basename(src) !== '.bin' });
+  // The agents' profiles' browser (stage-browser.cjs) on a Mac: copied here rather than
+  // through extraResources, so its frameworks' links stay links (codesign refuses a
+  // framework whose links were turned into copies). The app is signed after this, the
+  // browser inside it with it. Windows ships it through win.extraResources, where it
+  // is signed as it's copied (win.signExts).
+  if (context.packager.platform.name === 'mac') {
+    const browser = path.join(stage, `browser-${ARCH[context.arch]}`);
+    if (fs.existsSync(browser)) fs.cpSync(browser, path.join(resources, 'browser'), { recursive: true, verbatimSymlinks: true });
+  }
   // Chromium's WebGPU shader compiler (25 MB): the app's own pages don't use WebGPU.
   if (context.packager.platform.name === 'windows') for (const f of ['dxcompiler.dll', 'dxil.dll']) fs.rmSync(path.join(context.appOutDir, f), { force: true });
 };

@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { readFile, readlink, rm, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -80,6 +80,8 @@ export function profileBrowser(): { found: ProfileBrowser } | { none: string } {
   if (process.env.NODE_TEST_CONTEXT) return testExe ? { found: testExe } : { none: 'No browser in tests.' };
   const named = process.env.EAA_PROFILE_BROWSER?.trim();
   if (named && existsSync(named)) return { found: { exe: named, kind: /edge/i.test(named) ? 'edge' : 'chromium' } };
+  const shipped = bundledBrowser();
+  if (shipped) return { found: shipped };
   const edge = edgePaths().find(p => existsSync(p));
   if (edge) return { found: { exe: edge, kind: 'edge' } };
   const chromium = chromiumPaths().find(p => existsSync(p));
@@ -87,6 +89,40 @@ export function profileBrowser(): { found: ProfileBrowser } | { none: string } {
   if (chromePaths().some(p => existsSync(p)))
     return { none: "Only Google Chrome is on this computer, and Chrome doesn't load the EXTREMELY extension into the agents' own profiles. Install Microsoft Edge for those, or connect your Chrome (Connect a browser)." };
   return { none: 'There is no Microsoft Edge or Chromium on this computer to open the agents\' own profiles in.' };
+}
+
+// The browser shipped with the app (EAA_BROWSER_DIR, set by the desktop app; made by
+// apps/electron/scripts/stage-browser.cjs): Chrome for Testing, which still loads an
+// extension given on the command line, where branded Chrome (137+) and Edge stop.
+// The same on every computer, whichever browser the person uses.
+export function bundledBrowser(dir = process.env.EAA_BROWSER_DIR?.trim()): ProfileBrowser | null {
+  if (!dir) return null;
+  try {
+    const info = JSON.parse(readFileSync(join(dir, 'BROWSER.json'), 'utf8')) as { exe?: unknown };
+    const exe = typeof info.exe === 'string' ? join(dir, info.exe) : '';
+    return exe && existsSync(exe) ? { exe, kind: 'chromium' } : null;
+  } catch {
+    return null; // none shipped for this computer (NONE.txt), or a development build
+  }
+}
+
+// A profile folder Edge made opens in Edge again while Edge is here: its sign-ins
+// are sealed with Edge's own keys, so another browser would find it signed out.
+// Every new profile opens in profileBrowser() (the shipped browser first).
+export function madeByEdge(dir: string): boolean {
+  try {
+    return 'edge' in (JSON.parse(readFileSync(join(dir, 'Local State'), 'utf8')) as object);
+  } catch {
+    return false;
+  }
+}
+
+function browserFor(dir: string): { found: ProfileBrowser } | { none: string } {
+  if (!process.env.NODE_TEST_CONTEXT && madeByEdge(dir)) {
+    const edge = edgePaths().find(p => existsSync(p));
+    if (edge) return { found: { exe: edge, kind: 'edge' } };
+  }
+  return profileBrowser();
 }
 
 // The extension the profiles load: the copy the installer ships (EAA_EXTENSION_DIR, set
@@ -250,8 +286,49 @@ async function tidyPreferences(dir: string) {
   await writeFile(file, JSON.stringify(prefs)).catch(e => logError(`could not write ${file}:`, errText(e)));
 }
 
+// Edge 158 (like Chrome before it) switches off an extension loaded with
+// --load-extension and remembers it as off ("unsupported developer extension"):
+// the extension never runs, and the profile only shows "Not connected". FLAGS stop
+// that happening again; a profile it already happened to still has the record,
+// which is dropped here so the extension loads as new. Only the record of an
+// extension from the command line goes: its files and storage (its pairing) stay.
+const COMMAND_LINE = 8; // Chromium's ManifestLocation::kCommandLine
+const UNSUPPORTED_DEVELOPER_EXTENSION = 1 << 24; // Chromium's disable_reason.h
+const offAsDeveloper = (reasons: unknown) =>
+  (Array.isArray(reasons) ? reasons : [reasons]).some(r => (Number(r) & UNSUPPORTED_DEVELOPER_EXTENSION) !== 0);
+
+export async function forgetDisabledExtension(dir: string) {
+  const file = join(dir, 'Default', 'Secure Preferences');
+  let prefs: Record<string, any>;
+  try {
+    prefs = JSON.parse(await readFile(file, 'utf8'));
+  } catch {
+    return; // none yet, or unreadable: left to the browser
+  }
+  const settings: Record<string, any> = prefs.extensions?.settings ?? {};
+  const off = Object.keys(settings).filter(id => settings[id]?.location === COMMAND_LINE && offAsDeveloper(settings[id]?.disable_reasons));
+  if (!off.length) return;
+  for (const id of off) {
+    delete settings[id];
+    delete prefs.protection?.macs?.extensions?.settings?.[id];
+  }
+  await writeFile(file, JSON.stringify(prefs)).then(
+    () => log(`${dir}: the browser had switched the extension off; it loads again`),
+    e => logError(`could not write ${file}:`, errText(e)),
+  );
+}
+
 // Behind the person's windows, an agent's tab mustn't slow down like a hidden one.
-const FLAGS = ['--no-first-run', '--no-default-browser-check', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling'];
+// And the extension given on the command line stays on: newer Edge and Chrome turn
+// it off unless these features are disabled (forgetDisabledExtension).
+const FLAGS = [
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+  '--disable-background-timer-throttling',
+  '--disable-features=DisableLoadExtensionCommandLineSwitch,ExtensionDisableUnsupportedDeveloper,ExtensionsDisableUnsupportedDeveloperExtensions',
+];
 
 export function launchArgs(dir: string, ext: string, url?: string): string[] {
   const args = [`--user-data-dir=${dir}`, `--load-extension=${ext}`, ...FLAGS, ...extraArgs, ...(url ? [url] : [])];
@@ -261,7 +338,9 @@ export function launchArgs(dir: string, ext: string, url?: string): string[] {
 
 function start(n: number, exe: string, dir: string, ext: string, url?: string): ChildProcess {
   // Its own process (group): not ended with the app, like a browser the person opened.
-  const proc = spawnFn(exe, launchArgs(dir, ext, url), { detached: true, stdio: 'ignore', windowsHide: false });
+  // A Chromium without Google's API keys says so on a bar in every window; "no" keeps it quiet.
+  const env = { ...process.env, GOOGLE_API_KEY: 'no', GOOGLE_DEFAULT_CLIENT_ID: 'no', GOOGLE_DEFAULT_CLIENT_SECRET: 'no' };
+  const proc = spawnFn(exe, launchArgs(dir, ext, url), { detached: true, stdio: 'ignore', windowsHide: false, env });
   proc.unref?.();
   children.set(n, proc);
   proc.on('error', e => logError(`browser ${n} failed to start:`, e.message));
@@ -344,7 +423,7 @@ async function openNow(n: number): Promise<void> {
   if (!m) throw new Error(`Browser ${n} isn't one of the agents' profiles.`);
   const dir = join(PROFILES_DIR, m.dir);
   if (!existsSync(dir)) throw new Error(`The folder of the agents' profile ${n} is gone from this computer.`);
-  const b = profileBrowser();
+  const b = browserFor(dir);
   if ('none' in b) throw new Error(b.none);
   const ext = extensionDir();
   if (!ext) throw new Error("The EXTREMELY extension isn't with the app (reinstall it), so the agents' own profiles can't open.");
@@ -358,6 +437,7 @@ async function openNow(n: number): Promise<void> {
   let proc: ChildProcess | undefined;
   if (!running) {
     await tidyPreferences(dir);
+    await forgetDisabledExtension(dir);
     proc = start(n, exe, dir, ext, paired ? undefined : connectUrl());
   } else if (!paired) {
     // Already open but not paired: the connect page goes to that browser (a second

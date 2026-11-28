@@ -3,3 +3,4 @@ dist/
 # What the installer ships, assembled by scripts/stage.cjs
 build/stage/
 build/desktop/
+build/browser-cache/

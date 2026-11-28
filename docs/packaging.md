@@ -40,10 +40,16 @@ runs in development.
   package out. Connecting Copilot (or a run that needs it) fetches the version
   the SDK asks for from npm, checks npm's sha512, and unpacks it into the data
   folder with Windows' own tar; its progress shows on Copilot's row.
-- **What it doesn't ship**: Claude Code, the Copilot CLI's sign-in, Cloudflare's
-  tunnel, or a browser: agents work in the person's own Chrome or Edge, and in
-  agents' profiles opened in the computer's Edge or Chromium, through the
-  EXTREMELY extension (docs/browser-extension.md). It does ship the extension's
+- **The agents' profiles' browser** (`browser/`, `EAA_BROWSER_DIR`): Chrome for
+  Testing, current stable unless `EAA_BROWSER_VERSION` pins one, downloaded by
+  `scripts/stage-browser.cjs` (Windows x64, Mac Apple silicon and Intel; cached in
+  `build/browser-cache`). Windows signs its `.exe` and `.dll` files with the app
+  (`win.signExts`): Smart App Control won't start it unsigned. On a Mac,
+  `after-pack.cjs` copies it into the app with its links intact, and it's signed
+  and notarized with the app. Agents also work in the person's own Chrome or Edge,
+  through the EXTREMELY extension (docs/browser-extension.md).
+- **What it doesn't ship**: Claude Code, the Copilot CLI's sign-in or Cloudflare's
+  tunnel. It does ship the extension's
   runtime files (`extension/`, which the agents' profiles load; `EAA_EXTENSION_DIR`).
   The app finds the rest, and offers to install Claude Code, as in development.
 

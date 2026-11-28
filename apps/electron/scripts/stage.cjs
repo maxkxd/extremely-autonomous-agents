@@ -6,6 +6,7 @@
 //             from the environment, or apps/desktop/.env.local)
 //   extension/ - the EXTREMELY extension (apps/person-chrome), its runtime files only:
 //             the agents' profiles load it (apps/server/src/runner/agent-profiles.ts)
+//   browser-<arch>/ - the browser those profiles open in (stage-browser.cjs)
 // Run on the platform being built for: the dependencies are that platform's.
 
 const { execSync } = require('node:child_process');
@@ -146,4 +147,15 @@ run('npm ci --no-audit --no-fund', desktop);
 run('npm run build', desktop);
 fs.cpSync(path.join(desktop, 'dist'), path.join(STAGE, 'ui'), { recursive: true });
 
-console.log(`Staged in ${STAGE}.`);
+// --- browser ---
+// The agents' profiles' own browser (stage-browser.cjs), for each processor built.
+const archs = [process.arch, ...(process.env.EAA_EXTRA_ARCHS ?? '').split(',').map(a => a.trim()).filter(Boolean)];
+require('./stage-browser.cjs')
+  .stageBrowser(STAGE, archs)
+  .then(
+    () => console.log(`Staged in ${STAGE}.`),
+    e => {
+      console.error(e);
+      process.exit(1);
+    },
+  );

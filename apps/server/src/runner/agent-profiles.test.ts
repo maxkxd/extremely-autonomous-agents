@@ -1,12 +1,12 @@
 import '../test-data-dir.js';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { _testing, adoptProfileFolders, cantOpen, createProfile, launchArgs, openProfile, PROFILES_DIR } from './agent-profiles.js';
+import { _testing, adoptProfileFolders, bundledBrowser, cantOpen, createProfile, forgetDisabledExtension, launchArgs, madeByEdge, openProfile, PROFILES_DIR } from './agent-profiles.js';
 import { browserConn, handleBrowserLinkUpgrade, linkReady, listBrowsers, managedProfile, pairCode, removeBrowser } from './browser-link.js';
 import { one, resetDbForTests, run as exec } from './db.js';
 import { listPasswords, savePassword } from './passwords.js';
@@ -85,6 +85,56 @@ test('launch arguments: its own folder and the extension, never a debugging port
   } finally {
     _testing.setExtraArgs([]);
   }
+});
+
+test('the browser shipped with the app: found from its BROWSER.json, none when the folder has none', () => {
+  const dir = join(PROFILES_DIR, '..', 'shipped-browser');
+  mkdirSync(join(dir, 'app'), { recursive: true });
+  assert.equal(bundledBrowser(dir), null); // no BROWSER.json (NONE.txt, a development build)
+  writeFileSync(join(dir, 'BROWSER.json'), JSON.stringify({ name: 'Chrome for Testing', version: '1.0', exe: 'app/chrome.exe' }));
+  assert.equal(bundledBrowser(dir), null); // named, but not there
+  writeFileSync(join(dir, 'app', 'chrome.exe'), '');
+  assert.deepEqual(bundledBrowser(dir), { exe: join(dir, 'app', 'chrome.exe'), kind: 'chromium' });
+  assert.equal(bundledBrowser(undefined), null);
+});
+
+test("a profile folder Edge made is told apart from one Chromium made", () => {
+  const edge = join(PROFILES_DIR, '..', 'made-by-edge');
+  const chromium = join(PROFILES_DIR, '..', 'made-by-chromium');
+  mkdirSync(edge, { recursive: true });
+  mkdirSync(chromium, { recursive: true });
+  writeFileSync(join(edge, 'Local State'), JSON.stringify({ edge: { retrigger_features: [] }, profile: {} }));
+  writeFileSync(join(chromium, 'Local State'), JSON.stringify({ profile: {} }));
+  assert.equal(madeByEdge(edge), true);
+  assert.equal(madeByEdge(chromium), false);
+  assert.equal(madeByEdge(join(PROFILES_DIR, '..', 'no-folder')), false);
+});
+
+test('launch arguments keep a command-line extension switched on in newer Edge', () => {
+  assert.ok(launchArgs('/d', '/e').some(a => a.startsWith('--disable-features=') && a.includes('DisableLoadExtensionCommandLineSwitch')));
+});
+
+test("an extension the browser switched off as a developer extension is forgotten before a start; others stay", async () => {
+  const dir = join(PROFILES_DIR, '..', 'secure-prefs-test'); // not a profile folder the others would count
+  mkdirSync(join(dir, 'Default'), { recursive: true });
+  const file = join(dir, 'Default', 'Secure Preferences');
+  const prefs = {
+    extensions: {
+      settings: {
+        ours: { location: 8, disable_reasons: [1 << 24] },
+        oldFormat: { location: 8, disable_reasons: (1 << 24) | 8 },
+        fine: { location: 8, disable_reasons: [] },
+        store: { location: 1, disable_reasons: [1 << 24] },
+      },
+    },
+    protection: { macs: { extensions: { settings: { ours: 'A', oldFormat: 'B', fine: 'C', store: 'D' } } } },
+  };
+  writeFileSync(file, JSON.stringify(prefs));
+  await forgetDisabledExtension(dir);
+  const after = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual(Object.keys(after.extensions.settings).sort(), ['fine', 'store']);
+  assert.deepEqual(Object.keys(after.protection.macs.extensions.settings).sort(), ['fine', 'store']);
+  await forgetDisabledExtension(join(PROFILES_DIR, '..', 'no-such-profile')); // nothing there: nothing happens
 });
 
 let samWork = 0; // the person's own browser, paired before this update came
