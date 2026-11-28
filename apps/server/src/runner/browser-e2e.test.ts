@@ -12,6 +12,14 @@ import { fileURLToPath } from 'node:url';
 import { pageViewForTests as view } from './browser.js';
 import { _testing, browserConn, handleBrowserConnectPage, handleBrowserLinkUpgrade, listBrowsers, onBrowserOnline, pairCode } from './browser-link.js';
 import { CdpPage, type CdpConn } from './cdp.js';
+import { _testing as profilesTesting } from './agent-profiles.js';
+
+// Ends a browser and whatever it became: Edge starts itself again at launch, so the
+// process spawned here is often gone while the browser runs on its folder.
+async function stopBrowser(dir: string, proc: ChildProcess) {
+  if (proc.exitCode == null) proc.kill();
+  await profilesTesting.close(dir, true);
+}
 
 // The browser connector end to end, with nothing faked: a real Edge / Chrome /
 // Chromium, headless, with the EXTREMELY extension (apps/person-chrome) side-loaded,
@@ -134,7 +142,8 @@ async function launch(name: string, exe: string): Promise<Launched | null> {
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-sync',
-      '--disable-features=msEdgeSidebarV2,msHubApps,EdgeEnclave',
+      // As the app starts its profiles (agent-profiles.ts): newer Edge switches a command-line extension off otherwise.
+      '--disable-features=msEdgeSidebarV2,msHubApps,EdgeEnclave,DisableLoadExtensionCommandLineSwitch,ExtensionDisableUnsupportedDeveloper,ExtensionsDisableUnsupportedDeveloperExtensions',
       `--disable-extensions-except=${EXT}`,
       `--load-extension=${EXT}`,
       ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
@@ -148,7 +157,7 @@ async function launch(name: string, exe: string): Promise<Launched | null> {
   if (!got) {
     off();
     tried.push(`${name} (${exe}): the extension never connected`);
-    proc.kill();
+    await stopBrowser(dir, proc);
     await exited;
     await rm(dir, { recursive: true, force: true }).catch(() => {});
     return null;
@@ -166,7 +175,7 @@ async function launch(name: string, exe: string): Promise<Launched | null> {
   off();
   if (!conn) {
     tried.push(`${name}: paired as browser ${n} but did not stay online`);
-    proc.kill();
+    await stopBrowser(dir, proc);
     await exited;
     return null;
   }
@@ -187,7 +196,7 @@ before(async () => {
 
 after(async () => {
   if (b && b.proc.exitCode == null) {
-    b.proc.kill();
+    await stopBrowser(b.dir, b.proc);
     await b.exited;
   }
   if (b) await rm(b.dir, { recursive: true, force: true }).catch(() => {});
@@ -415,7 +424,7 @@ test('the browser going away: offline, and waiting calls fail at once', async t 
   const failed = assert.rejects(waiting, /went offline/);
   await new Promise(r => setTimeout(r, 300));
   const started = Date.now();
-  b!.proc.kill();
+  void stopBrowser(b!.dir, b!.proc);
   await failed;
   assert.ok(Date.now() - started < 15_000, 'rejected promptly, not at the 60 s timeout');
   await until(() => !listBrowsers().find(x => x.n === b!.n)?.online, 10_000, 'offline');

@@ -52,7 +52,7 @@ export const _testing = {
   setExtraArgs: (args: string[]) => void (extraArgs = args),
   setWaits: (open: number, paired: number) => void ((openMs = open), (pairedWaitMs = paired)),
   setCloser: (fn: (dir: string) => Promise<boolean>) => void (closeFn = fn),
-  close: (dir: string) => closeBrowserIn(dir),
+  close: (dir: string, force = false) => closeBrowserIn(dir, undefined, force),
   setRunning: (fn: ((dir: string) => Promise<boolean>) | null) => void (runningFn = fn),
   reset: () => void (failed.clear(), opening.clear()),
 };
@@ -436,7 +436,7 @@ async function browserPids(dir: string, child?: ChildProcess): Promise<number[]>
   return [...pids];
 }
 
-async function closeBrowserIn(dir: string, child?: ChildProcess): Promise<boolean> {
+async function closeBrowserIn(dir: string, child?: ChildProcess, force = false): Promise<boolean> {
   const pids = await browserPids(dir, child);
   if (!pids.length) return false;
   const signal = async (force: boolean) => {
@@ -451,8 +451,8 @@ async function closeBrowserIn(dir: string, child?: ChildProcess): Promise<boolea
     for (const end = Date.now() + ms; Date.now() < end; await new Promise(r => setTimeout(r, 500))) if (!(await profileRunning(dir))) return true;
     return !(await profileRunning(dir));
   };
-  await signal(false);
-  if (await closed(CLOSE_MS)) return true;
+  if (!force) await signal(false);
+  if (!force && (await closed(CLOSE_MS))) return true;
   await signal(true);
   return closed(5000);
 }

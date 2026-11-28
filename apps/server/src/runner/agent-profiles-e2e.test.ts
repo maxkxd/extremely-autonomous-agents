@@ -7,7 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { _testing, createProfile, openProfile } from './agent-profiles.js';
+import { _testing, createProfile, openProfile, PROFILES_DIR } from './agent-profiles.js';
 import { browserConn, handleBrowserConnectPage, handleBrowserLinkUpgrade, linkReady, listBrowsers, managedProfile } from './browser-link.js';
 import { CdpPage } from './cdp.js';
 
@@ -116,8 +116,9 @@ test("the server opens a new agents' profile itself: it pairs into its number an
 
 test('closed, then opened again: already paired, it comes back by itself', { timeout: 90_000 }, async t => {
   if (!found || !n) return t.skip('no Edge or Chromium on this machine');
-  procs[0].kill();
-  await ended(procs[0]);
+  // Closed as the app closes one (Edge starts itself again at launch, so the process it
+  // was started as is long gone): whatever runs on its folder.
+  assert.ok(await _testing.close(join(PROFILES_DIR, managedProfile(n)!.dir), true), 'closed'); // headless: no window to ask
   await until(() => !browserConn(n), 15_000, 'offline');
   // Its folder's lock goes with the browser (Windows deletes it on close); a moment for that.
   await new Promise(r => setTimeout(r, 1500));
