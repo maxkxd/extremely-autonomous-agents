@@ -94,7 +94,7 @@ async function pdfText(bytes: Buffer, url: string, cut: (s: string) => string): 
   return `PDF: ${url} (${n})\n\n${cut(text)}`;
 }
 
-const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36';
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36';
 
 export async function fetchPage(url: string, maxChars = 20_000): Promise<string> {
   const { res, url: finalUrl } = await safeFetch(url, {
@@ -104,7 +104,10 @@ export async function fetchPage(url: string, maxChars = 20_000): Promise<string>
       accept: 'text/html,application/xhtml+xml,application/json,text/plain;q=0.9,application/pdf;q=0.8,*/*;q=0.5',
     },
   });
-  if (!res.ok) throw new Error(`${new URL(finalUrl).host} answered ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`);
+  const host = new URL(finalUrl).host;
+  // A site that turns away anything but a person's browser: the agent's own browser reads it.
+  const walled = `${host} turns away automated readers. Open it in the browser instead (signed_in_browser.open, then signed_in_browser.look), which reads it as a person's browser would.`;
+  if (!res.ok) throw new Error(`${host} answered ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.${[401, 403, 429, 503].includes(res.status) ? ` ${walled}` : ''}`);
   const type = (res.headers.get('content-type') ?? '').toLowerCase();
   const size = Number(res.headers.get('content-length') ?? 0);
   if (size > MAX_BYTES) throw new Error(`Too large to read (${Math.round(size / 1e6)} MB).`);
@@ -113,6 +116,8 @@ export async function fetchPage(url: string, maxChars = 20_000): Promise<string>
   if (!/html|xml|json|text|javascript/.test(type) && type) throw new Error(`It's a ${type.split(';')[0]} file, not a page.`);
   const body = (await res.text()).slice(0, MAX_BYTES);
   if (!/html|xml/.test(type)) return `URL: ${finalUrl}\n\n${cut(body)}`;
+  // Cloudflare's and the like's check, served instead of the page.
+  if (/<title>\s*(Just a moment|Attention Required|Access denied|Verifying you are human)/i.test(body.slice(0, 5000))) throw new Error(walled);
   const page = readable(body, finalUrl);
   const links = page.links.slice(0, 60).map(l => `- ${l.text}: ${l.url}`);
   return [`Title: ${page.title || '(none)'}`, `URL: ${finalUrl}`, '', cut(page.text || '(no readable text on this page)'), '', links.length ? `Links on the page:\n${links.join('\n')}` : ''].join('\n').trim();
